@@ -72,23 +72,30 @@ public sealed partial class PlateCompletionService(
             identity = unit.Identity;
             runId = unit.ProcessingRunId;
 
-            var loaded = await LoadScopeAsync(unit, cancellationToken);
-            if (loaded is null) return PlateCompletionResult.Refused(409, "plate_identity_not_activated");
-            (parameters, scope) = loaded.Value;
-            var validation = PlateCompletionValidator.Validate(analysisId, request, identity, parameters, scope);
-
+            // Authenticate before any run-scope read: the row is held FOR UPDATE, and loading the scope can
+            // enumerate the 10,000-Track bound, so a caller without this attempt's capability must not hold the
+            // lock that long and starve the real holder's heartbeats and completion.
             // Committed replay has precedence over every lease rule.
             if (unit.IsFactBearing)
             {
-                if (validation.IsValid && unit.CanAuthenticateCompletionReplay(workerId, tokenMatches, attempt) &&
-                    validation.Completion!.CompletionDigest == unit.CompletionDigest)
-                    return Replay(unit);
-                return PlateCompletionResult.Refused(409, "plate_completion_conflict");
+                if (!unit.CanAuthenticateCompletionReplay(workerId, tokenMatches, attempt))
+                    return PlateCompletionResult.Refused(409, "plate_completion_conflict");
+                var replayScope = await LoadScopeAsync(unit, cancellationToken);
+                if (replayScope is null) return PlateCompletionResult.Refused(409, "plate_completion_conflict");
+                var replay = PlateCompletionValidator.Validate(analysisId, request, identity, replayScope.Value.Parameters, replayScope.Value.Scope);
+                return replay.IsValid && replay.Completion!.CompletionDigest == unit.CompletionDigest
+                    ? Replay(unit)
+                    : PlateCompletionResult.Refused(409, "plate_completion_conflict");
             }
 
             if (unit.Status != PlateAnalysisStatus.Running) return PlateCompletionResult.Refused(409, PlateAnalysis.NotRunningCode);
             if (!unit.HoldsActiveLease(workerId, tokenMatches, attempt, timeProvider.GetUtcNow()))
                 return PlateCompletionResult.Refused(409, PlateAnalysis.LeaseInvalidCode);
+
+            var loaded = await LoadScopeAsync(unit, cancellationToken);
+            if (loaded is null) return PlateCompletionResult.Refused(409, "plate_identity_not_activated");
+            (parameters, scope) = loaded.Value;
+            var validation = PlateCompletionValidator.Validate(analysisId, request, identity, parameters, scope);
             if (!validation.IsValid) return PlateCompletionResult.Refused(400, validation.ErrorCode!);
             completion = validation.Completion!;
 

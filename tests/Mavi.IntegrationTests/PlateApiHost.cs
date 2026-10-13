@@ -84,12 +84,15 @@ internal sealed class PlateApiHost : IAsyncDisposable
     private readonly string _releaseDirectory = Path.Combine(Path.GetTempPath(), $"mavi-plate-release-{Guid.NewGuid():N}");
     private readonly IReadOnlyDictionary<string, string?>? _configuration;
     private readonly bool _kestrel;
+    private readonly Action<Microsoft.EntityFrameworkCore.DbContextOptionsBuilder>? _configureDbContext;
 
-    private PlateApiHost(VisualAttributeWorld world, IReadOnlyDictionary<string, string?>? configuration, bool kestrel)
+    private PlateApiHost(VisualAttributeWorld world, IReadOnlyDictionary<string, string?>? configuration, bool kestrel,
+        Action<Microsoft.EntityFrameworkCore.DbContextOptionsBuilder>? configureDbContext)
     {
         World = world;
         _configuration = configuration;
         _kestrel = kestrel;
+        _configureDbContext = configureDbContext;
     }
 
     public VisualAttributeWorld World { get; }
@@ -98,9 +101,10 @@ internal sealed class PlateApiHost : IAsyncDisposable
     public HttpClient Client { get; private set; } = null!;
 
     public static async Task<PlateApiHost> CreateAsync(PostgresFixture fixture, DateTimeOffset nowUtc, bool identityB = false,
-        bool configured = true, IReadOnlyDictionary<string, string?>? configuration = null, bool kestrel = false)
+        bool configured = true, IReadOnlyDictionary<string, string?>? configuration = null, bool kestrel = false,
+        Action<Microsoft.EntityFrameworkCore.DbContextOptionsBuilder>? configureDbContext = null)
     {
-        var host = new PlateApiHost(await VisualAttributeWorld.CreateAsync(fixture, nowUtc), configuration, kestrel);
+        var host = new PlateApiHost(await VisualAttributeWorld.CreateAsync(fixture, nowUtc), configuration, kestrel, configureDbContext);
         host.Start(identityB, configured);
         return host;
     }
@@ -123,6 +127,7 @@ internal sealed class PlateApiHost : IAsyncDisposable
             PlateComponentBindingPath = configured ? PlateReleaseFixture.WriteBinding(_releaseDirectory, identityB) : null,
             PlatePipelineProfilePath = configured ? PlateReleaseFixture.PipelineProfile : null,
             AdditionalConfiguration = _configuration,
+            ConfigureDbContext = _configureDbContext,
             OverrideServices = services => services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(Logs),
         };
         if (_kestrel)

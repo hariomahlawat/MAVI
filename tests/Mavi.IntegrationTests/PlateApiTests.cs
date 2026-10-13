@@ -146,6 +146,54 @@ public sealed class PlateApiTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task AnUnauthenticatedCompletionIsRefusedBeforeTheRunScopeIsRead()
+    {
+        // The unit row is held FOR UPDATE during Phase A; a caller without this attempt's capability must be
+        // refused before the run scope (up to 10,000 Tracks) is read, so it cannot starve the real holder.
+        var trace = new FinalizationWorld.SqlTrace();
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0, configureDbContext: options => options.AddInterceptors(trace));
+        await ActivateAndSeedAsync(host, persons: 0, vehicles: 2, crops: 2);
+        await host.RunCycleAsync();
+        var unit = await host.LeaseAsync();
+        var built = PlateCompletionBuilder.Build(unit.Lease);
+        using (var uploaded = await host.UploadAsync(unit, built.Predictions))
+            Assert.Equal(HttpStatusCode.OK, uploaded.StatusCode);
+
+        static bool ReadsScope(string sql) =>
+            sql.Contains("plate_identity_activations", StringComparison.Ordinal) || sql.Contains("FROM tracks", StringComparison.Ordinal);
+        var wrongCapability = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        // A malformed body too: a scope-dependent check would answer 400; authentication answers first.
+        var malformed = built.Request with { Payload = built.Request.Payload! with { Tracks = [] } };
+        foreach (var (body, capability) in new[]
+                 {
+                     (built.Request, wrongCapability),
+                     (malformed, wrongCapability),
+                     (built.Request with { AttemptCount = unit.Attempt + 1 }, unit.Capability),
+                 })
+        {
+            trace.Clear();
+            using var refused = await host.CompleteAsync(unit, body, capability);
+            Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+            Assert.Equal(PlateAnalysis.LeaseInvalidCode, await CodeAsync(refused));
+            Assert.DoesNotContain(trace.Commands, ReadsScope);
+        }
+
+        // The real holder is unaffected and completes; the replay reads the scope only after authenticating.
+        trace.Clear();
+        using (var completed = await host.CompleteAsync(unit, built.Request))
+            Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        Assert.Contains(trace.Commands, ReadsScope);
+
+        // On the committed unit, a foreign capability is a conflict without a scope read.
+        trace.Clear();
+        using (var conflict = await host.CompleteAsync(unit, built.Request, wrongCapability))
+            Assert.Equal("plate_completion_conflict", await CodeAsync(conflict));
+        Assert.DoesNotContain(trace.Commands, ReadsScope);
+        using (var replay = await host.CompleteAsync(unit, built.Request))
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+    }
+
+    [Fact]
     public async Task AReclaimBetweenSealAndPublicationPublishesNothing()
     {
         await using var host = await PlateApiHost.CreateAsync(fixture, T0);
