@@ -27,6 +27,13 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
     private const string PrecedingMigration = "20261013022604_AddPlateAnalysisLifecycle";
     private const string SearchMigration = "20261013120000_AddPlateSearchIndexes";
 
+    /// <summary>
+    /// The 200 000-row probe's insert and VACUUM take ~10 s alone and over Npgsql's 30 s default on a
+    /// PostgreSQL server shared with other concurrent runs (observed: two timeouts in five repeats). The bound
+    /// is generous, not infinite, so a hung server still fails the test.
+    /// </summary>
+    private const int ProbeSetupTimeoutSeconds = 300;
+
     private static readonly PlateIdentityFields Identity = new(
         "521d596506f98622a5d4e49e8b8a6f7d51c0ec7d8199f257ef097e4db723eb25",
         "plates-fixture", "1.0.0", "mavi-plate-predictions-v1", "mavi-plate-normalisation-v1",
@@ -307,12 +314,12 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
                    chr(65 + (i / 7 * 17) % 26) || chr(65 + (i / 3 * 19) % 26) || lpad(((i * 31) % 10000)::text, 4, '0'),
                    1, 0.9, gen_random_uuid()
             FROM generate_series(1, 200000) AS i;
-            """, connection))
+            """, connection) { CommandTimeout = ProbeSetupTimeoutSeconds })
             await setup.ExecuteNonQueryAsync();
         // VACUUM (its own statement) flushes the GIN pending list the bulk insert filled, so the planner
         // costs the index as a steady-state index rather than as a pending-list scan, and ANALYZE gives it
         // the statistics. Without it the plan flips between runs.
-        await using (var vacuum = new NpgsqlCommand("VACUUM ANALYZE plate_text_probe", connection))
+        await using (var vacuum = new NpgsqlCommand("VACUUM ANALYZE plate_text_probe", connection) { CommandTimeout = ProbeSetupTimeoutSeconds })
             await vacuum.ExecuteNonQueryAsync();
 
         var indexes = new Dictionary<string, string>(StringComparer.Ordinal);
