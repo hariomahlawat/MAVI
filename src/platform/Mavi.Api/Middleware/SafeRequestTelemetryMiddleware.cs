@@ -9,7 +9,7 @@ namespace Mavi.Api.Middleware;
 /// </summary>
 /// <remarks>
 /// <para>
-/// ASP.NET Core's own request lines ("Request starting GET http://…/api/tracks?plateText=…") write the
+/// ASP.NET Core's own request lines ("Request starting GET" followed by the absolute request URL) write the
 /// raw URL, query string included, and a query string may carry plate text, cursor values or any other
 /// filter. Those framework lines are suppressed (<see cref="Startup.PlateTextLogPrivacy"/>) and replaced
 /// by these two events, which record exactly: the HTTP method, the matched route template (never the
