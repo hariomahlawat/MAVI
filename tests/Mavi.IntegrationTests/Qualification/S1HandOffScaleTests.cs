@@ -117,7 +117,7 @@ public sealed class S1HandOffScaleTests
         Assert.False(string.IsNullOrWhiteSpace(root), "MAVI_S1_HANDOFF_ROOT must name a directory on the filesystem being qualified.");
         const bool finalizerHostEnabled = false;
 
-        var connection = Environment.GetEnvironmentVariable("MAVI_TEST_DB_CONNECTION")!;
+        var connection = TestDatabase.ConnectionString;
         var environment = await QualificationGate.CaptureEnvironmentAsync(connection);
         var runId = QualificationGate.NewRunId();
         var fileName = $"s1-b3a-hand-off.{S1QualificationSupport.RuntimeVariant()}.json";

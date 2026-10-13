@@ -48,6 +48,20 @@ public sealed class TestDatabaseTests
         Assert.True(TestDatabase.IsTestDatabaseName(TestDatabase.DerivedDatabaseName(first)));
     }
 
+    [Fact]
+    public void CaseIsFoldedOnlyWhereTheFileSystemIgnoresIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "work");
+        var upper = Path.Combine(root, "MAVI");
+        var lower = Path.Combine(root, "mavi");
+
+        // Case-sensitive file systems: two checkouts differing only in case must never share a database.
+        Assert.NotEqual(TestDatabase.WorktreeRunId(upper, foldCase: false), TestDatabase.WorktreeRunId(lower, foldCase: false));
+        // Windows: one directory spelled in two cases is one checkout.
+        Assert.Equal(TestDatabase.WorktreeRunId(upper, foldCase: true), TestDatabase.WorktreeRunId(lower, foldCase: true));
+        Assert.Equal(TestDatabase.WorktreeRunId(upper, OperatingSystem.IsWindows()), TestDatabase.WorktreeRunId(upper));
+    }
+
     [Theory]
     [InlineData("mavi_test", true)]
     [InlineData("mavi_test_pr4", true)]

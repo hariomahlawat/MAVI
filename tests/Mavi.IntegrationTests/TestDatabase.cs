@@ -65,11 +65,19 @@ public static partial class TestDatabase
     }
 
     /// <summary>The <c>auto</c> run id: a stable digest of this checkout's repository root.</summary>
-    public static string WorktreeRunId(string repositoryRoot)
+    /// <remarks>
+    /// Case is folded only on Windows, where one directory may be spelled in several cases. Elsewhere paths are
+    /// case-sensitive, so <c>/work/MAVI</c> and <c>/work/mavi</c> are distinct checkouts and keep distinct
+    /// databases: not folding can only separate runs, never make two runs share a database.
+    /// </remarks>
+    public static string WorktreeRunId(string repositoryRoot) => WorktreeRunId(repositoryRoot, OperatingSystem.IsWindows());
+
+    internal static string WorktreeRunId(string repositoryRoot, bool foldCase)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
-        var normalised = Path.GetFullPath(repositoryRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            .ToLowerInvariant();
+        var normalised = Path.GetFullPath(repositoryRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (foldCase)
+            normalised = normalised.ToLowerInvariant();
         return "wt" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(normalised)))[..12];
     }
 
