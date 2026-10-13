@@ -56,7 +56,7 @@ COMPONENT_BINDING_V2_SCHEMA = "mavi-vision-component-binding-v2"
 # resolver maps only the current vision contract, 3.3 (ADR-016), to an emitted version.
 KNOWN_READINESS_CONTRACTS = frozenset({"worker-health-v2"})
 KNOWN_PROVENANCE_CONTRACTS = frozenset(
-    {"vision-job-complete-v3.2", "vision-job-complete-v3.3", "visual-attribute-complete-v1"}
+    {"vision-job-complete-v3.2", "vision-job-complete-v3.3", "visual-attribute-complete-v1", "plate-complete-v1"}
 )
 
 _ENTRY_POINT_RE = re.compile(r"^[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)+$")

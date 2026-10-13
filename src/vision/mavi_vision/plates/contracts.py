@@ -217,3 +217,30 @@ class PlateLease(ControlPlaneModel):
     deadline_at_utc: CanonicalUtcDateTime
     identity: IdentityContract
     tracks: tuple[LeaseTrack, ...] = Field(max_length=MAXIMUM_ANALYSIS_TRACKS)
+
+
+class HeartbeatResponse(ControlPlaneModel):
+    schema_version: Literal["mavi-plate-control-v1"]
+    lease_expires_at_utc: CanonicalUtcDateTime
+
+
+class FailResponse(ControlPlaneModel):
+    schema_version: Literal["mavi-plate-control-v1"]
+    outcome: Literal["requeued", "failed"]
+
+
+class UploadResponse(ControlPlaneModel):
+    schema_version: Literal["mavi-plate-control-v1"]
+    status: Literal["stored", "already_stored"]
+    size_bytes: int
+    sha256: Sha256
+
+
+class CompleteResponse(ControlPlaneModel):
+    schema_version: Literal["mavi-plate-control-v1"]
+    analysis_id: UUID
+    processing_run_id: UUID
+    status: Literal["completed", "superseded"]
+    completed_at_utc: CanonicalUtcDateTime
+    tracks_analysed: int = Field(ge=0)
+    tracks_unavailable: int = Field(ge=0)
