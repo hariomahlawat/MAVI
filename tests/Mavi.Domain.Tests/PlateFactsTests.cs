@@ -53,11 +53,11 @@ public sealed class PlateFactsTests
     [Fact]
     public void ARejectedReadingKeepsItsRawTextButIsNeverSearchable()
     {
-        var rejected = new PlateReadingValues(0, "का01", 1, 0.7, null, PlateNormalisationOutcome.Rejected, "non-alphanumeric", null);
+        var rejected = new PlateReadingValues(0, "\u0915\u093e01", 1, 0.7, null, PlateNormalisationOutcome.Rejected, "non-alphanumeric", null);
         var observation = Observation(PlateObservationOutcome.Read, [rejected]);
         Assert.Null(observation.Readings[0].NormalisedText);
         Assert.Null(observation.Readings[0].FormatClass);
-        Assert.Equal("का01", observation.Readings[0].RawText);
+        Assert.Equal("\u0915\u093e01", observation.Readings[0].RawText);
     }
 
     [Theory]
