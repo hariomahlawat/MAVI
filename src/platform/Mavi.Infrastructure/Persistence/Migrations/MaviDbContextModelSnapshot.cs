@@ -554,6 +554,566 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateAnalysis", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<string>("CapabilitiesCanonical")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("capabilities_canonical");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at_utc");
+
+                    b.Property<string>("CompletionDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("completion_digest")
+                        .IsFixedLength();
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("FailureDetails")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("failure_details");
+
+                    b.Property<DateTimeOffset?>("FirstClaimedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_claimed_at_utc");
+
+                    b.Property<string>("IdentityFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("identity_fingerprint")
+                        .IsFixedLength();
+
+                    b.Property<int?>("LastFailedAttempt")
+                        .HasColumnType("integer")
+                        .HasColumnName("last_failed_attempt");
+
+                    b.Property<string>("LastFailedCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("last_failed_code");
+
+                    b.Property<string>("LastFailedDetails")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("last_failed_details");
+
+                    b.Property<string>("LastFailedOutcome")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("last_failed_outcome");
+
+                    b.Property<byte[]>("LastFailedTokenHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("last_failed_token_hash");
+
+                    b.Property<string>("LastFailedWorkerId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("last_failed_worker_id");
+
+                    b.Property<DateTimeOffset?>("LastHeartbeatUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_heartbeat_utc");
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_expires_at_utc");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<byte[]>("LeaseTokenHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("lease_token_hash");
+
+                    b.Property<string>("NormalisationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("normalisation_id");
+
+                    b.Property<string>("NormalisationSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("normalisation_sha256")
+                        .IsFixedLength();
+
+                    b.Property<string>("ParametersSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("parameters_sha256")
+                        .IsFixedLength();
+
+                    b.Property<string>("PipelineId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("pipeline_id");
+
+                    b.Property<string>("PipelineVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("pipeline_version");
+
+                    b.Property<int>("PlateObservationsRead")
+                        .HasColumnType("integer")
+                        .HasColumnName("plate_observations_read");
+
+                    b.Property<int>("PlateObservationsUnreadable")
+                        .HasColumnType("integer")
+                        .HasColumnName("plate_observations_unreadable");
+
+                    b.Property<Guid?>("PredictionArtifactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("prediction_artifact_id");
+
+                    b.Property<string>("PredictionsSchemaVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("predictions_schema_version");
+
+                    b.Property<Guid>("ProcessingRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("processing_run_id");
+
+                    b.Property<string>("ProvenanceJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("provenance_json");
+
+                    b.Property<DateTimeOffset>("QueuedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("queued_at_utc");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("SummaryPolicyId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("summary_policy_id");
+
+                    b.Property<string>("SummaryPolicySha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("summary_policy_sha256")
+                        .IsFixedLength();
+
+                    b.Property<string>("SummaryPolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("summary_policy_version");
+
+                    b.Property<int>("TracksAnalysed")
+                        .HasColumnType("integer")
+                        .HasColumnName("tracks_analysed");
+
+                    b.Property<int>("TracksUnavailable")
+                        .HasColumnType("integer")
+                        .HasColumnName("tracks_unavailable");
+
+                    b.Property<long?>("VisibilitySequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("visibility_sequence");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PredictionArtifactId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_plate_analyses_prediction_artifact")
+                        .HasFilter("prediction_artifact_id IS NOT NULL");
+
+                    b.HasIndex("VisibilitySequence")
+                        .IsUnique()
+                        .HasDatabaseName("ux_plate_analyses_visibility_sequence")
+                        .HasFilter("visibility_sequence IS NOT NULL");
+
+                    b.HasIndex("ProcessingRunId", "IdentityFingerprint")
+                        .IsUnique()
+                        .HasDatabaseName("ux_plate_analyses_identity");
+
+                    b.HasIndex("IdentityFingerprint", "Status", "QueuedAtUtc")
+                        .HasDatabaseName("ix_plate_analyses_claim")
+                        .HasFilter("status IN ('Queued', 'Running')");
+
+                    b.ToTable("plate_analyses", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_plate_analyses_attempt_count", "attempt_count >= 0");
+
+                            t.HasCheckConstraint("ck_plate_analyses_counts", "tracks_analysed >= 0 AND tracks_unavailable >= 0 AND plate_observations_read >= 0 AND plate_observations_unreadable >= 0");
+
+                            t.HasCheckConstraint("ck_plate_analyses_fact_bearing", "status NOT IN ('Completed', 'Superseded') OR (completion_digest IS NOT NULL AND visibility_sequence IS NOT NULL AND prediction_artifact_id IS NOT NULL AND provenance_json IS NOT NULL AND completed_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_plate_analyses_failed", "status <> 'Failed' OR (failure_code IS NOT NULL AND completed_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_plate_analyses_last_failed_token_hash", "last_failed_token_hash IS NULL OR octet_length(last_failed_token_hash) = 32");
+
+                            t.HasCheckConstraint("ck_plate_analyses_lease_token_hash", "lease_token_hash IS NULL OR octet_length(lease_token_hash) = 32");
+
+                            t.HasCheckConstraint("ck_plate_analyses_running_lease", "status <> 'Running' OR (lease_owner IS NOT NULL AND lease_token_hash IS NOT NULL AND lease_expires_at_utc IS NOT NULL AND first_claimed_at_utc IS NOT NULL AND attempt_count > 0)");
+
+                            t.HasCheckConstraint("ck_plate_analyses_sha256", "identity_fingerprint ~ '^[0-9a-f]{64}$' AND normalisation_sha256 ~ '^[0-9a-f]{64}$' AND summary_policy_sha256 ~ '^[0-9a-f]{64}$' AND parameters_sha256 ~ '^[0-9a-f]{64}$' AND (completion_digest IS NULL OR completion_digest ~ '^[0-9a-f]{64}$')");
+
+                            t.HasCheckConstraint("ck_plate_analyses_status", "status IN ('Queued', 'Running', 'Completed', 'Failed', 'Superseded')");
+
+                            t.HasCheckConstraint("ck_plate_analyses_unpublished", "status IN ('Completed', 'Superseded') OR (visibility_sequence IS NULL AND prediction_artifact_id IS NULL)");
+
+                            t.HasCheckConstraint("ck_plate_analyses_visibility_sequence", "visibility_sequence IS NULL OR visibility_sequence > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateAttemptFailure", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_number");
+
+                    b.Property<DateTimeOffset>("FailedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("failed_at_utc");
+
+                    b.Property<string>("FailureCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("FailureDetails")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("failure_details");
+
+                    b.Property<bool>("Retryable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("retryable");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnalysisId", "AttemptNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ux_plate_attempt_failures_attempt");
+
+                    b.ToTable("plate_attempt_failures", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_plate_attempt_failures_attempt", "attempt_number >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateIdentityActivation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("ActivatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("activated_at_utc");
+
+                    b.Property<string>("CanonicalIdentity")
+                        .IsRequired()
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("canonical_identity");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("fingerprint")
+                        .IsFixedLength();
+
+                    b.Property<string>("ParametersJson")
+                        .IsRequired()
+                        .HasMaxLength(65536)
+                        .HasColumnType("character varying(65536)")
+                        .HasColumnName("parameters_json");
+
+                    b.Property<string>("SummaryPolicyJson")
+                        .IsRequired()
+                        .HasMaxLength(65536)
+                        .HasColumnType("character varying(65536)")
+                        .HasColumnName("summary_policy_json");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActivatedAtUtc")
+                        .HasDatabaseName("ix_plate_identity_activations_activated");
+
+                    b.ToTable("plate_identity_activations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_plate_identity_activations_fingerprint", "fingerprint ~ '^[0-9a-f]{64}$'");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateObservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<int>("BoxHeight")
+                        .HasColumnType("integer")
+                        .HasColumnName("box_height");
+
+                    b.Property<int>("BoxWidth")
+                        .HasColumnType("integer")
+                        .HasColumnName("box_width");
+
+                    b.Property<int>("BoxX")
+                        .HasColumnType("integer")
+                        .HasColumnName("box_x");
+
+                    b.Property<int>("BoxY")
+                        .HasColumnType("integer")
+                        .HasColumnName("box_y");
+
+                    b.Property<int>("CropHeight")
+                        .HasColumnType("integer")
+                        .HasColumnName("crop_height");
+
+                    b.Property<int>("CropWidth")
+                        .HasColumnType("integer")
+                        .HasColumnName("crop_width");
+
+                    b.Property<double>("DetectorConfidence")
+                        .HasColumnType("double precision")
+                        .HasColumnName("detector_confidence");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("outcome");
+
+                    b.Property<int>("PlateIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("plate_index");
+
+                    b.Property<Guid>("SourceObservationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_observation_id");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceObservationId")
+                        .HasDatabaseName("ix_plate_observations_source_observation");
+
+                    b.HasIndex("TrackId")
+                        .HasDatabaseName("ix_plate_observations_track");
+
+                    b.HasIndex("AnalysisId", "TrackId")
+                        .HasDatabaseName("ix_plate_observations_analysis_track");
+
+                    b.HasIndex("AnalysisId", "SourceObservationId", "PlateIndex")
+                        .IsUnique()
+                        .HasDatabaseName("ux_plate_observations_analysis_source_plate");
+
+                    b.ToTable("plate_observations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_plate_observations_box_inside_crop", "crop_width BETWEEN 1 AND 4096 AND crop_height BETWEEN 1 AND 4096 AND box_x >= 0 AND box_y >= 0 AND box_width >= 1 AND box_height >= 1 AND box_x + box_width <= crop_width AND box_y + box_height <= crop_height");
+
+                            t.HasCheckConstraint("ck_plate_observations_detector_confidence", "detector_confidence >= 0 AND detector_confidence <= 1");
+
+                            t.HasCheckConstraint("ck_plate_observations_outcome", "outcome IN ('Read', 'Unreadable')");
+
+                            t.HasCheckConstraint("ck_plate_observations_plate_index", "plate_index BETWEEN 0 AND 7");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateReading", b =>
+                {
+                    b.Property<Guid>("PlateObservationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("plate_observation_id");
+
+                    b.Property<int>("Rank")
+                        .HasColumnType("integer")
+                        .HasColumnName("rank");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("double precision")
+                        .HasColumnName("confidence");
+
+                    b.Property<string>("FormatClass")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("format_class");
+
+                    b.Property<string>("NormalisationOutcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("normalisation_outcome");
+
+                    b.Property<string>("NormalisationReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("normalisation_reason");
+
+                    b.Property<string>("NormalisedText")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("normalised_text");
+
+                    b.Property<int>("RawLineCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("raw_line_count");
+
+                    b.Property<string>("RawText")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("raw_text");
+
+                    b.HasKey("PlateObservationId", "Rank");
+
+                    b.ToTable("plate_readings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_plate_readings_confidence", "confidence >= 0 AND confidence <= 1");
+
+                            t.HasCheckConstraint("ck_plate_readings_normalisation", "(normalisation_outcome = 'Ok' AND normalised_text IS NOT NULL AND normalised_text ~ '^[A-Z0-9]+$' AND normalisation_reason IS NULL AND format_class IN ('in-standard', 'in-bh', 'other')) OR (normalisation_outcome = 'Rejected' AND normalised_text IS NULL AND format_class IS NULL AND normalisation_reason IN ('empty', 'non-alphanumeric'))");
+
+                            t.HasCheckConstraint("ck_plate_readings_rank", "rank BETWEEN 0 AND 4");
+
+                            t.HasCheckConstraint("ck_plate_readings_raw_text", "char_length(raw_text) BETWEEN 1 AND 32 AND raw_line_count IN (1, 2)");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateTrackOutcome", b =>
+                {
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.Property<int>("DistinctTextCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("distinct_text_count");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("outcome");
+
+                    b.Property<int>("PlateObservationCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("plate_observation_count");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("reason");
+
+                    b.HasKey("AnalysisId", "TrackId");
+
+                    b.HasIndex("TrackId")
+                        .HasDatabaseName("ix_plate_track_outcomes_track");
+
+                    b.ToTable("plate_track_outcomes", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_plate_track_outcomes_counts", "plate_observation_count BETWEEN 0 AND 32 AND distinct_text_count BETWEEN 0 AND plate_observation_count");
+
+                            t.HasCheckConstraint("ck_plate_track_outcomes_outcome", "outcome IN ('Analysed', 'Unavailable')");
+
+                            t.HasCheckConstraint("ck_plate_track_outcomes_shape", "(outcome = 'Analysed' AND reason IS NULL) OR (outcome = 'Unavailable' AND reason IS NOT NULL AND reason IN ('evidence_decode_failed', 'evidence_integrity_failed', 'evidence_missing', 'no_accepted_evidence', 'plate_inference_failed') AND plate_observation_count = 0 AND distinct_text_count = 0)");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateTrackText", b =>
+                {
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.Property<string>("NormalisedText")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("normalised_text");
+
+                    b.Property<Guid>("BestPlateObservationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("best_plate_observation_id");
+
+                    b.Property<double>("MaxConfidence")
+                        .HasColumnType("double precision")
+                        .HasColumnName("max_confidence");
+
+                    b.Property<int>("SupportCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("support_count");
+
+                    b.HasKey("AnalysisId", "TrackId", "NormalisedText");
+
+                    b.HasIndex("BestPlateObservationId")
+                        .HasDatabaseName("ix_plate_track_texts_best_plate_observation");
+
+                    b.ToTable("plate_track_texts", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_plate_track_texts_confidence", "max_confidence >= 0 AND max_confidence <= 1");
+
+                            t.HasCheckConstraint("ck_plate_track_texts_support", "support_count BETWEEN 1 AND 32");
+
+                            t.HasCheckConstraint("ck_plate_track_texts_text", "normalised_text ~ '^[A-Z0-9]+$'");
+                        });
+                });
+
             modelBuilder.Entity("Mavi.Domain.Processing.ProcessingRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2022,6 +2582,95 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateAnalysis", b =>
+                {
+                    b.HasOne("Mavi.Domain.Media.Artifact", null)
+                        .WithMany()
+                        .HasForeignKey("PredictionArtifactId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Mavi.Domain.Processing.ProcessingRun", null)
+                        .WithMany()
+                        .HasForeignKey("ProcessingRunId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateAttemptFailure", b =>
+                {
+                    b.HasOne("Mavi.Domain.Plates.PlateAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateObservation", b =>
+                {
+                    b.HasOne("Mavi.Domain.Plates.PlateAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Observation", null)
+                        .WithMany()
+                        .HasForeignKey("SourceObservationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Plates.PlateTrackOutcome", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId", "TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateReading", b =>
+                {
+                    b.HasOne("Mavi.Domain.Plates.PlateObservation", null)
+                        .WithMany("Readings")
+                        .HasForeignKey("PlateObservationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateTrackOutcome", b =>
+                {
+                    b.HasOne("Mavi.Domain.Plates.PlateAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateTrackText", b =>
+                {
+                    b.HasOne("Mavi.Domain.Plates.PlateObservation", null)
+                        .WithMany()
+                        .HasForeignKey("BestPlateObservationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Plates.PlateTrackOutcome", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId", "TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Mavi.Domain.Processing.ProcessingRun", b =>
                 {
                     b.HasOne("Mavi.Domain.Media.VideoAsset", null)
@@ -2242,6 +2891,11 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasForeignKey("TrackId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Plates.PlateObservation", b =>
+                {
+                    b.Navigation("Readings");
                 });
 
             modelBuilder.Entity("Mavi.Domain.Scene.SceneConfigurationRevision", b =>

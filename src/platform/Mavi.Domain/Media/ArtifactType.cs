@@ -10,4 +10,6 @@ public enum ArtifactType
     EvidenceCrop,
     /// <summary>One sealed <c>AttributePredictions</c> document per completed Visual Attribute analysis (ADR-013 §13).</summary>
     AttributePredictions,
+    /// <summary>One sealed <c>PlatePredictions</c> document per completed plate analysis (ADR-013 implementation amendment 2026-10-13, item 13).</summary>
+    PlatePredictions,
 }
