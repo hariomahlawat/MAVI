@@ -56,6 +56,7 @@ public sealed partial class PlateCompletionService(
         if (!WorkerContractRules.TryNormalizeWorkerId(request.WorkerId, out var workerId) || request.AttemptCount is not ({ } attempt and >= 1))
             return PlateCompletionResult.Refused(400, PlateCompletionValidator.InvalidCode);
 
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         // --- Phase A ---------------------------------------------------------------------
         ValidatedPlateCompletion completion;
         PlateParameters parameters;
@@ -100,6 +101,7 @@ public sealed partial class PlateCompletionService(
             await transaction.CommitAsync(cancellationToken);
         }
 
+        var phaseA = clock.Elapsed;
         // --- Artefact: streamed, bounded, lock-free ----------------------------------------
         Stream predictions;
         try
@@ -123,6 +125,7 @@ public sealed partial class PlateCompletionService(
             }
         }
 
+        var artefact = clock.Elapsed;
         // --- Phase B: idempotent seal, outside any transaction -----------------------------
         var publication = CancellationToken.None;
         var acceptedKey = PlateStagingLayout.AcceptedKey(analysisId, completion.PredictionSha256);
@@ -138,7 +141,11 @@ public sealed partial class PlateCompletionService(
                 return PlateCompletionResult.Refused(422, PlateContractRules.ArtifactIntegrityFailedCode);
         }
 
+        var phaseB = clock.Elapsed;
         if (BeforePhaseC is not null) await BeforePhaseC(publication);
+
+        var phaseCStart = clock.Elapsed;
+        TimeSpan rowsWritten, barrierAcquired;
 
         // --- Phase C: re-fence and one publication transaction ------------------------------
         PlateAnalysis published;
@@ -164,9 +171,9 @@ public sealed partial class PlateCompletionService(
             }
 
             var nowUtc = timeProvider.GetUtcNow();
-            var artifact = Artifact.Create(ArtifactType.PlatePredictions, acceptedKey, PlateContractRules.PredictionsMediaType,
+            var predictionArtifact = Artifact.Create(ArtifactType.PlatePredictions, acceptedKey, PlateContractRules.PredictionsMediaType,
                 completion.PredictionSizeBytes, completion.PredictionSha256, createdAtUtc: nowUtc);
-            db.Artifacts.Add(artifact);
+            db.Artifacts.Add(predictionArtifact);
             var (outcomes, observations, texts) = BuildFacts(analysisId, completion);
 
             try
@@ -181,12 +188,14 @@ public sealed partial class PlateCompletionService(
                 return PlateCompletionResult.Refused(503, "plate_persistence_failed");
             }
 
+            rowsWritten = clock.Elapsed;
             await ProcessingVisibilityBarrier.AcquireCompletionExclusiveAsync(db, publication);
+            barrierAcquired = clock.Elapsed;
             var sequence = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, publication);
             var preferred = release.Resolution.Definition?.Identity.Fingerprint;
             var isPreferred = string.Equals(preferred, unit.IdentityFingerprint, StringComparison.Ordinal);
             unit.Complete(workerId, tokenMatches, attempt, nowUtc, new PlateCompletion(
-                completion.CompletionDigest, sequence, artifact.Id, completion.ProvenanceJson, completion.TracksAnalysed,
+                completion.CompletionDigest, sequence, predictionArtifact.Id, completion.ProvenanceJson, completion.TracksAnalysed,
                 completion.TracksUnavailable, completion.PlateObservationsRead, completion.PlateObservationsUnreadable), isPreferred);
             if (isPreferred)
             {
@@ -210,10 +219,15 @@ public sealed partial class PlateCompletionService(
             published = unit;
         }
 
-        LogPublished(logger, analysisId, attempt, published.Status, completion.Tracks.Count);
+        var end = clock.Elapsed;
+        var timings = new PlateCompletionTimings(phaseA, artefact - phaseA, phaseB - artefact, end - phaseCStart,
+            rowsWritten - phaseCStart, end - barrierAcquired);
+        LogPublished(logger, analysisId, attempt, published.Status, completion.Tracks.Count, timings.PhaseA.TotalMilliseconds,
+            timings.ArtefactValidation.TotalMilliseconds, timings.PhaseB.TotalMilliseconds, timings.PhaseC.TotalMilliseconds,
+            timings.PhaseCRowWrites.TotalMilliseconds, timings.BarrierHold.TotalMilliseconds);
         return new PlateCompletionResult(
             published.Status == PlateAnalysisStatus.Completed ? PlateCompletionStatus.Completed : PlateCompletionStatus.Superseded,
-            null, 200, runId, published.CompletedAtUtc, completion.TracksAnalysed, completion.TracksUnavailable, false);
+            null, 200, runId, published.CompletedAtUtc, completion.TracksAnalysed, completion.TracksUnavailable, false, timings);
     }
 
     /// <summary>The domain rows of one validated completion; a Track text points at its best plate's row.</summary>
@@ -288,8 +302,9 @@ public sealed partial class PlateCompletionService(
     }
 
     [LoggerMessage(EventId = 2100, EventName = "plate_published", Level = LogLevel.Information,
-        Message = "Plate analysis {AnalysisId} attempt {Attempt} published as {Status}: {Tracks} Vehicle Tracks.")]
-    private static partial void LogPublished(ILogger logger, Guid analysisId, int attempt, PlateAnalysisStatus status, int tracks);
+        Message = "Plate analysis {AnalysisId} attempt {Attempt} published as {Status}: {Tracks} Vehicle Tracks; phase A {PhaseAMs} ms, artefact validation {ArtefactMs} ms, seal {PhaseBMs} ms, publication {PhaseCMs} ms (rows {RowsMs} ms), barrier {BarrierMs} ms.")]
+    private static partial void LogPublished(ILogger logger, Guid analysisId, int attempt, PlateAnalysisStatus status, int tracks,
+        double phaseAMs, double artefactMs, double phaseBMs, double phaseCMs, double rowsMs, double barrierMs);
 
     [LoggerMessage(EventId = 2101, EventName = "plate_stale_publication", Level = LogLevel.Warning,
         Message = "Plate analysis {AnalysisId} attempt {Attempt} lost ownership after sealing; nothing was published and {AcceptedKey} is a tolerated orphan.")]

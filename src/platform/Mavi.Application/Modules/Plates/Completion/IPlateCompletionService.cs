@@ -11,6 +11,15 @@ public enum PlateCompletionStatus
     Refused,
 }
 
+/// <summary>Wall-clock of each phase of one publication, for the 10,000-Track measurement.</summary>
+public sealed record PlateCompletionTimings(
+    TimeSpan PhaseA,
+    TimeSpan ArtefactValidation,
+    TimeSpan PhaseB,
+    TimeSpan PhaseC,
+    TimeSpan PhaseCRowWrites,
+    TimeSpan BarrierHold);
+
 public sealed record PlateCompletionResult(
     PlateCompletionStatus Status,
     string? Code,
@@ -19,7 +28,8 @@ public sealed record PlateCompletionResult(
     DateTimeOffset? CompletedAtUtc,
     int TracksAnalysed,
     int TracksUnavailable,
-    bool IsReplay)
+    bool IsReplay,
+    PlateCompletionTimings? Timings = null)
 {
     public static PlateCompletionResult Refused(int httpStatus, string code) =>
         new(PlateCompletionStatus.Refused, code, httpStatus, null, null, 0, 0, false);
