@@ -290,8 +290,14 @@ def _reject_licence_keys(value: object, where: str) -> None:
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _reject_licence_keys(item, f"{where}[{index}]")
-    elif isinstance(value, str) and "licen" in value.lower():
+    elif isinstance(value, str) and "licen" in _PLATE_DOMAIN_TERM_RE.sub("", value).lower():
         raise _fail("licence_reasoning_in_ledger", where)
+
+
+# The vehicle-plate domain term is not licence wording. Only these exact phrases are removed before the check
+# (any case; a space or a hyphen; optional plural): "license plate", "license-plate", "licence plate",
+# "licence-plate". The bare words "license"/"licence" stay refused, including next to a plate term.
+_PLATE_DOMAIN_TERM_RE = re.compile(r"licen[cs]e[ -]plates?", re.IGNORECASE)
 
 
 _TRACKING_PARAMETER_RE = re.compile(r"^(?:utm_[a-z]+|ref|source|fbclid|gclid)=", re.IGNORECASE)

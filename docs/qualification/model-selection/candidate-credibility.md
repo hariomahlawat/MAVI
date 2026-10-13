@@ -101,7 +101,7 @@ There is one ledger per Model Selection Event: `docs/qualification/model-selecti
   - it refuses every unknown field **[checked]**.
 
   No ledger can claim that a candidate passed a MAVI bake-off;
-- has **no licence field** **[checked]**. Licence wording is refused in every ledger text field too, except the reason and revisit trigger of an `evaluation-permission` disposition **[checked]**. The licence axis lives in the MSR record §7 and the decision summary (§8);
+- has **no licence field** **[checked]**. Licence wording is refused in every ledger text field too, except the reason and revisit trigger of an `evaluation-permission` disposition **[checked]**. The vehicle-plate domain term is not licence wording: the exact phrases "license plate", "license-plate", "licence plate" and "licence-plate" (any case, optional plural) are ignored by this check, and nothing else is **[checked]**. The licence axis lives in the MSR record §7 and the decision summary (§8);
 - contains no weights, imagery or credentials. Sources are citations or URLs;
 - uses no future date (today in UTC plus one day), and records no evidence before it was retrieved **[checked]**. Before freeze the dates themselves are attested by the recorder and checked in Git review (§9); after freeze, everything added must be dated on or after the freeze (§7) **[checked]**.
 

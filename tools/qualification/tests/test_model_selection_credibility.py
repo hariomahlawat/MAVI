@@ -1236,3 +1236,48 @@ def test_module_imports_no_network_library():
     source = (REPO / "tools/qualification/model_selection/credibility.py").read_text()
     for name in ("urllib", "http", "socket", "requests"):
         assert f"import {name}" not in source and f"from {name}" not in source
+
+
+# ------------------------------------------------- plate-domain term is not licence wording (2026-10-13)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("repository", "https://huggingface.co/morsetechlab/yolov11-license-plate-detection"),
+    ("file", "yolo-v9-s-608-license-plates-end2end.onnx"),
+    ("name", "Licence Plate recogniser (CCT)"),
+    ("caveat", "Trained on LICENSE PLATE crops from 65 regions"),
+    ("summary", "Author README: licence-plate detector validation table"),
+])
+def test_plate_domain_term_is_not_licence_wording(field, value):
+    entry = established()
+    if field == "repository":
+        entry["identity"]["repository"] = value
+    elif field == "file":
+        entry["identity"]["files"][0]["path"] = value
+    elif field == "name":
+        entry["candidateName"] = value
+    elif field == "caveat":
+        entry["caveats"] = [value]
+    else:
+        entry["evidence"][0]["summary"] = value
+    assert validate_ledger(ledger(entry))["VC-EST"]["class"] == "established"
+
+
+@pytest.mark.parametrize("value", [
+    "weights licence forbids redistribution",
+    "license plate detector released under a non-commercial license",
+    "license-plate model; weights licensed for research only",
+    "licence-plate crops; commercial licence required",
+    "licenseplate model",
+    "LICENSE",
+])
+def test_real_licence_wording_is_still_refused_next_to_the_plate_term(value):
+    entry = established()
+    entry["caveats"] = [value]
+    refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
+
+
+def test_plate_term_does_not_open_licence_keys():
+    document = ledger(established())
+    document["candidates"][0]["licensePlateLicence"] = "x"
+    refused("licence_field_in_ledger", validate_ledger, document)
