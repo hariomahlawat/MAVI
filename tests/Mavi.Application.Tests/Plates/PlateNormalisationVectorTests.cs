@@ -53,6 +53,8 @@ public sealed class PlateNormalisationVectorTests
     public void IllFormedInputIsRefused()
     {
         Assert.Throws<ArgumentException>(() => PlateNormalisation.Normalise("KA01\ud800AB"));
+        Assert.Throws<ArgumentException>(() => PlateNormalisation.Normalise("KA01\udc00AB"));
+        Assert.Throws<ArgumentException>(() => PlateNormalisation.Normalise("KA01\ud800"));
     }
 
     private static string? Text(JsonElement item, string name)

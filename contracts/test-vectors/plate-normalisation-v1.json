@@ -212,6 +212,22 @@
       "formatClass": null
     },
     {
+      "id": "noncharacter-fffe-rejected",
+      "raw": "KA01￾AB1234",
+      "normalised": null,
+      "outcome": "rejected",
+      "reason": "non-alphanumeric",
+      "formatClass": null
+    },
+    {
+      "id": "noncharacter-fffe-only-rejected",
+      "raw": "￾",
+      "normalised": null,
+      "outcome": "rejected",
+      "reason": "non-alphanumeric",
+      "formatClass": null
+    },
+    {
       "id": "zero-width-space-rejected",
       "raw": "KA01\u200bAB1234",
       "normalised": null,

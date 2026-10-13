@@ -37,14 +37,17 @@ public static class PlateNormalisation
     public static NormalisedPlate Normalise(string raw)
     {
         ArgumentNullException.ThrowIfNull(raw);
+        if (!IsWellFormed(raw)) throw new ArgumentException("plate_normalisation_input_ill_formed", nameof(raw));
         string composed;
         try
         {
             composed = raw.Normalize(NormalizationForm.FormKC);
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            throw new ArgumentException("plate_normalisation_input_ill_formed", nameof(raw), exception);
+            // Well-formed text the OS normaliser refuses (a noncharacter such as U+FFFE). NFKC maps such a code
+            // point to itself, so it would remain outside [A-Z0-9]: rule 5 rejects it, as the Python side does.
+            return new NormalisedPlate(raw, null, Rejected, NonAlphanumeric, null);
         }
 
         var builder = new StringBuilder(composed.Length);
@@ -71,6 +74,19 @@ public static class PlateNormalisation
         if (InBh.IsMatch(normalised)) return "in-bh";
         if (InStandard.IsMatch(normalised)) return "in-standard";
         return "other";
+    }
+
+    private static bool IsWellFormed(string text)
+    {
+        for (var index = 0; index < text.Length; index++)
+        {
+            if (char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]))
+                index++;
+            else if (char.IsSurrogate(text[index]))
+                return false;
+        }
+
+        return true;
     }
 
     private static bool IsSeparator(char character) =>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from fractions import Fraction
 
@@ -13,7 +14,11 @@ from tools.benchmarks.core._stage3 import ROOT
 from tools.benchmarks.core.identity import S32Error
 from tools.benchmarks.plates import normalisation
 
-VECTORS = json.loads((ROOT / "contracts" / "test-vectors" / "plate-normalisation-v1.json").read_text(encoding="utf-8"))
+VECTOR_FILE = ROOT / "contracts" / "test-vectors" / "plate-normalisation-v1.json"
+VECTORS = json.loads(VECTOR_FILE.read_text(encoding="utf-8"))
+# Frozen for Stage 4 v1 (owner decision 2026-10-13, after the U+FFFE parity vectors). Plate-analysis identities bind
+# this SHA. Any semantic change needs a new normalisation id and vector file, never an edit of this one.
+FROZEN_V1_SHA256 = "6e505158a735a1c4c5d96ad33d08e4ddb0b98d456f0dd532a6af25de120bf935"
 
 
 @pytest.mark.parametrize("vector", VECTORS["vectors"], ids=[v["id"] for v in VECTORS["vectors"]])
@@ -29,6 +34,10 @@ def test_vector_file_is_the_v1_contract():
     assert VECTORS["normalisationId"] == normalisation.NORMALISATION_ID
     ids = [v["id"] for v in VECTORS["vectors"]]
     assert len(ids) == len(set(ids)) >= 30
+
+
+def test_vector_file_is_frozen():
+    assert hashlib.sha256(VECTOR_FILE.read_bytes()).hexdigest() == FROZEN_V1_SHA256
 
 
 def test_ill_formed_input_is_refused():
