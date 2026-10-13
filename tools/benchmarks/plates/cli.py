@@ -33,6 +33,7 @@ from tools.benchmarks.core._stage3 import ROOT, artefacts
 from tools.benchmarks.core.identity import (
     S32Error, canonical_json, read_artefact, require, sha256_hex, tooling_identity, validate,
     write_once)
+from tools.benchmarks import datasets
 from tools.benchmarks.datasets import bdd_plate_labels, uc3m_lp, ufpr_alpr, voc_plates
 
 RESULT = "benchmark-plate-adequacy-v1"
@@ -80,7 +81,9 @@ def build_truth(descriptor_path: Path, source_root: Path, adapter_id: str, split
         adapter = ufpr_alpr.UfprAlprAdapter()
         adapter.require_descriptor(document)
         items, exclusions = [], []
-        for sequence in adapter.discover(source_root, entries, split):
+        # Every described sequence must be complete: an incompletely acquired release is refused, never silently
+        # narrowed (the shared harness rule, ``source_manifest_incomplete``).
+        for sequence in datasets.discover(adapter, source_root, entries, split):
             found, refused = adapter.plate_items(source_root, entries, split, sequence)
             items += found
             exclusions += refused
@@ -165,6 +168,22 @@ def _verified_evidence(export: artefacts.Export, observation: dict[str, Any]):
     return load
 
 
+def bind_coverage_inputs(association: dict[str, Any], descriptor_sha: str, export_shas: list[str], ea: dict[str, Any],
+                         truth_sha: str, spec_shas: list[str], identities: list[dict[str, Any]]) -> None:
+    """E-B combines exactly the evidence its inputs were computed from.
+
+    The association was computed from this descriptor's labelled timing and these exports (its envelope binds them),
+    and ``h_min`` comes from an E-A that read this truth with these instruments (specification bytes and identities).
+    """
+    envelope = association["envelope"]
+    require(envelope["dataset"]["descriptorSha256"] == descriptor_sha, "plate_coverage_invalid:association_descriptor")
+    require(sorted(export_shas) == sorted(envelope["mavi"]["exportSha256s"]),
+            "plate_coverage_invalid:association_exports")
+    require(ea["inputs"]["truth"] == truth_sha, "plate_coverage_invalid:encoding_loss_truth")
+    require(sorted(ea["inputs"]["instrumentSpecs"]) == sorted(spec_shas) and ea["instruments"] == identities,
+            "plate_coverage_invalid:encoding_loss_instruments")
+
+
 def run_eb(*, truth_path: Path, descriptor_path: Path, source_root: Path, association_path: Path, exports_dir: Path,
            ea_path: Path, instrument_specs: list[Path], model_root: Path, tooling: dict[str, Any] | None = None
            ) -> dict[str, Any]:
@@ -182,6 +201,8 @@ def run_eb(*, truth_path: Path, descriptor_path: Path, source_root: Path, associ
     exports = artefacts.load_exports(sorted(Path(exports_dir).rglob("*.json")))
     by_run = {export.run_id: export for export in exports.values()}
     loaded, spec_shas = _instruments(instrument_specs, model_root)
+    bind_coverage_inputs(association, descriptor_sha, sorted(exports), ea, truth_sha, spec_shas,
+                         [instrument.identity() for instrument in loaded])
     frames_by_track: dict[tuple[str, str], list[coverage.PlateFrame]] = {}
     for item in truth["items"]:
         def load_native(path: str = item["imagePath"]) -> Any:

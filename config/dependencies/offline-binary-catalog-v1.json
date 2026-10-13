@@ -168,6 +168,36 @@
       "verification": "binary-kit file hashes plus pip --no-index install and pytest",
       "licence": "package licences governed by dependency policy",
       "dependencyPolicyId": "developer-offline-caches"
+    },
+    {
+      "id": "developer-benchmark-instrument-wheelhouse",
+      "role": "development-offline-cache",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "exact-pinned",
+      "baselineVersion": "tools/benchmarks/plates/requirements-instruments.txt (CPython 3.12, win_amd64 binary wheels)",
+      "exactVersionSource": "developer-cache-manifest.json benchmarkInstrumentArtifacts (file names, SHA-256, sizes) prepared from requirements-instruments.txt",
+      "binaryKitPath": "vendor/developer-cache/win-x64/python-benchmark-instruments-wheelhouse",
+      "releasePath": "prerequisites/developer/win-x64/python-benchmark-instruments-wheelhouse",
+      "verification": "binary-kit file hashes plus Install-PlateInstrumentEnvironment.ps1 (pip --no-index); Development benchmark only, never a Runtime Pack",
+      "licence": "package licences governed by dependency policy (fast-plate-ocr MIT, rapidocr-onnxruntime Apache-2.0, open-image-models MIT, onnxruntime MIT)",
+      "dependencyPolicyId": "developer-offline-caches"
+    },
+    {
+      "id": "developer-benchmark-instrument-payloads",
+      "role": "development-offline-cache",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "exact-pinned",
+      "baselineVersion": "tools/benchmarks/plates/instrument-payloads-v1.json",
+      "exactVersionSource": "instrument-payloads-v1.json SHA-256 per file, equal to docs/qualification/stage4/instruments/*.json modelFiles",
+      "binaryKitPath": "vendor/developer-cache/win-x64/benchmark-instrument-payloads",
+      "releasePath": "prerequisites/developer/win-x64/benchmark-instrument-payloads",
+      "verification": "instrument_env.py fetch-payloads/stage-models SHA-256 verification against the manifest and the instrument specifications; offline staging only",
+      "licence": "MIT (fast-plate-ocr cct-s-v2-global, open-image-models YOLOv9-s plates); rapidocr models ship in its Apache-2.0 wheel",
+      "dependencyPolicyId": "developer-offline-caches"
     }
   ],
   "visionRuntime": {

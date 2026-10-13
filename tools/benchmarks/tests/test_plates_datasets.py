@@ -314,3 +314,11 @@ def test_bdd_plate_labels_become_sequence_truth(tmp_path):
     assert items[0]["plates"][0]["textUsable"] and items[0]["vehicleClass"] == "car"
     with pytest.raises(S32Error, match="descriptor"):
         bdd_plate_labels.plate_items((tmp_path / "labels.json").read_bytes(), entries, "0" * 64, lambda p: (1, 1))
+
+
+def test_truth_command_refuses_an_incomplete_sequence(tmp_path):
+    # Review finding: an incompletely acquired sequence must not silently vanish from items and exclusions.
+    root, _, descriptor_path = _ufpr(tmp_path, {"track0001": {"split": "testing", "annotation": _good},
+                                                "track0002": {"split": "testing", "annotation": _good, "frames": 29}})
+    with pytest.raises(S32Error, match="source_manifest_incomplete:sequence:track0002"):
+        cli.build_truth(descriptor_path, root, ufpr_alpr.ADAPTER_ID, "testing")

@@ -134,6 +134,28 @@ Do not stop at updating a package file. Follow `docs/architecture/dependency-and
 
 For ordinary managed dependencies, the existing cache builders are intentionally generic: NuGet restores the solution closure, npm uses `package-lock.json`, and the Python Development wheelhouse is rebuilt from `pyproject.toml`. If a feature introduces a new optional/native/model/runtime dependency that is outside those closures, update `config/dependencies/offline-binary-catalog-v1.json`, the companion binary kit, Setup/readiness and its verification before considering the feature complete.
 
+### Stage-4 plate benchmark instruments (Development benchmark only)
+
+The plate evidence-adequacy benchmark (`tools/benchmarks/plates/cli.py`) runs in its own **CPython 3.12** environment, `tools/benchmarks/plates/requirements-instruments.txt`. It is never part of a MAVI Runtime Pack.
+
+**Connected preparation.** `tools/setup/Prepare-MaviDeveloperOfflineCache.ps1` adds two things to the developer cache:
+- `python-benchmark-instruments-wheelhouse/`: the environment's win_amd64 binary wheels;
+- `benchmark-instrument-payloads/`: the model files listed in `tools/benchmarks/plates/instrument-payloads-v1.json`, each verified by SHA-256.
+
+**Disconnected installation:**
+
+```powershell
+.\tools\benchmarks\plates\Install-PlateInstrumentEnvironment.ps1 -Python <CPython 3.12 python.exe> -Destination E:\MAVI-Working\instruments-venv -ModelRoot E:\MAVI-Controlled\Benchmarks\stage4-instruments
+```
+
+The installer:
+- runs `pip install --no-index` from the wheelhouse;
+- stages every model file into `-ModelRoot/<instrumentId>/`, taken from the cache or from the installed rapidocr wheel;
+- verifies each file against the manifest and `docs/qualification/stage4/instruments/<instrumentId>.json`;
+- refuses any mismatch.
+
+Pass that model root to the benchmark CLI as `--model-root`.
+
 ## Automatic database migrations
 
 MAVI applies pending EF Core migrations automatically during application startup in both Development and Production.

@@ -295,6 +295,29 @@ def _full_plate_table(rows: list[dict[str, Any]], instrument_ids: list[str]) -> 
     return table
 
 
+def pixel_adequacy(rows: list[dict[str, Any]], threshold: float) -> dict[str, Any]:
+    """Plan §3.4 criterion 3 (reported; the verdict rule uses C and ΔEM): ``U_role``, the share of ground-truth plates
+    whose plate in the role's encoded crop is at least ``h_min`` tall.
+
+    The population is every associated, text-usable plate (``allPlates``), plus the subset that is at least ``h_min``
+    natively (``nativeAtOrAboveHMin``, which isolates pixels lost by cropping and encoding). A plate that the role
+    did not admit, or that lies outside its crop, does not count as adequate."""
+    population = [row for row in rows if row["textUsable"] and row["association"] != "unassociated"]
+    native = [row for row in population if row["native"]["charHeightPx"] >= threshold]
+
+    def adequate(row: dict[str, Any], role: str) -> bool:
+        encoded = (row.get("roles") or {}).get(role) or {}
+        height = encoded.get("charHeightPx")
+        return bool(encoded.get("admitted")) and (encoded.get("plateInsideShare") or 0) > 0 and height is not None             and height >= threshold
+
+    def share(group: list[dict[str, Any]], role: str) -> dict[str, Any] | None:
+        k = sum(adequate(row, role) for row in group)
+        return None if not group else {"adequate": k, "n": len(group), "share": rational(Fraction(k, len(group)))}
+
+    return {role: {"allPlates": share(population, role), "nativeAtOrAboveHMin": share(native, role)}
+            for role in ROLES}
+
+
 def summarise(rows: list[dict[str, Any]], instrument_ids: list[str]) -> dict[str, Any]:
     counts = {"plates": len(rows), "textUsable": sum(row["textUsable"] for row in rows),
               "textUnusable": sum(not row["textUsable"] for row in rows),
@@ -314,6 +337,7 @@ def summarise(rows: list[dict[str, Any]], instrument_ids: list[str]) -> dict[str
     population = [row for row in eligible if row["association"] != "unassociated"]
     summary["population"] = {"atOrAboveHMin": len(eligible), "associated": len(population),
                              "excludedUnassociated": len(eligible) - len(population), "basis": basis(population)}
+    summary["pixelAdequacy"] = pixel_adequacy(rows, threshold)
     strata = _strata(population)
     loss: dict[str, Any] = {}
     for instrument_id in instrument_ids:

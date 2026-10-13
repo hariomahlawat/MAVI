@@ -176,3 +176,48 @@ def test_masked_match_needs_length_and_every_unmasked_character(read, expected):
 
 def test_unmasked_match_is_plain_equality():
     assert truths.text_matches("AB123", "AB123") and not truths.text_matches("AB124", "AB123")
+
+
+# E-B input binding (review finding: the association envelope and the E-A instruments)
+
+def _binding():
+    association = {"envelope": {"dataset": {"descriptorSha256": "d" * 64},
+                                "mavi": {"exportSha256s": ["b" * 64, "a" * 64]}}}
+    ea = {"inputs": {"truth": "t" * 64, "instrumentSpecs": ["s" * 64, "r" * 64]},
+          "instruments": [{"instrumentId": "x", "instrumentSha256": "1" * 64}]}
+    return association, ea
+
+
+def test_coverage_inputs_bound_to_the_association_and_encoding_loss():
+    from tools.benchmarks.plates import cli
+    association, ea = _binding()
+    identities = [{"instrumentId": "x", "instrumentSha256": "1" * 64}]
+    cli.bind_coverage_inputs(association, "d" * 64, ["a" * 64, "b" * 64], ea, "t" * 64, ["r" * 64, "s" * 64],
+                             identities)
+    for change, reason in [
+            (dict(descriptor_sha="e" * 64), "association_descriptor"),
+            (dict(export_shas=["a" * 64]), "association_exports"),
+            (dict(truth_sha="u" * 64), "encoding_loss_truth"),
+            (dict(spec_shas=["r" * 64, "q" * 64]), "encoding_loss_instruments"),
+            (dict(identities=[{"instrumentId": "x", "instrumentSha256": "2" * 64}]), "encoding_loss_instruments")]:
+        arguments = dict(descriptor_sha="d" * 64, export_shas=["a" * 64, "b" * 64], truth_sha="t" * 64,
+                         spec_shas=["r" * 64, "s" * 64], identities=identities, **{})
+        arguments.update(change)
+        with pytest.raises(S32Error, match=reason):
+            cli.bind_coverage_inputs(association, arguments["descriptor_sha"], arguments["export_shas"], ea,
+                                     arguments["truth_sha"], arguments["spec_shas"], arguments["identities"])
+
+
+def test_pixel_adequacy_counts_encoded_heights_at_or_above_h_min():
+    from tools.benchmarks.capabilities.plates import adequacy
+
+    def row(native, rep, sup, admitted=True, inside=1.0):
+        role = lambda h: {"admitted": admitted, "plateInsideShare": inside, "charHeightPx": h}  # noqa: E731
+        return {"textUsable": True, "association": "dataset-vehicle-box", "native": {"charHeightPx": native},
+                "roles": {"representative": role(rep), "supplemental": role(sup)}}
+    rows = [row(40, 33, 40), row(40, 20, 35), row(20, 20, 20), row(40, 40, 40, admitted=False),
+            row(40, 40, 40, inside=0.0)]
+    result = adequacy.pixel_adequacy(rows, 32)
+    assert result["representative"]["allPlates"]["adequate"] == 1 and result["representative"]["allPlates"]["n"] == 5
+    assert result["supplemental"]["nativeAtOrAboveHMin"]["adequate"] == 2
+    assert result["supplemental"]["nativeAtOrAboveHMin"]["n"] == 4

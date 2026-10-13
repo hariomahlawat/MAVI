@@ -216,6 +216,30 @@ BDD100K results are never presented as Indian-condition validation.
 - PR-4 and PR-5 follow their dependencies.
 - PR-6 is held; X1 did not remedy O3, and further profile changes need owner approval.
 
+## Review follow-up (Codex review of `b7e37793`, 2026-10-13)
+
+These are tooling corrections only. No frozen result, threshold or verdict changes, and every recorded input satisfies the new checks.
+
+- **E-B input binding.** E-B now refuses inputs that were not computed together:
+  - an association whose envelope names a different descriptor or export set;
+  - an E-A computed from a different truth, instrument specifications or instrument identities.
+
+  The frozen and human-reviewed inputs pass: the descriptor is `7169263a…`, the 200 exports equal the envelope's, and the E-A and E-B instruments are identical.
+- **UFPR truth.** An incompletely acquired sequence is now refused (`source_manifest_incomplete`) instead of being silently dropped.
+- **Pixel adequacy `U_role`** (plan §3.4 criterion 3; reported, not part of the verdict rule) is now in the E-A summary. Computed from the recorded E-A rows:
+
+  | Labels | Representative and supplemental, native ≥ `h_min` | All plates |
+  |---|---|---|
+  | Frozen | 308/308 = 1.000 | 308/485 = 0.635 |
+  | Human-reviewed | 329/329 = 1.000 | 329/514 = 0.640 |
+
+  No plate that is at least `h_min` natively falls below it after cropping and encoding (BDD vehicle crops are not downscaled). The coverage gap is selection and tracking, not pixels.
+- **Instrument environment offline packaging (AGENTS.md):**
+  - `Prepare-MaviDeveloperOfflineCache.ps1` now carries its CPython 3.12 win_amd64 wheelhouse and its model payloads (`tools/benchmarks/plates/instrument-payloads-v1.json`, SHA-256 verified).
+  - `tools/benchmarks/plates/Install-PlateInstrumentEnvironment.ps1` installs it disconnected (`pip --no-index`, verified model staging).
+  - Updated alongside: the binary catalog, the dependency policy, the Setup contract checks and the runbook.
+  - Checked on this host: 57 binary wheels and 3 external payloads fetched; offline install into a fresh environment; the instruments read 12 audit plate crops identically, text and confidence, to the environment that produced the frozen results.
+
 ## Reproduction and repeatability
 
 - **Hosts:** Windows 11 Development host (GTX 1650 Ti 4 GiB). Detector vehicle candidates run on the qualified CUDA vision runtime through the worker's own composition (`tools/benchmarks/plates/vehicle_candidates.py`). Instruments run on CPU, single-threaded, in CPython 3.12.10.

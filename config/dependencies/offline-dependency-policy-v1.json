@@ -191,7 +191,8 @@
         "connectedPreparationOnly": true,
         "pytorchIndex": "https://download.pytorch.org/whl/cu124",
         "rule": "Use the dedicated cu124 index, never --extra-index-url, and freeze exact wheel SHA-256 values before offline use."
-      }
+      },
+      "benchmarkEnvironments": "The Stage-4 measuring-instrument environment (tools/benchmarks/plates/requirements-instruments.txt, CPython 3.12, Development benchmark only) is packaged in the developer offline cache: its win_amd64 binary wheels and its model payloads (tools/benchmarks/plates/instrument-payloads-v1.json, SHA-256 verified) are prepared by tools/setup/Prepare-MaviDeveloperOfflineCache.ps1 and installed disconnected by tools/benchmarks/plates/Install-PlateInstrumentEnvironment.ps1 (pip --no-index, verified model staging). It is never part of a MAVI Runtime Pack or the vision lock."
     }
   },
   "nativeAndToolchain": [
