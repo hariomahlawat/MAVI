@@ -120,6 +120,7 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<VisionFinalizationOptions>, VisionFinalizationOptionsValidator>();
         services.AddSceneAnalyticsOptions(configuration);
         services.AddVisualAttributes(configuration);
+        services.AddPlates(configuration);
         services.AddTrackSearchOptions(configuration);
         services.AddOptions<LocalizationOptions>()
             .Bind(configuration.GetSection(LocalizationOptions.SectionName))
@@ -277,6 +278,42 @@ public static class VisualAttributeRegistration
         services.AddSingleton<VisualAttributeIntegrityMonitor>();
         services.AddScoped<Mavi.Application.Modules.VisualAttributes.Completion.IVisualAttributeCompletionService, VisualAttributeCompletionService>();
         return services;
+    }
+}
+
+/// <summary>
+/// The plate lifecycle's registrations (Stage 4 PR-3). Validated at start whether or not the host loop
+/// is enabled, so a misconfigured section fails before anything is served.
+/// </summary>
+public static class PlateRegistration
+{
+    public static IServiceCollection AddPlates(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddOptions<Mavi.Application.Modules.Plates.PlateOptions>()
+            .Bind(configuration.GetSection(Mavi.Application.Modules.Plates.PlateOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<Mavi.Application.Modules.Plates.PlateOptions>, PlateOptionsValidator>();
+        services.AddSingleton<Mavi.Application.Modules.Plates.IPlateRelease, Mavi.Infrastructure.Plates.PlateReleaseSource>();
+        services.AddSingleton<Mavi.Application.Modules.Plates.PlateWorkerPresence>();
+        services.AddSingleton<Mavi.Application.Modules.Plates.IPlateStagingStore, PlateStagingStore>();
+        services.AddScoped<Mavi.Application.Modules.Plates.IPlateLifecycle, PlateLifecycle>();
+        services.AddScoped<Mavi.Application.Modules.Plates.IPlateReadinessReader, PlateReadinessReader>();
+        services.AddScoped<Mavi.Application.Modules.Plates.PlateReadinessService>();
+        services.AddScoped<Mavi.Application.Modules.Plates.IPlateStagingJanitor, PlateStagingJanitor>();
+        services.AddSingleton<Mavi.Application.Modules.Plates.PlateIntegrityMonitor>();
+        services.AddScoped<Mavi.Application.Modules.Plates.Completion.IPlateCompletionService, Mavi.Infrastructure.Plates.PlateCompletionService>();
+        return services;
+    }
+}
+
+internal sealed class PlateOptionsValidator : IValidateOptions<Mavi.Application.Modules.Plates.PlateOptions>
+{
+    public ValidateOptionsResult Validate(string? name, Mavi.Application.Modules.Plates.PlateOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var problems = options.Validate();
+        return problems.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(problems);
     }
 }
 

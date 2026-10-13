@@ -1,0 +1,33 @@
+{
+  "description": "Cross-language pin of the PlatePredictions artefact and completion-body worst-case size bound (ADR-013 implementation amendment 2026-10-13, item 13; owner decision 2026-10-13). The bounded v1 processing profile allows at most 2 detector proposals and 1 accepted plate per evidence crop and at most 3 candidate readings for it; output beyond a configured bound is a contract violation, never truncated. Both the .NET release parser and the Python loader compute exactly these numbers from a profile's shape (maxDetectionsPerCrop, maxPlatesPerCrop, maxReadingsPerPlate) at 10,000 Tracks x 4 crops; every profile inside the v1 limits fits maximumBytes (the 64 MiB cap), and the largest, bounded-v1-profile, is the worst case.",
+  "maximumBytes": 67108864,
+  "vectors": [
+    {
+      "name": "bounded-v1-profile",
+      "maxDetectionsPerCrop": 2,
+      "maxPlatesPerCrop": 1,
+      "maxReadingsPerPlate": 3,
+      "worstCaseArtifactBytes": 63044096,
+      "worstCaseCompletionBytes": 55376384,
+      "accepted": true
+    },
+    {
+      "name": "one-proposal-one-reading",
+      "maxDetectionsPerCrop": 1,
+      "maxPlatesPerCrop": 1,
+      "maxReadingsPerPlate": 1,
+      "worstCaseArtifactBytes": 36164096,
+      "worstCaseCompletionBytes": 32336384,
+      "accepted": true
+    },
+    {
+      "name": "two-proposals-two-readings",
+      "maxDetectionsPerCrop": 2,
+      "maxPlatesPerCrop": 1,
+      "maxReadingsPerPlate": 2,
+      "worstCaseArtifactBytes": 51524096,
+      "worstCaseCompletionBytes": 43856384,
+      "accepted": true
+    }
+  ]
+}

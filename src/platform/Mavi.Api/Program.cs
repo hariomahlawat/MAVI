@@ -2,6 +2,7 @@ using System.Reflection;
 using Mavi.Api.Endpoints;
 using Mavi.Api.Finalization;
 using Mavi.Api.Middleware;
+using Mavi.Api.Plates;
 using Mavi.Api.SceneAnalytics;
 using Mavi.Api.Storage;
 using Mavi.Api.VisualAttributes;
@@ -38,6 +39,11 @@ builder.Services.AddHostedService<VisionFinalizationHostedService>();
 builder.Services.AddSingleton<VisualAttributeHostedService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<VisualAttributeHostedService>());
 builder.Services.AddSingleton<VisualAttributeAudit>();
+// The plate authority loop (Stage 4 PR-3): activation, queueing, the deadline/exhaustion sweep and
+// plate staging reclamation. Plates:Enabled gates it; with nothing configured it idles (NotConfigured).
+builder.Services.AddSingleton<PlateHostedService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<PlateHostedService>());
+builder.Services.AddSingleton<PlateAudit>();
 // Canonical API JSON policy: property names are case-sensitive and numeric properties must be JSON numbers.
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -58,6 +64,7 @@ var app = builder.Build();
 await app.VerifyNativeMediaToolsAsync();
 app.VerifyTrackCursorSigning();
 app.VerifyVisualAttributeRelease();
+app.VerifyPlateRelease();
 await app.ApplyDatabaseMigrationsAsync();
 // Client-aborted requests are expected control flow. Keep cancellation propagation intact in
 // repositories and services, but prevent routine RequestAborted exceptions from surfacing as
@@ -65,11 +72,13 @@ await app.ApplyDatabaseMigrationsAsync();
 app.UseMaviRequestCancellationHandling();
 app.UseVisionCompletionRequestLimits();
 app.UseVisualAttributeRequestLimits();
+app.UsePlateRequestLimits();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapGet("/api/health", (IStagingJanitorMonitor stagingJanitor, IVisionFinalizationMonitor visionFinalization,
-    Mavi.Application.Modules.VisualAttributes.VisualAttributeIntegrityMonitor visualAttributeIntegrity) =>
+    Mavi.Application.Modules.VisualAttributes.VisualAttributeIntegrityMonitor visualAttributeIntegrity,
+    Mavi.Application.Modules.Plates.PlateIntegrityMonitor plateIntegrity) =>
 {
     var assembly = typeof(Program).Assembly;
     var version = assembly.GetName().Version?.ToString() ?? "0.1.0";
@@ -80,7 +89,8 @@ app.MapGet("/api/health", (IStagingJanitorMonitor stagingJanitor, IVisionFinaliz
     metadata.TryGetValue("MaviBuild", out var build);
     metadata.TryGetValue("MaviCommit", out var commit);
     return Results.Ok(GetPlatformHealth.Execute(
-        version, build, commit, new PlatformHealthDetails(stagingJanitor.Current, visionFinalization.Current, visualAttributeIntegrity.Current)));
+        version, build, commit, new PlatformHealthDetails(stagingJanitor.Current, visionFinalization.Current, visualAttributeIntegrity.Current,
+            plateIntegrity.Current)));
 });
 
 app.MapHealthChecks("/health/live");
@@ -90,6 +100,7 @@ app.MapProcessingEndpoints();
 app.MapStorageTopologyEndpoints();
 app.MapVisionJobEndpoints();
 app.MapVisualAttributeEndpoints();
+app.MapPlateEndpoints();
 app.MapTrackEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapArtifactEndpoints();

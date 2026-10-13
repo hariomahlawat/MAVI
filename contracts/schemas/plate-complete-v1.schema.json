@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "plate-complete-v1",
+  "description": "The plate analysis completion request body (mavi-plate-control-v1; ADR-013 implementation amendment 2026-10-13, items 11-15). Readings carry raw text only: the platform derives normalised text, its outcome and the format class with mavi-plate-normalisation-v1. Track texts name their best plate by natural key. Cross-member rules (lease order, kept-reading prefix, box inside crop, text/summary agreement, equality with the sealed PlatePredictions artefact) are enforced by the platform validator.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "analysisId", "workerId", "attemptCount", "provenance", "payload"],
+  "properties": {
+    "schemaVersion": { "const": "mavi-plate-control-v1" },
+    "analysisId": { "$ref": "#/$defs/uuid" },
+    "workerId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "attemptCount": { "type": "integer", "minimum": 1 },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["predictionArtifact", "tracks"],
+      "properties": {
+        "predictionArtifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mediaType", "sizeBytes", "sha256"],
+          "properties": {
+            "mediaType": { "const": "application/json" },
+            "sizeBytes": { "type": "integer", "minimum": 1, "maximum": 67108864 },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "tracks": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/track" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provenanceContract", "roleId", "capabilities", "runtimePackFamilyId", "runtimeProfileSha256", "runtimeVariant",
+        "runtimePackId", "runtimePackSource", "componentBindingSha256", "pipelineProfileSha256", "configuredDevicePolicy",
+        "actualDevice", "maviBuild", "maviCommit"
+      ],
+      "properties": {
+        "provenanceContract": { "const": "plate-complete-v1" },
+        "roleId": { "const": "plates" },
+        "capabilities": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["capabilityId", "modelPackId", "modelManifestSha256", "qualificationId", "qualificationSha256", "verificationStatus"],
+            "properties": {
+              "capabilityId": { "enum": ["ocr", "plate-detector"] },
+              "modelPackId": { "type": "string", "pattern": "^mavi-model-v2-[0-9a-f]{64}$" },
+              "modelManifestSha256": { "$ref": "#/$defs/sha256" },
+              "qualificationId": { "type": "string", "maxLength": 64, "pattern": "^[a-z](?:[a-z0-9]|-(?=[a-z0-9]))*$" },
+              "qualificationSha256": { "$ref": "#/$defs/sha256" },
+              "verificationStatus": { "enum": ["verified", "unverified"] }
+            }
+          }
+        },
+        "runtimePackFamilyId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "runtimeProfileSha256": { "$ref": "#/$defs/sha256" },
+        "runtimeVariant": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "runtimePackId": { "type": ["string", "null"], "pattern": "^mavi-runtime-v2-[0-9a-f]{64}$" },
+        "runtimePackSource": { "enum": ["installed-pack", "unpacked-environment"] },
+        "componentBindingSha256": { "$ref": "#/$defs/sha256" },
+        "pipelineProfileSha256": { "$ref": "#/$defs/sha256" },
+        "configuredDevicePolicy": { "enum": ["cpu", "cuda", "auto"] },
+        "actualDevice": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "maviBuild": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "maviCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trackId", "outcome", "reason", "plateObservations", "texts"],
+      "properties": {
+        "trackId": { "$ref": "#/$defs/uuid" },
+        "outcome": { "enum": ["analysed", "unavailable"] },
+        "reason": {
+          "enum": [null, "evidence_integrity_failed", "evidence_missing", "evidence_decode_failed", "plate_inference_failed", "no_accepted_evidence"]
+        },
+        "plateObservations": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/plateObservation" } },
+        "texts": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/text" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "outcome": { "const": "analysed" } } },
+          "then": { "properties": { "reason": { "const": null } } },
+          "else": {
+            "properties": {
+              "reason": { "type": "string" },
+              "plateObservations": { "maxItems": 0 },
+              "texts": { "maxItems": 0 }
+            }
+          }
+        }
+      ]
+    },
+    "plateObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceObservationId", "plateIndex", "box", "cropWidth", "cropHeight", "detectorConfidence", "outcome", "readings"],
+      "properties": {
+        "sourceObservationId": { "$ref": "#/$defs/uuid" },
+        "plateIndex": { "type": "integer", "minimum": 0, "maximum": 0 },
+        "box": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "width", "height"],
+          "properties": {
+            "x": { "type": "integer", "minimum": 0, "maximum": 4095 },
+            "y": { "type": "integer", "minimum": 0, "maximum": 4095 },
+            "width": { "type": "integer", "minimum": 1, "maximum": 4096 },
+            "height": { "type": "integer", "minimum": 1, "maximum": 4096 }
+          }
+        },
+        "cropWidth": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "cropHeight": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "detectorConfidence": { "$ref": "#/$defs/confidence" },
+        "outcome": { "enum": ["read", "unreadable"] },
+        "readings": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/reading" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "outcome": { "const": "read" } } },
+          "then": { "properties": { "readings": { "minItems": 1 } } },
+          "else": { "properties": { "readings": { "maxItems": 0 } } }
+        }
+      ]
+    },
+    "reading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rank", "rawText", "rawLineCount", "confidence"],
+      "properties": {
+        "rank": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "rawText": {
+          "description": "1-32 UTF-16 code units; no C0 control character or DEL except one LF joining two non-empty lines, top line first.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+(\\n[^\\u0000-\\u001f\\u007f]+)?$"
+        },
+        "rawLineCount": { "enum": [1, 2] },
+        "confidence": { "$ref": "#/$defs/confidence", "description": "The recogniser's confidence in this whole reading, in [0, 1]. v1 records no per-character confidence or score (ADR-013 item 13)." }
+      }
+    },
+    "text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bestPlate", "supportCount", "maxConfidence"],
+      "properties": {
+        "bestPlate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sourceObservationId", "plateIndex"],
+          "properties": {
+            "sourceObservationId": { "$ref": "#/$defs/uuid" },
+            "plateIndex": { "type": "integer", "minimum": 0, "maximum": 0 }
+          }
+        },
+        "supportCount": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "maxConfidence": { "$ref": "#/$defs/confidence" }
+      }
+    }
+  }
+}

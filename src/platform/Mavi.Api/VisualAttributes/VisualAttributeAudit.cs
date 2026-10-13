@@ -9,7 +9,7 @@ namespace Mavi.Api.VisualAttributes;
 public sealed partial class VisualAttributeAudit(
     ILogger<VisualAttributeAudit> logger,
     VisualAttributeIntegrityMonitor integrity,
-    TimeProvider clock)
+    TimeProvider clock) : ILeaseEvidenceAudit
 {
     public void EvidenceServed(Guid analysisId, int attempt, Guid observationId, long bytes) =>
         LogEvidenceServed(logger, analysisId, attempt, observationId, bytes);

@@ -1093,6 +1093,8 @@ def check_contracts(errors: list[str]) -> None:
         # Stage 3 S3.2d-1 benchmark harness contracts (development tooling; never an API surface).
         "benchmark-dataset-release-v1", "benchmark-class-mapping-v1", "benchmark-association-v1",
         "benchmark-vehicle-subclass-result-v1",
+        # Stage 4 PR-3 plate control plane (ADR-013 implementation amendment 2026-10-13).
+        "plate-lease-v1", "plate-complete-v1", "plate-predictions-v1",
     ]
     pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:
@@ -1115,6 +1117,55 @@ def check_contracts(errors: list[str]) -> None:
     check_completion_v3_contract(errors)
     check_completion_v32_contract(errors)
     check_completion_v33_contract(errors)
+    check_plate_contract(errors)
+
+
+def check_plate_contract(errors: list[str]) -> None:
+    """The plate examples agree with each other and with the identity, digest and bound vectors.
+
+    The .NET tests (``PlateContractTests``) re-derive the identity, the digest and the bound arithmetic;
+    this check holds the checked-in artefacts to each other so neither side can drift silently.
+    """
+    examples = ROOT / "contracts/examples"
+    vectors = ROOT / "contracts/test-vectors"
+    lease = json.loads((examples / "plate-lease-v1.example.json").read_text(encoding="utf-8"))
+    completion = json.loads((examples / "plate-complete-v1.example.json").read_text(encoding="utf-8"))
+    predictions_bytes = (examples / "plate-predictions-v1.example.json").read_bytes()
+    predictions = json.loads(predictions_bytes)
+    canonical = (json.dumps(predictions, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False) + "\n").encode("ascii")
+    if canonical != predictions_bytes:
+        fail("The PlatePredictions example must be canonical JSON (sorted keys, compact, ASCII, one trailing LF).", errors)
+
+    artifact = completion["payload"]["predictionArtifact"]
+    if artifact["sizeBytes"] != len(predictions_bytes) or artifact["sha256"] != hashlib.sha256(predictions_bytes).hexdigest():
+        fail("The plate completion example must describe the PlatePredictions example's exact bytes.", errors)
+
+    identity = json.loads((vectors / "plate-identity-v1.json").read_text(encoding="utf-8"))["vectors"][0]
+    if hashlib.sha256(identity["canonicalIdentity"].encode("ascii")).hexdigest() != identity["fingerprint"]:
+        fail("plate-identity-v1.json: the fingerprint must be the SHA-256 of the canonical identity.", errors)
+    if lease["identity"]["fingerprint"] != identity["fingerprint"] or predictions["identityFingerprint"] != identity["fingerprint"]:
+        fail("The plate lease and predictions examples must name the identity vector's fingerprint.", errors)
+    normalisation_sha = hashlib.sha256((vectors / "plate-normalisation-v1.json").read_bytes()).hexdigest()
+    if f'"sha256":"{normalisation_sha}"' not in identity["canonicalIdentity"]:
+        fail("The plate identity must pin the SHA-256 of plate-normalisation-v1.json.", errors)
+
+    lease_tracks = [(track["trackId"], [item["observationId"] for item in track["observations"]]) for track in lease["tracks"]]
+    artefact_tracks = [(track["trackId"], [item["observationId"] for item in track["crops"]]) for track in predictions["tracks"]]
+    completion_tracks = [track["trackId"] for track in completion["payload"]["tracks"]]
+    if lease_tracks != artefact_tracks or [track for track, _ in lease_tracks] != completion_tracks:
+        fail("The plate examples must cover every leased Track and crop exactly once, in lease order.", errors)
+
+    digest = json.loads((vectors / "plate-completion-v1-digest.json").read_text(encoding="utf-8"))
+    if hashlib.sha256((ROOT / digest["example"]).read_bytes()).hexdigest() != digest["exampleSha256"]:
+        fail("The plate completion example changed without re-pinning its digest vector.", errors)
+    if not re.fullmatch(r"[0-9a-f]{64}", digest.get("digest", "")):
+        fail("The plate completion digest vector must pin a lower-case SHA-256 digest.", errors)
+
+    bound = json.loads((vectors / "plate-artifact-bound-v1.json").read_text(encoding="utf-8"))
+    for vector in bound["vectors"]:
+        fits = vector["worstCaseArtifactBytes"] <= bound["maximumBytes"] and vector["worstCaseCompletionBytes"] <= bound["maximumBytes"]
+        if fits != vector["accepted"]:
+            fail(f"plate-artifact-bound-v1.json: vector {vector['name']} is accepted only when both worst cases fit.", errors)
 
 
 def check_completion_v3_contract(errors: list[str]) -> None:
@@ -2131,7 +2182,7 @@ def main() -> int:
     print(" - direct dependency/offline packaging policy: synchronized")
     print(" - offline binary/version catalog: synchronized")
     print(" - ordinary Git executable/archive/large-file gate: clean")
-    print(" - contract examples: 33 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors, the S3.2 measurement, media, derivation and T9 artefacts, and the S3.2d-1 benchmark harness contracts)")
+    print(" - contract examples: 36 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors, the S3.2 measurement, media, derivation and T9 artefacts, the S3.2d-1 benchmark harness contracts, and the Stage-4 plate control plane)")
     print(" - Task-17 acceptance schemas/configuration: validated")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret/wheel scan: clean")
