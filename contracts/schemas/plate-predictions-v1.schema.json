@@ -139,7 +139,7 @@
       "additionalProperties": false,
       "required": ["confidence", "rank", "rawLineCount", "rawText"],
       "properties": {
-        "confidence": { "$ref": "#/$defs/confidence" },
+        "confidence": { "$ref": "#/$defs/confidence", "description": "The recogniser's confidence in this whole reading, in [0, 1]. v1 records no per-character confidence or score (ADR-013 item 13)." },
         "rank": { "type": "integer", "minimum": 0, "maximum": 2 },
         "rawLineCount": { "enum": [1, 2] },
         "rawText": {
