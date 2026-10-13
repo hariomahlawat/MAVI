@@ -163,77 +163,15 @@ public static class VisualAttributeEndpoints
         }
 
         var grant = authorization.Grant!;
-        Stream? stream = null;
-        try
-        {
-            stream = await evidenceReader.OpenReadAsync(grant.StorageKey, cancellationToken);
-        }
-        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
-        {
-            audit.EvidenceIntegrityIncident(id, attempt, observationId, "evidence_missing");
-            return Problem(422, "visual_attribute_evidence_missing", "The accepted evidence object is missing.");
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            // Not an authoritative statement about the object: the worker retries within its lease.
-            audit.EvidenceRefused(id, attempt, observationId, "evidence_unreadable");
-            return Problem(503, "visual_attribute_evidence_unreadable", "The accepted evidence object could not be read now.");
-        }
-
-        // The at-rest size is checked before any response header, so a short or long object
-        // is an explicit, authoritative integrity failure — never a truncated 200 (plan §10).
-        if (!stream.CanSeek || stream.Length != grant.SizeBytes)
-        {
-            await stream.DisposeAsync();
-            audit.EvidenceIntegrityIncident(id, attempt, observationId, "evidence_integrity_failed");
-            return Problem(422, "visual_attribute_evidence_integrity_failed", "The accepted evidence object does not match its record.");
-        }
-
-        // Authorised for the lifetime of the stream, not only for its first byte (plan §10).
-        var fenced = new LeaseFencedStream(stream,
-            token => lifecycle.RevalidateLeaseAsync(id, workerId, capability, attempt, token), clock, grant.LeaseExpiresAtUtc, verifiedAtUtc);
-        return new FencedEvidenceResult(fenced, grant, () => audit.EvidenceLeaseLost(id, attempt, observationId),
-            () => audit.EvidenceServed(id, attempt, observationId, grant.SizeBytes));
+        return await LeaseScopedEvidence.ServeAsync(id, attempt, observationId,
+            new LeaseEvidenceGrant(grant.StorageKey, grant.MimeType, grant.SizeBytes, grant.LeaseExpiresAtUtc), verifiedAtUtc,
+            token => lifecycle.RevalidateLeaseAsync(id, workerId, capability, attempt, token),
+            evidenceReader, audit, clock, EvidencePlane, Problem, cancellationToken);
     }
 
-    /// <summary>
-    /// Streams a fenced evidence object. Ownership lost before the first byte is a 409; after it,
-    /// the connection is aborted, so the worker sees an incomplete transfer — never a short 200.
-    /// </summary>
-    private sealed class FencedEvidenceResult(LeaseFencedStream stream, VisualAttributeEvidenceGrant grant, Action leaseLost, Action served) : IResult
-    {
-        public async Task ExecuteAsync(HttpContext httpContext)
-        {
-            await using var source = stream;
-            var response = httpContext.Response;
-            response.ContentType = grant.MimeType;
-            response.ContentLength = grant.SizeBytes;
-            response.Headers.CacheControl = "no-store";
-            var buffer = new byte[81_920];
-            try
-            {
-                int read;
-                while ((read = await source.ReadAsync(buffer, httpContext.RequestAborted)) > 0)
-                    await response.Body.WriteAsync(buffer.AsMemory(0, read), httpContext.RequestAborted);
-            }
-            catch (VisualAttributeLeaseLostException)
-            {
-                leaseLost();
-                if (response.HasStarted)
-                {
-                    httpContext.Abort();
-                    return;
-                }
-
-                response.ContentLength = null;
-                response.Headers.CacheControl = default;
-                await Refused(new VisualAttributeRefusal("visual_attribute_lease_invalid")).ExecuteAsync(httpContext);
-                return;
-            }
-
-            served();
-        }
-    }
+    /// <summary>The attribute plane's parameters of the shared lease-scoped evidence read.</summary>
+    private static readonly LeaseEvidencePlane EvidencePlane = new("visual_attribute", () => new VisualAttributeLeaseLostException(),
+        context => Refused(new VisualAttributeRefusal("visual_attribute_lease_invalid")).ExecuteAsync(context));
 
     // --- Prediction upload ---------------------------------------------------------------------
 

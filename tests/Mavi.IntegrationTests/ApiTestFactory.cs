@@ -89,6 +89,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     public string EnvironmentName { get; init; } = "Testing";
     public string? VisualAttributePipelineProfilePath { get; init; }
 
+    /// <summary>The plate release (Stage 4 PR-3): a Component Binding with a <c>plates</c> role and its profile.</summary>
+    public string? PlateComponentBindingPath { get; init; }
+    public string? PlatePipelineProfilePath { get; init; }
+
     public int StartupMigrationLockTimeoutSeconds { get; init; } = 30;
     public int StartupMigrationCommandTimeoutSeconds { get; init; } = 120;
 
@@ -121,6 +125,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["VisualAttributes:Enabled"] = "false",
                 ["VisualAttributes:ComponentBindingPath"] = VisualAttributeComponentBindingPath ?? string.Empty,
                 ["VisualAttributes:PipelineProfilePath"] = VisualAttributePipelineProfilePath ?? string.Empty,
+                // The plate loop stays off too: plate tests drive RunCycleAsync themselves.
+                ["Plates:Enabled"] = "false",
+                ["Plates:ComponentBindingPath"] = PlateComponentBindingPath ?? string.Empty,
+                ["Plates:PipelineProfilePath"] = PlatePipelineProfilePath ?? string.Empty,
                 ["DatabaseMigrations:LockTimeoutSeconds"] =
                     StartupMigrationLockTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["DatabaseMigrations:CommandTimeoutSeconds"] =

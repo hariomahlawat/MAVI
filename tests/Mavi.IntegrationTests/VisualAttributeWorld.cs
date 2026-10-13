@@ -77,7 +77,8 @@ internal sealed class VisualAttributeWorld : IDisposable
         int observationsPerTrack = 1,
         bool visible = true,
         bool writeFiles = true,
-        DateTimeOffset? completedAtUtc = null)
+        DateTimeOffset? completedAtUtc = null,
+        Func<Guid, int, byte[]>? cropBytes = null)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(observationsPerTrack, 4);
         var now = Clock.GetUtcNow();
@@ -101,7 +102,7 @@ internal sealed class VisualAttributeWorld : IDisposable
             var observations = new List<SeededObservation>();
             for (var rank = 0; rank < observationsPerTrack; rank++)
             {
-                var bytes = FakeJpeg(track.Id, rank);
+                var bytes = cropBytes?.Invoke(track.Id, rank) ?? FakeJpeg(track.Id, rank);
                 var sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes));
                 var storageKey = $"evidence/{run.Id:D}/attempt-0001/crops/{track.Id:N}-{rank}-{sha256}.jpg";
                 var artifact = Artifact.Create(ArtifactType.EvidenceCrop, storageKey, "image/jpeg", bytes.Length, sha256);
