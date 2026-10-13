@@ -174,6 +174,67 @@ public sealed class PlateApiTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task AnAmbiguousPublicationCommitPublishesNothingAndItsReplayPublishesExactlyOnce()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        await ActivateAndSeedAsync(host, persons: 0, vehicles: 2, crops: 2);
+        await host.RunCycleAsync();
+        var unit = await host.LeaseAsync();
+        var built = PlateCompletionBuilder.Build(unit.Lease);
+        using (var uploaded = await host.UploadAsync(unit, built.Predictions))
+            Assert.Equal(HttpStatusCode.OK, uploaded.StatusCode);
+
+        // Phase C writes every row and takes the barrier, then the commit is lost (an I/O failure in place of
+        // its success): the publication transaction never commits.
+        var (service, scope) = host.CompletionService(beforeCommit: () => throw new IOException("simulated loss of the commit"));
+        using (scope)
+        {
+            var result = await service.CompleteAsync(unit.AnalysisId, unit.Capability, built.Request, CancellationToken.None);
+            Assert.Equal((503, "plate_publication_ambiguous"), (result.HttpStatus, result.Code));
+        }
+
+        // Nothing partial is visible, read in one snapshot.
+        Assert.Equal((0L, 0L, 0L), await PublishedStateAsync());
+        Assert.Equal("Pending", (await host.ReadinessAsync((await host.UnitAsync(unit.AnalysisId)).ProcessingRunId)).GetProperty("state").GetString());
+
+        // The worker replays the identical body: exactly one publication, and a second replay changes nothing.
+        using (var completed = await host.CompleteAsync(unit, built.Request))
+            Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        var published = await PublishedStateAsync();
+        // 2 outcomes, 4 plate observations, 8 kept readings, 2 Track texts (each Track reads one text on both crops).
+        Assert.Equal((1L, 1L, 2L + 4L + 8L + 2L), published);
+        var first = await host.UnitAsync(unit.AnalysisId);
+        Assert.Equal(PlateAnalysisStatus.Completed, first.Status);
+
+        using (var replay = await host.CompleteAsync(unit, built.Request))
+        {
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+            Assert.Equal("completed", (await replay.Content.ReadFromJsonAsync<PlateCompleteResponse>())!.Status);
+        }
+
+        Assert.Equal(published, await PublishedStateAsync());
+        var again = await host.UnitAsync(unit.AnalysisId);
+        Assert.Equal((first.VisibilitySequence, first.CompletedAtUtc, first.PredictionArtifactId),
+            (again.VisibilitySequence, again.CompletedAtUtc, again.PredictionArtifactId));
+    }
+
+    /// <summary>(published units, PlatePredictions artefacts, plate fact rows) in one snapshot.</summary>
+    private async Task<(long Units, long Artefacts, long Facts)> PublishedStateAsync()
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new Npgsql.NpgsqlCommand("""
+            SELECT (SELECT count(*) FROM plate_analyses WHERE status = 'Completed' AND visibility_sequence IS NOT NULL),
+                   (SELECT count(*) FROM artifacts WHERE artifact_type = 'PlatePredictions'),
+                   (SELECT count(*) FROM plate_track_outcomes) + (SELECT count(*) FROM plate_observations)
+                 + (SELECT count(*) FROM plate_readings) + (SELECT count(*) FROM plate_track_texts)
+            """, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return (reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2));
+    }
+
+    [Fact]
     public async Task EvidenceThatDisagreesWithItsRecordIsAnAuthoritativeIntegrityIncident()
     {
         await using var host = await PlateApiHost.CreateAsync(fixture, T0);

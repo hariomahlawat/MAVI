@@ -149,11 +149,12 @@ public sealed class PlateEndToEndTests(PostgresFixture fixture, ITestOutputHelpe
         world.Clock.Advance(TimeSpan.FromSeconds(1));
         var run = await world.SeedRunAsync(1, 2, 2, completedAtUtc: world.Clock.GetUtcNow(), cropBytes: (_, _) => CropJpeg);
         Assert.Equal(1, (await cycle.RunCycleAsync(CancellationToken.None)).Queued);
-        // An attribute unit of the same run, under its own plane.
+        // The run's other planes: a completed, published attribute unit with its sealed-artefact record, and
+        // the run's VisionJob.
+        await VisualAttributePersistenceTests.SeedCompletedAnalysisAsync(world, run.RunId);
         await using (var db = world.Read())
         {
-            db.VisualAttributeAnalyses.Add(Mavi.Domain.VisualAttributes.VisualAttributeAnalysis.Queue(
-                run.RunId, VisualAttributeTestIdentity.Fields(), world.Clock.GetUtcNow()));
+            db.VisionJobs.Add(Mavi.Domain.Processing.VisionJob.Create(run.RunId, "phase1-detection-tracking", world.Clock.GetUtcNow().AddMinutes(-10)));
             await db.SaveChangesAsync();
         }
 
@@ -278,10 +279,17 @@ public sealed class PlateEndToEndTests(PostgresFixture fixture, ITestOutputHelpe
             await using var connection = new Npgsql.NpgsqlConnection(fixture.ConnectionString);
             await connection.OpenAsync();
             var digests = new List<string>();
-            foreach (var table in new[] { "processing_runs", "tracks", "observations", "visual_attribute_analyses", "visual_attributes" })
+            // Every artefact row except the plate plane's own PlatePredictions: source video, evidence crops and
+            // the attribute artefact.
+            foreach (var (table, filter) in new[]
+                     {
+                         ("processing_runs", ""), ("tracks", ""), ("observations", ""), ("vision_jobs", ""),
+                         ("visual_attribute_analyses", ""), ("visual_attributes", ""),
+                         ("artifacts", "WHERE t.artifact_type <> 'PlatePredictions'"),
+                     })
             {
                 await using var command = new Npgsql.NpgsqlCommand(
-                    $"SELECT count(*) || ':' || coalesce(md5(string_agg(row_to_json(t)::text, '|' ORDER BY t.id)), '') FROM {table} t", connection);
+                    $"SELECT count(*) || ':' || coalesce(md5(string_agg(row_to_json(t)::text, '|' ORDER BY t.id)), '') FROM {table} t {filter}", connection);
                 digests.Add($"{table}={await command.ExecuteScalarAsync()}");
             }
 
