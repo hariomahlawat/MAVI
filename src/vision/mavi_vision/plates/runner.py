@@ -27,7 +27,14 @@ from mavi_vision.plates.client import (
     PlateApiError,
     PlateLeaseLost,
 )
-from mavi_vision.plates.contracts import CompleteResponse, FailResponse, HeartbeatResponse, LeaseObservation, UploadResponse
+from mavi_vision.plates.contracts import (
+    EVIDENCE_CLAIM_CONTRADICTED,
+    CompleteResponse,
+    FailResponse,
+    HeartbeatResponse,
+    LeaseObservation,
+    UploadResponse,
+)
 from mavi_vision.plates.inference import PlateDetector, PlateRecogniser, VerifiedCrop
 from mavi_vision.plates.parameters import PlateParameters
 from mavi_vision.plates.pipeline import (
@@ -208,6 +215,8 @@ class PlateRunner:
             except PlateLeaseLost:
                 raise
             except PlateApiError as exc:
+                if exc.code == EVIDENCE_CLAIM_CONTRADICTED:
+                    raise _AttemptFailed(EVIDENCE_CLAIM_CONTRADICTED, "the platform found reported-unavailable evidence intact") from exc
                 if exc.status_code is not None and exc.status_code < 500:
                     raise _AttemptFailed("plate_output_invalid", f"completion refused ({exc.code})") from exc
                 # Transport or an ambiguous outcome: the identical body is replayed.

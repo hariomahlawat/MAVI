@@ -254,6 +254,7 @@ internal sealed class PlateApiHost : IAsyncDisposable
             services.GetRequiredService<IPlateRelease>(),
             services.GetRequiredService<IPlateStagingStore>(),
             services.GetRequiredService<IAcceptedEvidenceStore>(),
+            services.GetRequiredService<IAcceptedEvidenceReader>(),
             services.GetRequiredService<PlateIntegrityMonitor>(),
             services.GetRequiredService<Microsoft.Extensions.Options.IOptions<PlateOptions>>(),
             NullLogger<PlateCompletionService>.Instance)

@@ -96,7 +96,10 @@ FAILURE_CODE_RETRYABLE: Final = {
     "plate_inference_failed": True,
     "plate_output_invalid": False,
     "plate_contract_violation": False,
+    # The platform found a crop this worker reported unavailable intact at rest; the next attempt re-reads it.
+    "plate_evidence_claim_contradicted": True,
 }
+EVIDENCE_CLAIM_CONTRADICTED: Final = "plate_evidence_claim_contradicted"
 
 
 def is_profile_shape_in_range(max_detections: int, max_plates: int, max_readings: int) -> bool:

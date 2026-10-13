@@ -39,6 +39,7 @@ public sealed partial class PlateCompletionService(
     IPlateRelease release,
     IPlateStagingStore staging,
     IAcceptedEvidenceStore acceptedEvidence,
+    IAcceptedEvidenceReader evidenceReader,
     PlateIntegrityMonitor integrity,
     Microsoft.Extensions.Options.IOptions<PlateOptions> options,
     ILogger<PlateCompletionService> logger) : IPlateCompletionService
@@ -113,16 +114,23 @@ public sealed partial class PlateCompletionService(
             return PlateCompletionResult.Refused(409, "plate_prediction_not_staged");
         }
 
+        IReadOnlyList<Guid> claimedIncidents;
         await using (var stream = predictions)
         {
             var validation = await PlatePredictionsValidator.ValidateAsync(
                 stream, new PlatePredictionsValidator.Expectation(analysisId, identity, parameters, scope, completion), cancellationToken);
             if (validation.Error is not null) return PlateCompletionResult.Refused(422, validation.Error);
-            if (validation.IntegrityIncidents.Count > 0)
-            {
-                LogIntegrityReported(logger, analysisId, attempt, validation.IntegrityIncidents.Count);
-                integrity.RecordCompletionIncidents(analysisId, validation.IntegrityIncidents, timeProvider.GetUtcNow());
-            }
+            claimedIncidents = validation.IntegrityIncidents;
+        }
+
+        // The worker's evidence_missing / evidence_integrity_failed crops are claims, not facts: each is
+        // confirmed against the accepted object at rest (missing, wrong size or wrong SHA-256) before anything
+        // is sealed. Bounded by the claimed crops, each at most its recorded size; lock-free, inside the
+        // publication window Phase A granted.
+        if (claimedIncidents.Count > 0)
+        {
+            var refusal = await ConfirmEvidenceClaimsAsync(analysisId, attempt, runId, claimedIncidents, cancellationToken);
+            if (refusal is not null) return refusal;
         }
 
         var artefact = clock.Elapsed;
@@ -222,6 +230,13 @@ public sealed partial class PlateCompletionService(
         var end = clock.Elapsed;
         var timings = new PlateCompletionTimings(phaseA, artefact - phaseA, phaseB - artefact, end - phaseCStart,
             rowsWritten - phaseCStart, end - barrierAcquired);
+        if (claimedIncidents.Count > 0)
+        {
+            // Counted only for a publication that happened, once per crop however often it is reported again.
+            LogIntegrityReported(logger, analysisId, attempt, claimedIncidents.Count);
+            integrity.RecordCompletionIncidents(analysisId, claimedIncidents, timeProvider.GetUtcNow());
+        }
+
         LogPublished(logger, analysisId, attempt, published.Status, completion.Tracks.Count, timings.PhaseA.TotalMilliseconds,
             timings.ArtefactValidation.TotalMilliseconds, timings.PhaseB.TotalMilliseconds, timings.PhaseC.TotalMilliseconds,
             timings.PhaseCRowWrites.TotalMilliseconds, timings.BarrierHold.TotalMilliseconds);
@@ -263,6 +278,73 @@ public sealed partial class PlateCompletionService(
         }
 
         return (outcomes, observations, texts);
+    }
+
+    private enum AtRest
+    {
+        Intact,
+        Missing,
+        Mismatch,
+        Unreadable,
+    }
+
+    private async Task<PlateCompletionResult?> ConfirmEvidenceClaimsAsync(
+        Guid analysisId, int attempt, Guid runId, IReadOnlyList<Guid> claimed, CancellationToken cancellationToken)
+    {
+        var ids = claimed.Distinct().ToList();
+        var records = await (
+                from observation in db.Observations.AsNoTracking()
+                join track in db.Tracks.AsNoTracking() on observation.TrackId equals track.Id
+                join artifact in db.Artifacts.AsNoTracking() on observation.ThumbnailArtifactId equals artifact.Id
+                where track.ProcessingRunId == runId && ids.Contains(observation.Id) && artifact.ArtifactType == ArtifactType.EvidenceCrop
+                select new { observation.Id, artifact.StorageKey, artifact.SizeBytes, artifact.Sha256 })
+            .ToListAsync(cancellationToken);
+        if (records.Count != ids.Count) return PlateCompletionResult.Refused(400, PlateCompletionValidator.InvalidCode);
+
+        foreach (var record in records)
+        {
+            switch (await AtRestStateAsync(record.StorageKey, record.SizeBytes, record.Sha256, cancellationToken))
+            {
+                case AtRest.Intact:
+                    LogClaimContradicted(logger, analysisId, attempt, record.Id);
+                    return PlateCompletionResult.Refused(422, PlateContractRules.EvidenceClaimContradictedCode);
+                case AtRest.Unreadable:
+                    return PlateCompletionResult.Refused(503, "plate_evidence_unreadable");
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<AtRest> AtRestStateAsync(string storageKey, long sizeBytes, string sha256, CancellationToken cancellationToken)
+    {
+        Stream stream;
+        try
+        {
+            stream = await evidenceReader.OpenReadAsync(storageKey, cancellationToken);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return AtRest.Missing;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return AtRest.Unreadable;
+        }
+
+        await using (stream)
+        {
+            if (!stream.CanSeek || stream.Length != sizeBytes) return AtRest.Mismatch;
+            try
+            {
+                var digest = await System.Security.Cryptography.SHA256.HashDataAsync(stream, cancellationToken);
+                return string.Equals(Convert.ToHexStringLower(digest), sha256, StringComparison.Ordinal) ? AtRest.Intact : AtRest.Mismatch;
+            }
+            catch (IOException)
+            {
+                return AtRest.Unreadable;
+            }
+        }
     }
 
     private static PlateCompletionResult Replay(PlateAnalysis unit) => new(
@@ -319,6 +401,10 @@ public sealed partial class PlateCompletionService(
     private static partial void LogPersistenceFailed(ILogger logger, Guid analysisId, int attempt, Exception exception);
 
     [LoggerMessage(EventId = 2104, EventName = "plate_evidence_integrity_reported", Level = LogLevel.Error,
-        Message = "Plate analysis {AnalysisId} attempt {Attempt}: the worker reported {Crops} accepted evidence crop(s) missing or not matching their recorded digest.")]
+        Message = "Plate analysis {AnalysisId} attempt {Attempt} published {Crops} accepted evidence crop(s) as Unavailable; each was confirmed missing or not matching its record at rest.")]
     private static partial void LogIntegrityReported(ILogger logger, Guid analysisId, int attempt, int crops);
+
+    [LoggerMessage(EventId = 2105, EventName = "plate_evidence_claim_contradicted", Level = LogLevel.Warning,
+        Message = "Plate analysis {AnalysisId} attempt {Attempt}: the worker reported Observation {ObservationId} unavailable, but its accepted object is intact at rest; nothing was published.")]
+    private static partial void LogClaimContradicted(ILogger logger, Guid analysisId, int attempt, Guid observationId);
 }

@@ -361,6 +361,17 @@ def test_an_ambiguous_completion_replays_the_identical_body(parameters) -> None:
     assert len(api.completions) == 3 and len(set(api.completions)) == 1
 
 
+def test_a_contradicted_evidence_claim_fails_the_attempt_as_retryable(parameters) -> None:
+    from mavi_vision.plates.client import PlateApiError
+
+    refusal = PlateApiError("422", status_code=422, code=contracts.EVIDENCE_CLAIM_CONTRADICTED)
+    api = FakeApi(_lease(), complete=[refusal])
+    outcome = asyncio.run(_runner(api, parameters).run_once())
+    assert (outcome.status, outcome.failure_code) == ("failed", "plate_evidence_claim_contradicted")
+    assert contracts.FAILURE_CODE_RETRYABLE["plate_evidence_claim_contradicted"] is True
+    assert len(api.completions) == 1
+
+
 def test_contract_constants_match_the_platform() -> None:
     source = (ROOT / "src/platform/Mavi.Contracts/Worker/Plates/PlateContractRules.cs").read_text(encoding="utf-8")
     for constant, value in [

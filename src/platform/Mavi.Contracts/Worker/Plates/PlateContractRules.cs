@@ -224,7 +224,13 @@ public static class PlateContractRules
             ["plate_inference_failed"] = true,
             ["plate_output_invalid"] = false,
             ["plate_contract_violation"] = false,
+            // The platform found an evidence crop the worker reported unavailable intact at rest: the next
+            // attempt re-reads it.
+            ["plate_evidence_claim_contradicted"] = true,
         };
+
+    /// <summary>A completion's unavailable-evidence claim that the accepted object at rest contradicts.</summary>
+    public const string EvidenceClaimContradictedCode = "plate_evidence_claim_contradicted";
 
     /// <summary>Platform-owned terminal codes; a worker can never send them.</summary>
     public const string DeadlineExceededCode = "plate_deadline_exceeded";

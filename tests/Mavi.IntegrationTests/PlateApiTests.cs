@@ -214,6 +214,73 @@ public sealed class PlateApiTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task AnUnavailableEvidenceClaimThatTheObjectAtRestContradictsPublishesNothing()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        var run = await ActivateAndSeedAsync(host, persons: 0, vehicles: 1, crops: 1);
+        await host.RunCycleAsync();
+        var unit = await host.LeaseAsync();
+
+        // The crop is intact at rest, but the worker reports it missing.
+        var built = PlateCompletionBuilder.Build(unit.Lease, (_, _) => PlateCropSpec.Unavailable("evidence_missing"));
+        using (var refused = await host.UploadAndCompleteAsync(unit, built))
+        {
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+            Assert.Equal(PlateContractRules.EvidenceClaimContradictedCode, await CodeAsync(refused));
+        }
+
+        await using (var db = host.World.Read())
+        {
+            Assert.Equal(PlateAnalysisStatus.Running, (await db.PlateAnalyses.AsNoTracking().SingleAsync()).Status);
+            Assert.Empty(await db.PlateTrackOutcomes.AsNoTracking().ToListAsync());
+            Assert.DoesNotContain(await db.Artifacts.AsNoTracking().ToListAsync(), x => x.ArtifactType == ArtifactType.PlatePredictions);
+        }
+
+        Assert.Equal(0, host.Factory.Services.GetRequiredService<PlateIntegrityMonitor>().Current.CompletionIncidents);
+        // The worker fails the attempt as retryable; the next attempt re-reads the evidence.
+        Assert.True(PlateContractRules.FailureCodeRetryable[PlateContractRules.EvidenceClaimContradictedCode]);
+        using (var failed = await host.FailAsync(unit, PlateContractRules.EvidenceClaimContradictedCode))
+            Assert.Equal("requeued", (await failed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("outcome").GetString());
+    }
+
+    [Fact]
+    public async Task IntegrityIncidentsAreCountedOnlyForAPublicationAndOncePerCrop()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        var run = await ActivateAndSeedAsync(host, persons: 0, vehicles: 1, crops: 1);
+        await host.RunCycleAsync();
+        var unit = await host.LeaseAsync();
+        var missing = run.Track(0).Observations[0];
+        File.Delete(host.World.EvidencePath(missing.StorageKey));
+        var monitor = host.Factory.Services.GetRequiredService<PlateIntegrityMonitor>();
+
+        var built = PlateCompletionBuilder.Build(unit.Lease, (_, _) => PlateCropSpec.Unavailable("evidence_missing"));
+        using (var uploaded = await host.UploadAsync(unit, built.Predictions))
+            Assert.Equal(HttpStatusCode.OK, uploaded.StatusCode);
+
+        // A completion refused after the artefact check (its digest disagrees with the staged bytes) counts nothing.
+        var payload = built.Request.Payload!;
+        var wrong = built.Request with
+        {
+            Payload = payload with { PredictionArtifact = payload.PredictionArtifact! with { Sha256 = new string('0', 64) } },
+        };
+        using (var refused = await host.CompleteAsync(unit, wrong))
+            Assert.False(refused.IsSuccessStatusCode);
+        Assert.Equal(0, monitor.Current.CompletionIncidents);
+
+        using (var completed = await host.CompleteAsync(unit, built.Request))
+            Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        Assert.Equal(1, monitor.Current.CompletionIncidents);
+
+        // The committed replay publishes nothing new and counts nothing new.
+        using (var replay = await host.CompleteAsync(unit, built.Request))
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(1, monitor.Current.CompletionIncidents);
+        await using var db = host.World.Read();
+        Assert.Equal("evidence_missing", (await db.PlateTrackOutcomes.AsNoTracking().SingleAsync()).Reason);
+    }
+
+    [Fact]
     public async Task ATransientFailureIsRetriedAndATerminalOneFailsTheRunsReadiness()
     {
         await using var host = await PlateApiHost.CreateAsync(fixture, T0);
@@ -363,7 +430,10 @@ public sealed class PlateApiTests(PostgresFixture fixture)
         var run = await ActivateAndSeedAsync(host, persons: 1, vehicles: 3, crops: 2);
         await host.RunCycleAsync();
         var unit = await host.LeaseAsync();
-        // Track 0 analysed, track 1 unavailable (every crop missing), track 2 analysed.
+        // Track 0 analysed, track 1 unavailable (every crop missing at rest), track 2 analysed.
+        var gone = run.Tracks.Single(x => x.TrackId == unit.Lease.Tracks[1].TrackId);
+        foreach (var observation in gone.Observations)
+            File.Delete(host.World.EvidencePath(observation.StorageKey));
         var built = PlateCompletionBuilder.Build(unit.Lease,
             (track, _) => track == 1 ? PlateCropSpec.Unavailable("evidence_missing") : PlateCropSpec.Scored(PlateCompletionBuilder.DefaultProposal));
         using (var uploaded = await host.UploadAsync(unit, built.Predictions))
