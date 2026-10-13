@@ -235,6 +235,52 @@ public sealed class PlateApiTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task APublicationConstraintViolationIsRefusedForGoodAndPublishesNothing()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        await ActivateAndSeedAsync(host, persons: 0, vehicles: 1, crops: 1);
+        await host.RunCycleAsync();
+        var unit = await host.LeaseAsync();
+        // Stand-in for a platform defect: every outcome row now violates a CHECK constraint (SQLSTATE 23514).
+        await using (var db = host.World.Read())
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE plate_track_outcomes ADD CONSTRAINT ck_test_refuse_all CHECK (false) NOT VALID");
+
+        using (var refused = await host.UploadAndCompleteAsync(unit, PlateCompletionBuilder.Build(unit.Lease)))
+        {
+            // Deterministic: replaying the same body cannot succeed, so it is not a transient 503.
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+            Assert.Equal(Mavi.Infrastructure.Plates.PlateCompletionService.PersistenceRefusedCode, await CodeAsync(refused));
+        }
+
+        await using (var db = host.World.Read())
+        {
+            Assert.Equal(PlateAnalysisStatus.Running, (await db.PlateAnalyses.AsNoTracking().SingleAsync()).Status);
+            Assert.Empty(await db.PlateObservations.AsNoTracking().ToListAsync());
+            Assert.DoesNotContain(await db.Artifacts.AsNoTracking().ToListAsync(), x => x.ArtifactType == ArtifactType.PlatePredictions);
+        }
+    }
+
+    [Fact]
+    public async Task AQueuedUnitWithNoPermittedAttemptLeftIsFailedByTheSweep()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        await ActivateAndSeedAsync(host, persons: 0, vehicles: 1, crops: 1);
+        Assert.Equal(1, (await host.RunCycleAsync()).Queued);
+        // Requeued after attempt 3 under a higher limit, now above the configured MaximumAttempts (3): no claim can take it.
+        await using (var db = host.World.Read())
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE plate_analyses SET attempt_count = 3, first_claimed_at_utc = {T0} WHERE status = 'Queued'");
+        Assert.Equal(HttpStatusCode.NoContent, (await host.PostLeaseAsync("plates-01")).StatusCode);
+
+        Assert.Equal(1, (await host.SweepAsync()).ExhaustedFailed);
+        await using (var db = host.World.Read())
+        {
+            var unit = await db.PlateAnalyses.AsNoTracking().SingleAsync();
+            Assert.Equal((PlateAnalysisStatus.Failed, PlateAnalysis.AttemptsExhaustedCode), (unit.Status, unit.FailureCode));
+        }
+    }
+
+    [Fact]
     public async Task EvidenceThatDisagreesWithItsRecordIsAnAuthoritativeIntegrityIncident()
     {
         await using var host = await PlateApiHost.CreateAsync(fixture, T0);

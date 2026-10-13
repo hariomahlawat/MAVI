@@ -309,6 +309,24 @@ public sealed class PlateAnalysisTests
         Assert.Equal("plate_attempts_exhausted", unit.FailureCode);
     }
 
+    [Fact]
+    public void AQueuedUnitWithNoPermittedAttemptLeftIsExhausted()
+    {
+        // Requeued by a retryable failure of attempt 2 under MaximumAttempts = 3; then the limit is lowered to 2.
+        var unit = Claimed();
+        unit.FailAttempt(Worker, true, 1, "plate_evidence_transport_failed", retryable: true, null, T0.AddMinutes(1), Policy);
+        unit.Claim(Worker, Hash(2), T0.AddMinutes(2), Policy);
+        unit.FailAttempt(Worker, true, 2, "plate_evidence_transport_failed", retryable: true, null, T0.AddMinutes(3), Policy);
+        Assert.Equal(PlateAnalysisStatus.Queued, unit.Status);
+        var lowered = Policy with { MaximumAttempts = 2 };
+        Assert.False(unit.CanClaim(T0.AddMinutes(4), lowered));
+        Assert.False(unit.IsExhausted(T0.AddMinutes(4), Policy));
+
+        Assert.True(unit.IsExhausted(T0.AddMinutes(4), lowered));
+        unit.FailAttemptsExhausted(T0.AddMinutes(4), lowered);
+        Assert.Equal((PlateAnalysisStatus.Failed, "plate_attempts_exhausted"), (unit.Status, unit.FailureCode));
+    }
+
     // --- Completion (Phase C) ------------------------------------------------------------------
 
     [Fact]

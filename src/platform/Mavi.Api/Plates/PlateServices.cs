@@ -71,7 +71,8 @@ public sealed partial class PlateAudit(ILogger<PlateAudit> logger, PlateIntegrit
 /// <summary>
 /// The platform's plate authority loop: records the preferred identity's activation, queues eligible
 /// runs completed after it, fails units past their deadline or out of attempts — none of which waits for
-/// a worker — and reclaims plate staging. With the release removed it only sweeps and reclaims.
+/// a worker — and reclaims plate staging. With the release removed (and the host enabled) it only sweeps
+/// and reclaims. With <c>Plates:Enabled</c> off the loop does not run at all; see <see cref="PlateOptions.Enabled"/>.
 /// </summary>
 public sealed partial class PlateHostedService(
     IServiceScopeFactory scopeFactory,

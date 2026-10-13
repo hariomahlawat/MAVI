@@ -260,10 +260,16 @@ public sealed class PlateAnalysis
 
     // --- Platform-owned terminal transitions ---------------------------------------------
 
+    /// <summary>
+    /// No permitted attempt is left and none is live: a Running unit whose last attempt's lease expired, or a
+    /// Queued unit (requeued by a retryable failure) whose attempts already reach a lowered
+    /// <see cref="PlateLeasePolicy.MaximumAttempts"/> — which no claim could take, so it would otherwise wait forever.
+    /// </summary>
     public bool IsExhausted(DateTimeOffset nowUtc, PlateLeasePolicy policy)
     {
         ArgumentNullException.ThrowIfNull(policy);
-        return Status == PlateAnalysisStatus.Running && AttemptCount >= policy.MaximumAttempts && !HasLiveLease(nowUtc);
+        return Status is PlateAnalysisStatus.Running or PlateAnalysisStatus.Queued &&
+               AttemptCount >= policy.MaximumAttempts && !HasLiveLease(nowUtc);
     }
 
     /// <summary>
@@ -288,7 +294,7 @@ public sealed class PlateAnalysis
         Terminate(DeadlineExceededCode, null, nowUtc.ToUniversalTime());
     }
 
-    /// <summary>The platform ends a unit whose last permitted attempt's lease expired unfinished.</summary>
+    /// <summary>The platform ends a unit with no permitted attempt left (<see cref="IsExhausted"/>).</summary>
     public void FailAttemptsExhausted(DateTimeOffset nowUtc, PlateLeasePolicy policy)
     {
         if (!IsExhausted(nowUtc, policy)) throw Invalid();

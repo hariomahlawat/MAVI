@@ -182,12 +182,13 @@ def analyse_crop(
         boxes = list(detector.detect(image, verified))
     except Exception:  # noqa: BLE001 - any detector fault is the crop's abstention, by contract.
         return abstained("detector_error", width, height)
+    # The configured bound first: over-bound output is a contract violation whatever its items look like.
+    if len(boxes) > parameters.max_detections_per_crop:
+        raise OutputInvalid("plate_detector_output_exceeds_bound")
     for box in boxes:
         if not (isinstance(box, PlateBox) and _probability(box.score) and box.x >= 0 and box.y >= 0 and box.width >= 1
                 and box.height >= 1 and box.x + box.width <= width and box.y + box.height <= height):
             return abstained("detector_error", width, height)
-    if len(boxes) > parameters.max_detections_per_crop:
-        raise OutputInvalid("plate_detector_output_exceeds_bound")
     recorded = sorted(boxes, key=lambda box: (-box.score, box.x, box.y, box.width, box.height))
 
     selected = 0
@@ -205,11 +206,11 @@ def analyse_crop(
                 readings = list(recogniser.read(region, verified, box))
             except Exception:  # noqa: BLE001 - any OCR fault is the crop's abstention, by contract.
                 return abstained("ocr_error", width, height, _without_plates(recorded))
+            if len(readings) > parameters.max_readings_per_plate:
+                raise OutputInvalid("plate_recogniser_output_exceeds_bound")
             if not all(isinstance(item, Reading) and is_raw_text(item.raw_text) and _probability(item.confidence)
                        for item in readings):
                 return abstained("ocr_output_invalid", width, height, _without_plates(recorded))
-            if len(readings) > parameters.max_readings_per_plate:
-                raise OutputInvalid("plate_recogniser_output_exceeds_bound")
             plate = _plate(index, readings, parameters)
         detections.append(DetectionRecord((box.x, box.y, box.width, box.height), float(box.score), plate))
     return CropRecord(observation.observation_id, observation.role, observation.evidence_rank, CROP_SCORED, None, width, height,

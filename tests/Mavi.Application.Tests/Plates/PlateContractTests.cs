@@ -80,6 +80,15 @@ public sealed class PlateContractTests
     }
 
     [Fact]
+    public void AReanalysisRequestIsBoundedByThePlansHundredRuns()
+    {
+        Assert.Equal(100, Mavi.Application.Modules.Plates.PlateOptions.MaximumReanalysisRunsCeiling);
+        Assert.Empty(new Mavi.Application.Modules.Plates.PlateOptions { MaximumRunsPerReanalysisRequest = 100 }.Validate());
+        Assert.Contains(new Mavi.Application.Modules.Plates.PlateOptions { MaximumRunsPerReanalysisRequest = 101 }.Validate(),
+            problem => problem.Contains("MaximumRunsPerReanalysisRequest", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ReadingsRankInTheCrossLanguageOrder()
     {
         using var document = JsonDocument.Parse(Bytes("contracts/test-vectors/plate-reading-order-v1.json"));

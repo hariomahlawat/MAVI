@@ -16,8 +16,11 @@ namespace Mavi.Infrastructure.Persistence.Migrations
     /// <remarks>
     /// Additive only: no existing table or column changes and no historical row is written, so a Track
     /// without a plate analysis reports readiness, never an empty fact. <c>ArtifactType.PlatePredictions</c>
-    /// needs no schema change (<c>artifact_type</c> is unconstrained text). Binary rollback stays safe: an
-    /// older platform ignores the new tables. Search indexes on plate text are PR-4's, from measured plans.
+    /// needs no schema change (<c>artifact_type</c> is unconstrained text). Binary rollback is safe only until
+    /// the first plate completion is published: an older platform ignores the new tables, but it has no
+    /// <c>PlatePredictions</c> member in its <c>ArtifactType</c> conversion, so materialising an
+    /// <c>artifacts</c> row of that type fails there. Rolling back after a plate publication is unsupported.
+    /// Search indexes on plate text are PR-4's, from measured plans.
     /// </remarks>
     public partial class AddPlateAnalysisLifecycle : Migration
     {

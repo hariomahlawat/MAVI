@@ -16,9 +16,16 @@ public sealed class PlateOptions
 {
     public const string SectionName = "Plates";
     public const int MinimumLeaseSeconds = 60;
-    public const int MaximumReanalysisRunsCeiling = 1000;
+    /// <summary>The plan's bound on one explicit re-analysis request (Stage 4 plan §2.2: at most 100 runs).</summary>
+    public const int MaximumReanalysisRunsCeiling = 100;
 
-    /// <summary>Runs the reconciler, deadline sweep and staging janitor host.</summary>
+    /// <summary>
+    /// Runs the plate authority loop: activation and queueing, the deadline and attempts-exhausted sweep, and the
+    /// plate staging janitor. With it off none of them runs, while the control plane still serves a configured
+    /// release: a leased unit is then only reclaimed on lease expiry by another worker — never failed for its
+    /// deadline or exhausted attempts — and plate staging is never reclaimed. Off is for tests that drive cycles
+    /// themselves and for a deployment with no plate release; a deployment that serves plate workers runs it on.
+    /// </summary>
     public bool Enabled { get; init; }
 
     /// <summary>The release Component Binding the plates worker composes from.</summary>

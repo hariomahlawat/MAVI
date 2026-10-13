@@ -327,10 +327,10 @@ public sealed class PlateLifecycle(
 
         var abandoned = await db.PlateAnalyses.FromSqlInterpolated($"""
             SELECT * FROM plate_analyses
-            WHERE status = 'Running'
+            WHERE status IN ('Queued', 'Running')
               AND attempt_count >= {policy.MaximumAttempts}
-              AND lease_expires_at_utc <= {nowUtc}
-            ORDER BY lease_expires_at_utc, id
+              AND (lease_expires_at_utc IS NULL OR lease_expires_at_utc <= {nowUtc})
+            ORDER BY lease_expires_at_utc NULLS FIRST, id
             FOR UPDATE SKIP LOCKED LIMIT {batchSize}
             """).ToListAsync(cancellationToken);
         var exhausted = 0;

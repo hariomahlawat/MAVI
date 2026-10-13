@@ -193,7 +193,12 @@ public sealed partial class PlateCompletionService(
             {
                 await transaction.RollbackAsync(CancellationToken.None);
                 LogPersistenceFailed(logger, analysisId, attempt, exception);
-                return PlateCompletionResult.Refused(503, "plate_persistence_failed");
+                // An integrity-constraint violation (SQLSTATE class 23) repeats on every replay of the same
+                // body: a platform defect, refused for good. Anything else (a deadlock, a lost connection) is
+                // transient and the worker replays.
+                return IsConstraintViolation(exception)
+                    ? PlateCompletionResult.Refused(422, PersistenceRefusedCode)
+                    : PlateCompletionResult.Refused(503, "plate_persistence_failed");
             }
 
             rowsWritten = clock.Elapsed;
@@ -279,6 +284,13 @@ public sealed partial class PlateCompletionService(
 
         return (outcomes, observations, texts);
     }
+
+    /// <summary>The publication rows violated a database constraint: deterministic, never retried.</summary>
+    public const string PersistenceRefusedCode = "plate_persistence_refused";
+
+    private static bool IsConstraintViolation(Exception exception) =>
+        (exception as Npgsql.PostgresException ?? exception.InnerException as Npgsql.PostgresException) is { SqlState: { } state } &&
+        state.StartsWith("23", StringComparison.Ordinal);
 
     private enum AtRest
     {

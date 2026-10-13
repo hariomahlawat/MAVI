@@ -152,6 +152,16 @@ def test_output_beyond_a_configured_bound_fails_the_attempt_and_is_never_truncat
         analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector([PlateBox(5, 5, 40, 10, 0.9)]), _Recogniser(four), PARAMETERS)
 
 
+def test_the_count_bound_is_checked_before_the_items() -> None:
+    # Over-bound output with a malformed item is still a contract violation, never an abstention.
+    malformed = [PlateBox(10, 10, 40, 10, 0.3), PlateBox(5, 5, 40, 10, 0.9), PlateBox(-1, 60, 40, 10, 0.2)]
+    with pytest.raises(OutputInvalid, match="plate_detector_output_exceeds_bound"):
+        analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector(malformed), _Recogniser(), PARAMETERS)
+    readings = [Reading("A", 0.9), Reading("B", 0.8), Reading("C", 0.7), Reading("D", 7.0)]
+    with pytest.raises(OutputInvalid, match="plate_recogniser_output_exceeds_bound"):
+        analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector([PlateBox(5, 5, 40, 10, 0.9)]), _Recogniser(readings), PARAMETERS)
+
+
 def test_no_box_above_the_detector_floor_selects_no_plate() -> None:
     record = analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector([PlateBox(5, 5, 40, 10, 0.2)]), _Recogniser(), PARAMETERS)
     assert record.status == contracts.CROP_SCORED
