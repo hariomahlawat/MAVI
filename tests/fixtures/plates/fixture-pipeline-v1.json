@@ -6,7 +6,7 @@
   "predictionsSchemaVersion": "mavi-plate-predictions-v1",
   "normalisation": {
     "id": "mavi-plate-normalisation-v1",
-    "sha256": "84368e30a745da23a68eaef2d6a2667a3f544bd6978ac0653ffb46ab3a1c4bad"
+    "sha256": "6e505158a735a1c4c5d96ad33d08e4ddb0b98d456f0dd532a6af25de120bf935"
   },
   "summaryPolicy": {
     "file": "fixture-summary-policy-v1.json",

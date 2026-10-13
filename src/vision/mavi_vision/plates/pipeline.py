@@ -7,12 +7,15 @@ the platform re-checks them.
 
 Rules, all deterministic:
 
-* Detector boxes are ordered by score (descending), then ``x, y, width, height``; the first
-  ``maxDetectionsPerCrop`` are recorded and the rest counted in ``detectionsOmitted``.
-* The selected plates are the leading recorded boxes whose score reaches ``detectorConfidenceFloor``,
-  at most ``maxPlatesPerCrop``; ``plateIndex`` is their position.
-* Readings are ordered by confidence (descending), then raw text (ordinal); the first
-  ``maxReadingsPerPlate`` are recorded with ``rank`` = position. A plate is ``read`` when its rank-0
+* The models are configured to emit within the bounded profile: at most ``maxDetectionsPerCrop``
+  proposals per crop and ``maxReadingsPerPlate`` readings per plate. More is a contract violation that
+  fails the attempt (``OutputInvalid`` -> ``plate_output_invalid``); nothing is ever truncated, and every
+  output inside the bounds is retained in the artefact.
+* Detector boxes are ordered by score (descending), then ``x, y, width, height``; every one is recorded.
+* The selected plates are the leading boxes whose score reaches ``detectorConfidenceFloor``, at most
+  ``maxPlatesPerCrop``; ``plateIndex`` is their position.
+* Readings are ordered by confidence (descending), then raw text (ordinal), with ``rank`` = position;
+  every one is recorded. A plate is ``read`` when its rank-0
   reading reaches ``ocrConfidenceFloor`` — and then the readings at or above the floor are kept — and
   ``unreadable`` otherwise.
 * A crop whose role the profile excludes is ``excluded``; a missing or mismatching crop is
@@ -109,7 +112,6 @@ class CropRecord:
     width: int | None
     height: int | None
     detections: tuple[DetectionRecord, ...]
-    detections_omitted: int
 
     def plates(self) -> Iterable[tuple[DetectionRecord, PlateRecord]]:
         if self.status != CROP_SCORED:
@@ -140,13 +142,13 @@ def _probability(value: object) -> bool:
 
 
 def excluded_crop(observation: LeaseObservation) -> CropRecord:
-    return CropRecord(observation.observation_id, observation.role, observation.evidence_rank, CROP_EXCLUDED, None, None, None, (), 0)
+    return CropRecord(observation.observation_id, observation.role, observation.evidence_rank, CROP_EXCLUDED, None, None, None, ())
 
 
 def unavailable_crop(observation: LeaseObservation, reason: str) -> CropRecord:
     if reason not in CROP_UNAVAILABLE_REASONS:
         raise OutputInvalid("plate_crop_reason_invalid")
-    return CropRecord(observation.observation_id, observation.role, observation.evidence_rank, CROP_UNAVAILABLE, reason, None, None, (), 0)
+    return CropRecord(observation.observation_id, observation.role, observation.evidence_rank, CROP_UNAVAILABLE, reason, None, None, ())
 
 
 def analyse_crop(
@@ -156,12 +158,16 @@ def analyse_crop(
     recogniser: PlateRecogniser,
     parameters: PlateParameters,
 ) -> CropRecord:
-    """Decode once, detect, select, read. Faults abstain the whole crop; they are never negative facts."""
+    """Decode once, detect, select, read. Faults abstain the whole crop; they are never negative facts.
+
+    Raises ``OutputInvalid`` when a model emits more than its configured bound: a contract violation of
+    the bounded profile, which fails the attempt rather than being truncated.
+    """
 
     def abstained(reason: str, width: int | None = None, height: int | None = None,
-                  detections: tuple[DetectionRecord, ...] = (), omitted: int = 0) -> CropRecord:
+                  detections: tuple[DetectionRecord, ...] = ()) -> CropRecord:
         return CropRecord(observation.observation_id, observation.role, observation.evidence_rank, CROP_ABSTAINED, reason,
-                          width, height, detections, omitted)
+                          width, height, detections)
 
     try:
         image = decode_crop(verified.content)
@@ -179,9 +185,9 @@ def analyse_crop(
         if not (isinstance(box, PlateBox) and _probability(box.score) and box.x >= 0 and box.y >= 0 and box.width >= 1
                 and box.height >= 1 and box.x + box.width <= width and box.y + box.height <= height):
             return abstained("detector_error", width, height)
-    ordered = sorted(boxes, key=lambda box: (-box.score, box.x, box.y, box.width, box.height))
-    recorded = ordered[: parameters.max_detections_per_crop]
-    omitted = len(ordered) - len(recorded)
+    if len(boxes) > parameters.max_detections_per_crop:
+        raise OutputInvalid("plate_detector_output_exceeds_bound")
+    recorded = sorted(boxes, key=lambda box: (-box.score, box.x, box.y, box.width, box.height))
 
     selected = 0
     for box in recorded:
@@ -197,14 +203,16 @@ def analyse_crop(
             try:
                 readings = list(recogniser.read(region, verified, box))
             except Exception:  # noqa: BLE001 - any OCR fault is the crop's abstention, by contract.
-                return abstained("ocr_error", width, height, _without_plates(recorded), omitted)
+                return abstained("ocr_error", width, height, _without_plates(recorded))
             if not all(isinstance(item, Reading) and is_raw_text(item.raw_text) and _probability(item.confidence)
                        for item in readings):
-                return abstained("ocr_output_invalid", width, height, _without_plates(recorded), omitted)
+                return abstained("ocr_output_invalid", width, height, _without_plates(recorded))
+            if len(readings) > parameters.max_readings_per_plate:
+                raise OutputInvalid("plate_recogniser_output_exceeds_bound")
             plate = _plate(index, readings, parameters)
         detections.append(DetectionRecord((box.x, box.y, box.width, box.height), float(box.score), plate))
     return CropRecord(observation.observation_id, observation.role, observation.evidence_rank, CROP_SCORED, None, width, height,
-                      tuple(detections), omitted)
+                      tuple(detections))
 
 
 def _without_plates(recorded: list[PlateBox]) -> tuple[DetectionRecord, ...]:
@@ -212,7 +220,7 @@ def _without_plates(recorded: list[PlateBox]) -> tuple[DetectionRecord, ...]:
 
 
 def _plate(index: int, readings: list[Reading], parameters: PlateParameters) -> PlateRecord:
-    ordered = sorted(readings, key=lambda item: (-item.confidence, item.raw_text))[: parameters.max_readings_per_plate]
+    ordered = sorted(readings, key=lambda item: (-item.confidence, item.raw_text))
     ranked = tuple(
         RankedReading(rank, item.raw_text, raw_line_count(item.raw_text), float(item.confidence)) for rank, item in enumerate(ordered)
     )

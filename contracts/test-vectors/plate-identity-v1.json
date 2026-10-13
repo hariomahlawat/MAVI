@@ -8,8 +8,8 @@
         "ocr": "mavi-model-v2-3333333333333333333333333333333333333333333333333333333333333333",
         "plate-detector": "mavi-model-v2-4444444444444444444444444444444444444444444444444444444444444444"
       },
-      "canonicalIdentity": "{\"capabilities\":[{\"capabilityId\":\"ocr\",\"modelPackId\":\"mavi-model-v2-3333333333333333333333333333333333333333333333333333333333333333\"},{\"capabilityId\":\"plate-detector\",\"modelPackId\":\"mavi-model-v2-4444444444444444444444444444444444444444444444444444444444444444\"}],\"normalisation\":{\"id\":\"mavi-plate-normalisation-v1\",\"sha256\":\"84368e30a745da23a68eaef2d6a2667a3f544bd6978ac0653ffb46ab3a1c4bad\"},\"parametersSha256\":\"d19bf0705c880fdf49895f99ba95e5bda61843222d1111764173e877b0128e02\",\"pipeline\":{\"id\":\"plates-fixture\",\"version\":\"1.0.0\"},\"predictionsSchemaVersion\":\"mavi-plate-predictions-v1\",\"schemaVersion\":\"mavi-plate-identity-v1\",\"summaryPolicy\":{\"id\":\"plate-track-text-rank0\",\"sha256\":\"1fb72dd2ce254a2190cd19290bc7304342d16bdacc417a03e7589cd202eecd1f\",\"version\":\"1.0.0\"}}\n",
-      "fingerprint": "e37f714e831c77195b745d0ca60b566a42b772b2401120fe6ec95e5e8ae01f4f"
+      "canonicalIdentity": "{\"capabilities\":[{\"capabilityId\":\"ocr\",\"modelPackId\":\"mavi-model-v2-3333333333333333333333333333333333333333333333333333333333333333\"},{\"capabilityId\":\"plate-detector\",\"modelPackId\":\"mavi-model-v2-4444444444444444444444444444444444444444444444444444444444444444\"}],\"normalisation\":{\"id\":\"mavi-plate-normalisation-v1\",\"sha256\":\"6e505158a735a1c4c5d96ad33d08e4ddb0b98d456f0dd532a6af25de120bf935\"},\"parametersSha256\":\"d19bf0705c880fdf49895f99ba95e5bda61843222d1111764173e877b0128e02\",\"pipeline\":{\"id\":\"plates-fixture\",\"version\":\"1.0.0\"},\"predictionsSchemaVersion\":\"mavi-plate-predictions-v1\",\"schemaVersion\":\"mavi-plate-identity-v1\",\"summaryPolicy\":{\"id\":\"plate-track-text-rank0\",\"sha256\":\"1fb72dd2ce254a2190cd19290bc7304342d16bdacc417a03e7589cd202eecd1f\",\"version\":\"1.0.0\"}}\n",
+      "fingerprint": "521d596506f98622a5d4e49e8b8a6f7d51c0ec7d8199f257ef097e4db723eb25"
     }
   ]
 }

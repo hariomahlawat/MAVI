@@ -85,8 +85,14 @@ public sealed class PlateContractTests
         using var document = JsonDocument.Parse(Bytes("contracts/test-vectors/plate-artifact-bound-v1.json"));
         Assert.Equal(PlateContractRules.MaximumPredictionArtifactBytes, document.RootElement.GetProperty("maximumBytes").GetInt64());
         var vectors = document.RootElement.GetProperty("vectors").EnumerateArray().ToList();
-        Assert.Contains(vectors, item => item.GetProperty("accepted").GetBoolean());
-        Assert.Contains(vectors, item => !item.GetProperty("accepted").GetBoolean());
+        // Every profile inside the bounded v1 limits fits the cap; the largest one is the worst case.
+        Assert.All(vectors, item => Assert.True(item.GetProperty("accepted").GetBoolean()));
+        Assert.Contains(vectors, item =>
+            item.GetProperty("maxDetectionsPerCrop").GetInt32() == PlateContractRules.MaximumDetectionsPerCrop &&
+            item.GetProperty("maxPlatesPerCrop").GetInt32() == PlateContractRules.MaximumPlatesPerCrop &&
+            item.GetProperty("maxReadingsPerPlate").GetInt32() == PlateContractRules.MaximumReadingsPerPlate);
+        Assert.True(PlateContractRules.WorstCasePredictionArtifactBytes(PlateContractRules.MaximumDetectionsPerCrop,
+            PlateContractRules.MaximumPlatesPerCrop, PlateContractRules.MaximumReadingsPerPlate) <= PlateContractRules.MaximumPredictionArtifactBytes);
         foreach (var vector in vectors)
         {
             var detections = vector.GetProperty("maxDetectionsPerCrop").GetInt32();
@@ -114,11 +120,12 @@ public sealed class PlateContractTests
 
     [Theory]
     [InlineData(0, 1, 1)]
-    [InlineData(9, 1, 1)]
-    [InlineData(2, 3, 1)]
+    [InlineData(3, 1, 3)]
+    [InlineData(2, 2, 1)]
+    [InlineData(1, 2, 1)]
     [InlineData(2, 0, 1)]
     [InlineData(2, 1, 0)]
-    [InlineData(2, 1, 6)]
+    [InlineData(2, 1, 4)]
     public void AProfileShapeOutOfRangeIsRefused(int detections, int plates, int readings)
     {
         Assert.False(PlateContractRules.IsAdmissibleProfileShape(detections, plates, readings));
@@ -233,8 +240,8 @@ public sealed class PlateContractTests
     [InlineData("KA\r\n01", false)]
     [InlineData("KA\u007f01", false)]
     [InlineData("KA\u000001", false)]
-    [InlineData("KA\ufffe01", false)]
-    [InlineData("KA\uffff01", false)]
+    [InlineData("KA\ufffe01", true)]   // kept verbatim; normalisation rejects it (v1 vectors)
+    [InlineData("KA\uffff01", true)]
     [InlineData("123456789012345678901234567890123", false)]
     [InlineData("12345678901234567890123456789012", true)]
     public void RawTextFollowsTheWireRule(string value, bool expected)

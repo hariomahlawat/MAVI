@@ -92,8 +92,8 @@
         "reason": {
           "enum": [null, "evidence_integrity_failed", "evidence_missing", "evidence_decode_failed", "plate_inference_failed", "no_accepted_evidence"]
         },
-        "plateObservations": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/plateObservation" } },
-        "texts": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/text" } }
+        "plateObservations": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/plateObservation" } },
+        "texts": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/text" } }
       },
       "allOf": [
         {
@@ -115,7 +115,7 @@
       "required": ["sourceObservationId", "plateIndex", "box", "cropWidth", "cropHeight", "detectorConfidence", "outcome", "readings"],
       "properties": {
         "sourceObservationId": { "$ref": "#/$defs/uuid" },
-        "plateIndex": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "plateIndex": { "type": "integer", "minimum": 0, "maximum": 0 },
         "box": {
           "type": "object",
           "additionalProperties": false,
@@ -131,7 +131,7 @@
         "cropHeight": { "type": "integer", "minimum": 1, "maximum": 4096 },
         "detectorConfidence": { "$ref": "#/$defs/confidence" },
         "outcome": { "enum": ["read", "unreadable"] },
-        "readings": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/reading" } }
+        "readings": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/reading" } }
       },
       "allOf": [
         {
@@ -146,13 +146,13 @@
       "additionalProperties": false,
       "required": ["rank", "rawText", "rawLineCount", "confidence"],
       "properties": {
-        "rank": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "rank": { "type": "integer", "minimum": 0, "maximum": 2 },
         "rawText": {
-          "description": "1-32 UTF-16 code units; no C0 control character, DEL or U+FFFE/U+FFFF except one LF joining two non-empty lines, top line first.",
+          "description": "1-32 UTF-16 code units; no C0 control character or DEL except one LF joining two non-empty lines, top line first.",
           "type": "string",
           "minLength": 1,
           "maxLength": 32,
-          "pattern": "^[^\\u0000-\\u001f\\u007f\\ufffe\\uffff]+(\\n[^\\u0000-\\u001f\\u007f\\ufffe\\uffff]+)?$"
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+(\\n[^\\u0000-\\u001f\\u007f]+)?$"
         },
         "rawLineCount": { "enum": [1, 2] },
         "confidence": { "$ref": "#/$defs/confidence" }
@@ -169,10 +169,10 @@
           "required": ["sourceObservationId", "plateIndex"],
           "properties": {
             "sourceObservationId": { "$ref": "#/$defs/uuid" },
-            "plateIndex": { "type": "integer", "minimum": 0, "maximum": 7 }
+            "plateIndex": { "type": "integer", "minimum": 0, "maximum": 0 }
           }
         },
-        "supportCount": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "supportCount": { "type": "integer", "minimum": 1, "maximum": 4 },
         "maxConfidence": { "$ref": "#/$defs/confidence" }
       }
     }

@@ -20,8 +20,8 @@ PREDICTIONS_SCHEMA_VERSION: Final = "mavi-plate-predictions-v1"
 PREDICTIONS_MEDIA_TYPE: Final = "application/json"
 IDENTITY_SCHEMA_VERSION: Final = "mavi-plate-identity-v1"
 NORMALISATION_ID: Final = "mavi-plate-normalisation-v1"
-# SHA-256 of contracts/test-vectors/plate-normalisation-v1.json (pinned by test, as in .NET).
-NORMALISATION_SHA256: Final = "84368e30a745da23a68eaef2d6a2667a3f544bd6978ac0653ffb46ab3a1c4bad"
+# SHA-256 of contracts/test-vectors/plate-normalisation-v1.json, frozen 2026-10-13 (pinned by test, as in .NET).
+NORMALISATION_SHA256: Final = "6e505158a735a1c4c5d96ad33d08e4ddb0b98d456f0dd532a6af25de120bf935"
 
 ROUTE_PREFIX: Final = "/api/plates/analyses"
 CAPABILITY_HEADER: Final = "X-Mavi-Lease-Capability"
@@ -38,8 +38,13 @@ ROLES: Final = ("representative", "near-view", "early-diverse", "late-diverse")
 # --- Shape bounds ---------------------------------------------------------------------------------
 MAXIMUM_ANALYSIS_TRACKS: Final = 10_000
 MAXIMUM_TRACK_OBSERVATIONS: Final = 4
-MAXIMUM_DETECTIONS_PER_CROP: Final = 8
-MAXIMUM_READINGS_PER_PLATE: Final = 5
+# The bounded v1 processing profile (owner decision 2026-10-13): at most two detector proposals per crop,
+# one accepted plate per crop, three candidate readings for it. Output beyond a configured bound is a
+# contract violation (the attempt fails with plate_output_invalid); it is never truncated.
+MAXIMUM_DETECTIONS_PER_CROP: Final = 2
+MAXIMUM_PLATES_PER_CROP: Final = 1
+MAXIMUM_READINGS_PER_PLATE: Final = 3
+MAXIMUM_TRACK_PLATE_OBSERVATIONS: Final = MAXIMUM_TRACK_OBSERVATIONS * MAXIMUM_PLATES_PER_CROP
 MAXIMUM_RAW_TEXT_LENGTH: Final = 32  # UTF-16 code units
 MAXIMUM_RAW_LINE_COUNT: Final = 2
 MAXIMUM_NORMALISATION_EXPANSION: Final = 4
@@ -97,7 +102,8 @@ FAILURE_CODE_RETRYABLE: Final = {
 def is_profile_shape_in_range(max_detections: int, max_plates: int, max_readings: int) -> bool:
     return (
         1 <= max_detections <= MAXIMUM_DETECTIONS_PER_CROP
-        and 1 <= max_plates <= max_detections
+        and 1 <= max_plates <= MAXIMUM_PLATES_PER_CROP
+        and max_plates <= max_detections
         and 1 <= max_readings <= MAXIMUM_READINGS_PER_PLATE
     )
 
@@ -149,7 +155,7 @@ def is_raw_text(value: object) -> bool:
         code = ord(character)
         if 0xD800 <= code <= 0xDFFF:  # a lone surrogate: Python strings can hold one
             return False
-        if character != "\n" and (code < 0x20 or code in (0x7F, 0xFFFE, 0xFFFF)):
+        if character != "\n" and (code < 0x20 or code == 0x7F):
             return False
     if value.startswith("\n") or value.endswith("\n"):
         return False

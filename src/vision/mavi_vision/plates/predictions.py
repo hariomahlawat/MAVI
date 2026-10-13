@@ -49,7 +49,6 @@ def _crop(crop: CropRecord) -> dict[str, object]:
             }
             for detection in crop.detections
         ],
-        "detectionsOmitted": crop.detections_omitted,
         "evidenceRank": crop.evidence_rank,
         "observationId": str(crop.observation_id),
         "reason": crop.reason,

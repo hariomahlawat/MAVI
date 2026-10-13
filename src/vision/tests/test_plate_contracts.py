@@ -62,6 +62,16 @@ def test_the_worst_case_sizes_match_the_cross_language_vectors(vector: dict) -> 
     assert contracts.is_admissible_profile_shape(*shape) is vector["accepted"]
 
 
+def test_the_bounded_v1_profile_is_the_worst_case_and_fits_the_cap() -> None:
+    shape = (contracts.MAXIMUM_DETECTIONS_PER_CROP, contracts.MAXIMUM_PLATES_PER_CROP, contracts.MAXIMUM_READINGS_PER_PLATE)
+    assert shape == (2, 1, 3)
+    assert contracts.worst_case_prediction_artifact_bytes(*shape) <= contracts.MAXIMUM_PREDICTION_ARTIFACT_BYTES
+    for outside in ((3, 1, 3), (2, 2, 1), (2, 1, 4)):
+        assert not contracts.is_admissible_profile_shape(*outside)
+        with pytest.raises(ValueError):
+            contracts.worst_case_prediction_artifact_bytes(*outside)
+
+
 _U = "00000000-0000-0000-0000-000000000000"
 _WORST_DOUBLE = 2.2250738585072014e-308
 _WORST_RAW = "\u0001" * contracts.MAXIMUM_RAW_TEXT_LENGTH  # every unit escapes to \u0001
@@ -75,14 +85,13 @@ def test_each_byte_envelope_bounds_its_maximal_element() -> None:
     """The bound is honest: no element an honest worker emits is larger than its declared envelope."""
     reason = max(contracts.TRACK_UNAVAILABLE_REASONS_BY_SEVERITY + tuple(contracts.CROP_ABSTENTION_REASONS), key=len)
     role = max(contracts.ROLES, key=len)
-    big = 2_147_483_647
     reading = {"confidence": _WORST_DOUBLE, "rank": 4, "rawLineCount": 2, "rawText": _WORST_RAW}
     assert _size(reading) <= contracts.ARTIFACT_READING_ENVELOPE_BYTES + contracts.RAW_TEXT_WORST_CASE_BYTES
     plate = {"outcome": "unreadable", "plateIndex": 7, "readings": []}
     assert _size(plate) <= contracts.ARTIFACT_PLATE_ENVELOPE_BYTES
     detection = {"box": [4095, 4095, 4096, 4096], "plate": None, "score": _WORST_DOUBLE}
     assert _size(detection) <= contracts.ARTIFACT_DETECTION_ENVELOPE_BYTES
-    crop = {"cropHeight": 4096, "cropWidth": 4096, "detections": [], "detectionsOmitted": big, "evidenceRank": 3,
+    crop = {"cropHeight": 4096, "cropWidth": 4096, "detections": [], "evidenceRank": 3,
             "observationId": _U, "reason": reason, "role": role, "status": "unavailable"}
     assert _size(crop) <= contracts.ARTIFACT_CROP_ENVELOPE_BYTES
     text = {"bestPlate": {"observationId": _U, "plateIndex": 7}, "maxConfidence": _WORST_DOUBLE, "supportCount": 32}
@@ -133,8 +142,8 @@ def test_the_header_envelopes_bound_the_examples() -> None:
         ("KA\r\n01", False),
         ("KA\u007f01", False),
         ("KA\u000001", False),
-        ("KA\ufffe01", False),
-        ("KA\uffff01", False),
+        ("KA\ufffe01", True),  # kept verbatim; normalisation rejects it (v1 vectors)
+        ("KA\uffff01", True),
         ("\ud83dA", False),
         ("A\ude97", False),
         ("1" * 33, False),
@@ -171,8 +180,9 @@ def test_the_fixture_parameters_load_and_bad_ones_are_refused() -> None:
     assert parameters.excluded_roles == frozenset()
     document = json.loads(fixture)
     for change in (
-        {"maxReadingsPerPlate": 4},  # worst-case completion fits, artefact does not at D=2
-        {"maxPlatesPerCrop": 3},
+        {"maxReadingsPerPlate": 4},  # beyond the bounded v1 profile
+        {"maxPlatesPerCrop": 2},
+        {"maxDetectionsPerCrop": 3},
         {"ocrConfidenceFloor": 1.5},
         {"excludedRoles": ["bogus"]},
         {"unexpected": 1},

@@ -30,7 +30,7 @@
     "runtimePackId": null,
     "runtimePackSource": "unpacked-environment",
     "componentBindingSha256": "8888888888888888888888888888888888888888888888888888888888888888",
-    "pipelineProfileSha256": "87a0e81bb2caab15ea6c0f1424936fce3c5c6453d4ff8c47e57b1aafaf6bab57",
+    "pipelineProfileSha256": "29fb2a50f95887d11769415d235b3bc1bbc9bef7ccd449c7cbabdd93338d05a3",
     "configuredDevicePolicy": "cpu",
     "actualDevice": "cpu",
     "maviBuild": "0.0.0-dev",
@@ -39,8 +39,8 @@
   "payload": {
     "predictionArtifact": {
       "mediaType": "application/json",
-      "sizeBytes": 4503,
-      "sha256": "7429fc6e7e7491dcb7326edfacfcd13d02306336e6cd6ae4db8cadccb8c55f2b"
+      "sizeBytes": 4305,
+      "sha256": "137972ef3ec08f2709b0c0a570bc76cf9bbae11153b1c2500101eb72000727c0"
     },
     "tracks": [
       {

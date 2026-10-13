@@ -2,6 +2,6 @@
   "description": "Golden pin of the plate completion digest (mavi-plate-control-v1; ADR-013 §9 completion-digest verification, implementation amendment 2026-10-13). The platform computes digest from the example body, attempt 1 and the identity fingerprint of plate-identity-v1.json. Changing the example or the digest sequence requires re-pinning deliberately.",
   "digestDomain": "mavi:plate-completion-digest:v1",
   "example": "contracts/examples/plate-complete-v1.example.json",
-  "exampleSha256": "73899c237047d19731ca821bd593a19e77e110a98f4ba957fccfe34416cbc6df",
-  "digest": "d988e0b33b65a3c8b67e8e0adf6934c965d77429f3e17bb0ea003b1d4e4aae29"
+  "exampleSha256": "69d4a93110e49b2ca6a24fbe538e5dfe117270def30372d3c305708735785211",
+  "digest": "7709f0ba91f83dc430b0f7434e0b184a6800ff4a22cdfc811350c18ce6bba877"
 }

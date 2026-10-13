@@ -58,7 +58,7 @@ def _records_from_example(track: dict) -> tuple[CropRecord, ...]:
                 ),
             ))
         crops.append(CropRecord(UUID(crop["observationId"]), crop["role"], crop["evidenceRank"], crop["status"], crop["reason"],
-                                crop["cropWidth"], crop["cropHeight"], tuple(detections), crop["detectionsOmitted"]))
+                                crop["cropWidth"], crop["cropHeight"], tuple(detections)))
     return tuple(crops)
 
 
@@ -131,17 +131,25 @@ class _Recogniser:
 OBSERVATION = LEASE.tracks[0].observations[0]
 
 
-def test_detections_are_ordered_bounded_and_selected_by_the_floor() -> None:
-    boxes = [PlateBox(10, 10, 40, 10, 0.3), PlateBox(5, 5, 40, 10, 0.9), PlateBox(60, 60, 40, 10, 0.2)]
+def test_every_proposal_is_retained_in_order_and_one_plate_is_selected_by_the_floor() -> None:
+    boxes = [PlateBox(10, 10, 40, 10, 0.3), PlateBox(5, 5, 40, 10, 0.9)]
     recogniser = _Recogniser([Reading("KA01AB1234", 0.8)])
     record = analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector(boxes), recogniser, PARAMETERS)
     assert record.status == contracts.CROP_SCORED
     assert (record.width, record.height) == (200, 150)
-    # maxDetectionsPerCrop = 2: the two best are recorded, one is counted; maxPlatesPerCrop = 1.
+    # Both proposals are recorded; maxPlatesPerCrop = 1 selects the best one only.
     assert [detection.score for detection in record.detections] == [0.9, 0.3]
-    assert record.detections_omitted == 1
     assert record.detections[0].plate is not None and record.detections[1].plate is None
     assert recogniser.regions == [(40, 10)]
+
+
+def test_output_beyond_a_configured_bound_fails_the_attempt_and_is_never_truncated() -> None:
+    three = [PlateBox(10, 10, 40, 10, 0.3), PlateBox(5, 5, 40, 10, 0.9), PlateBox(60, 60, 40, 10, 0.2)]
+    with pytest.raises(OutputInvalid, match="plate_detector_output_exceeds_bound"):
+        analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector(three), _Recogniser(), PARAMETERS)
+    four = [Reading("A", 0.9), Reading("B", 0.8), Reading("C", 0.7), Reading("D", 0.6)]
+    with pytest.raises(OutputInvalid, match="plate_recogniser_output_exceeds_bound"):
+        analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector([PlateBox(5, 5, 40, 10, 0.9)]), _Recogniser(four), PARAMETERS)
 
 
 def test_no_box_above_the_detector_floor_selects_no_plate() -> None:
@@ -151,12 +159,21 @@ def test_no_box_above_the_detector_floor_selects_no_plate() -> None:
 
 
 def test_readings_are_ranked_bounded_and_kept_above_the_ocr_floor() -> None:
-    readings = [Reading("B", 0.6), Reading("A", 0.6), Reading("C", 0.9), Reading("D", 0.1)]
+    readings = [Reading("B", 0.6), Reading("D", 0.1), Reading("C", 0.9)]
     record = analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector([PlateBox(5, 5, 40, 10, 0.9)]), _Recogniser(readings), PARAMETERS)
     plate = record.detections[0].plate
     assert plate is not None and plate.outcome == contracts.PLATE_READ
-    # maxReadingsPerPlate = 3; ties break on raw text.
-    assert [(item.rank, item.raw_text) for item in plate.readings] == [(0, "C"), (1, "A"), (2, "B")]
+    # Every reading is retained in rank order; only those at or above the floor are kept as facts.
+    assert [(item.rank, item.raw_text) for item in plate.readings] == [(0, "C"), (1, "B"), (2, "D")]
+    track = summarise_track(LEASE.tracks[0].model_copy(update={"observations": (OBSERVATION,)}), (record,))
+    kept = completion_tracks((track,), PARAMETERS)[0]["plateObservations"][0]["readings"]
+    assert [item["rawText"] for item in kept] == ["C", "B"]
+
+
+def test_ties_break_on_raw_text() -> None:
+    readings = [Reading("B", 0.6), Reading("A", 0.6)]
+    record = analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector([PlateBox(5, 5, 40, 10, 0.9)]), _Recogniser(readings), PARAMETERS)
+    assert [item.raw_text for item in record.detections[0].plate.readings] == ["A", "B"]
 
 
 def test_a_plate_whose_best_reading_is_below_the_floor_is_unreadable_with_no_kept_reading() -> None:

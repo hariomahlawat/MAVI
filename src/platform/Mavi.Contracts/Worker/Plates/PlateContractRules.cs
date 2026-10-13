@@ -31,10 +31,10 @@ public static class PlateContractRules
 
     /// <summary>
     /// SHA-256 of <c>contracts/test-vectors/plate-normalisation-v1.json</c> (LF line endings, as
-    /// <c>.gitattributes</c> pins every JSON file): the frozen rules and their conformance vectors.
-    /// A test re-derives it from the file.
+    /// <c>.gitattributes</c> pins every JSON file): the frozen v1 rules and conformance vectors (owner
+    /// freeze 2026-10-13). A test re-derives it from the file; a semantic change needs a new id.
     /// </summary>
-    public const string NormalisationSha256 = "84368e30a745da23a68eaef2d6a2667a3f544bd6978ac0653ffb46ab3a1c4bad";
+    public const string NormalisationSha256 = "6e505158a735a1c4c5d96ad33d08e4ddb0b98d456f0dd532a6af25de120bf935";
 
     /// <summary>The only request and response header that carries the lease capability.</summary>
     public const string CapabilityHeader = "X-Mavi-Lease-Capability";
@@ -53,12 +53,20 @@ public static class PlateContractRules
     /// <summary>The Evidence Set bound: at most four accepted crops per Track.</summary>
     public const int MaximumTrackObservations = WorkerContractRules.MaximumTrackObservations;
 
-    /// <summary>Profile bounds: detector boxes recorded per crop, plates read per crop, readings per plate.</summary>
-    public const int MaximumDetectionsPerCrop = 8;
-    public const int MaximumReadingsPerPlate = 5;
+    /// <summary>
+    /// The bounded v1 processing profile (owner decision 2026-10-13; ADR-013 item 13): the plate detector is
+    /// configured to emit at most two proposals per evidence crop, at most one plate per crop is accepted,
+    /// and the recogniser emits at most three candidate readings for it. A profile names its own values
+    /// within these limits, identity-bearing through its parameters SHA-256. Output beyond a configured
+    /// bound is a contract violation that fails the attempt (<c>plate_output_invalid</c>); it is never
+    /// truncated, and every output inside the bounds is retained in <c>PlatePredictions</c>.
+    /// </summary>
+    public const int MaximumDetectionsPerCrop = 2;
+    public const int MaximumPlatesPerCrop = 1;
+    public const int MaximumReadingsPerPlate = 3;
 
-    /// <summary>The most plate observations one Track can carry under the largest admissible profile.</summary>
-    public const int MaximumTrackPlateObservations = MaximumTrackObservations * MaximumDetectionsPerCrop;
+    /// <summary>The most plate observations (and so Track texts) one Track can carry.</summary>
+    public const int MaximumTrackPlateObservations = MaximumTrackObservations * MaximumPlatesPerCrop;
 
     /// <summary>Raw OCR text: at most 32 UTF-16 code units, at most two lines joined by one LF.</summary>
     public const int MaximumRawTextLength = 32;
@@ -107,7 +115,7 @@ public static class PlateContractRules
 
     /// <summary>
     /// The largest <c>PlatePredictions</c> artefact an honest worker can produce under a profile at the
-    /// supported bound (10,000 Tracks × 4 crops, every crop recording its maximum detections, plates and
+    /// supported bound (10,000 Tracks × 4 crops, every crop carrying its maximum proposals, plates and
     /// readings, every raw text at its longest escaped form, one Track text per plate).
     /// </summary>
     public static long WorstCasePredictionArtifactBytes(int maxDetectionsPerCrop, int maxPlatesPerCrop, int maxReadingsPerPlate)
@@ -140,7 +148,7 @@ public static class PlateContractRules
 
     public static bool IsProfileShapeInRange(int maxDetectionsPerCrop, int maxPlatesPerCrop, int maxReadingsPerPlate) =>
         maxDetectionsPerCrop is >= 1 and <= MaximumDetectionsPerCrop &&
-        maxPlatesPerCrop >= 1 && maxPlatesPerCrop <= maxDetectionsPerCrop &&
+        maxPlatesPerCrop is >= 1 and <= MaximumPlatesPerCrop && maxPlatesPerCrop <= maxDetectionsPerCrop &&
         maxReadingsPerPlate is >= 1 and <= MaximumReadingsPerPlate;
 
     private static void RequireProfileShape(int maxDetectionsPerCrop, int maxPlatesPerCrop, int maxReadingsPerPlate)
@@ -235,13 +243,11 @@ public static class PlateContractRules
 
     /// <summary>
     /// Raw OCR text admissible on the wire (ADR-013 item 13): 1–32 well-formed UTF-16 code units; no C0
-    /// control character except LF, no DEL and no U+FFFE/U+FFFF noncharacter; at most one LF, never first
-    /// or last, so two non-empty lines at most.
+    /// control character except LF and no DEL (PostgreSQL text cannot hold NUL, and control characters are
+    /// not readings); at most one LF, never first or last, so two non-empty lines at most. Any other
+    /// character is admitted and kept verbatim: a reading that normalisation rejects stays visible as raw
+    /// text and is never searchable.
     /// </summary>
-    /// <remarks>
-    /// The noncharacters are excluded because .NET's NFKC refuses U+FFFE while Python's accepts it, so the
-    /// shared normalisation would diverge on them; neither can be a plate character.
-    /// </remarks>
     public static bool IsRawText(string? value)
     {
         if (value is not { Length: >= 1 and <= MaximumRawTextLength }) return false;
@@ -264,7 +270,7 @@ public static class PlateContractRules
                 continue;
             }
 
-            if (character < 0x20 || character is '\u007f' or '￾' or '￿') return false;
+            if (character < 0x20 || character == '\u007f') return false;
         }
 
         return lineFeeds < MaximumRawLineCount;
