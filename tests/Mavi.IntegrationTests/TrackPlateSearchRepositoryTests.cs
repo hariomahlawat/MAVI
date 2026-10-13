@@ -115,12 +115,92 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
         Assert.False((await repository.SearchPlatesAsync(query with { CameraId = Guid.CreateVersion7() }, null, cursor, 51, default)).IsValid);
     }
 
+    // --- Page strategies ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// The walk, the sparse path and the sparse path's overflow back into the walk all return exactly the
+    /// plate predicate's rows in page order, across every page (cold review P1-1). The batch and cap sizes are
+    /// shrunk so a 24-Track corpus drives every path: a text matching most Tracks (walk), a text matching two
+    /// old Tracks (sparse path within the cap) and one matching five Tracks spread out (sparse path over the
+    /// cap of three, so the walk resumes).
+    /// </summary>
+    [Theory]
+    [InlineData("AAA", TrackPlateMatch.Contains)]
+    [InlineData("ZZZ", TrackPlateMatch.Contains)]
+    [InlineData("MID", TrackPlateMatch.Contains)]
+    [InlineData("MID", TrackPlateMatch.Prefix)]
+    [InlineData("QQQ", TrackPlateMatch.Contains)]
+    [InlineData("AAA0001", TrackPlateMatch.Exact)]
+    public async Task EveryPageStrategyReturnsExactlyThePredicateInPageOrder(string text, TrackPlateMatch match)
+    {
+        using var world = await VisualAttributeWorld.CreateAsync(fixture, Now);
+        var stored = new Dictionary<Guid, string>();
+        var position = 0;
+        for (var runIndex = 0; runIndex < 3; runIndex++)
+        {
+            var run = await world.SeedRunAsync(persons: 1, vehicles: 8);
+            var seeds = new List<SeedPlateTrack>();
+            foreach (var track in run.Tracks.Where(track => track.ObjectClass == ObjectClass.Vehicle))
+            {
+                position++;
+                var value = position switch
+                {
+                    3 or 4 => $"ZZZ{position:0000}",
+                    6 or 10 or 14 or 18 or 22 => $"MID{position:0000}",
+                    _ => $"AAA{position:0000}",
+                };
+                stored[track.TrackId] = value;
+                seeds.Add(SeedPlateTrack.Analysed(track.TrackId, new SeedPlate(track.Observations[0].ObservationId, 0.9, (value, 0.9))));
+            }
+
+            await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, run.RunId, Identity, seeds);
+        }
+
+        long snapshot;
+        await using (var db = fixture.CreateDbContext())
+            snapshot = await TrackPlateSearchWorld.NextSequenceAsync(db);
+
+        var plate = new TrackPlateQuery(text, match);
+        var everyRow = await (from track in fixture.CreateDbContext().Tracks.AsNoTracking()
+                              where track.ObjectClass == ObjectClass.Vehicle
+                              orderby track.StartTimestampUtc descending, track.Id descending
+                              select track.Id).ToListAsync();
+        var expected = everyRow.Where(id => TrackPlateQueryRules.Matches(plate, stored[id])).ToList();
+
+        foreach (var limit in new[] { 1, 2, 5, 50 })
+        {
+            var seen = new List<Guid>();
+            TrackCursorPosition? keyset = null;
+            while (true)
+            {
+                var repository = new TrackSearchRepository(fixture.CreateDbContext(), world.Clock)
+                {
+                    FirstWalkBatch = 2,
+                    MaximumWalkBatch = 4,
+                    MaximumScopedMatchIds = 3,
+                };
+                var cursor = keyset is null
+                    ? null
+                    : new TrackPlateCursorPosition(keyset, Identity.Fingerprint, TrackPlateCoverage.Empty(Identity.Fingerprint));
+                var page = (await repository.SearchPlatesAsync(PlateQuery(text, match), Identity.Fingerprint, cursor, limit + 1, default)).Page!;
+                var rows = page.Items.Take(limit).ToList();
+                seen.AddRange(rows.Select(row => row.Id));
+                Assert.Equal(rows.Count, rows.Count(row => page.ItemPlates.ContainsKey(row.Id)));
+                if (page.Items.Count <= limit) break;
+                keyset = new TrackCursorPosition(Now, snapshot, rows[^1].StartTimestampUtc, rows[^1].Id, new string('a', 64));
+            }
+
+            Assert.True(expected.SequenceEqual(seen), $"{text} {match} limit {limit}: expected {expected.Count}, got {seen.Count}");
+        }
+    }
+
     // --- Query shape -----------------------------------------------------------------------------
 
     /// <summary>
     /// A first page and its continuation each cost a fixed number of SELECTs whatever the page size: one
-    /// read of the runs in scope, one of their plate analyses (every run is Ready, so no Track count), the
-    /// matching Track ids, the page, and one explanation keyed on the page's Tracks.
+    /// read of the runs in scope, one of their plate analyses (every run is Ready, so no Track count), one
+    /// walk batch of the scope's Track ids, their plate check, the page restricted to the matches, and one
+    /// explanation keyed on the page's Tracks.
     /// </summary>
     [Fact]
     public async Task APageCostsTheSameStatementsForTwoRowsOrTwenty()
@@ -156,7 +236,7 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
         Assert.Equal(2, small.Rows);
         Assert.Equal(20, large.Rows);
         Assert.Equal(small.Statements, large.Statements);
-        Assert.Equal(5, small.Statements);
+        Assert.Equal(6, small.Statements);
     }
 
     /// <summary>A Track's plate facts cost the same five statements for one plate observation or four.</summary>
