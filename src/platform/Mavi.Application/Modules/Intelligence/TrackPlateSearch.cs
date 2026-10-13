@@ -186,7 +186,15 @@ public sealed record TrackPlateSearchRepositoryPage(
     IReadOnlyDictionary<Guid, TrackItemPlate> ItemPlates,
     TrackAnalyticsPinnedIdentity? AnalyticsIdentity = null,
     TrackAnalyticsCoverage? AnalyticsCoverage = null,
-    IReadOnlyDictionary<Guid, TrackItemAnalytics>? ItemAnalytics = null);
+    IReadOnlyDictionary<Guid, TrackItemAnalytics>? ItemAnalytics = null,
+    IReadOnlyList<PlateCoverageIntegrityFault>? IntegrityFaults = null);
+
+/// <summary>
+/// A Ready plate analysis whose header does not account for the run's Vehicle Tracks (PR-3 publishes one
+/// outcome per Vehicle Track, so this is an integrity fault). Coverage used the Tracks' own count; this
+/// carries ids and counts only, for the server log, never a plate value.
+/// </summary>
+public sealed record PlateCoverageIntegrityFault(Guid AnalysisId, Guid ProcessingRunId, int HeaderTracks, int VehicleTracks);
 
 /// <summary>A page, or a refusal for the reasons an analytic search refuses (scope or geometry).</summary>
 public sealed record TrackPlateSearchRepositoryResult(TrackPlateSearchRepositoryPage? Page)

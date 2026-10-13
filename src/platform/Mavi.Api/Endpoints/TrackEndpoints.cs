@@ -45,6 +45,14 @@ public static partial class TrackEndpoints
                 searched?.VehicleTracksInScope ?? 0);
         }
 
+        if (result.Page?.PlateIntegrityFaults is { Count: > 0 } faults)
+        {
+            // Coverage already used the Tracks' own counts (fail safe); the operator learns of the fault.
+            var integrityLogger = loggerFactory.CreateLogger(typeof(TrackEndpoints).FullName!);
+            foreach (var fault in faults)
+                LogPlateCoverageFault(integrityLogger, fault.AnalysisId, fault.ProcessingRunId, fault.HeaderTracks, fault.VehicleTracks);
+        }
+
         if (!result.IsSuccess)
         {
             // A caller that demanded complete coverage is told, in the same structured
@@ -711,6 +719,10 @@ public static partial class TrackEndpoints
         ILogger logger,
         Guid trackId,
         TrackEvidenceSetInvariant invariant);
+
+    [LoggerMessage(EventId = 1423, EventName = "track_plate_coverage_mismatch", Level = LogLevel.Warning,
+        Message = "Plate analysis {AnalysisId} of run {ProcessingRunId} accounts for {HeaderTracks} Vehicle Tracks but the run has {VehicleTracks}; plate coverage used the run's own count.")]
+    private static partial void LogPlateCoverageFault(ILogger logger, Guid analysisId, Guid processingRunId, int headerTracks, int vehicleTracks);
 
     [LoggerMessage(EventId = 1422, EventName = "track_plate_outcome_missing", Level = LogLevel.Warning,
         Message = "Plate analysis {AnalysisId} is the Ready default for the run of Vehicle Track {TrackId} but has no outcome for it; the detail reports it as unavailable.")]

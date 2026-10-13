@@ -19,7 +19,8 @@ public sealed record TrackSearchPage(
     TrackAnalyticsCoverage? Coverage = null,
     IReadOnlyDictionary<Guid, TrackItemAnalytics>? ItemAnalytics = null,
     TrackPlateCoverage? PlateCoverage = null,
-    IReadOnlyDictionary<Guid, TrackItemPlate>? ItemPlates = null);
+    IReadOnlyDictionary<Guid, TrackItemPlate>? ItemPlates = null,
+    IReadOnlyList<PlateCoverageIntegrityFault>? PlateIntegrityFaults = null);
 
 public sealed record TrackSearchRow(
     Guid Id,

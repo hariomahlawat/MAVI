@@ -115,6 +115,70 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
         Assert.False((await repository.SearchPlatesAsync(query with { CameraId = Guid.CreateVersion7() }, null, cursor, 51, default)).IsValid);
     }
 
+    /// <summary>
+    /// The coverage block itself, against the authoritative base chain (cold review P2-1): Ready, Pending,
+    /// Failed and Stale runs mixed, with and without a Track-level filter, and a Ready analysis whose header
+    /// under-counts its run (an outcome missing). Every bucket must equal the base chain's Vehicle Tracks of
+    /// runs in that state, and the fault is reported, never silently under-counted.
+    /// </summary>
+    [Fact]
+    public async Task CoverageEqualsTheBaseChainForMixedReadinessAndFailsSafeOnAHeaderFault()
+    {
+        using var world = await VisualAttributeWorld.CreateAsync(fixture, Now);
+        var ready = await world.SeedRunAsync(persons: 1, vehicles: 3);
+        var faulty = await world.SeedRunAsync(persons: 0, vehicles: 4);
+        var pending = await world.SeedRunAsync(persons: 0, vehicles: 2);
+        var failed = await world.SeedRunAsync(persons: 1, vehicles: 1);
+        var stale = await world.SeedRunAsync(persons: 0, vehicles: 2);
+        await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, ready.RunId, Identity,
+            [.. ready.Tracks.Where(track => track.ObjectClass == ObjectClass.Vehicle).Select(track => SeedPlateTrack.Analysed(track.TrackId))]);
+        // The fault: published with outcomes for 2 of its 4 Vehicle Tracks, so its header says 2.
+        var faultyAnalysis = await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, faulty.RunId, Identity,
+            [SeedPlateTrack.Analysed(faulty.Track(0).TrackId), SeedPlateTrack.Analysed(faulty.Track(1).TrackId)]);
+        await TrackPlateSearchWorld.QueueAsync(fixture.CreateDbContext, Now, failed.RunId, Identity, failed: true);
+        await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, stale.RunId, TrackPlateSearchWorld.Obsolete(Identity),
+            [.. stale.Tracks.Select(track => SeedPlateTrack.Analysed(track.TrackId))], preferred: false);
+        var state = new Dictionary<Guid, string>
+        {
+            [ready.RunId] = "ready", [faulty.RunId] = "ready", [pending.RunId] = "pending", [failed.RunId] = "failed", [stale.RunId] = "stale",
+        };
+
+        foreach (var query in new[] { PlateQuery("KA01"), PlateQuery("KA01") with { FromUtc = Now.AddDays(-1) }, PlateQuery("KA01") with { ToUtc = Now.AddDays(-1) } })
+        {
+            var page = (await new TrackSearchRepository(fixture.CreateDbContext(), world.Clock)
+                .SearchPlatesAsync(query, Identity.Fingerprint, null, 51, default)).Page!;
+
+            long snapshot = page.SnapshotVisibilitySequence;
+            await using var db = fixture.CreateDbContext();
+            var authoritative = (await AnalyticsScopeQuery.BaseCandidates(db, AnalyticsScopeRequest.From(query), snapshot)
+                    .Where(x => x.track.ObjectClass == ObjectClass.Vehicle)
+                    .Select(x => x.run.Id)
+                    .ToListAsync())
+                .GroupBy(id => state[id])
+                .ToDictionary(group => group.Key, group => group.Count());
+            var coverage = page.PlateCoverage;
+            Assert.Equal(authoritative.GetValueOrDefault("ready"), coverage.Ready);
+            Assert.Equal(authoritative.GetValueOrDefault("pending"), coverage.Pending);
+            Assert.Equal(authoritative.GetValueOrDefault("failed"), coverage.Failed);
+            Assert.Equal(authoritative.GetValueOrDefault("stale"), coverage.Stale);
+            Assert.Equal(0, coverage.NotConfigured);
+            Assert.Equal(authoritative.Values.Sum(), coverage.VehicleTracksInScope);
+
+            if (query.ToUtc is null && query.FromUtc is null)
+            {
+                Assert.Equal(7, coverage.Ready);
+                var fault = Assert.Single(page.IntegrityFaults!);
+                Assert.Equal(new PlateCoverageIntegrityFault(faultyAnalysis, faulty.RunId, 2, 4), fault);
+            }
+        }
+
+        // Not configured: every Vehicle Track of the scope, by the same authoritative count.
+        var unconfigured = (await new TrackSearchRepository(fixture.CreateDbContext(), world.Clock)
+            .SearchPlatesAsync(PlateQuery("KA01"), null, null, 51, default)).Page!.PlateCoverage;
+        Assert.Equal(12, unconfigured.NotConfigured);
+        Assert.Equal(12, unconfigured.VehicleTracksInScope);
+    }
+
     // --- Page strategies ---------------------------------------------------------------------------
 
     /// <summary>
@@ -230,9 +294,13 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
             return (capture.Statements.Count, page.Items.Count);
         }
 
+        // The first search reads the runs' Vehicle Track counts once (one more statement); they are immutable
+        // and cached, so later first pages do not repeat it.
+        var cold = await Measure(2);
         var small = await Measure(2);
         var large = await Measure(20);
 
+        Assert.Equal(7, cold.Statements);
         Assert.Equal(2, small.Rows);
         Assert.Equal(20, large.Rows);
         Assert.Equal(small.Statements, large.Statements);

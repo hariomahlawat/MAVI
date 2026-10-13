@@ -56,7 +56,7 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
         var snapshotVisibilitySequence = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
         var snapshotUtc = timeProvider.GetUtcNow().ToUniversalTime();
 
-        var plateCoverage = await ComputePlateCoverageAsync(
+        var (plateCoverage, integrityFaults) = await ComputePlateCoverageAsync(
             query, preferredFingerprint, snapshotVisibilitySequence, cancellationToken);
 
         TrackPlateSearchRepositoryPage page;
@@ -88,7 +88,7 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return new TrackPlateSearchRepositoryResult(page);
+        return new TrackPlateSearchRepositoryResult(page with { IntegrityFaults = integrityFaults });
     }
 
     private async Task<TrackPlateSearchRepositoryResult> ContinuePlatesAsync(
@@ -443,7 +443,17 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
     /// the latest-run scope, before the plate and analytic predicates): each run is classified once by
     /// the PR-3 readiness rule as of the snapshot, and its Tracks counted into that bucket.
     /// </summary>
-    private async Task<TrackPlateCoverage> ComputePlateCoverageAsync(
+    /// <summary>
+    /// The authoritative Vehicle Track count of each completed, visible run, once read. A completed run's
+    /// Tracks are immutable, so the count never changes; caching it is what keeps coverage off a 10^6-Track
+    /// scan on every first page (measured ≈ 230–290 ms; plan §2.8). Bounded: cleared when it outgrows
+    /// <see cref="MaximumCachedRunCounts"/>. It holds counts only, never a plate value.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, int> RunVehicleCounts = new();
+
+    internal const int MaximumCachedRunCounts = 200_000;
+
+    private async Task<(TrackPlateCoverage Coverage, IReadOnlyList<PlateCoverageIntegrityFault> Faults)> ComputePlateCoverageAsync(
         TrackSearchQuery query,
         string? fingerprint,
         long snapshotVisibilitySequence,
@@ -451,11 +461,19 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
     {
         var runIds = await RunsInScope(query, snapshotVisibilitySequence).ToArrayAsync(cancellationToken);
         if (runIds.Length == 0)
-            return TrackPlateCoverage.Empty(fingerprint);
+            return (TrackPlateCoverage.Empty(fingerprint), []);
+
+        // Every count is the authoritative one — the scope's Vehicle Tracks per run, from the Tracks
+        // themselves. Without a Track-level filter it is the run's whole Vehicle count, read once and cached;
+        // with one, it is counted for this query. No analysis header is ever trusted as a count.
+        var filtered = HasTrackLevelFilter(query);
+        var counts = filtered
+            ? (await VehicleTrackCounts(query, runIds).ToListAsync(cancellationToken)).ToDictionary(row => row.RunId, row => row.Tracks)
+            : await RunVehicleCountsAsync(runIds, cancellationToken);
         if (fingerprint is null)
         {
-            var all = (await VehicleTrackCounts(query, runIds).ToListAsync(cancellationToken)).Sum(row => row.Tracks);
-            return new TrackPlateCoverage(null, all, 0, 0, 0, 0, all);
+            var all = counts.Values.Sum();
+            return (new TrackPlateCoverage(null, all, 0, 0, 0, 0, all), []);
         }
 
         var analyses = (await db.PlateAnalyses.AsNoTracking()
@@ -472,38 +490,30 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
                 .ToListAsync(cancellationToken))
             .ToLookup(analysis => analysis.ProcessingRunId);
 
-        var states = runIds.ToDictionary(
-            runId => runId,
-            runId => PlateCoverageRule.Classify(
+        var faults = new List<PlateCoverageIntegrityFault>();
+        int ready = 0, pending = 0, failed = 0, stale = 0, notConfigured = 0;
+        foreach (var runId in runIds)
+        {
+            var tracks = counts.GetValueOrDefault(runId);
+            if (tracks == 0) continue;
+            var state = PlateCoverageRule.Classify(
                 runId,
                 fingerprint,
                 analyses[runId]
                     .Select(analysis => new PlateCoverageAnalysis(analysis.Id, analysis.IdentityFingerprint, analysis.Status, analysis.VisibilitySequence))
                     .ToArray(),
-                snapshotVisibilitySequence));
+                snapshotVisibilitySequence);
+            if (state == PlateReadinessState.Ready && !filtered)
+            {
+                // A published analysis accounts for every Vehicle Track of its run (PR-3's completion
+                // invariant). A header that disagrees with the Tracks is an integrity fault: the count used is
+                // still the Tracks' own, and the fault is reported (ids and counts only).
+                var pinned = analyses[runId].First(analysis => analysis.IdentityFingerprint == fingerprint);
+                if (pinned.Tracks != tracks)
+                    faults.Add(new PlateCoverageIntegrityFault(pinned.Id, runId, pinned.Tracks, tracks));
+            }
 
-        // A Ready run's pinned analysis has exactly one Track outcome per Vehicle Track of the run (PR-3's
-        // completion invariant), so without a Track-level filter its header counts are the run's Vehicle
-        // Tracks and those runs need no Track scan. Measured (plan §2.8): scanning 10^6 Tracks to count
-        // them costs ~240 ms. Any other run, and every run under a Track-level filter, is counted.
-        var counts = new Dictionary<Guid, int>();
-        if (!HasTrackLevelFilter(query))
-        {
-            foreach (var (runId, state) in states.Where(pair => pair.Value == PlateReadinessState.Ready))
-                counts[runId] = analyses[runId].Single(analysis => analysis.IdentityFingerprint == fingerprint).Tracks;
-        }
-
-        var uncounted = runIds.Where(runId => !counts.ContainsKey(runId)).ToArray();
-        if (uncounted.Length > 0)
-        {
-            foreach (var row in await VehicleTrackCounts(query, uncounted).ToListAsync(cancellationToken))
-                counts[row.RunId] = row.Tracks;
-        }
-
-        int ready = 0, pending = 0, failed = 0, stale = 0, notConfigured = 0;
-        foreach (var (runId, tracks) in counts)
-        {
-            switch (states[runId])
+            switch (state)
             {
                 case PlateReadinessState.Ready:
                     ready += tracks;
@@ -524,7 +534,41 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
             }
         }
 
-        return new TrackPlateCoverage(fingerprint, ready + pending + failed + stale + notConfigured, ready, pending, failed, stale, notConfigured);
+        return (new TrackPlateCoverage(fingerprint, ready + pending + failed + stale + notConfigured, ready, pending, failed, stale, notConfigured),
+            faults);
+    }
+
+    /// <summary>The whole Vehicle Track count of each run, from the cache or counted once for those not in it.</summary>
+    private async Task<Dictionary<Guid, int>> RunVehicleCountsAsync(Guid[] runIds, CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<Guid, int>(runIds.Length);
+        var missing = new List<Guid>();
+        foreach (var runId in runIds)
+        {
+            if (RunVehicleCounts.TryGetValue(runId, out var cached)) result[runId] = cached;
+            else missing.Add(runId);
+        }
+
+        if (missing.Count == 0)
+            return result;
+
+        var missingIds = missing.ToArray();
+        var counted = (await db.Tracks.AsNoTracking()
+                .Where(track => track.ObjectClass == Domain.Intelligence.ObjectClass.Vehicle && missingIds.Contains(track.ProcessingRunId))
+                .GroupBy(track => track.ProcessingRunId)
+                .Select(group => new { RunId = group.Key, Tracks = group.Count() })
+                .ToListAsync(cancellationToken))
+            .ToDictionary(row => row.RunId, row => row.Tracks);
+        if (RunVehicleCounts.Count + missingIds.Length > MaximumCachedRunCounts)
+            RunVehicleCounts.Clear();
+        foreach (var runId in missingIds)
+        {
+            var tracks = counted.GetValueOrDefault(runId);
+            RunVehicleCounts[runId] = tracks;
+            result[runId] = tracks;
+        }
+
+        return result;
     }
 
     private static bool HasTrackLevelFilter(TrackSearchQuery query) =>

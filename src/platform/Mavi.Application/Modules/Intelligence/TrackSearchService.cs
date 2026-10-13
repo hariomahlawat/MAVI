@@ -249,7 +249,8 @@ public sealed class TrackSearchService(
             page.AnalyticsCoverage,
             page.ItemAnalytics,
             page.PlateCoverage,
-            page.ItemPlates));
+            page.ItemPlates,
+            page.IntegrityFaults));
     }
 
     /// <summary>

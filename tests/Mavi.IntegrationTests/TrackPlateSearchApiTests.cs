@@ -406,6 +406,16 @@ public sealed class TrackPlateSearchApiTests(PostgresFixture fixture)
         var countBefore = host.Logs.Entries.Count(entry => entry.EventId.Id == 1422);
         await host.Client.GetFromJsonAsync<JsonElement>($"/api/tracks/{run.Track(0).TrackId}");
         Assert.Equal(countBefore, host.Logs.Entries.Count(entry => entry.EventId.Id == 1422));
+
+        // A plate search over the same run counts both Vehicle Tracks as Ready — the run's own count, not the
+        // analysis header's one — and the server reports the mismatch (event 1423, ids and counts only).
+        var search = await SearchAsync(host, "plateText=KA01AB1234&plateMatch=exact");
+        Assert.Equal(2, search.GetProperty("plateCoverage").GetProperty("ready").GetInt32());
+        var mismatch = Assert.Single(host.Logs.Entries, entry => entry.EventId.Id == 1423);
+        Assert.Equal(LogLevel.Warning, mismatch.Level);
+        Assert.Contains(analysisId.ToString(), mismatch.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(run.RunId.ToString(), mismatch.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("KA01AB1234", mismatch.Message, StringComparison.Ordinal);
     }
 
     [Fact]
