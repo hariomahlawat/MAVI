@@ -1,8 +1,10 @@
 namespace Mavi.Api.Startup;
 
 /// <summary>
-/// Keeps query values — plate text, cursors, every filter — out of the platform's logs (Stage 4 plan §5.5;
-/// ADR-013 implementation amendment, item 20).
+/// Keeps query values — plate text, cursors, every filter — out of MAVI's server and application logs
+/// (Stage 4 plan §5.5; ADR-013 implementation amendment, item 20). That is the whole claim: the search is a
+/// GET and the UI keeps its state in the URL, so plate text can be in the address bar and browser history;
+/// <see cref="Middleware.ReferrerPolicyMiddleware"/> keeps it from being sent onward as a Referer.
 /// </summary>
 /// <remarks>
 /// <para>
