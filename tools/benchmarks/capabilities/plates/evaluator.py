@@ -1,26 +1,24 @@
 """Stage-4 model-selection evaluators A–D (plan §4.4), built on PR-3's merged plate rules.
 
-These are the evaluators plan §7 assigned to PR-1. They were not delivered with PR-1; this module repairs that (see the
-register's repair record). They read **no** dataset by themselves: every function takes in-memory ground truth and
-candidate outputs. A–D run candidate outputs through ``mavi_vision.plates.pipeline`` (``analyse_crop``,
-``summarise_track``), so the per-crop bounds (≤ 2 proposals, ≤ 1 accepted plate, ≤ 3 readings), reading order,
-``Read``/``Unreadable``, abstention reasons and the ``plate-track-text-rank0`` summary are the product's own. Text is
-normalised only by the frozen ``mavi-plate-normalisation-v1``. Confidence is reading-level; no per-character score is
-assumed.
+These are the evaluators plan §7 assigned to PR-1 and PR-1 omitted. This module repairs that (register: *Correction and
+repair record*). The owner decisions it encodes are written in
+`docs/qualification/stage4/plate-selection-decision-record-2026-10-14.md`. It reads **no** dataset by itself: every
+function takes in-memory ground truth and candidate outputs.
 
-* **A** — plate detection on ground-truth vehicle crops: recall at coverage ≥ ``coverage_threshold`` of the GT
-  plate polygon by any proposal; diagnostics: false plates per crop, AP50 (VOC all-point, greedy IoU ≥ 0.5).
-* **B** — OCR on ground-truth plate crops: normalised exact match of the rank-0 reading of a ``Read`` plate;
-  diagnostics: CER, ECE (equal-mass bins), risk–coverage.
-* **C** — OCR on the composition's own accepted plate (PR-3 selection), same truth as B.
-* **D** — end-to-end Track level on a **fully labelled, closed** Track population: D-score = unweighted mean of
-  full-plate Track recall at ``exact``, partial-query Track precision at ``contains`` and partial-query Track recall
-  at ``contains`` (owner decision N8). Consistent-wrong (N3), conflicting and unreadable rates are diagnostics; the
-  consistent-wrong rate is gated.
-* Comparisons: hierarchical paired cluster bootstrap (MSR §8.1) with the owner's MPID and minimum cluster count.
-
-Values the owner has decided (2026-10-13) are module constants the protocol references; values still open are
-required parameters with no default.
+* **Product rules, not re-implementations.**
+  - Track outcomes come from ``mavi_vision.plates.pipeline`` (``analyse_crop``, ``summarise_track``): the 2/1/3 bounds, proposal ordering, detector floor, reading order, ``Read``/``Unreadable``, abstention reasons and the ``plate-track-text-rank0`` summary.
+  - Text is normalised only by the frozen ``mavi-plate-normalisation-v1``.
+  - Confidence is reading-level.
+* **Contract violations are hard FAILs** (owner item 11). A detector emitting more than the bound, a recogniser over its bound, or malformed output that PR-3 treats as an attempt failure makes the whole evaluation ``CONTRACT_FAIL``. The exact failure is kept; nothing is scored through it, truncated or treated as one bad Track.
+* **Ranking floor enforced in code** (D6, owner item 15). D, top-K inputs, the gates and the bootstrap accept only runs and plate records on the ranking profile (2/1/3 bounds, OCR floor 0, no excluded roles). The diagnostic floors {0.3, 0.5, 0.7} exist only behind ``diagnostic_evaluate_at_floor`` and ``diagnostic_plate_record``, whose outputs the ranking path refuses.
+* **Candidate silence scores zero** (owner item 1).
+  - On a valid closed population, a composition that returns nothing has exact recall 0, contains recall 0 and contains precision 0, so its D-score is defined.
+  - ``INSUFFICIENT_EVIDENCE`` is reserved for corpus deficiency: no queryable plate-bearing Track, no positive Track–query pair, or no contains query.
+* **Superiority** (owner item 2): A is ``superior`` to B iff
+  - the observed ΔD = D_A − D_B ≥ MPID 0.04 (exact rationals);
+  - the paired hierarchical 95 % interval for ΔD excludes zero in A's favour;
+  - the cluster count meets the frozen ``required_clusters`` (≥ 60).
+* **Exact arithmetic.** D terms, ΔD and every bootstrap replicate are exact ``Fraction`` values. No epsilon is used.
 """
 
 from __future__ import annotations
@@ -28,10 +26,12 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from fractions import Fraction
 from uuid import UUID
 
 from mavi_vision.plates.contracts import (
+    CROP_ABSTAINED,
     CROP_SCORED,
     MAXIMUM_DETECTIONS_PER_CROP,
     MAXIMUM_PLATES_PER_CROP,
@@ -47,29 +47,39 @@ from mavi_vision.plates.normalisation import OK, normalise
 from mavi_vision.plates.parameters import PlateParameters
 from mavi_vision.plates.pipeline import CropRecord, OutputInvalid, TrackRecord, analyse_crop, summarise_track
 
-from tools.benchmarks.capabilities.plates.queries import CONTAINS, EXACT, NEGATIVE, QuerySet, matches
+from tools.benchmarks.capabilities.plates.queries import CONTAINS, EXACT, QuerySet, matches, queryable
 
-# Owner decisions 2026-10-13 (protocol plates-2026-01 §3.3, §7).
-PLAN_COVERAGE_THRESHOLD = 0.95          # plan §4.4 A
-RANKING_OCR_CONFIDENCE_FLOOR = 0.0      # D6: the only floor that may affect D, gates or selection
-DIAGNOSTIC_OCR_FLOORS = (0.3, 0.5, 0.7)  # D6: diagnostics only; never D-score, gates or selection
-MPID = 0.04                             # D7a (revised 2026-10-13), on D-score
-ABSOLUTE_MINIMUM_CLUSTERS = 60          # D7b: an absolute floor only, never "adequately powered". The required
-                                        # D-ranking cluster count is frozen in the protocol from the final
-                                        # candidate-blind power calculation and passed as ``required_clusters``.
-CONSISTENT_WRONG_LIMIT = 0.02           # plan §4.5, N3
-CONSISTENT_WRONG_SUPPORT = 50           # N3
-P14_TOLERANCE = 0.02                    # N5 (PR-6 agreement), recorded here for the protocol
+# Decision record: docs/qualification/stage4/plate-selection-decision-record-2026-10-14.md
+PLAN_COVERAGE_THRESHOLD = Fraction(95, 100)   # plan §4.4 A (plan-derived)
+RANKING_OCR_CONFIDENCE_FLOOR = 0.0            # owner D6
+DIAGNOSTIC_OCR_FLOORS = (0.3, 0.5, 0.7)       # owner D6: diagnostic only
+MPID = Fraction(4, 100)                       # owner D7a (2026-10-14)
+ABSOLUTE_MINIMUM_CLUSTERS = 60                # owner D7b / P-80: absolute floor only, never "adequately powered"
+CONSISTENT_WRONG_LIMIT = Fraction(2, 100)     # plan §4.5, owner N3
+SUPPORT_FLOOR = 50                            # owner N3; strata below it are INSUFFICIENT_EVIDENCE
+P14_TOLERANCE = Fraction(2, 100)              # owner N5
+ECE_BINS = 10                                 # proposed frozen protocol value (decision record §3): equal-mass bins
+CLUSTER_UNIT = "physical-capture-site"        # owner item 4 / C2
 
 PASS, FAIL, INSUFFICIENT = "PASS", "FAIL", "INSUFFICIENT_EVIDENCE"
-NO_PLATE = "<no-plate>"  # a fully labelled Track whose vehicle shows no plate (truth known: no text)
+MEASURED, CONTRACT_FAIL = "MEASURED", "CONTRACT_FAIL"
+NO_PLATE = "<no-plate>"            # real GT vehicle displaying no plate: truth = no text
+UNREADABLE = "<unreadable>"        # real GT vehicle, text not establishable by the frozen human rule
+NO_GT_VEHICLE = "<no-gt-vehicle>"  # MAVI Track matching no GT vehicle in the closed population: a false Track
 
 
-def evaluation_parameters(detector_confidence_floor: float,
-                          ocr_confidence_floor: float = RANKING_OCR_CONFIDENCE_FLOOR) -> PlateParameters:
-    """PR-3 parameters at the frozen 2/1/3 bounds (D6). The detector floor is each candidate's pinned default."""
+def ranking_parameters(detector_confidence_floor: float) -> PlateParameters:
+    """The only parameters the ranking path accepts: 2/1/3 bounds, OCR floor 0, the candidate's pinned detector floor."""
     return PlateParameters(MAXIMUM_DETECTIONS_PER_CROP, MAXIMUM_PLATES_PER_CROP, MAXIMUM_READINGS_PER_PLATE,
-                           float(detector_confidence_floor), float(ocr_confidence_floor), frozenset(), None)
+                           float(detector_confidence_floor), RANKING_OCR_CONFIDENCE_FLOOR, frozenset(), None)
+
+
+def is_ranking_profile(parameters: PlateParameters) -> bool:
+    return (parameters.max_detections_per_crop == MAXIMUM_DETECTIONS_PER_CROP
+            and parameters.max_plates_per_crop == MAXIMUM_PLATES_PER_CROP
+            and parameters.max_readings_per_plate == MAXIMUM_READINGS_PER_PLATE
+            and parameters.ocr_confidence_floor == RANKING_OCR_CONFIDENCE_FLOOR
+            and not parameters.excluded_roles)
 
 
 def normalised_truth(raw: str) -> str | None:
@@ -77,13 +87,15 @@ def normalised_truth(raw: str) -> str | None:
     return result.normalised if result.outcome == OK else None
 
 
+def _ratio(numerator: int, denominator: int) -> Fraction | None:
+    return Fraction(numerator, denominator) if denominator else None
+
+
 # ---------------------------------------------------------------------------------------------- running PR-3 rules
 
 
 @dataclass(frozen=True, slots=True)
 class EvidenceCrop:
-    """One evidence crop of a Track: its verified bytes and role (``LeaseObservation`` fields)."""
-
     observation_id: UUID
     role: str
     evidence_rank: int
@@ -93,10 +105,11 @@ class EvidenceCrop:
 
 @dataclass(frozen=True, slots=True)
 class TrackRun:
-    """A Track's PR-3 outcome, or the contract violation that failed it (``plate_output_invalid``; N9: FAIL)."""
+    """A Track's PR-3 outcome under ``parameters``, or the exact contract violation (kept for audit, never scored)."""
 
     record: TrackRecord | None
     contract_violation: str | None
+    parameters: PlateParameters
 
 
 def lease_observation(observation_id: UUID, role: str, evidence_rank: int, size_bytes: int, sha256: str
@@ -120,13 +133,11 @@ def run_track(track_id: UUID, crops: Sequence[EvidenceCrop], detector: PlateDete
             verified = VerifiedCrop(str(crop.observation_id), crop.role, crop.evidence_rank, crop.sha256, crop.content)
             records.append(analyse_crop(observation, verified, detector, recogniser, parameters))
     except OutputInvalid as exc:
-        return TrackRun(None, str(exc))
-    return TrackRun(summarise_track(track, tuple(records)), None)
+        return TrackRun(None, str(exc), parameters)
+    return TrackRun(summarise_track(track, tuple(records)), None, parameters)
 
 
-def refloor(record: TrackRecord, floor: float) -> TrackRecord:
-    """DIAGNOSTIC ONLY (D6): the Track as PR-3 would publish it at another OCR floor. Never used for D, gates or
-    selection. Readings are kept; only ``Read``/``Unreadable`` and the Track texts are re-derived."""
+def _refloor(record: TrackRecord, floor: float) -> TrackRecord:
     crops = []
     for crop in record.crops:
         detections = []
@@ -192,38 +203,61 @@ def _iou(a: tuple[float, float, float, float], b: tuple[float, float, float, flo
 
 @dataclass(frozen=True, slots=True)
 class DetectionItem:
-    """One GT vehicle crop: its GT plate polygons and the detector's proposals ``(x, y, w, h, score)`` (as PR-3
-    records them, integer pixels)."""
+    """One GT vehicle crop: GT plate polygons and the detector's proposals ``(x, y, w, h, score)`` as emitted."""
 
     crop_id: str
     plates: tuple[tuple[tuple[float, float], ...], ...]
     proposals: tuple[tuple[int, int, int, int, float], ...]
+    stratum: str | None = None
+
+
+def detection_item_from_crop(crop_id: str, plates, crop: CropRecord, stratum: str | None = None) -> DetectionItem:
+    proposals = tuple((*d.box, d.score) for d in crop.detections) if crop.status in (CROP_SCORED, CROP_ABSTAINED) else ()
+    return DetectionItem(crop_id, tuple(plates), proposals, stratum)
 
 
 @dataclass(frozen=True, slots=True)
 class DetectionResult:
+    outcome: str                      # MEASURED | CONTRACT_FAIL
+    contract_violations: tuple[str, ...]
     plates: int
     covered: int
-    recall: float | None
-    false_plates_per_crop: float | None
+    recall: Fraction | None
+    false_plates_per_crop: Fraction | None
     ap50: float | None
+    below_floor_proposals: int
+    per_stratum: dict = field(default_factory=dict)
 
 
-def evaluate_detection(items: Iterable[DetectionItem], coverage_threshold: float = PLAN_COVERAGE_THRESHOLD
-                       ) -> DetectionResult:
+def evaluate_detection(items: Iterable[DetectionItem], detector_floor: float) -> DetectionResult:
+    """A. More than ``MAXIMUM_DETECTIONS_PER_CROP`` proposals in any crop is a contract FAIL for the evaluation
+    (owner item 14): nothing is scored, truncated or re-selected. Proposals below the pinned detector floor are not
+    counted (PR-3 cannot accept them) and are reported."""
     items = list(items)
-    plates = covered = false = 0
+    violations = tuple(f"plate_detector_output_exceeds_bound:{i.crop_id}" for i in items
+                       if len(i.proposals) > MAXIMUM_DETECTIONS_PER_CROP)
+    if violations:
+        return DetectionResult(CONTRACT_FAIL, violations, 0, 0, None, None, None, 0, {})
+    plates = covered = false = below = 0
+    strata: dict[str, list[int]] = {}
     scored: list[tuple[float, str, int, bool]] = []
     for item in items:
-        boxes = [(x, y, x + w, y + h) for x, y, w, h, _ in item.proposals]
+        kept = [p for p in item.proposals if p[4] >= detector_floor]
+        below += len(item.proposals) - len(kept)
+        boxes = [(x, y, x + w, y + h) for x, y, w, h, _ in kept]
+        hit = sum(1 for polygon in item.plates
+                  if any(Fraction(coverage(polygon, b)) >= PLAN_COVERAGE_THRESHOLD for b in boxes))
         plates += len(item.plates)
-        covered += sum(1 for polygon in item.plates if any(coverage(polygon, b) >= coverage_threshold for b in boxes))
-        false += sum(1 for b in boxes if not any(coverage(p, b) >= coverage_threshold for p in item.plates))
+        covered += hit
+        if item.stratum is not None:
+            bucket = strata.setdefault(item.stratum, [0, 0])
+            bucket[0] += len(item.plates)
+            bucket[1] += hit
+        false += sum(1 for b in boxes if not any(Fraction(coverage(p, b)) >= PLAN_COVERAGE_THRESHOLD for p in item.plates))
         gt_boxes = [(min(x for x, _ in p), min(y for _, y in p), max(x for x, _ in p), max(y for _, y in p))
                     for p in item.plates]
         taken: set[int] = set()
-        order = sorted(range(len(boxes)), key=lambda i: (-item.proposals[i][4], i))
-        for index in order:
+        for index in sorted(range(len(boxes)), key=lambda i: (-kept[i][4], i)):
             best, best_iou = None, 0.5
             for g, gt in enumerate(gt_boxes):
                 value = _iou(boxes[index], gt)
@@ -231,23 +265,22 @@ def evaluate_detection(items: Iterable[DetectionItem], coverage_threshold: float
                     best, best_iou = g, value
             if best is not None:
                 taken.add(best)
-            scored.append((item.proposals[index][4], item.crop_id, index, best is not None))
+            scored.append((kept[index][4], item.crop_id, index, best is not None))
     ap = None
     if plates:
         scored.sort(key=lambda s: (-s[0], s[1], s[2]))
-        tp = 0
-        points = []
+        tp, points = 0, []
         for rank, (_, _, _, hit) in enumerate(scored, 1):
             tp += hit
             points.append((tp / plates, tp / rank))
-        ap = 0.0
-        previous_recall = 0.0
+        ap, previous_recall = 0.0, 0.0
         for i, (recall, _) in enumerate(points):
-            precision = max(p for r, p in points[i:])
-            ap += (recall - previous_recall) * precision
+            ap += (recall - previous_recall) * max(p for _, p in points[i:])
             previous_recall = recall
-    return DetectionResult(plates, covered, covered / plates if plates else None,
-                           false / len(items) if items else None, ap)
+    per_stratum = {name: {"support": s, "recall": _ratio(c, s), "status": MEASURED if s >= SUPPORT_FLOOR else INSUFFICIENT}
+                   for name, (s, c) in sorted(strata.items())}
+    return DetectionResult(MEASURED, (), plates, covered, _ratio(covered, plates), _ratio(false, len(items)), ap, below,
+                           per_stratum)
 
 
 # ---------------------------------------------------------------------------------------------- B and C
@@ -264,28 +297,22 @@ def cer(predicted: str, truth: str) -> float:
 
 
 @dataclass(frozen=True, slots=True)
-class ReadItem:
-    """One GT plate (truth raw text) and the composition's plate outcome: the PR-3 ``PlateRecord`` read from it, or
-    ``None`` when no plate was accepted/read (abstained, unavailable, no detection: counted as not read)."""
+class RankingPlate:
+    """A PR-3 ``PlateRecord`` produced on the ranking profile (OCR floor 0), or the contract violation."""
 
-    plate_id: str
-    truth: str
-    plate: object | None  # mavi_vision.plates.pipeline.PlateRecord
+    plate: object | None
+    contract_violation: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class ReadResult:
-    plates: int
-    exact: int
-    em: float | None
-    cer: float | None
-    ece: float | None
-    risk_coverage: tuple[tuple[float, float], ...]
-    unsupported_truths: int
+class DiagnosticPlate:
+    """DIAGNOSTIC ONLY: a plate record at a diagnostic floor. Refused by every ranking path."""
+
+    plate: object | None
+    floor: float
 
 
-def plate_record_from_readings(readings, parameters: PlateParameters):
-    """B on GT plate crops: rank and classify a recogniser's readings exactly as PR-3 does (``_plate``)."""
+def _plate_record(readings, parameters: PlateParameters):
     from mavi_vision.plates.contracts import has_strict_rank_order, is_raw_text
     from mavi_vision.plates.pipeline import _plate  # the product's own rule, not a re-implementation
 
@@ -295,51 +322,111 @@ def plate_record_from_readings(readings, parameters: PlateParameters):
     if not all(is_raw_text(r.raw_text) and isinstance(r.confidence, (int, float)) and not isinstance(r.confidence, bool)
                and math.isfinite(r.confidence) and 0 <= r.confidence <= 1 for r in readings) \
             or not has_strict_rank_order(readings):
-        return None  # ocr_output_invalid abstention: no readings kept (ADR-013 item 15 exception)
+        return None  # PR-3 crop abstention ocr_output_invalid: proposals kept, readings not (ADR-013 item 15)
     return _plate(0, readings, parameters)
 
 
-def evaluate_reading(items: Iterable[ReadItem], ece_bins: int) -> ReadResult:
-    """EM of the rank-0 reading of a ``Read`` plate; ``ece_bins`` (equal-mass) is an explicit parameter."""
-    rows: list[tuple[bool, float, float | None]] = []
+def ranking_plate_record(readings) -> RankingPlate:
+    """B on GT plate crops, ranked exactly as PR-3 does, at the ranking floor 0. Over-bound output is a contract FAIL."""
+    try:
+        return RankingPlate(_plate_record(readings, ranking_parameters(0.0)))
+    except OutputInvalid as exc:
+        return RankingPlate(None, str(exc))
+
+
+def diagnostic_plate_record(readings, floor: float) -> DiagnosticPlate:
+    if floor not in DIAGNOSTIC_OCR_FLOORS:
+        raise ValueError("diagnostic_floor_not_declared")
+    parameters = replace(ranking_parameters(0.0), ocr_confidence_floor=floor)
+    return DiagnosticPlate(_plate_record(readings, parameters), floor)
+
+
+@dataclass(frozen=True, slots=True)
+class ReadItem:
+    """One GT plate (raw truth) and the composition's ranking-profile plate for it (``plate`` None ⇒ not read)."""
+
+    plate_id: str
+    truth: str
+    result: RankingPlate
+    stratum: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReadResult:
+    outcome: str
+    contract_violations: tuple[str, ...]
+    plates: int
+    exact: int
+    em: Fraction | None
+    cer: float | None
+    ece: float | None
+    top_k_hit: Fraction | None
+    risk_coverage: tuple[tuple[float, float], ...]
+    unsupported_truths: int
+    per_stratum: dict = field(default_factory=dict)
+
+
+def evaluate_reading(items: Iterable[ReadItem]) -> ReadResult:
+    """B/C: EM of the rank-0 reading of a ``Read`` plate. ECE uses ``ECE_BINS`` equal-mass bins over the total order
+    (confidence descending, then ``plate_id``), so it does not depend on input order (owner item 16)."""
+    items = list(items)
+    for item in items:
+        if not isinstance(item.result, RankingPlate):
+            raise ValueError("reading_not_on_ranking_profile")
+    violations = tuple(f"{i.result.contract_violation}:{i.plate_id}" for i in items if i.result.contract_violation)
+    if violations:
+        return ReadResult(CONTRACT_FAIL, violations, 0, 0, None, None, None, None, (), 0, {})
+    rows: list[tuple[str, bool, float, float | None, bool, str | None]] = []
     unsupported = 0
     for item in items:
-        truth = normalised_truth(item.truth)
+        truth = normalised_truth(item.truth) if item.truth else None
         if truth is None:
             unsupported += 1
             continue
-        predicted, confidence = "", None
-        plate = item.plate
+        predicted, confidence, any_rank = "", None, False
+        plate = item.result.plate
         if plate is not None and plate.outcome == PLATE_READ:
-            first = plate.readings[0]
-            confidence = first.confidence
-            predicted = normalised_truth(first.raw_text) or ""
-        rows.append((predicted == truth, cer(predicted, truth), confidence))
+            confidence = plate.readings[0].confidence
+            predicted = normalised_truth(plate.readings[0].raw_text) or ""
+            any_rank = any(normalised_truth(r.raw_text) == truth for r in plate.readings)
+        rows.append((item.plate_id, predicted == truth, cer(predicted, truth), confidence, any_rank, item.stratum))
     n = len(rows)
-    exact = sum(r[0] for r in rows)
-    with_confidence = sorted([(c, e) for e, _, c in rows if c is not None], key=lambda t: -t[0])
+    exact = sum(r[1] for r in rows)
+    ranked = sorted([(r[3], r[1], r[0]) for r in rows if r[3] is not None], key=lambda t: (-t[0], t[2]))
     ece = None
-    if with_confidence and ece_bins >= 1:
-        size = math.ceil(len(with_confidence) / ece_bins)
+    if ranked:
+        size = math.ceil(len(ranked) / ECE_BINS)
         ece = 0.0
-        for start in range(0, len(with_confidence), size):
-            chunk = with_confidence[start:start + size]
-            ece += len(chunk) / len(with_confidence) * abs(sum(c for c, _ in chunk) / len(chunk)
-                                                          - sum(e for _, e in chunk) / len(chunk))
-    curve = []
-    correct = 0
-    for k, (_, e) in enumerate(with_confidence, 1):
+        for start in range(0, len(ranked), size):
+            chunk = ranked[start:start + size]
+            ece += len(chunk) / len(ranked) * abs(sum(c for c, _, _ in chunk) / len(chunk)
+                                                  - sum(e for _, e, _ in chunk) / len(chunk))
+    curve, correct = [], 0
+    for k, (_, e, _) in enumerate(ranked, 1):
         correct += e
         curve.append((k / n, 1 - correct / k))
-    return ReadResult(n, exact, exact / n if n else None, sum(r[1] for r in rows) / n if n else None, ece,
-                      tuple(curve), unsupported)
+    strata: dict[str, list[int]] = {}
+    for row in rows:
+        if row[5] is not None:
+            bucket = strata.setdefault(row[5], [0, 0])
+            bucket[0] += 1
+            bucket[1] += row[1]
+    per_stratum = {name: {"support": s, "em": _ratio(c, s), "status": MEASURED if s >= SUPPORT_FLOOR else INSUFFICIENT}
+                   for name, (s, c) in sorted(strata.items())}
+    return ReadResult(MEASURED, (), n, exact, _ratio(exact, n), sum(r[2] for r in rows) / n if n else None, ece,
+                      _ratio(sum(r[4] for r in rows), n), tuple(curve), unsupported, per_stratum)
 
 
-def accepted_plate(crop: CropRecord):
-    """C: the composition's own accepted plate in a scored crop (PR-3 selection), or ``None``."""
+def c_minus_b(c: ReadResult, b: ReadResult) -> Fraction | None:
+    """Diagnostic only: the detector-attributable EM loss (C − B) on the same plates."""
+    return None if c.em is None or b.em is None else c.em - b.em
+
+
+def accepted_plate(crop: CropRecord) -> RankingPlate:
+    """C: the composition's own accepted plate in a scored crop (PR-3 selection)."""
     if crop.status != CROP_SCORED:
-        return None
-    return next((plate for _, plate in crop.plates()), None)
+        return RankingPlate(None)
+    return RankingPlate(next((plate for _, plate in crop.plates()), None))
 
 
 # ---------------------------------------------------------------------------------------------- top-K (N4)
@@ -348,24 +435,30 @@ def accepted_plate(crop: CropRecord):
 @dataclass(frozen=True, slots=True)
 class ComponentScore:
     candidate_id: str
-    independent: bool       # False when any exposure on the qualifying release makes the pair reference-only
+    independent: bool              # False unless the qualifying release is demonstrably independent (N4)
     support: int
-    primary: float          # A: recall at coverage; B: EM
-    second: float           # A: false plates per crop (lower better); B: CER (lower better)
-    third: float            # A: AP50 (higher better); B: ECE (lower better)
+    primary: float | None          # A: recall at coverage; B: EM
+    second: float | None           # A: false plates per crop (lower better); B: CER (lower better)
+    third: float | None            # A: AP50 (higher better); B: ECE (lower better)
+    contract_fail: bool = False
 
 
 def top_k(scores: Iterable[ComponentScore], k: int, minimum_support: int, kind: str) -> list[str]:
-    """N4: only independent pairs with sufficient common support enter; deterministic tie-breaks:
-    detectors — primary, then lower false plates per crop, then higher AP50, then lexical id;
-    recognisers — EM, then lower CER, then lower ECE, then lexical id."""
+    """N4 tie-breaks. Missing metrics sort last; contract-failed or non-independent components never enter."""
     if kind not in ("detector", "recogniser"):
         raise ValueError("top_k_kind")
-    eligible = [s for s in scores if s.independent and s.support >= minimum_support]
+
+    def high(value):
+        return (value is None, -(value or 0))
+
+    def low(value):
+        return (value is None, value or 0)
+
+    eligible = [s for s in scores if s.independent and not s.contract_fail and s.support >= minimum_support]
     if kind == "detector":
-        key = lambda s: (-s.primary, s.second, -s.third, s.candidate_id)  # noqa: E731
+        key = lambda s: (high(s.primary), low(s.second), high(s.third), s.candidate_id)  # noqa: E731
     else:
-        key = lambda s: (-s.primary, s.second, s.third, s.candidate_id)  # noqa: E731
+        key = lambda s: (high(s.primary), low(s.second), low(s.third), s.candidate_id)  # noqa: E731
     return [s.candidate_id for s in sorted(eligible, key=key)[:k]]
 
 
@@ -374,9 +467,11 @@ def top_k(scores: Iterable[ComponentScore], k: int, minimum_support: int, kind: 
 
 @dataclass(frozen=True, slots=True)
 class TrackItem:
-    """One Track of a fully labelled, closed population. ``truth`` is the raw GT plate text, or ``NO_PLATE`` for a
-    labelled Track without a visible plate; unknown truth is refused. ``run`` is ``None`` when the GT vehicle has no
-    MAVI Track or no evidence (counted as not read)."""
+    """One Track of a fully labelled, closed population (one physical capture site = ``cluster``).
+
+    ``truth``: raw GT plate text, ``NO_PLATE``, ``UNREADABLE`` or ``NO_GT_VEHICLE``. ``run`` None means the GT vehicle has
+    no MAVI Track or no evidence: not read, still in every denominator.
+    """
 
     track_id: str
     cluster: str
@@ -385,163 +480,348 @@ class TrackItem:
 
 
 @dataclass(frozen=True, slots=True)
+class TrackCounts:
+    exact_denominator: int = 0
+    exact_hits: int = 0
+    positive_pairs: int = 0
+    hit_pairs: int = 0
+    returned_pairs: int = 0
+    correct_returned: int = 0
+    multi_source: int = 0
+    consistent_wrong: int = 0
+    analysed: int = 0
+    no_text: int = 0
+    conflicting: int = 0
+    unreadable_returned_pairs: int = 0
+
+    def __add__(self, other: "TrackCounts") -> "TrackCounts":
+        return TrackCounts(*(getattr(self, n) + getattr(other, n) for n in TrackCounts.__dataclass_fields__))
+
+
+@dataclass(frozen=True, slots=True)
 class TrackScore:
-    exact_recall: float | None
-    contains_recall: float | None
-    contains_precision: float | None
-    d_score: float | None
-    exact_denominator: int
-    positive_pairs: int
-    returned_pairs: int
-    consistent_wrong: int
-    consistent_wrong_denominator: int
-    consistent_wrong_rate: float | None
+    outcome: str                    # MEASURED | CONTRACT_FAIL
+    d_status: str                   # MEASURED | INSUFFICIENT_EVIDENCE (corpus deficiency only) | CONTRACT_FAIL
+    exact_recall: Fraction | None
+    contains_recall: Fraction | None
+    contains_precision: Fraction | None
+    d_score: Fraction | None
+    counts: TrackCounts
+    consistent_wrong_rate: Fraction | None
     consistent_wrong_status: str
-    multi_reading_tracks: int
-    consistent_wrong_conditional_rate: float | None
-    conflicting_rate: float | None
-    unreadable_rate: float | None
-    contract_violations: int
+    consistent_wrong_conditional_rate: Fraction | None
+    conflicting_rate: Fraction | None
+    no_text_rate: Fraction | None   # analysed Tracks with no Track text / analysed Tracks
+    contract_violations: tuple[str, ...]
+    accounting: dict                # every Track counted: text, unsupported, unqueryable, no-plate, unreadable, no-gt
 
 
-def _texts(item: TrackItem) -> tuple[str, ...]:
-    if item.run is None or item.run.record is None or item.run.record.outcome != TRACK_ANALYSED:
+@dataclass(frozen=True, slots=True)
+class _Prepared:
+    track_id: str
+    cluster: str
+    kind: str          # "plate" | "no-plate" | "no-gt-vehicle" | "unsupported" | "unreadable"
+    truth: str | None
+    run: TrackRun | None
+
+
+def _prepare(items: Sequence[TrackItem], queries: QuerySet, population_manifest_sha256: str
+             ) -> tuple[list[_Prepared], dict]:
+    if queries.population_manifest_sha256 != population_manifest_sha256:
+        raise ValueError("d_queries_bound_to_another_population")
+    seen: set[str] = set()
+    prepared = []
+    accounting = {"text": 0, "unsupported": 0, "unqueryable": 0, "no-plate": 0, "unreadable": 0, "no-gt-vehicle": 0}
+    for item in items:
+        if not isinstance(item.truth, str) or not item.truth.strip():
+            raise ValueError("d_truth_empty_or_missing")
+        if item.track_id in seen:
+            raise ValueError("d_population_duplicate_track")
+        seen.add(item.track_id)
+        if item.truth in (NO_PLATE, NO_GT_VEHICLE, UNREADABLE):
+            kind = {NO_PLATE: "no-plate", NO_GT_VEHICLE: "no-gt-vehicle", UNREADABLE: "unreadable"}[item.truth]
+            accounting[kind] += 1
+            prepared.append(_Prepared(item.track_id, item.cluster, kind, None, item.run))
+            continue
+        truth = normalised_truth(item.truth)
+        if truth is None:
+            accounting["unsupported"] += 1
+            prepared.append(_Prepared(item.track_id, item.cluster, "unsupported", None, item.run))
+            continue
+        accounting["text"] += 1
+        accounting["unqueryable"] += not queryable(truth)
+        prepared.append(_Prepared(item.track_id, item.cluster, "plate", truth, item.run))
+    supported = {p.truth for p in prepared if p.kind == "plate"}
+    if set(queries.truths) != supported:
+        raise ValueError("d_queries_not_bound_to_population")
+    for p in prepared:
+        if p.run is not None and not is_ranking_profile(p.run.parameters):
+            raise ValueError("d_run_not_on_ranking_profile")
+    return prepared, accounting
+
+
+def _texts(run: TrackRun | None) -> tuple[str, ...]:
+    if run is None or run.record is None or run.record.outcome != TRACK_ANALYSED:
         return ()
-    return tuple(text.normalised_text for text in item.run.record.texts)
+    return tuple(text.normalised_text for text in run.record.texts)
 
 
-def _valid_readings(item: TrackItem) -> list[tuple[UUID, str]]:
-    """Every valid normalised reading (all kept ranks) of the Track's Read plates, with its source observation."""
-    if item.run is None or item.run.record is None:
+def _valid_reading_sources(run: TrackRun | None) -> list[tuple[UUID, str]]:
+    if run is None or run.record is None:
         return []
     out = []
-    for crop in item.run.record.crops:
+    for crop in run.record.crops:
         for _, plate in crop.plates():
-            if plate.outcome != PLATE_READ:
-                continue
-            for reading in plate.readings:
-                text = normalised_truth(reading.raw_text)
-                if text is not None:
-                    out.append((crop.observation_id, text))
+            if plate.outcome == PLATE_READ:
+                for reading in plate.readings:
+                    text = normalised_truth(reading.raw_text)
+                    if text is not None:
+                        out.append((crop.observation_id, text))
     return out
 
 
-def evaluate_tracks(items: Sequence[TrackItem], queries: QuerySet) -> TrackScore:
-    truths: dict[str, str | None] = {}
-    evaluable = []
-    for item in items:
-        if not isinstance(item.truth, str):
-            raise ValueError("d_population_not_fully_labelled")
-        if item.track_id in truths:
-            raise ValueError("d_population_duplicate_track")
-        truth = None if item.truth == NO_PLATE else normalised_truth(item.truth)
-        if item.truth != NO_PLATE and truth is None:
-            continue  # unsupported truth (normalisation rejects it): not evaluable, never guessed
-        truths[item.track_id] = truth
-        evaluable.append(item)
-    items = evaluable
-    plate_bearing = [i for i in items if truths[i.track_id] is not None]
-    texts = {i.track_id: _texts(i) for i in items}
-
-    exact_hits = sum(1 for i in plate_bearing if truths[i.track_id] in texts[i.track_id])
-    exact_n = len(plate_bearing)
-
-    positive = hits = returned = correct_returned = 0
-    for query in queries.queries:
+def _counts(p: _Prepared, queries: QuerySet) -> TrackCounts:
+    """Per-Track counts. Unreadable Tracks have unknown truth: excluded from every precision and recall term, with
+    their returned pairs counted for accounting. Unsupported-truth Tracks stay in precision: their returns are wrong."""
+    texts = _texts(p.run)
+    exact_den = exact_hit = positive = hits = returned = correct = multi = wrong = unreadable_returned = 0
+    if p.kind == "plate" and queryable(p.truth):
+        exact_den = 1
+        exact_hit = int(any(matches(EXACT, p.truth, t) for t in texts))
+    for query in queries.metric_queries:
         if query.match != CONTAINS:
             continue
-        for item in items:
-            truth = truths[item.track_id]
-            relevant = truth is not None and query.query_class != NEGATIVE and query.text in truth
-            found = any(matches(query, t) for t in texts[item.track_id])
-            positive += relevant
-            hits += relevant and found
-            returned += found
-            correct_returned += found and truth is not None and query.text in truth
-    exact_recall = exact_hits / exact_n if exact_n else None
-    contains_recall = hits / positive if positive else None
-    precision = correct_returned / returned if returned else None
-    parts = (exact_recall, contains_recall, precision)
-    d_score = sum(parts) / 3 if all(p is not None for p in parts) else None
-
-    wrong = multi = 0
-    for item in plate_bearing:
-        readings = _valid_readings(item)
-        if len({source for source, _ in readings}) < 2:
+        found = any(matches(CONTAINS, query.text, t) for t in texts)
+        if p.kind == "unreadable":
+            unreadable_returned += found
             continue
-        multi += 1
-        values = {text for _, text in readings}
-        if len(values) == 1 and truths[item.track_id] not in values:
-            wrong += 1
-    rate = wrong / exact_n if exact_n else None
-    status = INSUFFICIENT if exact_n < CONSISTENT_WRONG_SUPPORT else (PASS if rate <= CONSISTENT_WRONG_LIMIT else FAIL)
-    analysed = [i for i in items if i.run is not None and i.run.record is not None
-                and i.run.record.outcome == TRACK_ANALYSED]
-    conflicting = sum(1 for i in analysed if len(texts[i.track_id]) >= 2)
-    unreadable = sum(1 for i in analysed if not texts[i.track_id])
-    violations = sum(1 for i in items if i.run is not None and i.run.contract_violation is not None)
-    return TrackScore(exact_recall, contains_recall, precision, d_score, exact_n, positive, returned, wrong, exact_n,
-                      rate, status, multi, wrong / multi if multi else None,
-                      conflicting / len(analysed) if analysed else None,
-                      unreadable / len(analysed) if analysed else None, violations)
+        relevant = p.kind == "plate" and not query.negative_only and query.text in p.truth
+        positive += relevant
+        hits += relevant and found
+        returned += found
+        correct += relevant and found
+    if p.kind == "plate":
+        readings = _valid_reading_sources(p.run)
+        if len({source for source, _ in readings}) >= 2:
+            multi = 1
+            values = {text for _, text in readings}
+            wrong = int(len(values) == 1 and p.truth not in values)
+    analysed = int(p.run is not None and p.run.record is not None and p.run.record.outcome == TRACK_ANALYSED)
+    return TrackCounts(exact_den, exact_hit, positive, hits, returned, correct, multi, wrong, analysed,
+                       int(analysed and not texts), int(analysed and len(texts) >= 2), unreadable_returned)
 
 
-# ---------------------------------------------------------------------------------------------- comparison (D7)
+def _d_terms(counts: TrackCounts, contains_queries: int) -> tuple[Fraction | None, Fraction | None, Fraction | None]:
+    """Owner item 1: candidate silence scores zero; None only for a corpus deficiency."""
+    exact = _ratio(counts.exact_hits, counts.exact_denominator)
+    recall = _ratio(counts.hit_pairs, counts.positive_pairs)
+    if not contains_queries:
+        precision = None
+    elif counts.returned_pairs:
+        precision = Fraction(counts.correct_returned, counts.returned_pairs)
+    else:
+        precision = Fraction(0)
+    return exact, recall, precision
+
+
+def _d_score(counts: TrackCounts, contains_queries: int) -> Fraction | None:
+    parts = _d_terms(counts, contains_queries)
+    return None if any(part is None for part in parts) else sum(parts) / 3
+
+
+def _contains_queries(queries: QuerySet) -> int:
+    return sum(1 for q in queries.metric_queries if q.match == CONTAINS)
+
+
+def _score(prepared: Sequence[_Prepared], queries: QuerySet, accounting: dict) -> TrackScore:
+    violations = tuple(f"{p.run.contract_violation}:{p.track_id}" for p in prepared
+                       if p.run is not None and p.run.contract_violation is not None)
+    total = TrackCounts()
+    for p in prepared:
+        total = total + _counts(p, queries)
+    plate_bearing = sum(1 for p in prepared if p.kind == "plate")
+    rate = _ratio(total.consistent_wrong, plate_bearing)
+    if violations:
+        cw_status = FAIL
+    elif plate_bearing < SUPPORT_FLOOR:
+        cw_status = INSUFFICIENT
+    else:
+        cw_status = PASS if rate <= CONSISTENT_WRONG_LIMIT else FAIL
+    exact, recall, precision = _d_terms(total, _contains_queries(queries))
+    d = None if violations else _d_score(total, _contains_queries(queries))
+    d_status = CONTRACT_FAIL if violations else (MEASURED if d is not None else INSUFFICIENT)
+    return TrackScore(CONTRACT_FAIL if violations else MEASURED, d_status, exact, recall, precision, d, total, rate,
+                      cw_status, _ratio(total.consistent_wrong, total.multi_source),
+                      _ratio(total.conflicting, total.analysed), _ratio(total.no_text, total.analysed), violations,
+                      dict(accounting))
+
+
+def evaluate_tracks(items: Sequence[TrackItem], queries: QuerySet, *, population_manifest_sha256: str) -> TrackScore:
+    """D on the ranking profile only. Any contract violation makes the composition CONTRACT_FAIL (never scored)."""
+    prepared, accounting = _prepare(items, queries, population_manifest_sha256)
+    return _score(prepared, queries, accounting)
+
+
+def diagnostic_evaluate_at_floor(items: Sequence[TrackItem], queries: QuerySet, floor: float, *,
+                                 population_manifest_sha256: str) -> TrackScore:
+    """DIAGNOSTIC ONLY (D6): D as PR-3 would publish it at another OCR floor. Its result type is the same, but it is
+    never an input to top-K, gates or the bootstrap, which recompute from ranking-profile runs themselves."""
+    if floor not in DIAGNOSTIC_OCR_FLOORS:
+        raise ValueError("diagnostic_floor_not_declared")
+    prepared, accounting = _prepare(items, queries, population_manifest_sha256)
+    refloored = []
+    for p in prepared:
+        run = p.run
+        if run is not None and run.record is not None:
+            run = TrackRun(_refloor(run.record, floor), None, replace(run.parameters, ocr_confidence_floor=floor))
+        refloored.append(replace(p, run=run))
+    score = _score(refloored, queries, accounting)
+    return replace(score, accounting={**score.accounting, "diagnosticFloor": floor})
+
+
+# ---------------------------------------------------------------------------------------------- comparison
 
 
 @dataclass(frozen=True, slots=True)
 class Comparison:
-    difference: float | None
-    lower: float | None
-    upper: float | None
+    outcome: str  # superior | not-superior | insufficient-clusters | insufficient-evidence | contract-fail
+    difference: Fraction | None
+    lower: Fraction | None
+    upper: Fraction | None
     clusters: int
-    outcome: str  # superior | not-superior | insufficient-clusters
+    required_clusters: int
+    cluster_unit: str
+    insufficient_replicates: int
+    cluster_signs: dict
+    per_cluster: dict
 
 
-def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[TrackItem], queries: QuerySet,
-                             replicates: int, seed: int, required_clusters: int, mpid: float = MPID) -> Comparison:
-    """Paired hierarchical bootstrap of D-score(a) − D-score(b) on the same Tracks: clusters with replacement, then
-    Tracks with replacement inside each drawn cluster; 95 % percentile interval. ``superior`` needs the interval to
-    exclude zero **and** the observed difference ≥ ``mpid``. ``required_clusters`` is the protocol-frozen D-ranking
-    cluster count; it may not be below ``ABSOLUTE_MINIMUM_CLUSTERS``. Fewer clusters than required is
-    ``insufficient-clusters`` (never a winner)."""
-    by_id_b = {item.track_id: item for item in items_b}
-    if [i.track_id for i in items_a] != [i.track_id for i in items_b]:
+def _pairing(items_a: Sequence[TrackItem], items_b: Sequence[TrackItem]) -> None:
+    key = lambda i: (i.track_id, i.truth, i.cluster)  # noqa: E731
+    if [key(i) for i in items_a] != [key(i) for i in items_b]:
         raise ValueError("paired_population_mismatch")
-    clusters: dict[str, list[TrackItem]] = {}
-    for item in items_a:
-        clusters.setdefault(item.cluster, []).append(item)
-    names = sorted(clusters)
-    a, b = evaluate_tracks(items_a, queries).d_score, evaluate_tracks(items_b, queries).d_score
-    observed = None if a is None or b is None else a - b
+
+
+def _draws(rng: random.Random, members: dict[str, list[int]], names: list[str]) -> list[int]:
+    picked = []
+    for _ in names:
+        group = members[names[rng.randrange(len(names))]]
+        picked.extend(group[rng.randrange(len(group))] for _ in group)
+    return picked
+
+
+def bootstrap_replicates(items_a, items_b, queries, *, replicates: int, seed: int, population_manifest_sha256: str,
+                         slow: bool = False) -> list[Fraction | None]:
+    """Exact ΔD per replicate (sites with replacement, then Tracks within each drawn site). ``slow=True``
+    re-evaluates every resampled population from the Tracks; the fast path sums precomputed per-Track counts. Tests
+    prove the two are identical."""
+    if not (isinstance(replicates, int) and replicates >= 1):
+        raise ValueError("bootstrap_replicates_invalid")
+    pa, _ = _prepare(items_a, queries, population_manifest_sha256)
+    pb, _ = _prepare(items_b, queries, population_manifest_sha256)
+    members: dict[str, list[int]] = {}
+    for index, p in enumerate(pa):
+        members.setdefault(p.cluster, []).append(index)
+    names = sorted(members)
+    n_contains = _contains_queries(queries)
+    counts_a = [_counts(p, queries) for p in pa]
+    counts_b = [_counts(p, queries) for p in pb]
+    rng = random.Random(seed)
+    out: list[Fraction | None] = []
+    for _ in range(replicates):
+        picked = _draws(rng, members, names)
+        if slow:
+            renamed = lambda ps: [replace(ps[i], track_id=f"{ps[i].track_id}#{n}") for n, i in enumerate(picked)]  # noqa: E731
+            da = _score(renamed(pa), queries, {}).d_score
+            db = _score(renamed(pb), queries, {}).d_score
+        else:
+            ta, tb = TrackCounts(), TrackCounts()
+            for i in picked:
+                ta, tb = ta + counts_a[i], tb + counts_b[i]
+            da, db = _d_score(ta, n_contains), _d_score(tb, n_contains)
+        out.append(None if da is None or db is None else da - db)
+    return out
+
+
+def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[TrackItem], queries: QuerySet, *,
+                             replicates: int, seed: int, required_clusters: int, population_manifest_sha256: str,
+                             cluster_unit: str = CLUSTER_UNIT, mpid: Fraction = MPID) -> Comparison:
+    """The frozen superiority rule (owner item 2): ``superior`` iff
+    - observed ΔD ≥ MPID (exact);
+    - the paired hierarchical 95 % percentile interval excludes zero in A's favour (lower bound > 0, exact);
+    - clusters ≥ ``required_clusters`` (protocol-frozen, ≥ 60).
+
+    A replicate is undefined only when the resampled corpus lacks support (no positive pair or no queryable plate).
+    That refuses the interval as ``insufficient-evidence``. Candidate silence scores zero and never removes a
+    replicate."""
+    if cluster_unit != CLUSTER_UNIT:
+        raise ValueError("cluster_unit_must_be_physical_capture_site")
     if not (isinstance(required_clusters, int) and required_clusters >= ABSOLUTE_MINIMUM_CLUSTERS):
         raise ValueError("required_clusters_below_absolute_minimum")
-    if len(names) < required_clusters or observed is None:
-        return Comparison(observed, None, None, len(names), "insufficient-clusters")
-    rng = random.Random(seed)
-    differences = []
-    for _ in range(replicates):
-        sample_a, sample_b = [], []
-        for draw in range(len(names)):
-            members = clusters[names[rng.randrange(len(names))]]
-            for slot in range(len(members)):
-                chosen = members[rng.randrange(len(members))]
-                copy = f"{chosen.track_id}#{draw}.{slot}"
-                sample_a.append(replace(chosen, track_id=copy))
-                sample_b.append(replace(by_id_b[chosen.track_id], track_id=copy))
-        da, db = evaluate_tracks(sample_a, queries).d_score, evaluate_tracks(sample_b, queries).d_score
-        if da is not None and db is not None:
-            differences.append(da - db)
-    differences.sort()
-    lower = differences[int(0.025 * (len(differences) - 1))]
-    upper = differences[int(math.ceil(0.975 * (len(differences) - 1)))]
-    outcome = "superior" if lower > 0 and observed >= mpid else "not-superior"
-    return Comparison(observed, lower, upper, len(names), outcome)
+    if not (isinstance(replicates, int) and replicates >= 1):
+        raise ValueError("bootstrap_replicates_invalid")
+    _pairing(items_a, items_b)
+    a = evaluate_tracks(items_a, queries, population_manifest_sha256=population_manifest_sha256)
+    b = evaluate_tracks(items_b, queries, population_manifest_sha256=population_manifest_sha256)
+    clusters = sorted({i.cluster for i in items_a})
+    per_cluster, signs = {}, {"a": 0, "b": 0, "tie": 0, "insufficient": 0}
+
+    def result(outcome, difference=None, lower=None, upper=None, insufficient=0):
+        return Comparison(outcome, difference, lower, upper, len(clusters), required_clusters, cluster_unit,
+                          insufficient, signs, per_cluster)
+
+    if a.outcome == CONTRACT_FAIL or b.outcome == CONTRACT_FAIL:
+        return result("contract-fail")
+    if a.d_score is None or b.d_score is None:
+        return result("insufficient-evidence")
+    pa, _ = _prepare(items_a, queries, population_manifest_sha256)
+    pb, _ = _prepare(items_b, queries, population_manifest_sha256)
+    n_contains = _contains_queries(queries)
+    for name in clusters:
+        ca, cb = TrackCounts(), TrackCounts()
+        for p, q in zip(pa, pb):
+            if p.cluster == name:
+                ca, cb = ca + _counts(p, queries), cb + _counts(q, queries)
+        da, db = _d_score(ca, n_contains), _d_score(cb, n_contains)
+        value = None if da is None or db is None else da - db
+        per_cluster[name] = value
+        signs["insufficient" if value is None else "a" if value > 0 else "b" if value < 0 else "tie"] += 1
+    observed = a.d_score - b.d_score
+    if len(clusters) < required_clusters:
+        return result("insufficient-clusters", observed)
+    values = bootstrap_replicates(items_a, items_b, queries, replicates=replicates, seed=seed,
+                                  population_manifest_sha256=population_manifest_sha256)
+    insufficient = sum(v is None for v in values)
+    if insufficient:
+        return result("insufficient-evidence", observed, insufficient=insufficient)
+    values.sort()
+    lower = values[int(0.025 * (len(values) - 1))]
+    upper = values[int(math.ceil(0.975 * (len(values) - 1)))]
+    superior = observed >= mpid and lower > 0
+    return result("superior" if superior else "not-superior", observed, lower, upper)
 
 
-def baseline_gate(composition_d: float | None, baseline_d: float | None, mpid: float = MPID) -> str:
-    """N2: a composition with detector PDx passes only if its D-score clears PDx + OC5 by at least the MPID."""
-    if composition_d is None or baseline_d is None:
+@dataclass(frozen=True, slots=True)
+class CompositionScore:
+    detector_id: str
+    recogniser_id: str
+    score: TrackScore
+
+
+def baseline_gate(composition: CompositionScore, baseline: CompositionScore, baseline_recogniser_id: str,
+                  mpid: Fraction = MPID) -> str:
+    """N2 with the observed difference: D(PDx + OCy) − D(PDx + OC5) ≥ MPID, in exact rationals.
+
+    - A composition contract violation is FAIL.
+    - A baseline that violated the contract is ``BASELINE_INVALID``.
+    - A corpus-deficient D is INSUFFICIENT_EVIDENCE. A silent baseline scores 0, not undefined.
+    """
+    if baseline.detector_id != composition.detector_id or baseline.recogniser_id != baseline_recogniser_id:
+        raise ValueError("baseline_not_detector_matched")
+    if composition.score.outcome == CONTRACT_FAIL:
+        return FAIL
+    if baseline.score.outcome == CONTRACT_FAIL:
+        return "BASELINE_INVALID"
+    if composition.score.d_score is None or baseline.score.d_score is None:
         return INSUFFICIENT
-    return PASS if composition_d - baseline_d >= mpid else FAIL
-
+    return PASS if composition.score.d_score - baseline.score.d_score >= mpid else FAIL

@@ -32,7 +32,7 @@ plate retention/access policy and the Production audit profile (plan §8).
 
 | Row | Requirement | Status | Evidence |
 |---|---|---|---|
-| P1 | Plate harness: ground truth, adapters, mappings, association, evaluators and verdict, with tests; ADR-017 release records | **PASS (level 1: harness implemented and tested)** | Ground truth `benchmark-plate-truth-v1` (`contracts/schemas/benchmark-plate-truth-v1.schema.json`, `tools/benchmarks/capabilities/plates/truth.py`). Production-path measurement `measure.py` imports `crop_region` and `JpegLadderEncoder(PRODUCTION_ENCODER_POLICY)`; a test pins byte equality with the production encoder. E-A `adequacy.py`; E-B `coverage.py` over the existing `benchmark-association-v1`; verdict `verdict.py`; instruments `instruments.py` (pinned by hash). Adapters `tools/benchmarks/datasets/ufpr_alpr.py` (sequences; also drives `prepare`/association) and `voc_plates.py` (Indian stills). CLI `tools/benchmarks/plates/cli.py`; result schema `benchmark-plate-adequacy-v1`. Tests: `tools/benchmarks/tests/test_plates_{contract,measurement,datasets}.py` (fixtures only). Release records: `docs/qualification/stage4/benchmarks/*.descriptor-template.json` (pinned to the adapters by test). Search record: `docs/qualification/stage4/benchmark-search-2026-10-12.md`. **Not** level 2: no release is onboarded (P3a) |
+| P1 | Plate harness: ground truth, adapters, mappings, association, evaluators and verdict, with tests; ADR-017 release records | **PASS (level 1: harness implemented and tested)** | Ground truth `benchmark-plate-truth-v1` (`contracts/schemas/benchmark-plate-truth-v1.schema.json`, `tools/benchmarks/capabilities/plates/truth.py`). Production-path measurement `measure.py` imports `crop_region` and `JpegLadderEncoder(PRODUCTION_ENCODER_POLICY)`; a test pins byte equality with the production encoder. E-A `adequacy.py`; E-B `coverage.py` over the existing `benchmark-association-v1`; verdict `verdict.py`; instruments `instruments.py` (pinned by hash). Adapters `tools/benchmarks/datasets/ufpr_alpr.py` (sequences; also drives `prepare`/association) and `voc_plates.py` (Indian stills). CLI `tools/benchmarks/plates/cli.py`; result schema `benchmark-plate-adequacy-v1`. Tests: `tools/benchmarks/tests/test_plates_{contract,measurement,datasets}.py` (fixtures only). Release records: `docs/qualification/stage4/benchmarks/*.descriptor-template.json` (pinned to the adapters by test). Search record: `docs/qualification/stage4/benchmark-search-2026-10-12.md`. **Not** level 2: no release is onboarded (P3a) Model-selection evaluators A–D and the query generator (assigned to PR-1, omitted): see *Correction and repair record* below |
 | P2 | Normalisation `mavi-plate-normalisation-v1` frozen; identical in Python and .NET | **PASS** | Contract and 36 vectors: `contracts/test-vectors/plate-normalisation-v1.json` (NFKC; ASCII-only upper-casing; nine named separators removed; everything else outside `[A-Z0-9]` rejects; no confusable substitution; advisory format class). Python `tools/benchmarks/plates/normalisation.py`, tested by `test_plates_contract.py`. .NET `Mavi.Application.Modules.Plates.PlateNormalisation`, tested by `tests/Mavi.Application.Tests/Plates/PlateNormalisationVectorTests.cs` (38 tests). Both read the same vector file |
 | P3a | Level 2: datasets onboarded and validated (ADR-017 record, frozen manifest, fail-closed reconciliation on real bytes, truth hashed) | **PASS (Development)** | (1) **UC3M-LP**, Zenodo 17152029: archive MD5 `496e3b5e66b78d231f71d85c0e5e11a3` equals the record; SHA-256 `3b7ad510…223d`; CC BY 4.0; descriptor `0d88240c…`; test truth `02a127d3…` (371 images, 463 plates, 2 anonymised characters each; 24 five- or six-point polygons refused and listed). (2) **DataCluster Indian sample** at revision `2bb7cd4e`: CC BY-NC-ND 4.0; descriptor `caee87e9…`; truth `21c8759f…` (47 images, 52 plates, 25 text-labelled; EXIF-orientation defect found and fixed). (3) **BDD100K MOT 2020 val** (the Stage-3 H3 release, descriptor `7169263a…`, BDD100K licence already held), with R8 agent-verified plate labels: proposals `7d303d84…`, decisions `c258bfdd…`, labels `0bc089b1…`, sequence truth `709a560b…` (106 tracks, 488 frames, 485 text-usable). LSV-LP: licence permits academic non-commercial use (README `902ce892…` retained), but the Dropbox share is disabled (traffic limit) and Baidu needs an account. Only the 3-video official sample was obtained (`95c5c7c5…`) — below support, not used. Search record: `docs/qualification/stage4/benchmark-search-2026-10-12.md` |
 | P3b | Instruments pinned and verified | **PASS** | `fast-plate-ocr` 1.1.0 (`cct-s-v2-global`, ONNX `384bbbd2…`, config `0335c74a…`; MIT) and `rapidocr-onnxruntime` 1.4.4 (PP-OCRv4 det `d2a7720d…`, rec `48fc40f2…`, cls `e47acedf…`; Apache-2.0). Both are verified against the real packages; the plate-specific adapter's colour handling was fixed. ONNX Runtime 1.31.0 runs on CPU, single-threaded and sequential. Specifications: `docs/qualification/stage4/instruments/*.json`. Environment: CPython 3.12.10, exact pins in `tools/benchmarks/plates/requirements-instruments.txt`, declared in the dependency policy (Development benchmark only); Pillow 11.3.0 and numpy 2.5.3 equal the vision lock. Pre-annotation detector (R8 geometry only, never an instrument): `open-image-models` 0.6.0, YOLOv9-s-608 plates `2b878b38…` (MIT) |
@@ -255,37 +255,32 @@ These are tooling corrections only. No frozen result, threshold or verdict chang
   - Updated alongside: the binary catalog, the dependency policy, the Setup contract checks and the runbook.
   - Checked on this host: 57 binary wheels and 3 external payloads fetched; offline install into a fresh environment; the instruments read 12 audit plate crops identically, text and confidence, to the environment that produced the frozen results.
 
-## Correction and repair record: A–D evaluators and query generator (2026-10-13)
+## Correction and repair record: A–D evaluators and query generator (2026-10-13; revised after cold review 2026-10-14)
 
-**Correction.** Plan §7 assigned these to PR-1:
+**Correction.** The Stage-4 plan (§7, PR-1 files) assigned these to PR-1:
 - the model-selection evaluators A–D (`tools/benchmarks/capabilities/plates/evaluator.py`);
 - the deterministic query generator (`queries.py`);
 - a query-generator determinism test.
 
-They were **omitted from PR-1** (PR #213). PR-1 delivered the ground truth, the dataset adapters, the evidence-adequacy experiments E-A/E-B and the verdict. P1's "evaluators" covered those adequacy evaluators only. The omission was found while preparing PR-2, before any PR-2 protocol freeze or candidate run.
+**PR-1 (PR #213) omitted them.** It delivered the ground truth, the dataset adapters, the evidence-adequacy experiments E-A/E-B and the verdict; P1's "evaluators" covered those adequacy evaluators only.
 
-**This repair closes that PR-1 deliverable. It does not alter PR-1's frozen evidence, hashes, thresholds, calculations or INADEQUATE verdict, nor any P1–P3 row status.** The adequacy measurement never used A–D.
+**This repair (PR #218, branch `stage4/plate-harness-evaluators`) closes that implementation omission. None of PR-1's frozen evidence, hashes, thresholds, calculations or INADEQUATE verdict changes, and no P1–P3 row status changes.** The adequacy measurement never used A–D.
 
-**Repair.** The prerequisite branch `stage4/plate-harness-evaluators` adds the two modules on PR-3's merged rules:
-- `mavi_vision.plates.pipeline`: `analyse_crop`, `summarise_track`, the 2/1/3 bounds, reading order, `Read`/`Unreadable`, abstention reasons and the rank-0 Track-text summary;
-- the frozen `mavi-plate-normalisation-v1`;
-- reading-level confidence only.
-
-**Decided values (module constants):** the owner's PR-2 decisions of 2026-10-13, as revised, which the PR-2 protocol references:
-- OCR floor 0 for ranking, with diagnostic floors {0.3, 0.5, 0.7};
-- **MPID 0.04** on D-score;
-- consistent-wrong ≤ 2 % with support 50;
-- the N2 baseline gate;
-- the N4 tie-breaks;
-- the N8 closed-population D-score.
-
-60 independent clusters is recorded **only as an absolute minimum floor**. The D-ranking cluster count is a **required parameter** (`required_clusters`), frozen in the PR-2 protocol from its final candidate-blind power calculation.
-
-**Still-open values (required parameters):** query interior offset, negatives per plate, seed, ECE bins, bootstrap replicates and seed.
+**What the repair implements**
+- The decisions it encodes are written in `docs/qualification/stage4/plate-selection-decision-record-2026-10-14.md`, which separates owner decisions, plan-derived rules, diagnostic-only values, proposed frozen values and still-open values.
+- C and D run candidate outputs through PR-3's own `mavi_vision.plates.pipeline` and the frozen `mavi-plate-normalisation-v1`; confidence is reading-level.
+- Any PR-3 output-contract violation is a hard CONTRACT_FAIL for the evaluation run, kept for audit and never scored through. That includes more than 2 detector proposals, also in A.
+- The ranking OCR floor 0 is enforced in code; the diagnostic floors have separate entry points.
+- Candidate silence scores zero. `INSUFFICIENT_EVIDENCE` is reserved for corpus deficiency.
+- Every truth class is accounted for: text, unsupported, unqueryable, `NO_PLATE`, `UNREADABLE`, `NO_GT_VEHICLE`.
+- Query sets are bound by SHA-256 to the population manifest.
+- D terms, ΔD and the bootstrap replicates are exact rationals (no epsilon). The fast bootstrap is proven identical to re-evaluation.
+- The superiority rule and the cluster unit (physical capture site) are the owner's.
 
 **Tests:** `tools/benchmarks/tests/test_plates_selection_harness.py`, synthetic fixtures only; no dataset and no model is read.
 
 **Gate.** This repair must merge before the PR-2 events reach `PROTOCOL_FROZEN` (plan §4.2 item 2). It is level 1 evidence (harness implemented and tested).
+
 ## Reproduction and repeatability
 
 - **Hosts:** Windows 11 Development host (GTX 1650 Ti 4 GiB). Detector vehicle candidates run on the qualified CUDA vision runtime through the worker's own composition (`tools/benchmarks/plates/vehicle_candidates.py`). Instruments run on CPU, single-threaded, in CPython 3.12.10.
