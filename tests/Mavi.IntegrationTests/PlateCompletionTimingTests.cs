@@ -13,7 +13,8 @@ namespace Mavi.IntegrationTests;
 /// The synchronous plate completion at the supported bound, measured the way the attribute plane's
 /// was (S2b implementation record §5.2). Lease, upload and completion of N Vehicle Tracks × 4 accepted
 /// crops go through the real HTTP routes under the bounded v1 profile (2 proposals, 1 plate,
-/// 3 readings) at its worst admitted shape:
+/// 3 readings) at its row-worst admitted shape (the most rows and work; not the byte-worst artefact, whose
+/// fit is guaranteed by the worst-case bound vector, not by this test):
 /// <list type="bullet">
 /// <item>every crop scored with both proposals;</item>
 /// <item>one plate read with three readings above the floor;</item>

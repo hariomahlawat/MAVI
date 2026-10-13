@@ -16,7 +16,7 @@
 
 It runs on PostgreSQL. The quality gate runs the same test at 200 Tracks.
 
-**Shape: the worst one the profile admits.** Every one of the 40,000 crops is scored with both proposals. Each crop has:
+**Shape: the row-worst shape the profile admits — not the byte-worst.** It maximises the rows and the work: every one of the 40,000 crops is scored with both proposals. It does not reach the artefact's byte bound (see *Sizes*). Each crop has:
 - one plate, read with three readings above the floor;
 - every raw text at the maximum 32 code units, each escaped as `\uXXXX`. These are fullwidth alphanumerics, which NFKC maps to ASCII, so every plate is read.
 
@@ -65,6 +65,8 @@ The sizes were identical in every run.
 | Lease response | 8,401,109 B | 16 MiB worker read cap | 50 % |
 | `PlatePredictions` artefact | 48,540,608 B | worst-case bound 63,044,096 B (`WorstCasePredictionArtifactBytes(2, 1, 3)`) | 77 % of the bound |
 | `PlatePredictions` artefact | 48,540,608 B | 64 MiB cap | 72 % of the cap |
+
+**Byte headroom.** The measured artefact is 14,503,488 B below the worst-case bound and 18,568,256 B below the cap. The bound is an upper bound built from fixed per-element envelopes (for example 160 B per Track text and a maximum-length encoding of every number), which honest output does not fill; that bound — not this measurement — is what guarantees that every admitted artefact fits 64 MiB (vector `plate-artifact-bound-v1.json`). The timings here are for the row-worst shape; an artefact nearer the byte bound would add streaming and hashing time roughly in proportion to its bytes (artefact validation and the seal, ≈ 1 s here), not rows.
 | Completion body | 44,821,697 B | 64 MiB cap | 67 % |
 
 ### Timings (ms)
@@ -98,7 +100,7 @@ The working-set increase depends on how much memory the GC already held from bui
 
 ## Decision
 
-**Synchronous completion stands.** The worst admitted shape completes in ≤ 8.3 s, inside the 15 s request budget. The visibility barrier is held for ≤ 26 ms. No `Finalizing` hand-off is required, so none is implemented. The test asserts:
+**Synchronous completion stands.** The row-worst admitted shape completes in ≤ 8.3 s, inside the 15 s request budget. The visibility barrier is held for ≤ 26 ms. No `Finalizing` hand-off is required, so none is implemented. The test asserts:
 - the artefact is within its worst-case bound and the 64 MiB cap;
 - the completion body is within its cap;
 - the 15 s budget is met.
