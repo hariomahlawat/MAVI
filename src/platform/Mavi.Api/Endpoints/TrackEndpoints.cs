@@ -131,6 +131,14 @@ public static partial class TrackEndpoints
 
         // A Vehicle Track's plate evidence (Stage 4); a Person Track has none to read.
         var plates = await service.GetPlateDetailAsync(result.Row, cancellationToken);
+        if (plates is { Readiness: Domain.Plates.PlateReadinessState.Ready, Facts: null })
+        {
+            // Readiness named a default analysis, but its facts were not readable as fact-bearing. A published
+            // analysis is immutable and stays fact-bearing (Completed or Superseded), so this cannot happen
+            // between the two reads; it is an integrity fault, reported with ids only, never a plate value.
+            LogPlateFactsMissing(loggerFactory.CreateLogger(typeof(TrackEndpoints).FullName!), result.Row.ProcessingRunId, result.Row.Id);
+        }
+
         if (plates is { Readiness: Domain.Plates.PlateReadinessState.Ready, Facts: { Outcome: null } missing })
         {
             // A published analysis gives every Vehicle Track of its run exactly one outcome (PR-3's completion
@@ -719,6 +727,10 @@ public static partial class TrackEndpoints
         ILogger logger,
         Guid trackId,
         TrackEvidenceSetInvariant invariant);
+
+    [LoggerMessage(EventId = 1424, EventName = "track_plate_facts_missing", Level = LogLevel.Warning,
+        Message = "Plate readiness of run {ProcessingRunId} is Ready but the default analysis's facts for Vehicle Track {TrackId} could not be read; the detail reports readiness only.")]
+    private static partial void LogPlateFactsMissing(ILogger logger, Guid processingRunId, Guid trackId);
 
     [LoggerMessage(EventId = 1423, EventName = "track_plate_coverage_mismatch", Level = LogLevel.Warning,
         Message = "Plate analysis {AnalysisId} of run {ProcessingRunId} accounts for {HeaderTracks} Vehicle Tracks but the run has {VehicleTracks}; plate coverage used the run's own count.")]
