@@ -52,7 +52,7 @@
 | live evidence = the platform's sealed H3-attempt2 evidence (multiset of crop SHA-256 per sequence) | **200/200 identical** |
 | baseline evaluation = frozen E-B (track state and evidence-readability, every oracle-readable track) | **identical; 0 differences**, C = 51/77 |
 | baseline vs candidate trajectories | 200/200 identical: the rule does not touch tracking or association |
-| second replay of both arms and second candidate evaluation | see *Repeatability* below |
+| second replay of both arms and second candidate evaluation | **byte-identical** (see *Repeatability*) |
 
 ## Results
 
@@ -149,7 +149,9 @@ Changed Vehicle observations: **13 of 11,892** (two sequences: `b23b2649-1a78948
 - **Determinism of the selection step:** the baseline replay reproduces live, and live reproduces the platform's sealed evidence, in all 200 sequences.
 - **Determinism of the evaluation:** the frozen E-B and E-A repeats were row-identical (register), and the baseline evaluation reproduces the frozen E-B.
 
-**In progress:** an independent second replay of both arms (`repeat/`) and a second candidate evaluation. They are compared by `index.json` hash and by row equality, and the result will be recorded here when complete.
+**Independent repeat (complete):**
+- A second replay of both arms from the recorded detections (`repeat/`) produced **byte-identical** index files: baseline `98b1f7d3…` = `98b1f7d3…` and candidate `418b0fd3…` = `418b0fd3…`. Every per-sequence result is hashed inside them.
+- A second candidate evaluation produced a **byte-identical** file, `candidate-eval.json` `e3a24d3f…`, so its rows and summary are equal.
 
 ## Run identities and hashes
 
