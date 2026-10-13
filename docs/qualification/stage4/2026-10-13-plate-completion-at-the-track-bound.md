@@ -77,6 +77,8 @@ The sizes were identical in every run.
 | 2 | 813.5 | 357.3 | **8,227.8** | 1,142.6 | 810.4 | 193.2 | 4,639.0 (4,614.1) | 23.9 | 1,442.6 |
 | 3 | 877.2 | 340.3 | **7,993.8** | 1,123.8 | 788.5 | 187.1 | 4,525.1 (4,501.0) | 23.3 | 1,369.3 |
 
+**Confirmation after the cold-review fixes** (the claim check runs only when a crop is reported unavailable, so it costs nothing at this shape): one more run on an isolated database gave lease 873.2 ms, upload 349.7 ms, completion wall **8,273.2 ms**, phase A 1,105.7 ms, artefact validation 812.6 ms, seal 186.4 ms, publication 4,661.1 ms (rows 4,633.1 ms), barrier 27.1 ms, managed allocation 897.5 MiB, with identical sizes — within run-to-run variation of the three runs above.
+
 ¹ Completion wall minus the four service phases. This is mostly reading and binding the 44.8 MB request body before the service runs.
 
 ### Memory during the completion request
