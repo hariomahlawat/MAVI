@@ -114,7 +114,9 @@ Use a known-good PostgreSQL 18 installation on the build machine after the appro
 powershell -ExecutionPolicy Bypass -File tools/native/stage_postgresql_runtime_windows.ps1 -PostgreSqlRoot "C:\Program Files\PostgreSQL\18" -PgVectorLicensePath "<PGVECTOR_LICENSE>"
 ~~~
 
-The runtime pack contains the PostgreSQL bin, lib and share trees, including pgvector. Its manifest records every file hash plus the observed PostgreSQL and pgvector versions.
+The runtime pack contains the PostgreSQL bin, lib and share trees, including pgvector and the PostgreSQL contrib extension `pg_trgm` (the plate-text search index, Stage 4). Staging refuses a source tree without `pg_trgm.control` and `pg_trgm.dll`. Its manifest records every file hash plus the observed PostgreSQL, pgvector and pg_trgm (`pgTrgmVersion`) versions; packs staged before Stage 4 PR-4 already contain pg_trgm (contrib ships with every PostgreSQL 18 Windows installation) but do not record its version.
+
+Setup creates `pg_trgm` as the administrator in each MAVI database, beside `vector`; the platform's startup check refuses to start without it, and `Test-MaviEnvironment.ps1` reports it.
 
 This is the preferred end-user deployment path. The lower-level standalone pgvector staging/installer remains available for controlled maintenance/build-machine workflows but is not required during normal MAVI installation.
 

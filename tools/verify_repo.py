@@ -898,6 +898,8 @@ def check_offline_binary_catalog(errors: list[str]) -> None:
     required_ids = {
         "postgresql-win-x64",
         "pgvector-pg18-win-x64",
+        # PostgreSQL contrib behind the plate-text trigram index (Stage 4 PR-4).
+        "pg-trgm-pg18-win-x64",
         "ffmpeg-win-x64",
         "dotnet-hosting-win-x64",
         "dotnet-sdk-win-x64",

@@ -217,6 +217,8 @@ function Initialize-MaviDatabase {
     }
 
     Invoke-MaviPsql -PsqlPath $PsqlPath -Port $Port -User "postgres" -Password $AdminPassword -Database $DatabaseName -Sql "create extension if not exists vector;"
+    # PostgreSQL contrib, shipped in the runtime pack: the plate search's trigram index (Stage 4 PR-4).
+    Invoke-MaviPsql -PsqlPath $PsqlPath -Port $Port -User "postgres" -Password $AdminPassword -Database $DatabaseName -Sql "create extension if not exists pg_trgm;"
 }
 
 function Refresh-MaviProcessPath {

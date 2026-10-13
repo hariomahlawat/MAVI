@@ -21,6 +21,7 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "pg_trgm");
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
@@ -1103,6 +1104,15 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("BestPlateObservationId")
                         .HasDatabaseName("ix_plate_track_texts_best_plate_observation");
+
+                    b.HasIndex(new[] { "NormalisedText" }, "ix_plate_track_texts_normalised_text_pattern");
+
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex(new[] { "NormalisedText" }, "ix_plate_track_texts_normalised_text_pattern"), new[] { "text_pattern_ops" });
+
+                    b.HasIndex(new[] { "NormalisedText" }, "ix_plate_track_texts_normalised_text_trgm");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex(new[] { "NormalisedText" }, "ix_plate_track_texts_normalised_text_trgm"), "gin");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex(new[] { "NormalisedText" }, "ix_plate_track_texts_normalised_text_trgm"), new[] { "gin_trgm_ops" });
 
                     b.ToTable("plate_track_texts", null, t =>
                         {

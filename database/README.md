@@ -22,7 +22,7 @@ The integration fixture is deliberately destructive and refuses any database who
 
 `Setup-MAVI-Production.cmd` provisions a dedicated MAVI-owned PostgreSQL 18 service on port 55432 from the approved hash-manifested runtime pack containing pgvector. Production credentials are generated/protected by Setup rather than committed to the repository.
 
-MAVI applies pending EF Core migrations automatically during startup in Development and Production. Startup is fail-closed: PostgreSQL/pgvector prerequisites are verified under the migration advisory lock, migrations are applied, and MAVI does not begin serving against an unverified schema state.
+MAVI applies pending EF Core migrations automatically during startup in Development and Production. Startup is fail-closed: PostgreSQL/pgvector/pg_trgm prerequisites are verified under the migration advisory lock, migrations are applied, and MAVI does not begin serving against an unverified schema state.
 
 Do not use `EnsureCreated`, manually edit `__EFMigrationsHistory`, or make manual SQL migration steps part of the normal deployment workflow.
 

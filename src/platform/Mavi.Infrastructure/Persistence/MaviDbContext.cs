@@ -47,6 +47,9 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("vector");
+        // PostgreSQL contrib, shipped in the MAVI PostgreSQL runtime pack (Stage 4 PR-4): the plate
+        // search's trigram index (PlateSearchIndexConfiguration).
+        modelBuilder.HasPostgresExtension("pg_trgm");
         modelBuilder.HasSequence<long>(ProcessingVisibilityBarrier.SequenceName);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(MaviDbContext).Assembly);
     }

@@ -65,6 +65,9 @@ if ($machineConfigExists -and (Test-Path -LiteralPath $psqlPath -PathType Leaf))
         $vector = Invoke-MaviPsql -PsqlPath $psqlPath -Port $dbPort -User $dbUser -Password $dbPassword -Database $dbName -Sql "select extversion from pg_extension where extname='vector';" -CaptureOutput
         $vectorVersion = $vector.StandardOutput.Trim()
         Add-Check -Name "pgvector" -Passed (-not [string]::IsNullOrWhiteSpace($vectorVersion)) -Detail $(if ($vectorVersion) { $vectorVersion } else { "not enabled" })
+        $trigram = Invoke-MaviPsql -PsqlPath $psqlPath -Port $dbPort -User $dbUser -Password $dbPassword -Database $dbName -Sql "select extversion from pg_extension where extname='pg_trgm';" -CaptureOutput
+        $trigramVersion = $trigram.StandardOutput.Trim()
+        Add-Check -Name "pg_trgm" -Passed (-not [string]::IsNullOrWhiteSpace($trigramVersion)) -Detail $(if ($trigramVersion) { $trigramVersion } else { "not enabled; re-run Setup-MAVI" })
         Add-Check -Name "Managed media root" -Passed (Test-Path -LiteralPath ([string]$machineConfig.MediaStorage.RootPath) -PathType Container) -Detail ([string]$machineConfig.MediaStorage.RootPath)
         Add-Check -Name "Evidence root" -Passed (Test-Path -LiteralPath ([string]$machineConfig.MediaStorage.EvidenceRootPath) -PathType Container) -Detail ([string]$machineConfig.MediaStorage.EvidenceRootPath)
         $cursorKeyPresent = $null -ne (Get-MaviExistingCursorSigningKey -MachineConfigPath $machineConfigPath)
