@@ -1,23 +1,23 @@
 namespace Mavi.Api.Startup;
 
 /// <summary>
-/// Keeps plate text out of the platform's logs (Stage 4 plan §5.5).
+/// Keeps query values — plate text, cursors, every filter — out of the platform's logs (Stage 4 plan §5.5;
+/// ADR-013 implementation amendment, item 20).
 /// </summary>
 /// <remarks>
 /// <para>
-/// A plate search carries its text in the query string (<c>plateText</c>), and so may any request
-/// URL. MAVI's own messages never log a query string, and the plate search logs only that a plate
-/// predicate was present, its match mode and counts. The one framework source of request URLs is
-/// ASP.NET Core's hosting diagnostics ("Request starting … ?plateText=…", "Request finished …"), which
-/// the shipped configuration already holds at <c>Warning</c> through <c>Microsoft.AspNetCore</c>.
+/// The only framework source of raw request URLs is ASP.NET Core's hosting diagnostics: its request
+/// start and finish lines ("Request starting … ?plateText=…", "Request finished …"), written at
+/// <c>Information</c> and <c>Debug</c>. This filter suppresses exactly that category below
+/// <c>Warning</c>, in code, so raising <c>Microsoft.AspNetCore</c> for diagnosis can never write a query
+/// string. Request observability is not lost: <see cref="Middleware.SafeRequestTelemetryMiddleware"/>
+/// emits its own start and finish events with the method, the matched route template, the status, the
+/// duration and the trace id, and nothing taken from the query beyond two closed-vocabulary plate fields.
 /// </para>
 /// <para>
-/// This filter makes that floor a code invariant rather than a configuration default, so an operator
-/// raising <c>Microsoft.AspNetCore</c> to <c>Information</c> for diagnosis does not start writing plate
-/// text to disk. The rule is registered after the configuration's rules and names the exact category,
-/// so it wins over any provider-agnostic configuration rule for that category. <i>Trade-off:</i> the
-/// per-request start/finish lines are not available at any level; request outcomes remain visible
-/// through MAVI's own messages and every warning or error the framework raises.
+/// The rule is registered after the configuration's rules and names the exact category, so it wins over
+/// any provider-agnostic configuration rule for it. A provider-specific rule naming that exact category
+/// could still override it; that is configuration the runbook does not ship.
 /// </para>
 /// </remarks>
 public static class PlateTextLogPrivacy

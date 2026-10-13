@@ -68,6 +68,8 @@ app.VerifyTrackCursorSigning();
 app.VerifyVisualAttributeRelease();
 app.VerifyPlateRelease();
 await app.ApplyDatabaseMigrationsAsync();
+// Sanitised request start/finish telemetry in place of the framework's raw-URL lines (Stage 4 §5.5).
+app.UseSafeRequestTelemetry();
 // Client-aborted requests are expected control flow. Keep cancellation propagation intact in
 // repositories and services, but prevent routine RequestAborted exceptions from surfacing as
 // application failures (or debugger user-unhandled breaks) at the HTTP boundary.

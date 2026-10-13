@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Mavi.Api.Middleware;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Application.Modules.Plates;
 using Mavi.Domain.Plates;
@@ -420,5 +421,78 @@ public sealed class TrackPlateSearchApiTests(PostgresFixture fixture)
         }
 
         Assert.Contains(entries, entry => entry.Level <= LogLevel.Debug);
+        // The framework's raw-URL request lines are gone; the sanitised ones replace them.
+        Assert.DoesNotContain(entries, entry => entry.Message.StartsWith("Request starting HTTP/", StringComparison.Ordinal));
+        Assert.Contains(entries, entry => entry.EventId.Id == SafeRequestTelemetryMiddleware.RequestFinishedEventId);
+    }
+
+    /// <summary>
+    /// The owner's request-telemetry contract (2026-10-13): a plate search with a cursor yields useful start
+    /// and finish events — method, route template, status, duration, trace id and the two plate fields — and
+    /// neither the plate value, the cursor value nor the raw query string appears in any captured record,
+    /// at any level, in any category.
+    /// </summary>
+    [Fact]
+    public async Task APlateSearchWithACursorYieldsSanitisedRequestTelemetryAndLeaksNoQueryValue()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, Now, configuration: new Dictionary<string, string?>
+        {
+            ["Logging:LogLevel:Default"] = "Trace",
+            ["Logging:LogLevel:Microsoft"] = "Trace",
+            ["Logging:LogLevel:Microsoft.AspNetCore"] = "Trace",
+            ["Logging:LogLevel:Microsoft.AspNetCore.Hosting.Diagnostics"] = "Trace",
+            ["Logging:LogLevel:Microsoft.EntityFrameworkCore"] = "Trace",
+        });
+        var identity = TrackPlateSearchWorld.IdentityA(host.Factory.Services.GetRequiredService<IPlateRelease>());
+        var run = await host.World.SeedRunAsync(persons: 0, vehicles: 3);
+        await TrackPlateSearchWorld.PublishAsync(host.World.Read, Now, run.RunId, identity,
+            [.. run.Tracks.Select(track => SeedPlateTrack.Analysed(track.TrackId,
+                new SeedPlate(track.Observations[0].ObservationId, 0.9, ("KA01AB1234", 0.9))))]);
+        var cursor = (await SearchAsync(host, "plateText=KA01AB1234&plateMatch=contains&limit=1")).GetProperty("nextCursor").GetString()!;
+        var before = host.Logs.Entries.Count;
+
+        var rawQuery = $"plateText=KA01AB1234&plateMatch=contains&limit=1&cursor={Uri.EscapeDataString(cursor)}";
+        using var response = await host.Client.GetAsync("/api/tracks?" + rawQuery);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        // A match mode outside the vocabulary is never echoed, even though the request is refused.
+        using var refused = await host.Client.GetAsync("/api/tracks?plateText=KA01AB1234&plateMatch=evil-value-123");
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+
+        var request = host.Logs.Entries.Skip(before).ToArray();
+        var starting = request.Where(entry => entry.EventId.Id == SafeRequestTelemetryMiddleware.RequestStartingEventId).ToArray();
+        var finished = request.Where(entry => entry.EventId.Id == SafeRequestTelemetryMiddleware.RequestFinishedEventId).ToArray();
+        Assert.Equal(2, starting.Length);
+        Assert.Equal(2, finished.Length);
+        Assert.Matches(@"^Request starting GET /api/tracks/? \(trace \S+, plateFilterPresent true, plateMatch contains\)$", starting[0].Message);
+        Assert.Matches(@"^Request finished GET /api/tracks/? 200 in \d+\.\d ms \(trace \S+, plateFilterPresent true, plateMatch contains\)$", finished[0].Message);
+        Assert.Matches(@"^Request finished GET /api/tracks/? 400 in \d+\.\d ms \(trace \S+, plateFilterPresent true, plateMatch none\)$", finished[1].Message);
+        // Start and finish of one request carry the same trace id.
+        var trace = System.Text.RegularExpressions.Regex.Match(starting[0].Message, @"trace (\S+),").Groups[1].Value;
+        Assert.False(string.IsNullOrWhiteSpace(trace));
+        Assert.Contains($"trace {trace},", finished[0].Message, StringComparison.Ordinal);
+
+        foreach (var forbidden in new[] { "KA01AB1234", "ka01ab1234", cursor, Uri.EscapeDataString(cursor), rawQuery, "plateText=", "cursor=", "evil-value-123" })
+        {
+            var leaking = host.Logs.Entries.Where(entry => entry.Message.Contains(forbidden, StringComparison.OrdinalIgnoreCase)).ToArray();
+            Assert.True(leaking.Length == 0,
+                $"'{forbidden[..Math.Min(forbidden.Length, 24)]}…' was logged: {string.Join(" | ", leaking.Select(entry => $"[{entry.EventId}] {entry.Message[..Math.Min(entry.Message.Length, 160)]}"))}");
+        }
+    }
+
+    [Fact]
+    public async Task RequestsWithoutAPlateFilterStillHaveTelemetry()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, Now);
+        var before = host.Logs.Entries.Count;
+
+        await host.Client.GetAsync("/api/tracks?objectClass=Vehicle");
+        await host.Client.GetAsync($"/api/tracks/{Guid.CreateVersion7()}");
+
+        var finished = host.Logs.Entries.Skip(before)
+            .Where(entry => entry.EventId.Id == SafeRequestTelemetryMiddleware.RequestFinishedEventId).ToArray();
+        Assert.Equal(2, finished.Length);
+        Assert.Matches(@"^Request finished GET /api/tracks/? 200 in .* plateFilterPresent false, plateMatch none\)$", finished[0].Message);
+        // The detail route is logged by its template, never by the requested id; it carries no plate field.
+        Assert.Matches(@"^Request finished GET /api/tracks/\{id:guid\} 404 in .* plateFilterPresent none, plateMatch none\)$", finished[1].Message);
     }
 }
