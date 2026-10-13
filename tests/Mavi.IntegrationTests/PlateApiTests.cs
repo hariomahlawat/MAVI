@@ -356,6 +356,61 @@ public sealed class PlateApiTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task APublishedAnalysisHasExactlyOneOutcomeForEveryLeasedVehicleTrack()
+    {
+        // Owner decision 2026-10-13: "Ready with a Vehicle Track that has no outcome" must be impossible.
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        var run = await ActivateAndSeedAsync(host, persons: 1, vehicles: 3, crops: 2);
+        await host.RunCycleAsync();
+        var unit = await host.LeaseAsync();
+        // Track 0 analysed, track 1 unavailable (every crop missing), track 2 analysed.
+        var built = PlateCompletionBuilder.Build(unit.Lease,
+            (track, _) => track == 1 ? PlateCropSpec.Unavailable("evidence_missing") : PlateCropSpec.Scored(PlateCompletionBuilder.DefaultProposal));
+        using (var uploaded = await host.UploadAsync(unit, built.Predictions))
+            Assert.Equal(HttpStatusCode.OK, uploaded.StatusCode);
+
+        var payload = built.Request.Payload!;
+        var tracks = payload.Tracks!;
+        PlateCompleteRequest With(IReadOnlyList<PlateTrackResultContract> replaced) =>
+            built.Request with { Payload = payload with { Tracks = replaced } };
+
+        // A completion that leaves a leased Track without an outcome, or gives one Track two, is refused
+        // before anything is published.
+        foreach (var broken in new[]
+                 {
+                     With([tracks[0], tracks[2]]),
+                     With([tracks[0], tracks[0], tracks[2]]),
+                     With([tracks[0], tracks[1] with { TrackId = run.Tracks.Single(x => x.ObjectClass == Mavi.Domain.Intelligence.ObjectClass.Person).TrackId }, tracks[2]]),
+                     With([tracks[0], tracks[1] with { Outcome = null }, tracks[2]]),
+                 })
+        {
+            using var refused = await host.CompleteAsync(unit, broken);
+            Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+            var code = await CodeAsync(refused);
+            Assert.True(code is "plate_track_coverage_invalid" or "plate_track_outcome_invalid", code);
+            await using var db = host.World.Read();
+            Assert.Equal(PlateAnalysisStatus.Running, (await db.PlateAnalyses.AsNoTracking().SingleAsync()).Status);
+            Assert.Empty(await db.PlateTrackOutcomes.AsNoTracking().ToListAsync());
+            Assert.NotEqual("Ready", (await host.ReadinessAsync(run.RunId)).GetProperty("state").GetString());
+        }
+
+        using (var completed = await host.CompleteAsync(unit, built.Request))
+            Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        Assert.Equal("Ready", (await host.ReadinessAsync(run.RunId)).GetProperty("state").GetString());
+
+        await using (var db = host.World.Read())
+        {
+            var vehicles = run.Tracks.Where(x => x.ObjectClass == Mavi.Domain.Intelligence.ObjectClass.Vehicle).Select(x => x.TrackId).ToHashSet();
+            var outcomes = await db.PlateTrackOutcomes.AsNoTracking().Where(x => x.AnalysisId == unit.AnalysisId).ToListAsync();
+            // A bijection: one outcome per leased Vehicle Track, none for anything else.
+            Assert.Equal(vehicles.Count, outcomes.Count);
+            Assert.Equal(vehicles, outcomes.Select(x => x.TrackId).ToHashSet());
+            Assert.Equal(2, outcomes.Count(x => x.Outcome == PlateTrackOutcomeKind.Analysed));
+            Assert.Equal("evidence_missing", Assert.Single(outcomes, x => x.Outcome == PlateTrackOutcomeKind.Unavailable).Reason);
+        }
+    }
+
+    [Fact]
     public async Task APlateCrashOrExhaustionLeavesTheRunTracksAndAttributeUnitsUntouched()
     {
         await using var host = await PlateApiHost.CreateAsync(fixture, T0,

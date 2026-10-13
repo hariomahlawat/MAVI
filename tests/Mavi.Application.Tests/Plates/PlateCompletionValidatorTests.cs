@@ -90,6 +90,12 @@ public sealed class PlateCompletionValidatorTests
     {
         { "track order", "plate_track_coverage_invalid" },
         { "missing track", "plate_track_coverage_invalid" },
+        { "duplicate track in place of another", "plate_track_coverage_invalid" },
+        { "unleased track in place of a leased one", "plate_track_coverage_invalid" },
+        { "extra track", "plate_track_coverage_invalid" },
+        { "no tracks", "plate_track_coverage_invalid" },
+        { "track without an outcome", "plate_track_outcome_invalid" },
+        { "track with an unknown outcome", "plate_track_outcome_invalid" },
         { "unavailable without reason", "plate_track_outcome_invalid" },
         { "no accepted evidence with evidence", "plate_track_outcome_invalid" },
         { "box outside crop", "plate_observation_invalid" },
@@ -233,6 +239,24 @@ public sealed class PlateCompletionValidatorTests
                 return WithTracks();
             case "missing track":
                 tracks.RemoveAt(1);
+                return WithTracks();
+            case "duplicate track in place of another":
+                tracks[1] = tracks[0];
+                return WithTracks();
+            case "unleased track in place of a leased one":
+                tracks[1] = tracks[1] with { TrackId = Guid.NewGuid() };
+                return WithTracks();
+            case "extra track":
+                tracks.Add(tracks[^1] with { TrackId = Guid.NewGuid() });
+                return WithTracks();
+            case "no tracks":
+                tracks.Clear();
+                return WithTracks();
+            case "track without an outcome":
+                tracks[0] = tracks[0] with { Outcome = null };
+                return WithTracks();
+            case "track with an unknown outcome":
+                tracks[0] = tracks[0] with { Outcome = "pending" };
                 return WithTracks();
             case "unavailable without reason":
                 tracks[3] = tracks[3] with { Reason = null };
