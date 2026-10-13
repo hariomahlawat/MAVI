@@ -575,7 +575,9 @@ describe('Analytics Workbench', () => {
     vi.mocked(getSystemConfig).mockRejectedValue(new Error('config unavailable'));
     render();
 
-    expect(await alertSaying(/display timezone is unavailable/i)).toHaveTextContent(/display timezone is unavailable/i);
+    // The stage's alert (the window band says, apart, that its times cannot be
+    // edited: both arrive together now the Workbench is drawn once, §38).
+    expect(await alertSaying(/configured display timezone is unavailable/i)).toHaveTextContent(/configured display timezone is unavailable/i);
     expect(screen.queryByRole('figure')).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Retry' })).toBeInTheDocument();
