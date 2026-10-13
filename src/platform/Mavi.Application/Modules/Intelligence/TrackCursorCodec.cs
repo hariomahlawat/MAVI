@@ -363,7 +363,7 @@ public static class TrackCursorCodec
                 plateIdentityFingerprint,
                 analyticsIdentity is null ? null : AnalyticFilters(query, analyticsIdentity)),
             JsonOptions);
-        return Convert.ToHexString(HMACSHA256.HashData(key.Bytes, payload)).ToLowerInvariant();
+        return Convert.ToHexString(HMACSHA256.HashData(PlateFingerprintKey(key), payload)).ToLowerInvariant();
     }
 
     public static string EncodePlate(TrackPlateCursorPosition cursor, TrackCursorSigningKey key)
@@ -422,7 +422,7 @@ public static class TrackCursorCodec
             JsonOptions);
 
         var envelope = new byte[MacByteLength + payload.Length];
-        HMACSHA256.HashData(key.Bytes, payload, envelope.AsSpan(0, MacByteLength));
+        HMACSHA256.HashData(PlateMacKey(key), payload, envelope.AsSpan(0, MacByteLength));
         payload.CopyTo(envelope, MacByteLength);
 
         var encoded = ToBase64Url(envelope);
@@ -444,7 +444,7 @@ public static class TrackCursorCodec
     {
         ArgumentNullException.ThrowIfNull(key);
         position = null;
-        if (!TryAuthenticate(cursor, key, PlateMaximumEncodedLength, out var payload))
+        if (!TryAuthenticate(cursor, PlateMacKey(key), PlateMaximumEncodedLength, out var payload))
             return false;
 
         // Authenticated: the checks below guard against a stale format rather than an attacker.
@@ -514,7 +514,7 @@ public static class TrackCursorCodec
     /// The front half of a signed envelope: shape, length, base64url and a constant-time MAC check.
     /// On success <paramref name="payload"/> is bytes this server wrote under this key.
     /// </summary>
-    private static bool TryAuthenticate(string? cursor, TrackCursorSigningKey key, int maximumLength, out byte[] payload)
+    private static bool TryAuthenticate(string? cursor, byte[] macKey, int maximumLength, out byte[] payload)
     {
         payload = [];
         if (string.IsNullOrWhiteSpace(cursor) ||
@@ -538,12 +538,36 @@ public static class TrackCursorCodec
             return false;
 
         Span<byte> expected = stackalloc byte[MacByteLength];
-        HMACSHA256.HashData(key.Bytes, envelope.AsSpan(MacByteLength), expected);
+        HMACSHA256.HashData(macKey, envelope.AsSpan(MacByteLength), expected);
         if (!CryptographicOperations.FixedTimeEquals(expected, envelope.AsSpan(0, MacByteLength)))
             return false;
 
         payload = envelope[MacByteLength..];
         return true;
+    }
+
+    /// <summary>The label of the v4 envelope's authentication key (<see cref="PlateMacKey"/>).</summary>
+    public const string PlateMacKeyLabel = "mavi-track-cursor-v4/mac";
+
+    /// <summary>The label of the v4 filter-fingerprint key (<see cref="PlateFingerprintKey"/>).</summary>
+    public const string PlateFingerprintKeyLabel = "mavi-track-cursor-v4/filter-fingerprint";
+
+    /// <summary>
+    /// The v4 cursor uses the configured key material for two purposes — authenticating the envelope and
+    /// keying the filter fingerprint inside it — so each purpose gets its own key, derived as
+    /// HMAC-SHA-256(key, label) with a distinct label (cold review P3-2). The wire format is unchanged; a v4
+    /// cursor minted before this derivation no longer verifies and is refused like any stale cursor (cursors
+    /// are short-lived navigation tokens, valid for an hour). v2 is unsigned and v3 uses the key for its MAC
+    /// alone, so both are unchanged.
+    /// </summary>
+    internal static byte[] PlateMacKey(TrackCursorSigningKey key) => DeriveKey(key, PlateMacKeyLabel);
+
+    internal static byte[] PlateFingerprintKey(TrackCursorSigningKey key) => DeriveKey(key, PlateFingerprintKeyLabel);
+
+    private static byte[] DeriveKey(TrackCursorSigningKey key, string label)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        return HMACSHA256.HashData(key.Bytes, System.Text.Encoding.ASCII.GetBytes(label));
     }
 
     private static void RequireNoPlate(TrackSearchQuery query)

@@ -251,11 +251,35 @@ public sealed class TrackPlateCursorTests
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(payload)), TrackCursorCodec.ComputeFilterFingerprint(ordinary));
     }
 
-    private static string Sign(string payload)
+    [Fact]
+    public void EachPurposeUsesItsOwnDerivedKey()
+    {
+        // The envelope is authenticated with HMAC(key, "…/mac"); a cursor signed with the raw key (as v4 did
+        // before the derivation) or with the fingerprint key is refused, so neither purpose's output can stand
+        // in for the other's.
+        var payload = $$"""{"V":4,"S":"2026-10-13T12:00:00+00:00","Q":42,"T":"2026-10-13T11:55:00+00:00","I":"{{Guid.CreateVersion7()}}","F":"{{Fingerprint}}","D":[{"K":"plates","F":"{{Fingerprint}}","G":[1,1,0,0,0,0]}]}""";
+        var raw = Enumerable.Range(0, 32).Select(x => (byte)x).ToArray();
+
+        Assert.True(TrackCursorCodec.TryDecodePlate(Sign(payload), Key, out _));
+        Assert.False(TrackCursorCodec.TryDecodePlate(SignWith(raw, payload), Key, out _));
+        Assert.False(TrackCursorCodec.TryDecodePlate(SignWith(Derive(raw, TrackCursorCodec.PlateFingerprintKeyLabel), payload), Key, out _));
+
+        // The fingerprint is keyed by the fingerprint key, never by the raw key or the MAC key.
+        var fingerprint = TrackCursorCodec.ComputePlateFilterFingerprint(PlateQuery(), Fingerprint, null, Key);
+        Assert.NotEqual(Derive(raw, TrackCursorCodec.PlateMacKeyLabel), Derive(raw, TrackCursorCodec.PlateFingerprintKeyLabel));
+        Assert.Matches("^[0-9a-f]{64}$", fingerprint);
+    }
+
+    private static byte[] Derive(byte[] key, string label) => HMACSHA256.HashData(key, Encoding.ASCII.GetBytes(label));
+
+    private static string Sign(string payload) =>
+        SignWith(Derive(Enumerable.Range(0, 32).Select(x => (byte)x).ToArray(), TrackCursorCodec.PlateMacKeyLabel), payload);
+
+    private static string SignWith(byte[] macKey, string payload)
     {
         var bytes = Encoding.UTF8.GetBytes(payload);
         var envelope = new byte[32 + bytes.Length];
-        HMACSHA256.HashData(Enumerable.Range(0, 32).Select(x => (byte)x).ToArray(), bytes, envelope.AsSpan(0, 32));
+        HMACSHA256.HashData(macKey, bytes, envelope.AsSpan(0, 32));
         bytes.CopyTo(envelope, 32);
         return Convert.ToBase64String(envelope).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
