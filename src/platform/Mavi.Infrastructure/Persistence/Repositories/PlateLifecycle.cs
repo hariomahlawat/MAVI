@@ -103,24 +103,42 @@ public sealed class PlateLifecycle(
             if (request.CameraId is not { } cameraId || cameraId == Guid.Empty ||
                 request.FromUtc is not { } fromUtc || request.ToUtc is not { } toUtc || fromUtc >= toUtc)
                 return PlateReanalysisResult.Refused("plate_reanalysis_scope_invalid");
-            var windowFrom = fromUtc.ToUniversalTime();
-            var windowTo = toUtc.ToUniversalTime();
-            // Runs of the camera's videos whose recording overlaps the window; bounded, never partially.
-            matched = await (
-                    from run in db.ProcessingRuns.AsNoTracking()
-                    join video in db.VideoAssets.AsNoTracking() on run.VideoAssetId equals video.Id
-                    where video.CameraId == cameraId && video.RecordingStartUtc < windowTo && video.RecordingEndUtc > windowFrom
-                    orderby video.RecordingStartUtc, run.Id
-                    select run.Id)
-                .Take(maximumRuns + 1)
-                .ToListAsync(cancellationToken);
+            matched = await LatestRunsInWindowAsync(cameraId, fromUtc.ToUniversalTime(), toUtc.ToUniversalTime(), maximumRuns + 1, cancellationToken);
+            // The bound applies after the per-video selection, and a request over it queues nothing.
             if (matched.Count > maximumRuns) return PlateReanalysisResult.Refused("plate_reanalysis_too_many_runs");
         }
 
         var eligible = await EligibleRuns().Where(run => matched.Contains(run.Id)).Select(run => run.Id).ToListAsync(cancellationToken);
         var ordered = matched.Where(eligible.Contains).ToList();
         var (queued, already) = await QueueRunsAsync(ordered, definition.IdentityFields, cancellationToken);
-        return new PlateReanalysisResult(definition.Identity.Fingerprint, matched.Count, queued, already, matched.Count - ordered.Count, null);
+        return new PlateReanalysisResult(definition.Identity.Fingerprint, matched.Count, queued, already, matched.Count - ordered.Count, null)
+        {
+            SelectedRunIds = matched,
+        };
+    }
+
+    /// <summary>
+    /// Window mode's selection: for every VideoAsset of the camera whose recording overlaps
+    /// <c>[windowFrom, windowTo)</c>, exactly its latest completed, visible ProcessingRun — the one with the highest
+    /// visibility sequence (the order publication made them visible, which is also how Track search picks
+    /// a video's current run). Visibility sequences are unique (<c>ux_processing_runs_visibility_sequence</c>),
+    /// so the order has no ties. Older or superseded runs of the same video are never selected. The result
+    /// is ordered by recording start, then video id; at most
+    /// <paramref name="take"/> are returned.
+    /// </summary>
+    internal async Task<List<Guid>> LatestRunsInWindowAsync(Guid cameraId, DateTimeOffset windowFrom, DateTimeOffset windowTo, int take,
+        CancellationToken cancellationToken)
+    {
+        var visible = db.ProcessingRuns.AsNoTracking()
+            .Where(run => run.Status == ProcessingRunStatus.Completed && run.CompletedAtUtc != null && run.VisibilitySequence != null);
+        var latest =
+            from run in visible
+            join video in db.VideoAssets.AsNoTracking() on run.VideoAssetId equals video.Id
+            where video.CameraId == cameraId && video.RecordingStartUtc < windowTo && video.RecordingEndUtc > windowFrom
+            where !visible.Any(other => other.VideoAssetId == run.VideoAssetId && other.VisibilitySequence > run.VisibilitySequence)
+            orderby video.RecordingStartUtc, video.Id
+            select run.Id;
+        return await latest.Take(take).ToListAsync(cancellationToken);
     }
 
     /// <summary>Completed, visible runs with at least one Vehicle Track.</summary>

@@ -34,8 +34,14 @@ public sealed partial class PlateAudit(ILogger<PlateAudit> logger, PlateIntegrit
     public void UploadHandled(Guid analysisId, int attempt, long bytes, string outcome) =>
         LogUpload(logger, analysisId, attempt, bytes, outcome);
 
-    public void ReanalysisRequested(string scope, int matched, int queued, int alreadyQueued, int notEligible) =>
-        LogReanalysis(logger, scope, matched, queued, alreadyQueued, notEligible);
+    public void ReanalysisRequested(string scope, int matched, int queued, int alreadyQueued, int notEligible, IReadOnlyList<Guid> selectedRunIds)
+    {
+        if (!logger.IsEnabled(LogLevel.Information))
+            return;
+
+        var selected = string.Join(",", selectedRunIds);
+        LogReanalysis(logger, scope, matched, queued, alreadyQueued, notEligible, selected);
+    }
 
     [LoggerMessage(EventId = 2120, EventName = "plate_evidence_read", Level = LogLevel.Information,
         Message = "Plate evidence read: analysis {AnalysisId} attempt {Attempt} Observation {ObservationId}, {Bytes} bytes, served.")]
@@ -58,8 +64,8 @@ public sealed partial class PlateAudit(ILogger<PlateAudit> logger, PlateIntegrit
     private static partial void LogEvidenceLeaseLost(ILogger logger, Guid analysisId, int attempt, Guid observationId);
 
     [LoggerMessage(EventId = 2125, EventName = "plate_reanalysis_requested", Level = LogLevel.Information,
-        Message = "Plate re-analysis requested by {Scope}: {Matched} runs matched, {Queued} queued, {AlreadyQueued} already queued, {NotEligible} not eligible.")]
-    private static partial void LogReanalysis(ILogger logger, string scope, int matched, int queued, int alreadyQueued, int notEligible);
+        Message = "Plate re-analysis requested by {Scope}: {Matched} runs selected, {Queued} queued, {AlreadyQueued} already queued, {NotEligible} not eligible; selected runs {SelectedRunIds}.")]
+    private static partial void LogReanalysis(ILogger logger, string scope, int matched, int queued, int alreadyQueued, int notEligible, string selectedRunIds);
 }
 
 /// <summary>

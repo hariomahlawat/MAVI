@@ -288,7 +288,7 @@ To exercise it in Development:
    }
    ```
 
-   The loop records the identity's activation, queues runs with Vehicle Tracks that complete **after** it (no backfill), fails units past their deadline or out of attempts, and reclaims `staging-plates/`. Historical runs are queued only by an explicit, bounded request: `POST /api/plates/reanalysis` with exactly one of `{"processingRunIds": [...]}` or `{"cameraId": ..., "fromUtc": ..., "toUtc": ...}`, at most `Plates:MaximumRunsPerReanalysisRequest` (default 100) runs, idempotent.
+   The loop records the identity's activation, queues runs with Vehicle Tracks that complete **after** it (no backfill), fails units past their deadline or out of attempts, and reclaims `staging-plates/`. Historical runs are queued only by an explicit, bounded request: `POST /api/plates/reanalysis` with exactly one of `{"processingRunIds": [...]}` or `{"cameraId": ..., "fromUtc": ..., "toUtc": ...}`, at most `Plates:MaximumRunsPerReanalysisRequest` (default 100) runs, idempotent. A window selects exactly the latest completed, visible run of each overlapping video (highest visibility sequence, which is unique), never an older or superseded one, and the bound applies to that selection; a run list queues exactly the supplied runs, never newer ones. The response and audit event 2125 name the selected run ids.
 
 3. Start the plates worker as its own process (it reads no platform filesystem):
 

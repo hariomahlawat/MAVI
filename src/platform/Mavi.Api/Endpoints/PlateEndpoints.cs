@@ -307,9 +307,9 @@ public static class PlateEndpoints
         }
 
         audit.ReanalysisRequested(request.ProcessingRunIds is null ? "camera-window" : "runs", result.RunsMatched, result.Queued,
-            result.AlreadyQueued, result.NotEligible);
+            result.AlreadyQueued, result.NotEligible, result.SelectedRunIds);
         return Results.Accepted(value: new PlateReanalysisResponseContract(result.IdentityFingerprint, result.RunsMatched, result.Queued,
-            result.AlreadyQueued, result.NotEligible));
+            result.AlreadyQueued, result.NotEligible, result.SelectedRunIds));
     }
 
     // --- Shared ------------------------------------------------------------------------------

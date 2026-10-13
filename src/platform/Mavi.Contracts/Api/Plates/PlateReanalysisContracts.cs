@@ -19,4 +19,5 @@ public sealed record PlateReanalysisResponseContract(
     int RunsMatched,
     int Queued,
     int AlreadyQueued,
-    int NotEligible);
+    int NotEligible,
+    IReadOnlyList<Guid> SelectedRunIds);

@@ -60,7 +60,8 @@ public sealed record PlateEvidenceAuthorization(PlateEvidenceGrant? Grant, Plate
 
 /// <summary>
 /// An explicit, bounded historical re-analysis request (plan §2.2; ADR-013 §9): exactly one of a run
-/// list or a camera time window.
+/// list — exactly those runs, never substituted by newer ones — or a camera time window, which selects
+/// only the latest completed, visible run of each overlapping video before the bound applies.
 /// </summary>
 public sealed record PlateReanalysisRequest(
     IReadOnlyList<Guid>? ProcessingRunIds,
@@ -82,6 +83,9 @@ public sealed record PlateReanalysisResult(
     PlateRefusal? Refusal)
 {
     public bool IsSuccess => Refusal is null;
+
+    /// <summary>The exact runs the request selected, in selection order (audited and returned).</summary>
+    public IReadOnlyList<Guid> SelectedRunIds { get; init; } = [];
 
     public static PlateReanalysisResult Refused(string code) => new(string.Empty, 0, 0, 0, 0, new PlateRefusal(code));
 }
