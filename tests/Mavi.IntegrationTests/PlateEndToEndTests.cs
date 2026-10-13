@@ -15,9 +15,10 @@ namespace Mavi.IntegrationTests;
 /// process, composed from a derived Development overlay through the real resolver, against the real
 /// platform on a real socket — lease, concurrent heartbeat, authorised evidence reads with byte
 /// verification, decode, fixture detection and recognition, canonical artefact upload, three-phase
-/// completion and publication — ending with the run's plate readiness <c>Ready</c>. Then a worker that
-/// dies mid-attempt is shown to cost only its own lease. Skipped (never passed) without the worker's
-/// Python environment.
+/// completion and publication — ending with the run's plate readiness <c>Ready</c>. Then a worker process
+/// killed mid-attempt is shown to cost only its own lease: the lease expires and is reclaimed, a new attempt
+/// completes, no partial plate fact is ever visible, and the run, its Tracks, Observations and attribute
+/// unit are untouched. Skipped (never passed) without the worker's Python environment.
 /// </summary>
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class PlateEndToEndTests(PostgresFixture fixture, ITestOutputHelper output)
@@ -62,7 +63,7 @@ public sealed class PlateEndToEndTests(PostgresFixture fixture, ITestOutputHelpe
         Assert.Equal(1, (await cycle.RunCycleAsync(CancellationToken.None)).Queued);
 
         var stdout = new StringBuilder();
-        var worker = StartWorker(python, client.BaseAddress!, overlay, stdout);
+        var worker = StartWorker(python, client.BaseAddress!, overlay, stdout, "plates-e2e-01");
         PlateAnalysis? unit = null;
         try
         {
@@ -119,6 +120,214 @@ public sealed class PlateEndToEndTests(PostgresFixture fixture, ITestOutputHelpe
         Assert.DoesNotMatch(tokenPattern, string.Join('\n', logs.Entries.Select(entry => entry.Message)));
     }
 
+    [AttributeWorkerFact]
+    public async Task AWorkerKilledMidAttemptCostsOnlyItsLeaseAndNoPartialFactIsEverVisible()
+    {
+        var python = Environment.GetEnvironmentVariable(AttributeWorkerFactAttribute.PythonVariable)!;
+        var overlayDirectory = Path.Combine(Path.GetTempPath(), $"mavi-plate-crash-{Guid.NewGuid():N}");
+        var overlay = await ComposeOverlayAsync(python, overlayDirectory);
+
+        // The platform runs on a mutable clock so the minimum (60 s) lease can expire without waiting;
+        // it starts at the real time, so the worker's own wall-clock lease guard agrees with it.
+        using var world = await VisualAttributeWorld.CreateAsync(fixture, DateTimeOffset.UtcNow);
+        var gate = new CompletionGate();
+        await using var factory = new ApiTestFactory
+        {
+            MediaRootOverride = world.MediaRoot,
+            EvidenceRootOverride = world.EvidenceRoot,
+            Clock = world.Clock,
+            PlateComponentBindingPath = overlay.GetProperty("componentBindingPath").GetString(),
+            PlatePipelineProfilePath = overlay.GetProperty("pipelineProfilePath").GetString(),
+            OverrideServices = services => services.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter>(gate),
+        };
+        factory.UseKestrel(0);
+        factory.StartServer();
+        using var client = factory.CreateClient();
+        var cycle = factory.Services.GetRequiredService<Mavi.Api.Plates.PlateHostedService>();
+        await cycle.RunCycleAsync(CancellationToken.None);
+
+        world.Clock.Advance(TimeSpan.FromSeconds(1));
+        var run = await world.SeedRunAsync(1, 2, 2, completedAtUtc: world.Clock.GetUtcNow(), cropBytes: (_, _) => CropJpeg);
+        Assert.Equal(1, (await cycle.RunCycleAsync(CancellationToken.None)).Queued);
+        // An attribute unit of the same run, under its own plane.
+        await using (var db = world.Read())
+        {
+            db.VisualAttributeAnalyses.Add(Mavi.Domain.VisualAttributes.VisualAttributeAnalysis.Queue(
+                run.RunId, VisualAttributeTestIdentity.Fields(), world.Clock.GetUtcNow()));
+            await db.SaveChangesAsync();
+        }
+
+        var before = await ReadPlatformFactsAsync();
+
+        // Every plate fact table and the unit's publication, read in one statement (one snapshot),
+        // sampled throughout: a fact row is never visible unless its unit is published, and the fact
+        // count is only ever zero or the final count.
+        using var watching = new CancellationTokenSource();
+        var samples = new System.Collections.Concurrent.ConcurrentBag<(long Facts, long Published)>();
+        var watcher = Task.Run(async () =>
+        {
+            await using var connection = new Npgsql.NpgsqlConnection(fixture.ConnectionString);
+            await connection.OpenAsync();
+            while (!watching.IsCancellationRequested)
+            {
+                await using (var command = new Npgsql.NpgsqlCommand("""
+                    SELECT (SELECT count(*) FROM plate_track_outcomes) + (SELECT count(*) FROM plate_observations)
+                         + (SELECT count(*) FROM plate_readings) + (SELECT count(*) FROM plate_track_texts),
+                           (SELECT count(*) FROM plate_analyses WHERE status = 'Completed' AND visibility_sequence IS NOT NULL)
+                    """, connection))
+                await using (var reader = await command.ExecuteReaderAsync())
+                {
+                    await reader.ReadAsync();
+                    samples.Add((reader.GetInt64(0), reader.GetInt64(1)));
+                }
+
+                await Task.Delay(50);
+            }
+        });
+
+        var stdout = new StringBuilder();
+        Process? first = null;
+        Process? second = null;
+        try
+        {
+            // Attempt 1 runs to its completion call (evidence read, artefact uploaded to staging) and is
+            // killed there, holding a live lease, before the platform has seen the completion.
+            first = StartWorker(python, client.BaseAddress!, overlay, stdout, "plates-e2e-01");
+            await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(90));
+            PlateAnalysis attempt1;
+            await using (var db = world.Read())
+                attempt1 = await db.PlateAnalyses.AsNoTracking().SingleAsync();
+            Assert.Equal((PlateAnalysisStatus.Running, 1, "plates-e2e-01"), (attempt1.Status, attempt1.AttemptCount, attempt1.LeaseOwner));
+            Assert.True(attempt1.LeaseExpiresAtUtc > world.Clock.GetUtcNow());
+            var staged = Path.Combine(world.MediaRoot, "staging-plates", attempt1.Id.ToString(), "attempt-0001");
+            Assert.True(Directory.Exists(staged) && Directory.EnumerateFiles(staged, "*", SearchOption.AllDirectories).Any(),
+                "the killed attempt had staged its predictions artefact");
+
+            first.Kill(entireProcessTree: true);
+            await first.WaitForExitAsync();
+            // The platform saw the connection die; attempt 1's completion was never processed.
+            await gate.Abandoned.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+            // Still attempt 1's lease, unexpired: nothing published, nobody else can take it yet.
+            await using (var db = world.Read())
+            {
+                var unit = await db.PlateAnalyses.AsNoTracking().SingleAsync();
+                Assert.Equal((PlateAnalysisStatus.Running, 1, (long?)null, (Guid?)null),
+                    (unit.Status, unit.AttemptCount, unit.VisibilitySequence, unit.PredictionArtifactId));
+            }
+
+            Assert.Equal("Pending", (await client.GetFromJsonAsync<JsonElement>($"/api/processing/runs/{run.RunId}/plates")).GetProperty("state").GetString());
+            Assert.Equal(before, await ReadPlatformFactsAsync());
+
+            // The lease expires; a new worker reclaims the unit as attempt 2 and completes it.
+            world.Clock.Advance(attempt1.LeaseExpiresAtUtc!.Value - world.Clock.GetUtcNow() + TimeSpan.FromSeconds(1));
+            second = StartWorker(python, client.BaseAddress!, overlay, stdout, "plates-e2e-02");
+            PlateAnalysis? unitAfter = null;
+            var deadline = Stopwatch.StartNew();
+            while (deadline.Elapsed < TimeSpan.FromSeconds(90))
+            {
+                await using var db = world.Read();
+                unitAfter = await db.PlateAnalyses.AsNoTracking().SingleAsync();
+                if (unitAfter.Status is PlateAnalysisStatus.Completed or PlateAnalysisStatus.Failed || second.HasExited) break;
+                await Task.Delay(250);
+            }
+
+            Assert.NotNull(unitAfter);
+            Assert.Equal((PlateAnalysisStatus.Completed, 2), (unitAfter.Status, unitAfter.AttemptCount));
+            Assert.NotNull(unitAfter.VisibilitySequence);
+            Assert.Equal(2, unitAfter.TracksAnalysed);
+        }
+        finally
+        {
+            foreach (var worker in new[] { first, second })
+            {
+                if (worker is null) continue;
+                if (!worker.HasExited) worker.Kill(entireProcessTree: true);
+                await worker.WaitForExitAsync();
+            }
+
+            await watching.CancelAsync();
+            await watcher;
+            output.WriteLine(stdout.ToString());
+            if (Directory.Exists(overlayDirectory)) Directory.Delete(overlayDirectory, recursive: true);
+        }
+
+        long finalFacts;
+        await using (var db = world.Read())
+        {
+            Assert.Equal(2, await db.PlateTrackOutcomes.CountAsync());
+            finalFacts = await db.PlateTrackOutcomes.CountAsync() + await db.PlateObservations.CountAsync()
+                + await db.PlateReadings.CountAsync() + await db.PlateTrackTexts.CountAsync();
+            // Exactly one accepted predictions artefact (attempt 2's), sealed and verified.
+            var artifact = await db.Artifacts.AsNoTracking().SingleAsync(x => x.ArtifactType == ArtifactType.PlatePredictions);
+            var bytes = await File.ReadAllBytesAsync(world.EvidencePath(artifact.StorageKey));
+            Assert.Equal(artifact.Sha256, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)));
+        }
+
+        // No partial fact was ever visible: facts only with a published unit, and only the full set.
+        Assert.Contains(samples, sample => sample.Facts == 0);
+        Assert.All(samples, sample => Assert.True(sample.Facts == 0 || (sample.Published == 1 && sample.Facts == finalFacts),
+            $"partial or unpublished plate facts were visible: {sample.Facts} rows, {sample.Published} published units"));
+
+        // The run, its Tracks, Observations and the attribute plane are byte-for-byte unchanged.
+        Assert.Equal(before, await ReadPlatformFactsAsync());
+        Assert.Equal("Ready", (await client.GetFromJsonAsync<JsonElement>($"/api/processing/runs/{run.RunId}/plates")).GetProperty("state").GetString());
+
+        async Task<string> ReadPlatformFactsAsync()
+        {
+            await using var connection = new Npgsql.NpgsqlConnection(fixture.ConnectionString);
+            await connection.OpenAsync();
+            var digests = new List<string>();
+            foreach (var table in new[] { "processing_runs", "tracks", "observations", "visual_attribute_analyses", "visual_attributes" })
+            {
+                await using var command = new Npgsql.NpgsqlCommand(
+                    $"SELECT count(*) || ':' || coalesce(md5(string_agg(row_to_json(t)::text, '|' ORDER BY t.id)), '') FROM {table} t", connection);
+                digests.Add($"{table}={await command.ExecuteScalarAsync()}");
+            }
+
+            return string.Join(' ', digests);
+        }
+    }
+
+    /// <summary>Holds the first plate completion request until its client goes away; never forwards it.</summary>
+    private sealed class CompletionGate : Microsoft.AspNetCore.Hosting.IStartupFilter
+    {
+        private int _taken;
+
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Abandoned { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Action<Microsoft.AspNetCore.Builder.IApplicationBuilder> Configure(Action<Microsoft.AspNetCore.Builder.IApplicationBuilder> next) => app =>
+        {
+            Microsoft.AspNetCore.Builder.UseExtensions.Use(app, async (context, forward) =>
+            {
+                var path = context.Request.Path.Value ?? string.Empty;
+                if (Microsoft.AspNetCore.Http.HttpMethods.IsPost(context.Request.Method) &&
+                    path.StartsWith(Mavi.Contracts.Worker.Plates.PlateContractRules.RoutePrefix, StringComparison.Ordinal) &&
+                    path.EndsWith("/complete", StringComparison.Ordinal) &&
+                    Interlocked.Exchange(ref _taken, 1) == 0)
+                {
+                    Reached.TrySetResult();
+                    try
+                    {
+                        await Task.Delay(Timeout.Infinite, context.RequestAborted);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+
+                    Abandoned.TrySetResult();
+                    return;
+                }
+
+                await forward(context);
+            });
+            next(app);
+        };
+    }
+
+
     private static async Task<JsonElement> ComposeOverlayAsync(string python, string directory)
     {
         var start = new ProcessStartInfo(python, ["-m", "tests.plate_overlay", directory])
@@ -135,7 +344,7 @@ public sealed class PlateEndToEndTests(PostgresFixture fixture, ITestOutputHelpe
         return JsonDocument.Parse(text).RootElement.Clone();
     }
 
-    private static Process StartWorker(string python, Uri baseAddress, JsonElement overlay, StringBuilder stdout)
+    private static Process StartWorker(string python, Uri baseAddress, JsonElement overlay, StringBuilder stdout, string workerId)
     {
         var start = new ProcessStartInfo(python, ["-m", "mavi_vision.plates.main"])
         {
@@ -144,7 +353,7 @@ public sealed class PlateEndToEndTests(PostgresFixture fixture, ITestOutputHelpe
             RedirectStandardError = true,
         };
         start.Environment["MAVI_API_BASE_URL"] = baseAddress.ToString().TrimEnd('/');
-        start.Environment["MAVI_WORKER_ID"] = "plates-e2e-01";
+        start.Environment["MAVI_WORKER_ID"] = workerId;
         start.Environment["MAVI_COMPONENT_BINDING_PATH"] = overlay.GetProperty("componentBindingPath").GetString();
         start.Environment["MAVI_PIPELINE_PROFILE_PATH"] = overlay.GetProperty("pipelineProfilePath").GetString();
         start.Environment["MAVI_OVERLAY_ROOT"] = overlay.GetProperty("overlayRoot").GetString();
