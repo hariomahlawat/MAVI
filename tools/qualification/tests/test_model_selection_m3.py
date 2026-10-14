@@ -1088,14 +1088,40 @@ def test_d_manifest_bound_to_a_seal_refuses_a_later_reseal(tmp_path):
 # ------------------------------------------------------------------ committed ledgers are untouched
 
 
-def test_no_committed_ledger_or_decision_changed_on_this_branch():
-    changed = subprocess.run(
-        ["git", "diff", "--name-only", "origin/main...HEAD", "--", "docs/qualification/model-selection/*/*.json"],
-        capture_output=True, text=True, check=False,
-    )
-    if changed.returncode != 0:
-        pytest.skip("origin/main is not available in this checkout")
-    assert changed.stdout.strip() == ""
+IMMUTABLE_SUFFIXES = ("-evidence-ledger-frozen.json", "-evidence-ledger-decided.json", "-protocol.md")
+
+
+def _git_in_repo(*args):
+    return subprocess.run(["git", *args], capture_output=True, text=True, check=False,
+                          cwd=Path(__file__).resolve().parents[3])
+
+
+def test_committed_frozen_artefacts_never_change_and_no_ledger_turns_m3_retroactively():
+    """Against the merge-base with origin/main: a frozen ledger, decision snapshot, protocol, seal, Layer-A result or
+    D manifest that existed there is never modified or deleted, and no ledger that existed there switches to
+    msr-v1-m3 (M3 is not retroactive). Added files are allowed (a new event, PR-2's own ledgers). CI checks out full
+    history for this test; outside CI it is skipped only when origin/main is unavailable."""
+    base = _git_in_repo("merge-base", "origin/main", "HEAD")
+    if base.returncode != 0:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            pytest.fail("origin/main is unavailable in CI: the qualification checkout must fetch full history")
+        pytest.skip("origin/main is not available in this local checkout")
+    base_sha = base.stdout.strip()
+    diff = _git_in_repo("diff", "--name-status", "--no-renames", base_sha, "HEAD", "--",
+                        "docs/qualification/model-selection")
+    assert diff.returncode == 0, diff.stderr
+    for line in diff.stdout.splitlines():
+        status, _, path = line.partition(chr(9))
+        name = Path(path).name
+        if status[0] == "A":
+            continue
+        immutable = name.startswith("msr-") and name.endswith(IMMUTABLE_SUFFIXES) or name.startswith("msr-") and any(
+            infix in name for infix in (bs.SEAL_INFIX, bs.LAYER_A_INFIX, bs.D_MANIFEST_INFIX))
+        assert not immutable, f"{status} {path}"
+        if status[0] == "M" and name.endswith("-evidence-ledger.json"):
+            before = json.loads(_git_in_repo("show", f"{base_sha}:{path}").stdout)
+            after = json.loads((Path(__file__).resolve().parents[3] / path).read_text(encoding="utf-8"))
+            assert not (before.get("methodRevision") != "msr-v1-m3" and after.get("methodRevision") == "msr-v1-m3"), path
 
 
 def test_published_schemas_accept_derived_seals_and_layer_a_results():
