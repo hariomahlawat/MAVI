@@ -198,9 +198,14 @@ export async function settleProbe(input) {
   const videos = Array.from(document.querySelectorAll('video')).filter((video) => visible(video)
     && video.currentSrc && !video.error && video.networkState !== 3 && (video.readyState < 1 || video.seeking));
   if (videos.length) why.push(videos.length + ' video(s) still loading or seeking');
+  // The application's own record of its data requests (registered on the
+  // harness's handle when the harness is present): a query waiting to retry
+  // has no request in flight, so the network alone would read its backoff as
+  // quiet. The engine compares it with the requests held open on purpose.
+  const queries = vqa && typeof vqa.queryActivity === 'function' ? vqa.queryActivity() : null;
   const at = performance.now();
   if (vqa) vqa.probeSpans.push([started, at]);
-  return { why, mutations: vqa ? vqa.mutations : null, at };
+  return { why, mutations: vqa ? vqa.mutations : null, queries, at };
 }
 
 /**

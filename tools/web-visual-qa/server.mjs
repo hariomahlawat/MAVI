@@ -455,7 +455,9 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         /** X2: the API requests made since the last reset, oldest first. */
         requests: () => requests.map((r) => ({ ...r })),
         /** In-flight and started request counts, for the settle loop. */
-        network: () => ({ ...network }),
+        // `hung`: requests held open on purpose (a held loading state) — each is a
+        // query the page reports as fetching for as long as the state lasts.
+        network: () => ({ ...network, hung: hung.size }),
         close: () => new Promise((done) => { for (const res of hung) { try { res.destroy(); } catch { /* gone */ } } server.close(done); }),
       });
     });
