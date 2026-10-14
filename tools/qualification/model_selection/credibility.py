@@ -21,8 +21,10 @@ module enforces the rules marked **[checked]** there, on three documents:
 Method revision M3 (``proposals/m3-benchmark-only-baseline.md``) adds the
 ``BENCHMARK_BASELINE`` disposition. It applies to ``reference-only`` candidates in
 ``msr-v1-m3`` ledgers and decision summary v1 only. Such a candidate is measured solely
-to define frozen comparative gates, is never ranked, derived or implemented, and is
-refused anywhere in decision v2.
+to define frozen comparative gates, is never ranked, derived or implemented, has no
+influence on the outcome, and is refused anywhere in decision v2. Its committed pre-D
+baseline seal, Layer-A result, mandatory decision block and harness API live in
+``baseline_seal.py``.
 
 Standard library only; nothing here reads the network, a model or imagery.
 """
@@ -33,6 +35,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -88,6 +91,7 @@ DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED = (
     "DISCOVERED", "SHORTLISTED", "NOT_SHORTLISTED", "REFERENCE_ONLY", "DEFERRED",
 )
 BENCHMARK_BASELINE = "BENCHMARK_BASELINE"  # M3: measured only to define frozen gates; never ranked
+PERMISSION_ARTEFACT_KINDS = ("executable", "runtime-libraries", "model-data")  # M3 per-artefact evaluation permission
 DISPOSITIONS = (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED, BENCHMARK_BASELINE)
 REASONS_BY_DISPOSITION = {
     DISCOVERED: (),
@@ -294,7 +298,7 @@ def _reject_licence_keys(value: object, where: str) -> None:
     if isinstance(value, dict):
         carve_out = value.get("reasonClass") == "evaluation-permission" and "status" in value
         for key, item in value.items():
-            if "licen" in key.lower():
+            if _LICENCE_STEM in _skeleton(_normalise_text(key)):  # a key never takes the plate-term exemption
                 raise _fail("licence_field_in_ledger", f"{where}.{key}")
             if carve_out and key in ("reason", "revisitTrigger"):
                 continue
@@ -302,17 +306,84 @@ def _reject_licence_keys(value: object, where: str) -> None:
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _reject_licence_keys(item, f"{where}[{index}]")
-    elif isinstance(value, str) and "licen" in _PLATE_DOMAIN_TERM_RE.sub("", value).lower():
+    elif isinstance(value, str) and has_licence_wording(value):
         raise _fail("licence_reasoning_in_ledger", where)
 
 
-# The vehicle-plate domain term is not licence wording. Only these exact phrases are removed before the check:
-# "license plate", "license-plate", "licence plate" and "licence-plate" (ASCII case-insensitive; one ASCII space or
-# hyphen; optional plural), as whole words: no ASCII letter or digit may touch either end, so "sublicense plate",
-# "relicense plate", "unlicense plate", "license plateau" and "license plated" are not stripped and stay refused.
-# Underscore, dot, CamelCase, NBSP, newline and doubled-space variants are not the phrase and stay refused. Removal
-# never joins text into new licence wording, because the check runs on the remainder (which still contains "licen").
-_PLATE_DOMAIN_TERM_RE = re.compile(r"(?<![A-Za-z0-9])licen[cs]e[ -]plates?(?![A-Za-z0-9])", re.IGNORECASE | re.ASCII)
+# ----------------------------------------------------------------- licence wording (M1 licence-blindness)
+#
+# The vehicle-plate domain term ("license plate", "licence plate", "license-plate", "licence-plate", optional plural)
+# is not licence wording, but licensing language built on the same letters is ("sub-license plates", "re licence
+# plate", "you may license plate weights"). The check therefore runs in three steps:
+#   1. conservative normalisation (`_normalise_text`): NFKC, case folding, combining marks removed, invisible format
+#      characters (zero-width space/joiners, word joiner, BOM, soft hyphen, bidi marks: category Cf) removed, every
+#      Unicode dash form folded to "-" and every Unicode space separator (category Zs) folded to " ". Tab, newline
+#      and doubled spaces are not folded, so "license\tplate" or "license  plate" are not the phrase;
+#   2. each exact plate phrase in the normalised text is exempt only when "license/licence" is the noun modifier of
+#      "plate": no letter or digit touches either end, and the nearest preceding word (skipping any punctuation,
+#      space or hyphen) is neither a licensing prefix ("sub", "re", "cross", "un", ...) nor a word that makes
+#      "license" a verb ("to", "may", "not", "we", "and", ...). Anything else stays in the text;
+#   3. the remainder, with exempt phrases replaced by a separator (so removal never joins letters), is folded to a
+#      Latin skeleton (`_CONFUSABLES`: Cyrillic/Greek letters drawn identically to Latin ones) and refused if it
+#      contains "licen". Pure Cyrillic or Greek words never fold to "licen" (no look-alike of Latin "n" is folded),
+#      so the skeleton refuses only mixed-script spellings.
+# The exemption is never broadened beyond these four phrases. Paraphrases ("may be redistributed under the
+# terms ...") and confusables outside `_CONFUSABLES` remain reviewer obligations (candidate-credibility.md §9).
+_LICENCE_STEM = "licen"
+_PLATE_PHRASE_RE = re.compile(r"(?<![^\W_])licen[cs]e[ -]plates?(?![^\W_])")
+_DASHES = dict.fromkeys(map(ord, "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u2e3a\u2e3b\ufe58\ufe63\uff0d\u2043\u02d7"), "-")
+_LICENSING_PREFIXES = frozenset({
+    "sub", "re", "cross", "un", "co", "non", "multi", "de", "mis", "counter", "inter", "intra", "dual", "self", "pre",
+    "over", "under", "out", "mutual", "double", "bi", "tri",
+})
+_VERB_CONTEXT = frozenset({
+    "to", "may", "might", "can", "cannot", "could", "must", "shall", "should", "will", "would", "not", "never", "we",
+    "you", "they", "i", "he", "she", "who", "please", "hereby", "and", "or", "nor", "also", "freely",
+})
+_CONFUSABLES = str.maketrans({
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c", "\u0443": "y", "\u0445": "x",
+    "\u0456": "i", "\u0458": "j", "\u0455": "s", "\u0501": "d", "\u04cf": "l", "\u04bb": "h", "\u051b": "q",
+    "\u051d": "w", "\u0269": "i", "\u0131": "i", "\u03bf": "o", "\u03b9": "i", "\u03bd": "v", "\u03b1": "a",
+    "\u0251": "a", "\u217c": "l", "\u01c0": "l",
+})
+
+
+def _normalise_text(text: str) -> str:
+    """Step 1 above: a conservative, detection-only normal form (never stored)."""
+    text = unicodedata.normalize("NFKC", text).casefold()
+    text = "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
+    text = unicodedata.normalize("NFKC", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    text = text.translate(_DASHES)
+    return "".join(" " if unicodedata.category(ch) == "Zs" else ch for ch in text)
+
+
+def _skeleton(text: str) -> str:
+    return text.translate(_CONFUSABLES)
+
+
+def _plate_phrase_is_noun(text: str, start: int) -> bool:
+    """Step 2 above: the word before "license/licence" must not make it a licensing prefix compound or verb."""
+    index = start
+    while index > 0 and not text[index - 1].isalnum():
+        index -= 1
+    end = index
+    while index > 0 and text[index - 1].isalnum():
+        index -= 1
+    word = _skeleton(text[index:end])
+    return word not in _LICENSING_PREFIXES and word not in _VERB_CONTEXT
+
+
+def has_licence_wording(text: str) -> bool:
+    """True when ``text`` contains licence wording other than the exempt plate-domain noun phrase."""
+    normal = _normalise_text(text)
+    pieces, position = [], 0
+    for match in _PLATE_PHRASE_RE.finditer(normal):
+        if _plate_phrase_is_noun(normal, match.start()):
+            pieces += [normal[position:match.start()], "\x00"]
+            position = match.end()
+    pieces.append(normal[position:])
+    return _LICENCE_STEM in _skeleton("".join(pieces))
 
 
 _TRACKING_PARAMETER_RE = re.compile(r"^(?:utm_[a-z]+|ref|source|fbclid|gclid)=", re.IGNORECASE)
@@ -921,39 +992,42 @@ def _check_benchmark_baseline(entry: dict, computed: str, confidence: str, where
                 raise _fail("number_required", f"{fat}.size")
         if paths != sorted(set(paths)):
             raise _fail("benchmark_baseline_manifest_not_sorted_unique", f"{at}.hostManifests.{profile}")
+    # Evaluation permission is bound per exact artefact (M3 rule 2, review P3): one decision for the executables, one
+    # for the runtime libraries/dependencies (when the host manifests hold any) and one for the model/trained data,
+    # whose hashes together cover exactly the pinned identity files and every host-manifest file.
     permissions = _list(block["evaluationPermissions"], f"{at}.evaluationPermissions")
-    if not permissions:
-        raise _fail("benchmark_baseline_permission_required", f"{at}.evaluationPermissions")
+    kinds: dict[str, set[str]] = {}
     for index, item in enumerate(permissions):
         pat = f"{at}.evaluationPermissions[{index}]"
-        _keys(item, ("artefact", "decidedBy", "decidedOn", "primarySourceSha256"), pat)
-        _text(item["artefact"], f"{pat}.artefact")
+        _keys(item, ("artefactKind", "sha256s", "decidedBy", "decidedOn", "primarySourceSha256"), pat)
+        kind = _enum(item["artefactKind"], PERMISSION_ARTEFACT_KINDS, f"{pat}.artefactKind")
+        if kind in kinds:
+            raise _fail("benchmark_baseline_permission_kind_duplicate", f"{pat}.artefactKind")
+        hashes = _list(item["sha256s"], f"{pat}.sha256s")
+        for value in hashes:
+            _match(value, SHA256_RE, f"{pat}.sha256s")
+        if not hashes or hashes != sorted(set(hashes)):
+            raise _fail("benchmark_baseline_permission_not_sorted_unique", f"{pat}.sha256s")
+        kinds[kind] = set(hashes)
         _text(item["decidedBy"], f"{pat}.decidedBy")
         _date(item["decidedOn"], f"{pat}.decidedOn")
         _match(item["primarySourceSha256"], SHA256_RE, f"{pat}.primarySourceSha256")
+    model_data = set(_pinned_files(entry["identity"]))
+    host_files = {item["sha256"] for files in manifests.values() for item in files} - model_data
+    for kind in ("executable", "model-data"):
+        if kind not in kinds:
+            raise _fail("benchmark_baseline_permission_required", f"{at}.evaluationPermissions.{kind}")
+    executable, libraries = kinds["executable"], kinds.get("runtime-libraries", set())
+    if kinds["model-data"] != model_data or executable & libraries or executable | libraries != host_files:
+        raise _fail("benchmark_baseline_permission_not_bound", f"{at}.evaluationPermissions")
+    from .baseline_seal import check_stage1_rule
     ids = set()
     for index, composition in enumerate(_list(block["compositions"], f"{at}.compositions")):
         cat = f"{at}.compositions[{index}]"
-        _keys(composition, ("compositionId", "partnerEventId", "eligiblePartners", "partnerRankingRuleSha256",
-                            "layerAGatesSha256", "derivationRule"), cat)
-        composition_id = _match(composition["compositionId"], LOCAL_ID_RE, f"{cat}.compositionId")
-        if composition_id in ids:
+        check_stage1_rule(composition, entry, cat)
+        if composition["compositionId"] in ids:
             raise _fail("duplicate_composition_id", cat)
-        ids.add(composition_id)
-        _match(composition["partnerEventId"], EVENT_ID_RE, f"{cat}.partnerEventId")
-        _match(composition["partnerRankingRuleSha256"], SHA256_RE, f"{cat}.partnerRankingRuleSha256")
-        _match(composition["layerAGatesSha256"], SHA256_RE, f"{cat}.layerAGatesSha256")
-        _text(composition["derivationRule"], f"{cat}.derivationRule")
-        partners = _list(composition["eligiblePartners"], f"{cat}.eligiblePartners")
-        partner_ids = []
-        for pindex, partner in enumerate(partners):
-            _keys(partner, ("candidateId", "identitySha256"), f"{cat}.eligiblePartners[{pindex}]")
-            partner_ids.append(_match(partner["candidateId"], CANDIDATE_ID_RE, f"{cat}.eligiblePartners[{pindex}]"))
-            _match(partner["identitySha256"], SHA256_RE, f"{cat}.eligiblePartners[{pindex}].identitySha256")
-        if not partner_ids or partner_ids != sorted(set(partner_ids)):
-            raise _fail("eligible_partners_not_sorted_unique", f"{cat}.eligiblePartners")
-        if entry["candidateId"] in partner_ids:
-            raise _fail("benchmark_baseline_cannot_be_its_own_partner", f"{cat}.eligiblePartners")
+        ids.add(composition["compositionId"])
 
 
 def _benchmark_baselines(ledger: Mapping) -> set[str]:
@@ -1031,6 +1105,12 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
             "provenanceConfidence": confidence,
             "disposition": entry["disposition"]["status"],
         }
+    # M3 rule 4: a partner universe in this same event reconciles here; another event's in repository mode and in
+    # the seal verification (baseline_seal.check_partner_universe), where the partner event must exist.
+    from .baseline_seal import check_partner_universe, frozen_compositions
+    for composition_id, (_entry, rule) in sorted(frozen_compositions(ledger).items()):
+        if rule["partnerEventId"] == ledger["eventId"]:
+            check_partner_universe(rule, ledger, f"ledger.compositions.{composition_id}")
     return summary
 
 
@@ -1147,11 +1227,16 @@ def _maximal(scores: Mapping[str, float]) -> set[str]:
     return {candidate for candidate, score in scores.items() if score == best}
 
 
-def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Path | None = None) -> None:
+def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Path | None = None,
+                      baseline_evidence: Mapping[str, Mapping] | None = None) -> None:
     """Validate a decision summary against its decision snapshot and frozen ledger (§8).
 
     ``ledger`` is the ledger as it stood at the decision (``<event-id>-evidence-ledger-
     decided.json``); nothing it holds may postdate the decision.
+
+    M3: when the frozen ledger declares gate-only baseline compositions, their committed seals, Layer-A results and
+    partner frozen ledgers are verified too. They come from ``baseline_evidence`` (``{compositionId: {"seal",
+    "layerA", "partnerLedger"}}``) or, when it is not given, from the committed files under ``repo``.
     """
     validate_evolution(frozen, ledger)
     benchmark = _benchmark_baselines(frozen)
@@ -1174,9 +1259,9 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         decision,
         ("schema", "eventId", "eventState", "outcome", "decidedOn", "ledgerSha256", "frozenLedgerSha256",
          "protocolSha256", "targetProfiles", "evaluated", "licence", "strongestReported",
-         "highestTaskQualityEvaluated", "strongestEvaluatedTechnical", "strongestClearedPerProfile", "implementation"),
+         "highestTaskQualityEvaluated", "strongestEvaluatedTechnical", "strongestClearedPerProfile", "implementation",
+         *(("benchmarkOnlyBaselines",) if benchmark else ())),  # M3: mandatory exactly when the event holds a BOB
         "decision",
-        optional=("gateOnlyBaselineResolutions", "rankedSets") if benchmark else (),
     )
     if decision["schema"] != DECISION_SCHEMA:
         raise _fail("schema_unsupported", "decision.schema")
@@ -1206,7 +1291,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
             ("candidateId", "artefactSha256s", "maviTrainedArtefacts", "maviRevision", "technicalGates",
              "comparativeScore", "taskQualityScore", "measurementSha256"),
             at,
-            optional=("hostManifestSha256s",) if benchmark else (),
+            optional=("hostManifestSha256s", "baselineSealSha256s") if benchmark else (),
         )
         candidate_id = row["candidateId"]
         if candidate_id in evaluated:
@@ -1222,10 +1307,13 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
             manifests = entries[candidate_id]["benchmarkBaseline"]["hostManifests"]
             if row.get("hostManifestSha256s") != {p: document_sha256(m) for p, m in manifests.items()}:
                 raise _fail("benchmark_baseline_host_manifest_mismatch", f"{at}.hostManifestSha256s")
+            if sorted(manifests) != sorted(profiles):
+                # review P3: one pinned host manifest per declared target profile, and no other
+                raise _fail("benchmark_baseline_host_profiles_differ_from_target_profiles", f"{at}.hostManifestSha256s")
             _check_evaluated_artefact(entries[candidate_id], row, at)
             evaluated[candidate_id] = row
             continue
-        if "hostManifestSha256s" in row:
+        if "hostManifestSha256s" in row or "baselineSealSha256s" in row:
             raise _fail("host_manifests_only_for_benchmark_baseline", f"{at}.hostManifestSha256s")
         _number(row["taskQualityScore"], f"{at}.taskQualityScore")
         gates = _enum(row["technicalGates"], ("passed", "failed"), f"{at}.technicalGates")
@@ -1255,19 +1343,14 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         if isinstance(candidate_id, str) and candidate_id in benchmark:
             raise _fail("benchmark_baseline_in_derived_output", f"decision.{field}")
     if benchmark:
-        # M3 §6(d): top-K cuts, finalists and frontiers, when recorded, hold ranked evaluated candidates only.
-        ranked_sets = decision.get("rankedSets", {})
-        if not isinstance(ranked_sets, dict):
-            raise _fail("not_object", "decision.rankedSets")
-        for name, members in ranked_sets.items():
-            _match(name, TOKEN_RE, "decision.rankedSets")
-            for candidate_id in _list(members, f"decision.rankedSets.{name}"):
-                if candidate_id in benchmark:
-                    raise _fail("benchmark_baseline_in_ranked_set", f"decision.rankedSets.{name}")
-                if candidate_id not in evaluated:
-                    raise _fail("ranked_set_member_not_evaluated", f"decision.rankedSets.{name}")
-        _check_gate_only_resolutions(decision.get("gateOnlyBaselineResolutions"), entries, benchmark, frozen,
-                                     evaluated)
+        # M3 rules 3, 4a and 9: the mandatory M3 block (seals, hard-gate mapping, ranked sets and compositions).
+        from .baseline_seal import check_m3_decision, frozen_compositions, load_baseline_evidence
+        if baseline_evidence is None and frozen_compositions(frozen):
+            if repo is None:
+                raise _fail("m3_decision_requires_baseline_evidence", "decision")
+            baseline_evidence = load_baseline_evidence(Path(repo), frozen)
+        check_m3_decision(decision, entries=entries, frozen=frozen, evaluated=evaluated, ranked=ranked,
+                          evidence=baseline_evidence or {})
 
     licence = _keys(decision["licence"], ranked, "decision.licence")
     for candidate_id in ranked:
@@ -1321,9 +1404,8 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
             raise _fail("outcome_before_closed", "decision.outcome")
         return
     _enum(outcome, OUTCOMES, "decision.outcome")
-    if benchmark and not technical and outcome != "NO_QUALIFIABLE_CANDIDATE":
-        # M3 §2 rule 5: with no ranked candidate passing, a benchmark-only baseline cannot carry an outcome.
-        raise _fail("m3_outcome_requires_no_qualifiable_candidate", "decision.outcome")
+    # M3 rule 5: the outcome is the ordinary M1 outcome. Benchmark-only rows were removed from every domain above
+    # (``ranked``), so their presence or absence cannot change it.
     components = [] if implementation is None else implementation["components"]
     baseline_only = bool(components) and all(entries[c]["candidateKind"] == BASELINE for c in components)
     if outcome == "SELECTED_FOR_PACKAGING" and (not components or baseline_only):
@@ -1332,58 +1414,6 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         raise _fail("outcome_implementation_inconsistent", "decision.outcome")
     if outcome in ("INCUMBENT_RETAINED", "NO_QUALIFIABLE_CANDIDATE") and components:
         raise _fail("outcome_implementation_inconsistent", "decision.outcome")
-
-
-def _check_gate_only_resolutions(value: object, entries: Mapping[str, dict], benchmark: set[str], frozen: Mapping,
-                                 evaluated: Mapping[str, dict]) -> None:
-    """M3 §2 rule 4: the Stage-2 seal of each derived gate-only baseline composition.
-
-    The Stage-1 rule (finite partner universe with identities, ranking-rule hash, Layer-A gate hash) is frozen in the
-    benchmark-only baseline's ledger entry. Stage 2 records the mechanically resolved partner, which must come from
-    that universe with the frozen identity, and must be sealed after the freeze and strictly before any D execution.
-    The partner's Layer-A ordering is re-derived by the event harness. This validator binds the result to the frozen
-    universe and rule and checks the seal."""
-    frozen_entries = {e["candidateId"]: e for e in frozen["candidates"]}
-    declared = {}
-    for candidate_id in sorted(benchmark):
-        for composition in frozen_entries[candidate_id]["benchmarkBaseline"]["compositions"]:
-            declared[composition["compositionId"]] = (candidate_id, composition)
-    records = [] if value is None else _list(value, "decision.gateOnlyBaselineResolutions")
-    seen = set()
-    frozen_on = datetime.combine(date.fromisoformat(frozen["frozenOn"]), datetime.min.time(), tzinfo=timezone.utc)
-    for index, record in enumerate(records):
-        at = f"decision.gateOnlyBaselineResolutions[{index}]"
-        _keys(record, ("compositionId", "benchmarkBaselineId", "partnerCandidateId", "partnerIdentitySha256",
-                       "partnerRankingRuleSha256", "layerAResultSha256", "resolvedAt", "dExecutionStartedAt",
-                       "recordSha256"), at)
-        composition_id = record["compositionId"]
-        if composition_id not in declared or declared[composition_id][0] != record["benchmarkBaselineId"]:
-            raise _fail("gate_only_composition_not_frozen", f"{at}.compositionId")
-        if composition_id in seen:
-            raise _fail("gate_only_composition_resolved_twice", f"{at}.compositionId")
-        seen.add(composition_id)
-        rule = declared[composition_id][1]
-        partners = {p["candidateId"]: p["identitySha256"] for p in rule["eligiblePartners"]}
-        if record["partnerCandidateId"] not in partners \
-                or partners[record["partnerCandidateId"]] != record["partnerIdentitySha256"]:
-            raise _fail("baseline_partner_not_in_frozen_universe", f"{at}.partnerCandidateId")
-        if record["partnerRankingRuleSha256"] != rule["partnerRankingRuleSha256"]:
-            raise _fail("baseline_ranking_rule_mismatch", f"{at}.partnerRankingRuleSha256")
-        _match(record["layerAResultSha256"], SHA256_RE, f"{at}.layerAResultSha256")
-        resolved = _instant(record["resolvedAt"], f"{at}.resolvedAt")
-        started = _instant(record["dExecutionStartedAt"], f"{at}.dExecutionStartedAt")
-        if resolved < frozen_on:
-            raise _fail("baseline_resolved_before_freeze", f"{at}.resolvedAt")
-        if not resolved < started:
-            raise _fail("baseline_resolved_after_d_started", f"{at}.resolvedAt")
-        if record["recordSha256"] != document_sha256({k: v for k, v in record.items() if k != "recordSha256"}):
-            raise _fail("baseline_resolution_record_altered", f"{at}.recordSha256")
-        if composition_id in evaluated or composition_id in entries:
-            raise _fail("gate_only_composition_id_collides", at)
-    # Every decision state follows D, so every frozen composition must have been sealed.
-    missing = sorted(set(declared) - seen)
-    if missing:
-        raise _fail("gate_only_composition_unresolved", f"decision.gateOnlyBaselineResolutions.{missing[0]}")
 
 
 def _check_evaluated_artefact(entry: dict, row: dict, where: str) -> None:
@@ -1489,6 +1519,11 @@ def validate_repository(repo: Path) -> list[str]:
         record = event.parent / f"{event.name}.md"
         if not record.is_file() or lf_normalised_sha256(protocol) not in record.read_text(encoding="utf-8"):
             raise _fail("protocol_hash_not_recorded_in_record", relative(protocol))
+    # M3: committed Layer-A results and pre-D baseline seals (baseline_seal.py).
+    from .baseline_seal import validate_repository_seals
+    protocol_shas = {event: lf_normalised_sha256(event.parent / f"{event.name}{PROTOCOL_SUFFIX}")
+                     for event in frozen_ledgers}
+    checked += validate_repository_seals(repo, root, frozen_ledgers, protocol_shas)
     for path in sorted(root.glob(f"*/msr-*{DECISION_SUFFIX}")):
         event = path.parent / path.name[: -len(DECISION_SUFFIX)]
         if event not in frozen_ledgers:
@@ -1527,7 +1562,7 @@ def validate_repository(repo: Path) -> list[str]:
         record_text = (event.parent / f"{event.name}.md").read_text(encoding="utf-8")
         if lf_normalised_sha256(path) not in record_text or lf_normalised_sha256(snapshot_path) not in record_text:
             raise _fail("decision_hash_not_recorded_in_record", relative(path))
-        validate_decision(decision, snapshot, frozen_ledgers[event])
+        validate_decision(decision, snapshot, frozen_ledgers[event], repo=repo)
         # After the decision the working ledger only grows, and nothing is dated before it.
         validate_evolution(snapshot, ledgers[event], since=date.fromisoformat(decision["decidedOn"]))
         checked.append(relative(snapshot_path))

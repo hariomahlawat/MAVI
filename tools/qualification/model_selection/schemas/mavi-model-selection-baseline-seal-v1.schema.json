@@ -1,0 +1,275 @@
+{
+  "$id": "urn:mavi:mavi-model-selection-baseline-seal-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Shape contract (MSR revision M3). A seal is valid only if model_selection/baseline_seal.py re-derives it from the frozen ledger, protocol hash, partner frozen ledger and Layer-A result; its identity is its canonical SHA-256 and the file must be canonical JSON.",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "benchmarkBaselineId": {
+          "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$",
+          "type": "string"
+        },
+        "benchmarkComponentIdentitySha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "capabilityId": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
+          "type": "string"
+        },
+        "compositionId": {
+          "pattern": "^[A-Za-z][A-Za-z0-9-]{0,63}$",
+          "type": "string"
+        },
+        "compositionSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "eligibleUniverseSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "eventId": {
+          "pattern": "^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\\d{4}-\\d{2}$",
+          "type": "string"
+        },
+        "frozenLedgerSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "gateScope": {
+          "const": "all-ordinary-compositions"
+        },
+        "layerAGatesSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "layerAResultSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "partnerCandidateId": {
+          "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$",
+          "type": "string"
+        },
+        "partnerEventId": {
+          "pattern": "^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\\d{4}-\\d{2}$",
+          "type": "string"
+        },
+        "partnerFrozenLedgerSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "partnerIdentitySha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "partnerRankingRuleSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "protectedDState": {
+          "const": "NOT_STARTED"
+        },
+        "protocolSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "recordedAt": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+          "type": "string"
+        },
+        "recordedBy": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema": {
+          "const": "mavi-model-selection-baseline-seal-v1"
+        },
+        "stage1RuleSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "status": {
+          "const": "RESOLVED"
+        }
+      },
+      "required": [
+        "benchmarkBaselineId",
+        "benchmarkComponentIdentitySha256",
+        "capabilityId",
+        "compositionId",
+        "compositionSha256",
+        "eligibleUniverseSha256",
+        "eventId",
+        "frozenLedgerSha256",
+        "gateScope",
+        "layerAGatesSha256",
+        "layerAResultSha256",
+        "partnerCandidateId",
+        "partnerEventId",
+        "partnerFrozenLedgerSha256",
+        "partnerIdentitySha256",
+        "partnerRankingRuleSha256",
+        "protectedDState",
+        "protocolSha256",
+        "recordedAt",
+        "recordedBy",
+        "schema",
+        "stage1RuleSha256",
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "benchmarkBaselineId": {
+          "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$",
+          "type": "string"
+        },
+        "benchmarkComponentIdentitySha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "capabilityId": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
+          "type": "string"
+        },
+        "compositionId": {
+          "pattern": "^[A-Za-z][A-Za-z0-9-]{0,63}$",
+          "type": "string"
+        },
+        "eligibleUniverseSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "eventId": {
+          "pattern": "^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\\d{4}-\\d{2}$",
+          "type": "string"
+        },
+        "frozenLedgerSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "gateScope": {
+          "const": "all-ordinary-compositions"
+        },
+        "layerAGatesSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "layerAResultSha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "partnerEventId": {
+          "pattern": "^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\\d{4}-\\d{2}$",
+          "type": "string"
+        },
+        "partnerFrozenLedgerSha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "partnerRankingRuleSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "protectedDState": {
+          "enum": [
+            "NOT_STARTED",
+            "ACCESSED"
+          ]
+        },
+        "protocolSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "recordedAt": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+          "type": "string"
+        },
+        "recordedBy": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema": {
+          "const": "mavi-model-selection-baseline-seal-v1"
+        },
+        "stage1RuleSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "status": {
+          "const": "STOPPED"
+        },
+        "stopDetail": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "stopEvidenceSha256s": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "stopReason": {
+          "enum": [
+            "no-partner-passed-layer-a",
+            "partner-event-missing",
+            "partner-event-inconsistent",
+            "partner-universe-inconsistent",
+            "identity-mismatch",
+            "resolution-ambiguous",
+            "protected-d-accessed",
+            "prerequisite-failed"
+          ]
+        }
+      },
+      "required": [
+        "benchmarkBaselineId",
+        "benchmarkComponentIdentitySha256",
+        "capabilityId",
+        "compositionId",
+        "eligibleUniverseSha256",
+        "eventId",
+        "frozenLedgerSha256",
+        "gateScope",
+        "layerAGatesSha256",
+        "layerAResultSha256",
+        "partnerEventId",
+        "partnerFrozenLedgerSha256",
+        "partnerRankingRuleSha256",
+        "protectedDState",
+        "protocolSha256",
+        "recordedAt",
+        "recordedBy",
+        "schema",
+        "stage1RuleSha256",
+        "status",
+        "stopDetail",
+        "stopEvidenceSha256s",
+        "stopReason"
+      ],
+      "type": "object"
+    }
+  ]
+}

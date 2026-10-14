@@ -1247,6 +1247,18 @@ def test_module_imports_no_network_library():
     ("name", "Licence Plate recogniser (CCT)"),
     ("caveat", "Trained on LICENSE PLATE crops from 65 regions"),
     ("summary", "Author README: licence-plate detector validation table"),
+    ("caveat", "Licence-plate crops only"),
+    ("caveat", "the license plates of 65 regions"),
+    # normalised spellings of the exact phrase are still the plate-domain noun phrase (owner decision 9, step 1)
+    ("caveat", "license\u00a0plate crops"),
+    ("caveat", "license\u2010plate crops"),
+    ("caveat", "license\u2011plate crops"),
+    ("caveat", "license\u2013plate crops"),
+    ("caveat", "license\u2212plate crops"),
+    ("caveat", "license\u3000plate crops"),
+    ("caveat", "\uff4c\uff49\uff43\uff45\uff4e\uff53\uff45 \uff50\uff4c\uff41\uff54\uff45 crops"),
+    ("caveat", "LICEN\u200bSE PLATE crops"),
+    ("caveat", "license \uff50late crops"),
 ])
 def test_plate_domain_term_is_not_licence_wording(field, value):
     entry = established()
@@ -1263,49 +1275,105 @@ def test_plate_domain_term_is_not_licence_wording(field, value):
     assert validate_ledger(ledger(entry))["VC-EST"]["class"] == "established"
 
 
-@pytest.mark.parametrize("value", [
+PREFIX_FORMS = [
+    # licensing prefixes, hyphenated, spaced, plural, both spellings (review P1-1)
+    "you may sub-license plates detector weights",
+    "you may not sub license plates detector weights",
+    "sub license plate weights",
+    "re-license plate model under MIT",
+    "re license plates freely",
+    "cross-license plate weights with vendor",
+    "cross license plates",
+    "un-license plate weights",
+    "un license plate weights",
+    "Sub-Licence-plate weights",
+    "sub-licence plates",
+    "re-licence plate",
+    "cross-licence plate",
+    "un-licence plate",
+    "co-license plate weights",
+    "non-licence plates",
+    "you may not sublicense plates detector weights",
+    "relicense plate model",
+    "Unlicense plate weights",
+    "non-sublicense plate-model weights",
+    # licence verbs before the phrase
+    "we license plate weights to partners",
+    "you may license plate weights",
+    "free to licence plate models",
+    "copy, modify and license plate weights",
+    # zero-width, soft-hyphen and other format characters
+    "sub\u200b-license plates",
+    "sub-\u200blicense plates",
+    "su\u200bb license plates",
+    "sub\u00ad-license plates",
+    "sub-license\u200d plates",
+    # fullwidth Latin forms
+    "\uff53\uff55\uff42\uff0d\uff4c\uff49\uff43\uff45\uff4e\uff53\uff45 \uff50\uff4c\uff41\uff54\uff45",
+    "\uff52\uff45 \uff4c\uff49\uff43\uff45\uff4e\uff43\uff45 \uff50\uff4c\uff41\uff54\uff45\uff53",
+    # common Unicode dash and space forms
+    "sub\u2010license plates",
+    "sub\u2011license plates",
+    "sub\u2013license plates",
+    "sub\u2014licence plates",
+    "sub\u2212license plates",
+    "sub\ufe63license plates",
+    "sub\uff0dlicense plates",
+    "sub\u00a0license plates",
+    "re\u3000licence plate",
+    "un\u2009license plate",
+]
+
+
+@pytest.mark.parametrize("value", PREFIX_FORMS + [
     "weights licence forbids redistribution",
     "license plate detector released under a non-commercial license",
     "license-plate model; weights licensed for research only",
     "licence-plate crops; commercial licence required",
     "licenseplate model",
-    "you may not sublicense plates detector weights",
-    "relicense plate model",
-    "Unlicense plate weights",
-    "non-sublicense plate-model weights",
     "license plateau",
     "license plated",
     "license_plate",
     "license.plate",
     "LicensePlate",
-    "license\u00a0plate",
     "license\nplate",
     "license  plate",
-    "lilicense platecense",
-    "license plates license",
-    "licen\u017fe plate",
-    "LICENSE",
-    # unsupported separators (M3 review): only one ASCII space or hyphen joins the phrase
     "license\tplate",
-    "license\u2010plate",
-    "license\u2011plate",
-    "license\u2013plate",
-    "license\u2212plate",
     "license/plate",
     "license+plate",
     "license\u200bplate",
-    "license\u3000plate",
-    # Unicode look-alikes inside the plate word are not the phrase, so nothing is stripped
+    "lilicense platecense",
+    "license plates license",
+    "licen\u017fe plate weights licence",
+    "LICENSE",
+    # obfuscated spellings of the word itself (owner decision 9)
+    "lic\u200bence weights",
+    "lic\u00adense",
+    "weights L\u0130CENSE forbids",
+    "\uff4c\uff49\uff43\uff45\uff4e\uff53\uff45 forbids",
+    "lic\u00e9nse terms",
+    # Unicode look-alikes: never the exempt phrase; mixed-script spellings of the word fold to "licen"
     "license pl\u0430te",
-    "license \uff50late",
     "license plat\u0435",
     "license \u0440late",
     "licence pl\u0251te",
+    "weights lic\u0435nse forbids",
+    "l\u0456cense",
+    "\u04cficense",
+    "lic\u0435nce plate",
 ])
 def test_real_licence_wording_is_still_refused_next_to_the_plate_term(value):
     entry = established()
     entry["caveats"] = [value]
     refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
+
+
+def test_licence_normalisation_never_broadens_the_exemption():
+    from model_selection.credibility import has_licence_wording
+    for value in ("licence", "licensing", "license plate holder licence", "number plate", "plate"):
+        assert has_licence_wording(value) == ("licen" in value)
+    for value in ("\u043b\u0438\u0446\u0435\u043d\u0437\u0438\u044f", "\u03bb\u03b9\u03ba\u03b5\u03bd\u03c3\u03b5"):
+        assert not has_licence_wording(value)  # pure Cyrillic / Greek words never fold to "licen"
 
 
 def test_plate_term_does_not_open_licence_keys():
