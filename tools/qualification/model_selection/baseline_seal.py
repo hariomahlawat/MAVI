@@ -572,7 +572,7 @@ def validate_repository_seals(repo: Path, root: Path, frozen_by_event: Mapping[P
     expected = set()
     audited = False
     for event, frozen in sorted(frozen_by_event.items(), key=lambda item: str(item[0])):
-        has_artefacts = any(event.parent.glob(f"{event.name}{infix}*.json") for infix in _ARTEFACT_INFIXES)
+        has_artefacts = any(any(event.parent.glob(f"{event.name}{infix}*.json")) for infix in _ARTEFACT_INFIXES)
         if not frozen_compositions(frozen) and not has_artefacts:
             continue
         check_event_seal_validity(repo, event, frozen, protocol_sha_by_event[event])
