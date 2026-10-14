@@ -1242,8 +1242,6 @@ def test_module_imports_no_network_library():
 
 
 @pytest.mark.parametrize("field, value", [
-    ("repository", "https://huggingface.co/morsetechlab/yolov11-license-plate-detection"),
-    ("file", "yolo-v9-s-608-license-plates-end2end.onnx"),
     ("name", "Licence Plate recogniser (CCT)"),
     ("caveat", "Trained on LICENSE PLATE crops from 65 regions"),
     ("summary", "Author README: licence-plate detector validation table"),
@@ -1336,9 +1334,6 @@ PREFIX_FORMS = [
     "license_plate",
     "license.plate",
     "LicensePlate",
-    "license\nplate",
-    "license  plate",
-    "license\tplate",
     "license/plate",
     "license+plate",
     "license\u200bplate",
@@ -1380,3 +1375,94 @@ def test_plate_term_does_not_open_licence_keys():
     document = ledger(established())
     document["candidates"][0]["licensePlateLicence"] = "x"
     refused("licence_field_in_ledger", validate_ledger, document)
+
+
+# ------------------------------------------- cold review of f24dcf5e (P1-2): fail-closed noun-context allowlist
+
+U = chr
+
+
+def fw(text):
+    return "".join(U(0xff00 + ord(ch) - 0x20) if ch != " " else " " for ch in text)
+
+
+REVIEW_MUST_REFUSE = [
+ "sub-license plate weights", "sub license plate weights", "sublicense plate weights", "Sub-Licence-plate",
+ "re-licence plates", "relicense plate", "cross-license plate", "un-licensed plate", "unlicense plate",
+ "sub\u2010license plate", "sub\u2014license plate", "sub\u00a0license plate", "sub\u200blicense plate",
+ "sub\u200b-\u200blicense plate", "sub-\u200blicense plate", "SUB\uff0dLICENSE PLATE", fw("sub-license plate"),
+ "sub/license plate", "sub.license plate", "(sub)license plate", "sub_license plate",
+ "you may license plate weights", "we license plates", "To license plate data", "freely license plate data",
+ "license plate licensed under MIT", "licence-plate weights; licence: CC-BY-NC",
+ "license plate sublicensable", "licence plate (licensed)",
+ "l\u0456cense", "lic\u0435nse plate", "\u217cicense", "lice\u0578se",
+ "\uff2c\uff49\uff43\uff45\uff4e\uff53\uff45", "LICENSE", "license-free", "licensor", "licensee", "licensing",
+ "open-license plate weights", "open license plate weights", "free-license plate weights",
+ "commercial-license plate weights", "permissive license plate weights", "research-license plate weights",
+ "royalty-free license plate weights", "MIT license plate weights", "apache license plate weights",
+ "GPL-license plate weights", "proprietary license plate weights", "trans-license plate", "post-license plate",
+ "super-license plate", "semi-license plate", "para-license plate", "all-license plate",
+ "Vendors license plate weights commercially", "Authors license plate models under AGPL",
+ "They will license plate models", "Ultralytics license plate weights under AGPL-3.0",
+ "users can't license plate models", "the right to sub-license plate", "the right to sub- license plate",
+ "license\u2060plate", "license\u00adplate",
+ "re\u0301-license plate", "\u0455ub-license plate", "s\u0075\u0062-license plate",
+ "sub\u2028license plate", "sub\u3000license plate", "sub\ufe63license plate", "sub\u2212license plate",
+ "sub\u00b7license plate", "sub\u2022license plate", "sub\u30fclicense plate",
+]
+REVIEW_PLATE_TEXT = [
+ "license plate", "licence plate", "License Plate", "LICENCE-PLATE", "license-plates", "licence plates",
+ "Licence-plate detector", "license\u2011plate", "license\u00a0plate", "lic\u200bense plate",
+ "\uff4c\uff49\uff43\uff45\uff4e\uff53\uff45 \uff50\uff4c\uff41\uff54\uff45",
+ "the license plate", "vehicle license plate", "detects license plates in images", "reads licence-plate text",
+ "a license plate reader", "Indian license plates", "license plate recognition (LPR)", "car's license plate",
+ "license plate, number plate", "ALPR / license plate", "\"license plate\"", "on license plates.", "license-plate OCR",
+ "CCPD license plate dataset", "multi-line license plates", "dual-row licence plates", "double-line license plate",
+ "non-standard license plates", "under-exposed license plates", "self-driving license plate dataset",
+ "over-exposed license plates", "pre-processed license plates", "re-identification license plate",
+ "license plates and licence plates", "number/license plate", "license plate/ number plate",
+ "OCR to license plate text", "Applied to license plate images", "and license plates", "license\tplate",
+ "trained on CCPD and license plates", "license plates or vehicles", "cars, trucks and license plates",
+ "license  plate",
+]
+# Benign phrasings the fail-closed allowlist refuses. Listed for the owner's ruling (conjunction and "to" contexts,
+# hyphenated plate-domain modifiers, dataset names); the author writes "number plate" or "plate" instead.
+DOCUMENTED_FALSE_POSITIVES = [
+    "CCPD license plate dataset", "multi-line license plates", "dual-row licence plates", "double-line license plate",
+    "non-standard license plates", "under-exposed license plates", "self-driving license plate dataset",
+    "over-exposed license plates", "pre-processed license plates", "re-identification license plate",
+    "license plates and licence plates", "OCR to license plate text", "Applied to license plate images",
+    "and license plates", "trained on CCPD and license plates", "cars, trucks and license plates",
+    # identifiers with a hyphen-joined word before "license" (fail-closed; real PR-2 repository and file names)
+    "https://huggingface.co/morsetechlab/yolov11-license-plate-detection",
+    "https://huggingface.co/justjuu/rtdetr-v2-license-plate-detection",
+    "yolo-v9-s-608-license-plates-end2end.onnx",
+]
+
+
+@pytest.mark.parametrize("value", REVIEW_MUST_REFUSE + ["lice" + U(0x578) + "se", "lic" + U(0x435) + "nse"])
+def test_cold_review_licensing_forms_are_refused(value):
+    entry = established()
+    entry["caveats"] = [value]
+    refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
+
+
+@pytest.mark.parametrize("value", [v for v in REVIEW_PLATE_TEXT if v not in DOCUMENTED_FALSE_POSITIVES])
+def test_cold_review_plate_domain_text_is_accepted(value):
+    entry = established()
+    entry["caveats"] = [value]
+    validate_ledger(ledger(entry))
+
+
+@pytest.mark.parametrize("value", DOCUMENTED_FALSE_POSITIVES)
+def test_documented_false_positives_are_refused_until_the_owner_rules(value):
+    entry = established()
+    entry["caveats"] = [value]
+    refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
+
+
+def test_licence_keys_never_take_the_exemption():
+    for key in ("license_plate", "licensePlate", "plateLicence", "l" + U(0x456) + "cense"):
+        document = ledger(established())
+        document["candidates"][0][key] = 1
+        refused("licence_field_in_ledger", validate_ledger, document)

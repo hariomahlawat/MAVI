@@ -314,37 +314,49 @@ def _reject_licence_keys(value: object, where: str) -> None:
 #
 # The vehicle-plate domain term ("license plate", "licence plate", "license-plate", "licence-plate", optional plural)
 # is not licence wording, but licensing language built on the same letters is ("sub-license plates", "re licence
-# plate", "you may license plate weights"). The check therefore runs in three steps:
+# plate", "vendors license plate weights", "open-license plate weights"). The check runs in three steps:
 #   1. conservative normalisation (`_normalise_text`): NFKC, case folding, combining marks removed, invisible format
 #      characters (zero-width space/joiners, word joiner, BOM, soft hyphen, bidi marks: category Cf) removed, every
-#      Unicode dash form folded to "-" and every Unicode space separator (category Zs) folded to " ". Tab, newline
-#      and doubled spaces are not folded, so "license\tplate" or "license  plate" are not the phrase;
-#   2. each exact plate phrase in the normalised text is exempt only when "license/licence" is the noun modifier of
-#      "plate": no letter or digit touches either end, and the nearest preceding word (skipping any punctuation,
-#      space or hyphen) is neither a licensing prefix ("sub", "re", "cross", "un", ...) nor a word that makes
-#      "license" a verb ("to", "may", "not", "we", "and", ...). Anything else stays in the text;
+#      Unicode dash form folded to "-" and every whitespace run (space separators, tab, line breaks) folded to one
+#      space;
+#   2. an exact plate phrase in the normalised text is exempt only when "license/licence" is the noun modifier of
+#      "plate", decided FAIL-CLOSED by what precedes it (`_plate_phrase_is_noun`). It is exempt only after:
+#        - the start of the text;
+#        - punctuation other than a hyphen that starts a new phrase (preceded by a space or the start, as in
+#          '"license plate"', "ALPR / license plate"), or a clause end (,;:.!? or a quote) followed by a space;
+#        - a word in `_NOUN_CONTEXT`, a small closed set of determiners, prepositions and plate-domain modifiers
+#          after which "license" can only be a noun modifier ("the", "vehicle", "indian", "number", "detected", ...).
+#          Punctuation glued to a word ("number/license plate", "(sub)license plate") is judged by that word.
+#      Anything else keeps the phrase in the text: every other word (so "vendors license plate", "open license
+#      plate", "and license plate", "to license plate" are refused), and any hyphen before "license", spaced or not;
 #   3. the remainder, with exempt phrases replaced by a separator (so removal never joins letters), is folded to a
-#      Latin skeleton (`_CONFUSABLES`: Cyrillic/Greek letters drawn identically to Latin ones) and refused if it
-#      contains "licen". Pure Cyrillic or Greek words never fold to "licen" (no look-alike of Latin "n" is folded),
-#      so the skeleton refuses only mixed-script spellings.
-# The exemption is never broadened beyond these four phrases. Paraphrases ("may be redistributed under the
-# terms ...") and confusables outside `_CONFUSABLES` remain reviewer obligations (candidate-credibility.md §9).
+#      Latin skeleton (`_CONFUSABLES`: Cyrillic, Greek and Armenian letters drawn like Latin ones) and refused if it
+#      contains "licen". No single non-Latin script holds look-alikes of all of l, i, c, e and n, so a word written
+#      wholly in one of those scripts never folds to "licen"; the skeleton refuses only mixed-script spellings.
+# The exemption is never broadened beyond these four phrases. Benign wording outside `_NOUN_CONTEXT` is refused
+# (fail-closed); authors write "number plate" or "plate" instead. Paraphrases ("may be redistributed under the terms
+# ...") and confusables outside `_CONFUSABLES` remain reviewer obligations (candidate-credibility.md §9).
 _LICENCE_STEM = "licen"
 _PLATE_PHRASE_RE = re.compile(r"(?<![^\W_])licen[cs]e[ -]plates?(?![^\W_])")
 _DASHES = dict.fromkeys(map(ord, "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u2e3a\u2e3b\ufe58\ufe63\uff0d\u2043\u02d7"), "-")
-_LICENSING_PREFIXES = frozenset({
-    "sub", "re", "cross", "un", "co", "non", "multi", "de", "mis", "counter", "inter", "intra", "dual", "self", "pre",
-    "over", "under", "out", "mutual", "double", "bi", "tri",
+# Closed allowlist (step 2). Each word can only precede "license plate" as a noun phrase: determiners and
+# prepositions ("the", "of", "per"), the vehicle it is on ("vehicle", "car", "front", "rear", "indian"), and
+# plate-domain processing words ("detected", "cropped", "read", "ocr", "anpr", "alpr"). Licensing verbs, licence
+# kinds and conjunctions are deliberately absent. Owner rulings may add words; nothing else widens it.
+_NOUN_CONTEXT = frozenset({
+    "a", "an", "the", "each", "every", "any", "no", "per", "of", "for", "from", "with", "on", "in",
+    "vehicle", "vehicle's", "vehicles", "vehicles'", "car", "car's", "cars", "cars'", "indian", "front", "rear",
+    "number", "detect", "detects", "detected", "detecting", "cropped", "visible", "unreadable", "read", "reads",
+    "reading", "ocr", "recognised", "recognized", "anpr", "alpr", "lpr",
 })
-_VERB_CONTEXT = frozenset({
-    "to", "may", "might", "can", "cannot", "could", "must", "shall", "should", "will", "would", "not", "never", "we",
-    "you", "they", "i", "he", "she", "who", "please", "hereby", "and", "or", "nor", "also", "freely",
-})
+_APOSTROPHES = "'" + chr(0x2019)
+_CLAUSE_ENDS = ",;:.!?" + chr(34)
 _CONFUSABLES = str.maketrans({
     "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c", "\u0443": "y", "\u0445": "x",
     "\u0456": "i", "\u0458": "j", "\u0455": "s", "\u0501": "d", "\u04cf": "l", "\u04bb": "h", "\u051b": "q",
     "\u051d": "w", "\u0269": "i", "\u0131": "i", "\u03bf": "o", "\u03b9": "i", "\u03bd": "v", "\u03b1": "a",
     "\u0251": "a", "\u217c": "l", "\u01c0": "l",
+    "\u0578": "n", "\u057c": "n", "\u0585": "o",  # Armenian vo, ra, oh
 })
 
 
@@ -355,7 +367,7 @@ def _normalise_text(text: str) -> str:
     text = unicodedata.normalize("NFKC", text)
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
     text = text.translate(_DASHES)
-    return "".join(" " if unicodedata.category(ch) == "Zs" else ch for ch in text)
+    return " ".join(text.split())
 
 
 def _skeleton(text: str) -> str:
@@ -363,15 +375,28 @@ def _skeleton(text: str) -> str:
 
 
 def _plate_phrase_is_noun(text: str, start: int) -> bool:
-    """Step 2 above: the word before "license/licence" must not make it a licensing prefix compound or verb."""
+    """Step 2 above (fail-closed): exempt only after the start, a phrase-opening punctuation mark or `_NOUN_CONTEXT`."""
     index = start
-    while index > 0 and not text[index - 1].isalnum():
+    while index > 0 and text[index - 1] == " ":
         index -= 1
+    spaced = index < start
+    if index == 0:
+        return True
+    if text[index - 1] == "-":
+        return False  # a hyphen-joined word before "license", spaced or not ("sub-license", "sub- license")
+    if spaced and text[index - 1] in _CLAUSE_ENDS:
+        return True  # a clause boundary followed by a space: "README: licence-plate", "license plate, licence plate"
+    if not (text[index - 1].isalnum() or text[index - 1] in _APOSTROPHES):
+        while index > 0 and not text[index - 1].isalnum() and text[index - 1] not in " -":
+            index -= 1
+        if index == 0 or text[index - 1] == " ":
+            return True  # punctuation opening a new phrase: '"license plate"', "ALPR / license plate"
+        if text[index - 1] == "-":
+            return False
     end = index
-    while index > 0 and text[index - 1].isalnum():
+    while index > 0 and (text[index - 1].isalnum() or text[index - 1] in _APOSTROPHES):
         index -= 1
-    word = _skeleton(text[index:end])
-    return word not in _LICENSING_PREFIXES and word not in _VERB_CONTEXT
+    return _skeleton(text[index:end]).replace(chr(0x2019), "'") in _NOUN_CONTEXT
 
 
 def has_licence_wording(text: str) -> bool:
