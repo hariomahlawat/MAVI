@@ -289,12 +289,13 @@ def _person(name: str) -> str:
     return " ".join(name.split()).casefold()
 
 
-def _reject_licence_keys(value: object, where: str) -> None:
+def _reject_licence_keys(value: object, where: str, exempt: frozenset = frozenset()) -> None:
     """The ledger is licence-blind by construction.
 
     No key may mention a licence, and no text may either, except a disposition that
     records the evaluation-permission carve-out (MSR method §2), whose reason and
-    revisit trigger necessarily talk about terms.
+    revisit trigger necessarily talk about terms, and a declared exact identifier:
+    ``exempt`` holds ``(field path, exact raw value)`` pairs (``_identifier_exemptions``).
     """
     if isinstance(value, dict):
         carve_out = value.get("reasonClass") == "evaluation-permission" and "status" in value
@@ -303,12 +304,93 @@ def _reject_licence_keys(value: object, where: str) -> None:
                 raise _fail("licence_field_in_ledger", f"{where}.{key}")
             if carve_out and key in ("reason", "revisitTrigger"):
                 continue
-            _reject_licence_keys(item, f"{where}.{key}")
+            _reject_licence_keys(item, f"{where}.{key}", exempt)
     elif isinstance(value, list):
         for index, item in enumerate(value):
-            _reject_licence_keys(item, f"{where}[{index}]")
-    elif isinstance(value, str) and has_licence_wording(value):
+            _reject_licence_keys(item, f"{where}[{index}]", exempt)
+    elif isinstance(value, str) and (where, value) not in exempt and has_licence_wording(value):
         raise _fail("licence_reasoning_in_ledger", where)
+
+
+# Typed identifier exemptions (M3 final round, item 3). The frozen ledger may declare, per candidate, an exact
+# identifier value in one closed field kind with a recorded reason. Only that exact raw value at those exact field
+# paths of that candidate skips the licence scan: whole-value equality, no wildcard, regex, substring, prefix, domain,
+# suffix or basename matching, never prose (summaries, caveats, evidence text, reasons). Declarations are part of the
+# frozen ledger, so nothing can be exempted after freeze (validate_evolution).
+IDENTIFIER_FIELD_KINDS = {
+    "repository-url": ("identity.repository", "identity.derivation.fromRepository", "methodCode.repository"),
+    "source-url": ("evidence[].source",),
+    "artefact-filename": ("identity.files[].path",),
+    "model-identifier": ("candidateName",),
+}
+_IDENTIFIER_KEYS = ("candidateId", "fieldKind", "value", "reason")
+
+
+def _identifier_paths(entry: Mapping, index: int, kind: str) -> dict[str, object]:
+    """``{field path: raw value}`` of one candidate for one identifier field kind."""
+    base = f"ledger.candidates[{index}]"
+    found: dict[str, object] = {}
+    for path in IDENTIFIER_FIELD_KINDS[kind]:
+        if path == "evidence[].source":
+            for j, item in enumerate(entry.get("evidence") or []):
+                if isinstance(item, dict):
+                    found[f"{base}.evidence[{j}].source"] = item.get("source")
+        elif path == "identity.files[].path":
+            for j, item in enumerate((entry.get("identity") or {}).get("files") or []):
+                if isinstance(item, dict):
+                    found[f"{base}.identity.files[{j}].path"] = item.get("path")
+        else:
+            node: object = entry
+            for part in path.split("."):
+                node = node.get(part) if isinstance(node, dict) else None
+            found[f"{base}.{path}"] = node
+    return found
+
+
+def _identifier_exemptions(ledger: object) -> frozenset:
+    """The ``(field path, value)`` pairs a well-formed declaration exempts. A malformed declaration exempts nothing,
+    so its value is scanned and refused like any text; ``_check_identifier_exemptions`` reports the defect."""
+    if not isinstance(ledger, dict) or not isinstance(ledger.get("identifierExemptions"), list):
+        return frozenset()
+    candidates = ledger.get("candidates") if isinstance(ledger.get("candidates"), list) else []
+    index = {e.get("candidateId"): i for i, e in enumerate(candidates) if isinstance(e, dict)}
+    exempt = set()
+    for k, item in enumerate(ledger["identifierExemptions"]):
+        if not (isinstance(item, dict) and set(item) == set(_IDENTIFIER_KEYS)
+                and item["fieldKind"] in IDENTIFIER_FIELD_KINDS and item["candidateId"] in index
+                and isinstance(item["value"], str) and item["value"] and not any(c.isspace() for c in item["value"])
+                and isinstance(item["reason"], str) and item["reason"].strip()):
+            continue
+        i = index[item["candidateId"]]
+        for path, raw in _identifier_paths(candidates[i], i, item["fieldKind"]).items():
+            if raw == item["value"]:
+                exempt.add((path, raw))
+        exempt.add((f"ledger.identifierExemptions[{k}].value", item["value"]))
+    return frozenset(exempt)
+
+
+def _check_identifier_exemptions(ledger: Mapping) -> None:
+    if "identifierExemptions" not in ledger:
+        return
+    entries = {e["candidateId"]: (i, e) for i, e in enumerate(ledger["candidates"])}
+    seen = set()
+    for k, item in enumerate(_list(ledger["identifierExemptions"], "ledger.identifierExemptions")):
+        at = f"ledger.identifierExemptions[{k}]"
+        _keys(item, _IDENTIFIER_KEYS, at)
+        kind = _enum(item["fieldKind"], tuple(IDENTIFIER_FIELD_KINDS), f"{at}.fieldKind")
+        value = _text(item["value"], f"{at}.value")
+        _text(item["reason"], f"{at}.reason")
+        if any(c.isspace() for c in value):
+            raise _fail("identifier_exemption_not_an_identifier", f"{at}.value")
+        if item["candidateId"] not in entries:
+            raise _fail("identifier_exemption_candidate_unknown", f"{at}.candidateId")
+        i, entry = entries[item["candidateId"]]
+        if value not in _identifier_paths(entry, i, kind).values():
+            raise _fail("identifier_exemption_not_found", at)  # exact value in a field of the declared kind
+        key = (item["candidateId"], kind, value)
+        if key in seen:
+            raise _fail("identifier_exemption_duplicate", at)
+        seen.add(key)
 
 
 # ----------------------------------------------------------------- licence wording (M1 licence-blindness)
@@ -1022,12 +1104,12 @@ def _benchmark_baselines(ledger: Mapping) -> set[str]:
 
 def validate_ledger(ledger: object) -> dict[str, dict]:
     """Validate a ledger; return ``{candidateId: {class, provenanceConfidence, disposition}}``."""
-    _reject_licence_keys(ledger, "ledger")
+    _reject_licence_keys(ledger, "ledger", _identifier_exemptions(ledger))
     _keys(
         ledger,
         ("schema", "eventId", "capabilityId", "objectClass", "subTasks", "methodRevision", "candidates"),
         "ledger",
-        optional=("frozenOn",),
+        optional=("frozenOn", "identifierExemptions"),
     )
     if "frozenOn" in ledger:
         _date(ledger["frozenOn"], "ledger.frozenOn")
@@ -1091,6 +1173,7 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
             "provenanceConfidence": confidence,
             "disposition": entry["disposition"]["status"],
         }
+    _check_identifier_exemptions(ledger)
     # M3 rule 4: a partner universe in this same event reconciles here; another event's in repository mode and in
     # the seal verification (baseline_seal.check_partner_universe), where the partner event must exist.
     from .baseline_seal import check_partner_universe, frozen_compositions
@@ -1147,6 +1230,8 @@ def validate_evolution(older: dict, newer: dict, since: date | None = None) -> N
         raise _fail("frozen_date_changed", "ledger.frozenOn")
     bound = date.fromisoformat(older["frozenOn"]) if since is None else since
     _check_sealed_on(older, bound, "sealed_copy_postdates_its_seal")
+    if newer.get("identifierExemptions") != older.get("identifierExemptions"):
+        raise _fail("identifier_exemptions_changed_after_freeze", "ledger.identifierExemptions")
     for field in ("capabilityId", "objectClass", "subTasks", "methodRevision"):
         if newer[field] != older[field]:
             raise _fail("frozen_ledger_scope_changed", f"ledger.{field}")

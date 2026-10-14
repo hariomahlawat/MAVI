@@ -1407,3 +1407,107 @@ def test_pure_non_latin_words_never_fold_to_licence():
     cyrillic = "".join(map(U, (0x43b, 0x438, 0x446, 0x435, 0x43d, 0x437, 0x438, 0x44f)))
     greek = "".join(map(U, (0x3bb, 0x3b9, 0x3ba, 0x3b5, 0x3bd, 0x3c3, 0x3b5)))
     assert not _in_scan(cyrillic) and not _in_scan(greek)
+
+
+
+# ------------------------------------------------- typed exact identifier exemptions (M3 final round, item 3)
+
+REPO_URL = "https://huggingface.co/example-org/yolov11-license-plate-detection"
+FILE_NAME = "yolo-v9-s-608-license-plates-end2end.onnx"
+SOURCE_URL = "https://example.invalid/example-org/License-Plate-Detection/README.md"
+
+
+def identified_entry():
+    entry = established()
+    entry["identity"]["repository"] = REPO_URL
+    entry["identity"]["files"][0]["path"] = FILE_NAME
+    entry["evidence"][0]["source"] = SOURCE_URL
+    return entry
+
+
+def exemptions(*items):
+    return [dict(zip(("candidateId", "fieldKind", "value", "reason"), item)) for item in items]
+
+
+DECLARED = exemptions(("VC-EST", "repository-url", REPO_URL, "upstream repository name"),
+                      ("VC-EST", "artefact-filename", FILE_NAME, "upstream release asset name"),
+                      ("VC-EST", "source-url", SOURCE_URL, "upstream README location"))
+
+
+def identified_ledger(declared=None, entry=None):
+    document = ledger(entry or identified_entry())
+    if declared is not None:
+        document["identifierExemptions"] = declared
+    return document
+
+
+def test_declared_exact_identifiers_are_exempt_in_their_declared_fields_only():
+    validate_ledger(identified_ledger(DECLARED))
+    refused("licence_reasoning_in_ledger", validate_ledger, identified_ledger())  # undeclared: refused
+
+
+@pytest.mark.parametrize("field", ["caveat", "summary", "locator", "candidateName", "reason"])
+def test_the_same_literal_in_prose_is_refused(field):
+    entry = identified_entry()
+    if field == "caveat":
+        entry["caveats"] = [REPO_URL]
+    elif field == "summary":
+        entry["evidence"][0]["summary"] = REPO_URL
+    elif field == "locator":
+        entry["evidence"][0]["locator"] = FILE_NAME
+    elif field == "candidateName":
+        entry["candidateName"] = REPO_URL
+    else:
+        declared = [dict(DECLARED[0], reason=f"named {REPO_URL}")] + DECLARED[1:]
+        refused("licence_reasoning_in_ledger", validate_ledger, identified_ledger(declared, entry))
+        return
+    refused("licence_reasoning_in_ledger", validate_ledger, identified_ledger(DECLARED, entry))
+
+
+@pytest.mark.parametrize("value", [REPO_URL + "x", REPO_URL[:-1], REPO_URL.rsplit("/", 1)[0] + "/",
+                                   "https://huggingface.co/example-org/", "license-plate-detection",
+                                   REPO_URL.upper(), REPO_URL + "/", " " + REPO_URL, "*license-plate*",
+                                   ".*license-plate.*", "https://huggingface.co/*"])
+def test_only_whole_value_equality_matches(value):
+    declared = [dict(DECLARED[0], value=value)] + DECLARED[1:]
+    with pytest.raises(CredibilityError):
+        validate_ledger(identified_ledger(declared))
+
+
+def test_wrong_kind_missing_reason_unknown_candidate_and_prose_values_are_refused():
+    for item in (("VC-EST", "artefact-filename", REPO_URL, "kind does not hold this value"),
+                 ("VC-EST", "source-url", REPO_URL, "kind does not hold this value"),
+                 ("VC-EST", "repository-url", REPO_URL, " "),
+                 ("VC-EST", "repository-url", REPO_URL, None),
+                 ("VC-ZZZ", "repository-url", REPO_URL, "unknown candidate"),
+                 ("VC-EST", "any-text", REPO_URL, "kind outside the closed set"),
+                 ("VC-EST", "repository-url", "license plate weights", "prose is never an identifier")):
+        declared = exemptions(item) + DECLARED[1:]
+        with pytest.raises(CredibilityError):
+            validate_ledger(identified_ledger(declared))
+    duplicate = DECLARED + [DECLARED[0]]
+    refused("identifier_exemption_duplicate", validate_ledger, identified_ledger(duplicate))
+    extra = [dict(DECLARED[0], pattern="*")] + DECLARED[1:]
+    with pytest.raises(CredibilityError):
+        validate_ledger(identified_ledger(extra))
+
+
+def test_exemptions_are_fixed_by_the_freeze():
+    frozen = identified_ledger(DECLARED)
+    frozen["frozenOn"] = "2026-06-10"
+    later = copy.deepcopy(frozen)
+    later["identifierExemptions"] = [dict(DECLARED[0], reason="a different reason")] + DECLARED[1:]
+    refused("identifier_exemptions_changed_after_freeze", validate_evolution, frozen, later)
+    unfrozen = copy.deepcopy(frozen)
+    del unfrozen["identifierExemptions"]
+    later = copy.deepcopy(unfrozen)
+    later["identifierExemptions"] = DECLARED
+    with pytest.raises(CredibilityError):  # the frozen copy, without exemptions, is refused on its own scan
+        validate_evolution(unfrozen, later)
+    unfrozen_clean = ledger(established())
+    unfrozen_clean["frozenOn"] = "2026-06-10"
+    added = copy.deepcopy(unfrozen_clean)
+    added["identifierExemptions"] = exemptions(("VC-EST", "model-identifier", "Synthetic-est", "name"))
+    added["candidates"][0]["candidateName"] = "Synthetic-est"
+    with pytest.raises(CredibilityError):
+        validate_evolution(unfrozen_clean, added)

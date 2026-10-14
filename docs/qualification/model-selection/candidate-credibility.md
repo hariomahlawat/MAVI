@@ -198,6 +198,30 @@ Normative text: `proposals/m3-benchmark-only-baseline.md`; seal and decision-blo
 - MAVI measurements never enter the ledger and never change a class (I4), so a benchmark-only component gets no credibility promotion from MAVI measurements.
 - A `reference-only` candidate is never `SHORTLISTED`.
 
+### 4.5 Exact identifier exemptions (M3 final round, new)
+
+Some identifiers carry the letters "licen" and cannot be reworded, for example an upstream repository named
+`<model>-license-plate-detection`. The ledger may declare them **[checked]**:
+
+```json
+"identifierExemptions": [{"candidateId": "<candidate id>",
+                          "fieldKind": "repository-url | source-url | artefact-filename | model-identifier",
+                          "value": "<the exact complete raw value>", "reason": "<short recorded reason>"}]
+```
+
+- Field kinds are a closed set, each mapped to exact field paths of that candidate: `repository-url` →
+  `identity.repository`, `identity.derivation.fromRepository`, `methodCode.repository`; `source-url` →
+  `evidence[].source`; `artefact-filename` → `identity.files[].path`; `model-identifier` → `candidateName`.
+- Only that exact raw value, in a field of the declared kind of the declared candidate, skips the licence scan.
+  Matching is whole-value equality: no wildcard, regex, substring, URL-prefix, domain, suffix or basename matching.
+  The value must exist there, contain no whitespace (an identifier, never prose) and carry a non-blank reason; an
+  unknown candidate, a wrong kind, a duplicate or an extra key is refused.
+- The same literal anywhere else (summaries, caveats, locators, reasons, evidence prose, another field) is scanned
+  and refused as usual.
+- Declarations are part of the ledger frozen at `PROTOCOL_FROZEN`; any change after freeze is refused
+  (`identifier_exemptions_changed_after_freeze`), so nothing can be exempted after scoring begins.
+- The concrete identifiers of an event are authored with that event's ledger, never in validator code.
+
 ## 5. Person and vehicle stay separate
 
 - Each event has its own ledger, and each known capability's object class and sub-tasks are fixed (§4) **[checked]**.

@@ -56,6 +56,10 @@ For `person-attributes` the object class is `person` with sub-tasks `T-PC`, `T-P
 }
 ```
 
+Optional top-level `identifierExemptions` (`../candidate-credibility.md` §4.5): `[{"candidateId", "fieldKind":
+"repository-url | source-url | artefact-filename | model-identifier", "value": "<exact raw value>", "reason": "…"}]`,
+fixed at freeze.
+
 Field rules:
 - `methodCode` is present only for `method` candidates. Their `identity` is the **backbone** checkpoint.
 - A `mavi-baseline` identity is `{"repository": "MAVI", "revision": "<commit | UNKNOWN>"}` with no evidence and no claims.
