@@ -14,6 +14,7 @@ function takes in-memory ground truth and candidate outputs.
 * **Candidate silence scores zero** (owner item 1).
   - On a valid closed population, a composition that returns nothing has exact recall 0, contains recall 0 and contains precision 0, so its D-score is defined.
   - ``INSUFFICIENT_EVIDENCE`` is reserved for corpus deficiency: no queryable plate-bearing Track, no positive Track–query pair, or no contains query.
+* **Baseline gate** (N2 revised): one hard gate against the frozen single baseline composition PD_BASE + OC5 resolved in two stages: the eligible detector universe, OC5 identity, Layer-A gates and ranking rule are frozen at PROTOCOL_FROZEN; ``resolve_baseline`` then derives and seals PD_BASE after Layer A and before any D data. Detector-matched Tesseract runs are diagnostic only (``diagnostic_ocr_uplift``).
 * **Superiority** (owner item 2): A is ``superior`` to B iff
   - the observed ΔD = D_A − D_B ≥ MPID 0.04 (exact rationals);
   - the paired hierarchical 95 % interval for ΔD excludes zero in A's favour;
@@ -23,6 +24,8 @@ function takes in-memory ground truth and candidate outputs.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import random
 from collections.abc import Callable, Iterable, Sequence
@@ -808,20 +811,225 @@ class CompositionScore:
     score: TrackScore
 
 
-def baseline_gate(composition: CompositionScore, baseline: CompositionScore, baseline_recogniser_id: str,
-                  mpid: Fraction = MPID) -> str:
-    """N2 with the observed difference: D(PDx + OCy) − D(PDx + OC5) ≥ MPID, in exact rationals.
+# ------------------------------------------------------------------ baseline resolution (N2 revised + addendum 2026-10-14)
+#
+# Stage 1 (at PROTOCOL_FROZEN) freezes a ``BaselineFreeze``:
+# - the eligible detector universe with exact identity hashes;
+# - the complete OC5 benchmark-only identity;
+# - the Layer-A gate set hash;
+# - the detector ranking/tie-break rule (``DETECTOR_RANKING_RULE``);
+# - the fact that PD_BASE + OC5 is the single hard D baseline gating every ordinary D composition.
+#
+# Stage 2 (after Layer A, before any protected D data is read) derives PD_BASE mechanically with
+# ``resolve_baseline``, which returns an immutable, self-hashing ``BaselineResolution``. There is no owner input
+# and no substitution. "No survivor", "ambiguous" and "inconsistent" each stop the event (``BaselineStop``).
 
+DETECTOR_RANKING_RULE = ("mavi-plate-detector-rank-v1: Layer-A gate pass required; recall at coverage desc; "
+                         "false plates per crop asc; AP50 desc; missing metric sorts last; candidate id asc (ordinal)")
+DETECTOR_RANKING_RULE_SHA256 = hashlib.sha256(DETECTOR_RANKING_RULE.encode("utf-8")).hexdigest()
+D_NOT_STARTED = "D_NOT_STARTED"
+BASELINE_RULE = "PD_BASE+OC5 is the single hard D baseline and gates every ordinary D composition"
+
+
+class BaselineStop(Exception):
+    """The D event stops. There is no baseline and no D ranking. The reason is ``args[0]``."""
+
+
+def _is_sha256(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
+
+def _canonical_sha256(payload: dict) -> str:
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(text.encode("ascii")).hexdigest()
+
+
+def _detector_key(s: ComponentScore):
+    def high(value):
+        return (value is None, -(value or 0))
+
+    def low(value):
+        return (value is None, value or 0)
+
+    return (high(s.primary), low(s.second), high(s.third), s.candidate_id)
+
+
+@dataclass(frozen=True, slots=True)
+class BaselineFreeze:
+    """Stage 1, frozen in the protocol at PROTOCOL_FROZEN."""
+    eligible_detectors: tuple[tuple[str, str], ...]   # (detector id, exact identity SHA-256), sorted, unique
+    benchmark_only_id: str                             # OC5: the benchmark-only (reference-only) component
+    benchmark_only_identity_sha256: str
+    layer_a_gates_sha256: str
+    ranking_rule_sha256: str = DETECTOR_RANKING_RULE_SHA256
+
+    def __post_init__(self):
+        ids = [d for d, _ in self.eligible_detectors]
+        if not ids or ids != sorted(set(ids)):
+            raise ValueError("baseline_freeze_detectors_must_be_sorted_unique_nonempty")
+        if self.benchmark_only_id in ids:
+            raise ValueError("baseline_freeze_benchmark_only_component_cannot_be_a_detector_candidate")
+        hashes = [h for _, h in self.eligible_detectors] + [self.benchmark_only_identity_sha256,
+                                                             self.layer_a_gates_sha256, self.ranking_rule_sha256]
+        if not all(_is_sha256(h) for h in hashes):
+            raise ValueError("baseline_freeze_hash_malformed")
+        if self.ranking_rule_sha256 != DETECTOR_RANKING_RULE_SHA256:
+            raise ValueError("baseline_freeze_ranking_rule_not_the_frozen_rule")
+
+    def freeze_sha256(self) -> str:
+        return _canonical_sha256({"eligibleDetectors": [list(d) for d in self.eligible_detectors],
+                                  "benchmarkOnlyId": self.benchmark_only_id,
+                                  "benchmarkOnlyIdentitySha256": self.benchmark_only_identity_sha256,
+                                  "layerAGatesSha256": self.layer_a_gates_sha256,
+                                  "rankingRuleSha256": self.ranking_rule_sha256,
+                                  "baselineRule": BASELINE_RULE})
+
+
+@dataclass(frozen=True, slots=True)
+class LayerAResult:
+    """One eligible detector's Layer-A result on the A/B partition: gate verdict plus ranking metrics."""
+    score: ComponentScore
+    identity_sha256: str      # the exact identity that produced the result
+    gates_passed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class BaselineResolution:
+    """Stage 2 record. It is immutable: ``record_sha256`` covers every other field, and ``verify_resolution`` re-derives it."""
+    freeze_sha256: str
+    pd_base_id: str
+    pd_base_identity_sha256: str
+    benchmark_only_id: str
+    benchmark_only_identity_sha256: str
+    layer_a_result_sha256: str
+    ranking_rule_sha256: str
+    composition_sha256: str
+    resolved_at_utc: str
+    d_state: str
+    record_sha256: str
+
+    def payload(self) -> dict:
+        return {"freezeSha256": self.freeze_sha256, "pdBaseId": self.pd_base_id,
+                "pdBaseIdentitySha256": self.pd_base_identity_sha256, "benchmarkOnlyId": self.benchmark_only_id,
+                "benchmarkOnlyIdentitySha256": self.benchmark_only_identity_sha256,
+                "layerAResultSha256": self.layer_a_result_sha256, "rankingRuleSha256": self.ranking_rule_sha256,
+                "compositionSha256": self.composition_sha256, "resolvedAtUtc": self.resolved_at_utc,
+                "dState": self.d_state}
+
+
+def layer_a_result_sha256(results: Sequence[LayerAResult]) -> str:
+    rows = [{"id": r.score.candidate_id, "identity": r.identity_sha256, "gatesPassed": r.gates_passed,
+             "contractFail": r.score.contract_fail, "support": r.score.support,
+             "metrics": [None if v is None else repr(v) for v in (r.score.primary, r.score.second, r.score.third)]}
+            for r in sorted(results, key=lambda r: r.score.candidate_id)]
+    return _canonical_sha256({"layerA": rows})
+
+
+def resolve_baseline(freeze: BaselineFreeze, results: Sequence[LayerAResult], *, d_rows_read: int,
+                     resolved_at_utc: str) -> BaselineResolution:
+    """Stage 2. Derive PD_BASE mechanically from the frozen rule. It raises ``BaselineStop`` and never chooses."""
+    if d_rows_read != 0:
+        raise BaselineStop("baseline_resolution_after_d_data_read")
+    eligible = dict(freeze.eligible_detectors)
+    seen = [r.score.candidate_id for r in results]
+    if len(seen) != len(set(seen)):
+        raise BaselineStop("layer_a_result_ambiguous_duplicate_detector")
+    if set(seen) != set(eligible):
+        # a detector outside the frozen universe, or a frozen detector missing from Layer A
+        raise BaselineStop("layer_a_result_inconsistent_with_frozen_detector_universe")
+    for r in results:
+        if r.identity_sha256 != eligible[r.score.candidate_id]:
+            raise BaselineStop(f"layer_a_identity_mismatch:{r.score.candidate_id}")
+        if r.gates_passed and r.score.contract_fail:
+            raise BaselineStop(f"layer_a_result_inconsistent_gate_pass_with_contract_fail:{r.score.candidate_id}")
+        if r.gates_passed and any(v is not None and not math.isfinite(v)
+                                  for v in (r.score.primary, r.score.second, r.score.third)):
+            raise BaselineStop(f"layer_a_rank_ambiguous_non_finite_metric:{r.score.candidate_id}")
+    survivors = sorted((r.score for r in results if r.gates_passed), key=_detector_key)
+    if not survivors:
+        raise BaselineStop("no_detector_passed_layer_a")
+    pd_base = survivors[0].candidate_id
+    composition = _canonical_sha256({"detector": [pd_base, eligible[pd_base]],
+                                     "recogniser": [freeze.benchmark_only_id, freeze.benchmark_only_identity_sha256],
+                                     "role": "gate-only-baseline-composition"})
+    unsealed = BaselineResolution(
+        freeze_sha256=freeze.freeze_sha256(), pd_base_id=pd_base, pd_base_identity_sha256=eligible[pd_base],
+        benchmark_only_id=freeze.benchmark_only_id,
+        benchmark_only_identity_sha256=freeze.benchmark_only_identity_sha256,
+        layer_a_result_sha256=layer_a_result_sha256(results), ranking_rule_sha256=freeze.ranking_rule_sha256,
+        composition_sha256=composition, resolved_at_utc=resolved_at_utc, d_state=D_NOT_STARTED, record_sha256="")
+    return replace(unsealed, record_sha256=_canonical_sha256(unsealed.payload()))
+
+
+def _check_sealed(resolution: BaselineResolution) -> None:
+    if resolution.record_sha256 != _canonical_sha256(resolution.payload()):
+        raise BaselineStop("baseline_resolution_record_altered")
+    if resolution.d_state != D_NOT_STARTED:
+        raise BaselineStop("baseline_resolution_not_sealed_before_d")
+
+
+def verify_resolution(freeze: BaselineFreeze, resolution: BaselineResolution, results: Sequence[LayerAResult]) -> None:
+    """Re-derive Stage 2 from the frozen inputs. Any edit, substitution or drift raises ``BaselineStop``."""
+    _check_sealed(resolution)
+    expected = resolve_baseline(freeze, results, d_rows_read=0, resolved_at_utc=resolution.resolved_at_utc)
+    if expected != resolution:
+        raise BaselineStop("baseline_resolution_differs_from_frozen_derivation")
+
+
+def assert_resolution_unchanged(sealed: BaselineResolution, current: BaselineResolution) -> None:
+    """The sealed record is final. A later record with any different field stops the event."""
+    if sealed != current:
+        raise BaselineStop("baseline_resolution_changed_after_seal")
+
+
+def rankable_compositions(compositions: Iterable[CompositionScore],
+                          resolution: BaselineResolution) -> list[CompositionScore]:
+    """The ordinary D compositions that may enter ranking, the frontier or implementation.
+
+    Any composition containing the benchmark-only component (OC5), including the gate-only baseline composition, is
+    refused outright, never silently filtered."""
+    out = list(compositions)
+    for c in out:
+        if resolution.benchmark_only_id in (c.detector_id, c.recogniser_id):
+            raise ValueError("benchmark_only_component_cannot_be_ranked")
+    return out
+
+
+def baseline_gate(composition: CompositionScore, baseline: CompositionScore, resolution: BaselineResolution,
+                  mpid: Fraction = MPID) -> str:
+    """N2 (revised): ONE hard gate against the sealed baseline composition PD_BASE + OC5.
+
+    Rules:
+    - Every ordinary composition, whatever its detector, must satisfy observed D − D(PD_BASE + OC5) ≥ MPID (exact).
     - A composition contract violation is FAIL.
-    - A baseline that violated the contract is ``BASELINE_INVALID``.
-    - A corpus-deficient D is INSUFFICIENT_EVIDENCE. A silent baseline scores 0, not undefined.
+    - A baseline that broke the contract, or cannot be evaluated, stops the event (``BaselineStop``); it is never replaced.
+    - A silent baseline is a valid measurement that scores 0.
+    - A corpus-deficient composition D is INSUFFICIENT_EVIDENCE.
     """
-    if baseline.detector_id != composition.detector_id or baseline.recogniser_id != baseline_recogniser_id:
-        raise ValueError("baseline_not_detector_matched")
+    _check_sealed(resolution)
+    if (baseline.detector_id, baseline.recogniser_id) != (resolution.pd_base_id, resolution.benchmark_only_id):
+        raise ValueError("baseline_is_not_the_sealed_pd_base_composition")
+    rankable_compositions([composition], resolution)
+    if baseline.score.outcome == CONTRACT_FAIL:
+        raise BaselineStop("baseline_contract_violation")
+    if baseline.score.d_score is None:
+        raise BaselineStop("baseline_not_evaluable")
     if composition.score.outcome == CONTRACT_FAIL:
         return FAIL
-    if baseline.score.outcome == CONTRACT_FAIL:
-        return "BASELINE_INVALID"
-    if composition.score.d_score is None or baseline.score.d_score is None:
+    if composition.score.d_score is None:
         return INSUFFICIENT
     return PASS if composition.score.d_score - baseline.score.d_score >= mpid else FAIL
+
+
+def diagnostic_ocr_uplift(composition: CompositionScore, matched_baseline: CompositionScore,
+                          benchmark_only_id: str) -> Fraction | None:
+    """DIAGNOSTIC ONLY (N2 revised): OCR uplift at a fixed detector, D(PDx + OCy) − D(PDx + OC5).
+
+    It never passes or fails a composition, never enters top-K or the ranking, and never changes the baseline or MPID."""
+    if matched_baseline.detector_id != composition.detector_id or matched_baseline.recogniser_id != benchmark_only_id:
+        raise ValueError("diagnostic_baseline_not_detector_matched")
+    if CONTRACT_FAIL in (composition.score.outcome, matched_baseline.score.outcome):
+        return None
+    if composition.score.d_score is None or matched_baseline.score.d_score is None:
+        return None
+    return composition.score.d_score - matched_baseline.score.d_score

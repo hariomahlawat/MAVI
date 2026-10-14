@@ -26,6 +26,26 @@ def gen(truths, manifest=MANIFEST):
     return q.generate(truths, PARAMS, manifest)
 
 
+def _h(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+# Stage 1 (synthetic): the frozen eligible detector universe, OC5 identity, Layer-A gates and ranking rule.
+FREEZE = ev.BaselineFreeze((("PD1-X", _h("PD1-X")), ("PD2-N", _h("PD2-N")), ("PD2-S", _h("PD2-S"))),
+                           "OC5-BEST", _h("OC5-BEST"), _h("layer-a-gates"))
+WHEN = "2026-10-14T00:00:00Z"
+
+
+def _layer_a(passed=("PD2-N", "PD2-S"), metrics=None, identities=None):
+    metrics = metrics or {"PD1-X": (0.99, 0.0, 0.99), "PD2-N": (0.95, 0.10, 0.90), "PD2-S": (0.93, 0.05, 0.92)}
+    identities = identities or {}
+    return [ev.LayerAResult(ev.ComponentScore(d, True, 100, *metrics[d]), identities.get(d, h), d in passed)
+            for d, h in FREEZE.eligible_detectors]
+
+
+RESOLUTION = ev.resolve_baseline(FREEZE, _layer_a(), d_rows_read=0, resolved_at_utc=WHEN)
+
+
 # ---------------------------------------------------------------------------------------------- queries
 
 
@@ -253,11 +273,12 @@ def test_contract_violation_fails_the_whole_composition():
     assert result.contract_violations == ("plate_detector_output_exceeds_bound:t2",)
     assert result.consistent_wrong_status == ev.FAIL
     base = score([items[0]])
-    gate = ev.baseline_gate(ev.CompositionScore("PD2-N", "OC1-XS", result), ev.CompositionScore("PD2-N", "OC5-BEST", base),
-                            "OC5-BEST")
+    gate = ev.baseline_gate(ev.CompositionScore("PD2-S", "OC1-XS", result), ev.CompositionScore("PD2-N", "OC5-BEST", base),
+                            RESOLUTION)
     assert gate == ev.FAIL
-    assert ev.baseline_gate(ev.CompositionScore("PD2-N", "OC1-XS", base), ev.CompositionScore("PD2-N", "OC5-BEST", result),
-                            "OC5-BEST") == "BASELINE_INVALID"
+    with pytest.raises(ev.BaselineStop, match="baseline_contract_violation"):  # never replaced: the event stops
+        ev.baseline_gate(ev.CompositionScore("PD2-S", "OC1-XS", base), ev.CompositionScore("PD2-N", "OC5-BEST", result),
+                         RESOLUTION)
 
 
 def test_ranking_floor_is_enforced_and_diagnostics_are_separate():
@@ -280,31 +301,122 @@ def test_candidate_silence_scores_zero_and_corpus_deficiency_is_insufficient():
     assert (result.exact_recall, result.contains_recall, result.contains_precision, result.d_score) == (0, 0, 0, 0)
     good = score(_population(3, lambda i: [_plate_text(i)]))
     assert ev.baseline_gate(ev.CompositionScore("PD2-N", "OC1-XS", good), ev.CompositionScore("PD2-N", "OC5-BEST", result),
-                            "OC5-BEST") == ev.PASS  # a silent Tesseract baseline scores 0
+                            RESOLUTION) == ev.PASS  # a silent Tesseract baseline is valid and scores 0
     no_plates = [_track("n", "s1", ev.NO_PLATE, ["KA01AB1234"])]
     deficient = score(no_plates, gen([]))
     assert deficient.d_status == ev.INSUFFICIENT and deficient.d_score is None
+    assert ev.baseline_gate(ev.CompositionScore("PD2-N", "OC1-XS", deficient),
+                            ev.CompositionScore("PD2-N", "OC5-BEST", result), RESOLUTION) == ev.INSUFFICIENT
+    with pytest.raises(ev.BaselineStop, match="baseline_not_evaluable"):
+        ev.baseline_gate(ev.CompositionScore("PD2-N", "OC1-XS", good),
+                         ev.CompositionScore("PD2-N", "OC5-BEST", deficient), RESOLUTION)
 
 
 def test_mpid_boundary_is_exact():
     base = score(_population(1, lambda i: [_plate_text(i)]))
 
-    def gate(high, low):
-        return ev.baseline_gate(ev.CompositionScore("PD2-N", "OC1-XS", dataclasses.replace(base, d_score=high)),
+    def gate(high, low, detector="PD2-S"):
+        return ev.baseline_gate(ev.CompositionScore(detector, "OC1-XS", dataclasses.replace(base, d_score=high)),
                                 ev.CompositionScore("PD2-N", "OC5-BEST", dataclasses.replace(base, d_score=low)),
-                                "OC5-BEST")
+                                RESOLUTION)
 
     assert 0.47 - 0.43 < 0.04  # the float trap the exact path avoids
     assert gate(Fraction(47, 100), Fraction(43, 100)) == ev.PASS
     assert gate(Fraction(4, 100), Fraction(0)) == ev.PASS
     assert gate(Fraction(399, 10000), Fraction(0)) == ev.FAIL
     assert gate(Fraction(1, 3) + Fraction(4, 100), Fraction(1, 3)) == ev.PASS
-    with pytest.raises(ValueError, match="detector_matched"):
-        gate_args = (ev.CompositionScore("PD2-N", "OC1-XS", base), ev.CompositionScore("PD2-S", "OC5-BEST", base))
-        ev.baseline_gate(*gate_args, "OC5-BEST")
-    with pytest.raises(ValueError, match="detector_matched"):
-        ev.baseline_gate(ev.CompositionScore("PD2-N", "OC1-XS", base), ev.CompositionScore("PD2-N", "OC2-V6S", base),
-                         "OC5-BEST")
+    assert gate(Fraction(4, 100), Fraction(0), detector="PD1-X") == ev.PASS  # one baseline for every detector
+    with pytest.raises(ValueError, match="sealed_pd_base"):  # a detector-matched PD2-S + OC5 is not the hard baseline
+        ev.baseline_gate(ev.CompositionScore("PD2-S", "OC1-XS", base), ev.CompositionScore("PD2-S", "OC5-BEST", base),
+                         RESOLUTION)
+    with pytest.raises(ValueError, match="sealed_pd_base"):
+        ev.baseline_gate(ev.CompositionScore("PD2-S", "OC1-XS", base), ev.CompositionScore("PD2-N", "OC2-V6S", base),
+                         RESOLUTION)
+
+
+# ---------------------------------------------------------------------------------------------- baseline resolution
+
+
+def test_pd_base_resolves_mechanically_from_the_frozen_rule():
+    assert RESOLUTION.pd_base_id == "PD2-N"  # PD1-X ranks higher but failed Layer A
+    assert RESOLUTION.pd_base_identity_sha256 == _h("PD2-N")
+    assert RESOLUTION.benchmark_only_identity_sha256 == _h("OC5-BEST")
+    assert RESOLUTION.ranking_rule_sha256 == ev.DETECTOR_RANKING_RULE_SHA256
+    assert RESOLUTION.layer_a_result_sha256 == ev.layer_a_result_sha256(_layer_a())
+    assert RESOLUTION.d_state == ev.D_NOT_STARTED and RESOLUTION.resolved_at_utc == WHEN
+    assert ev.resolve_baseline(FREEZE, list(reversed(_layer_a())), d_rows_read=0, resolved_at_utc=WHEN) == RESOLUTION
+    ev.verify_resolution(FREEZE, RESOLUTION, _layer_a())
+    # The frozen tie-break: equal primary -> lower false plates per crop -> higher AP50 -> candidate id.
+    tied = {"PD1-X": (0.9, 0.1, 0.9), "PD2-N": (0.9, 0.1, 0.9), "PD2-S": (0.9, 0.1, 0.9)}
+    assert ev.resolve_baseline(FREEZE, _layer_a(("PD2-S", "PD2-N"), tied), d_rows_read=0,
+                               resolved_at_utc=WHEN).pd_base_id == "PD2-N"
+    second = {"PD1-X": (0.9, 0.1, 0.9), "PD2-N": (0.9, 0.2, 0.99), "PD2-S": (0.9, 0.1, 0.5)}
+    assert ev.resolve_baseline(FREEZE, _layer_a(("PD2-S", "PD2-N"), second), d_rows_read=0,
+                               resolved_at_utc=WHEN).pd_base_id == "PD2-S"
+    missing = {"PD1-X": (0.9, 0.1, 0.9), "PD2-N": (None, 0.0, 0.99), "PD2-S": (0.1, 0.9, 0.1)}
+    assert ev.resolve_baseline(FREEZE, _layer_a(("PD2-S", "PD2-N"), missing), d_rows_read=0,
+                               resolved_at_utc=WHEN).pd_base_id == "PD2-S"
+
+
+def test_pd_base_resolution_stops_and_never_chooses():
+    def stop(reason, results, **kw):
+        with pytest.raises(ev.BaselineStop, match=reason):
+            ev.resolve_baseline(FREEZE, results, d_rows_read=kw.get("d_rows_read", 0), resolved_at_utc=WHEN)
+
+    stop("no_detector_passed_layer_a", _layer_a(passed=()))
+    stop("after_d_data_read", _layer_a(), d_rows_read=1)
+    outsider = _layer_a() + [ev.LayerAResult(ev.ComponentScore("PD9-NEW", True, 100, 1.0, 0.0, 1.0), _h("PD9-NEW"), True)]
+    stop("inconsistent_with_frozen_detector_universe", outsider)  # cannot resolve to an unfrozen detector
+    stop("inconsistent_with_frozen_detector_universe", _layer_a()[1:])
+    stop("ambiguous_duplicate_detector", _layer_a() + _layer_a()[1:2])
+    stop("identity_mismatch:PD2-N", _layer_a(identities={"PD2-N": _h("PD2-N-retrained")}))
+    failed = _layer_a()
+    failed[1] = dataclasses.replace(failed[1], score=dataclasses.replace(failed[1].score, contract_fail=True))
+    stop("gate_pass_with_contract_fail:PD2-N", failed)
+    stop("non_finite_metric:PD2-N", _layer_a(metrics={"PD1-X": (0.9, 0.1, 0.9), "PD2-N": (float("nan"), 0.1, 0.9),
+                                                      "PD2-S": (0.9, 0.1, 0.9)}))
+    with pytest.raises(ValueError, match="benchmark_only_component_cannot_be_a_detector_candidate"):
+        ev.BaselineFreeze((("OC5-BEST", _h("x")), ("PD2-N", _h("PD2-N"))), "OC5-BEST", _h("o"), _h("g"))
+    with pytest.raises(ValueError, match="ranking_rule_not_the_frozen_rule"):
+        ev.BaselineFreeze(FREEZE.eligible_detectors, "OC5-BEST", _h("o"), _h("g"), _h("another rule"))
+    with pytest.raises(ValueError, match="sorted_unique_nonempty"):
+        ev.BaselineFreeze((), "OC5-BEST", _h("o"), _h("g"))
+
+
+def test_sealed_resolution_cannot_change_and_oc5_is_never_rankable():
+    base = score(_population(1, lambda i: [_plate_text(i)]))
+    swapped = dataclasses.replace(RESOLUTION, pd_base_id="PD2-S")  # an edit without re-sealing
+    with pytest.raises(ev.BaselineStop, match="record_altered"):
+        ev.baseline_gate(ev.CompositionScore("PD2-S", "OC1-XS", base), ev.CompositionScore("PD2-S", "OC5-BEST", base),
+                         swapped)
+    other = ev.resolve_baseline(FREEZE, _layer_a(passed=("PD2-S",)), d_rows_read=0, resolved_at_utc=WHEN)
+    with pytest.raises(ev.BaselineStop, match="changed_after_seal"):
+        ev.assert_resolution_unchanged(RESOLUTION, other)
+    with pytest.raises(ev.BaselineStop, match="differs_from_frozen_derivation"):  # re-sealed but not the derivation
+        ev.verify_resolution(FREEZE, other, _layer_a())
+    late = dataclasses.replace(RESOLUTION, d_state="D_STARTED")
+    late = dataclasses.replace(late, record_sha256=ev._canonical_sha256(late.payload()))
+    with pytest.raises(ev.BaselineStop, match="not_sealed_before_d"):
+        ev.verify_resolution(FREEZE, late, _layer_a())
+    ev.assert_resolution_unchanged(RESOLUTION, ev.resolve_baseline(FREEZE, _layer_a(), d_rows_read=0, resolved_at_utc=WHEN))
+    ordinary = [ev.CompositionScore("PD2-S", "OC1-XS", base), ev.CompositionScore("PD1-X", "OC2-V6S", base)]
+    assert ev.rankable_compositions(ordinary, RESOLUTION) == ordinary
+    for bad in (ev.CompositionScore("PD2-N", "OC5-BEST", base), ev.CompositionScore("PD2-S", "OC5-BEST", base)):
+        with pytest.raises(ValueError, match="cannot_be_ranked"):
+            ev.rankable_compositions(ordinary + [bad], RESOLUTION)
+        with pytest.raises(ValueError, match="cannot_be_ranked|sealed_pd_base"):
+            ev.baseline_gate(bad, ev.CompositionScore("PD2-N", "OC5-BEST", base), RESOLUTION)
+
+
+def test_detector_matched_tesseract_is_diagnostic_only():
+    base = score(_population(1, lambda i: [_plate_text(i)]))
+    high = ev.CompositionScore("PD2-S", "OC1-XS", dataclasses.replace(base, d_score=Fraction(1, 2)))
+    matched = ev.CompositionScore("PD2-S", "OC5-BEST", dataclasses.replace(base, d_score=Fraction(1, 5)))
+    assert ev.diagnostic_ocr_uplift(high, matched, "OC5-BEST") == Fraction(3, 10)
+    with pytest.raises(ValueError, match="not_detector_matched"):
+        ev.diagnostic_ocr_uplift(high, ev.CompositionScore("PD2-N", "OC5-BEST", base), "OC5-BEST")
+    failed = ev.CompositionScore("PD2-S", "OC5-BEST", dataclasses.replace(base, outcome=ev.CONTRACT_FAIL, d_score=None))
+    assert ev.diagnostic_ocr_uplift(high, failed, "OC5-BEST") is None  # a diagnostic, never a stop or a gate verdict
 
 
 # ---------------------------------------------------------------------------------------------- comparison
