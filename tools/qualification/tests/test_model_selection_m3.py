@@ -1131,3 +1131,213 @@ def test_a_stop_survives_later_inputs_and_a_protocol_revision(tmp_path):
     record = folder / f"{EVENT}.md"
     write_frozen_event(repo, revised, record_extra=record.read_text())
     refused("baseline_artefact_without_frozen_composition", validate_repository, repo)
+
+
+# ------------------------------------------------------------------ cold review of f24dcf5e (every confirmed probe)
+
+NL = chr(10)
+
+
+def cite(record, composition_id, digest):
+    write(record, record.read_text() + bs.seal_citation(composition_id, digest) + NL)
+
+
+def test_cold_p1_1_stopped_seal_replaced_in_place_by_resolved_is_refused(tmp_path):
+    """Probe 1: a cited STOPPED seal; Layer-A rewritten so the gates pass; the seal overwritten RESOLVED and its hash
+    appended to the record. Without Git the double citation is refused; with Git the modify commit is refused."""
+    document, partner, stopped_seal, folder = build_repository(tmp_path, stopped=True, with_decision=False)
+    validate_repository(tmp_path)
+    good = layer_a(document, partner)
+    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
+    resolved = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
+                                       layer_a=good, recorded_at="2026-07-03T10:00:00Z", recorded_by="later")
+    write(bs.layer_a_path(tmp_path, document, GATE), canonical_json(good).decode())
+    write(bs.seal_path(tmp_path, document, GATE), canonical_json(resolved).decode())
+    record = folder / f"{EVENT}.md"
+    refused("baseline_seal_not_recorded", validate_repository, tmp_path)
+    cite(record, GATE, document_sha256(resolved))
+    refused("baseline_seal_cited_twice", validate_repository, tmp_path)
+
+
+def test_cold_p1_1_resolved_seal_swapped_before_the_decision_is_refused(tmp_path):
+    """Probe 3: PD-A sealed and cited; Layer-A, seal and record rewritten to PD-B before any decision."""
+    document, partner, seal, folder = build_repository(tmp_path, with_decision=False)
+    forged = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
+    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
+    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
+                                     layer_a=forged, recorded_at=SEALED_AT, recorded_by="x")
+    write(bs.layer_a_path(tmp_path, document, GATE), canonical_json(forged).decode())
+    write(bs.seal_path(tmp_path, document, GATE), canonical_json(reseal).decode())
+    record = folder / f"{EVENT}.md"
+    cite(record, GATE, document_sha256(reseal))
+    refused("baseline_seal_cited_twice", validate_repository, tmp_path)
+
+
+def test_cold_p1_1_git_history_makes_seals_add_only(tmp_path):
+    """With full Git history an in-place rewrite of the seal and of its record line is refused even when the
+    working tree is self-consistent; without history the state is reported, never claimed."""
+    repo = tmp_path / "g"
+    document, partner, seal, folder = committed_repository(repo)
+    assert any(item == "git-history:full" for item in validate_repository(repo))
+    forged = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
+    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
+    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
+                                     layer_a=forged, recorded_at=SEALED_AT, recorded_by="x")
+    write(bs.layer_a_path(repo, document, GATE), canonical_json(forged).decode())
+    write(bs.seal_path(repo, document, GATE), canonical_json(reseal).decode())
+    record = folder / f"{EVENT}.md"
+    write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
+    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)  # uncommitted modification
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "reseal in place")
+    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)  # a modify commit
+    # the record line alone rewritten in history (seal file re-added under the same name after a delete)
+    repo2 = tmp_path / "h"
+    document, partner, seal, folder = committed_repository(repo2)
+    record = folder / f"{EVENT}.md"
+    write(record, record.read_text().replace(document_sha256(seal), "f" * 64))
+    git(repo2, "commit", "-q", "-am", "edit citation")
+    write(record, record.read_text().replace("f" * 64, document_sha256(seal)))
+    git(repo2, "commit", "-q", "-am", "restore citation")
+    refused("baseline_seal_citation_changed", validate_repository, repo2)
+    plain_dir = tmp_path / "nogit"
+    build_repository(plain_dir, with_decision=False)
+    assert "git-history:absent" in validate_repository(plain_dir)
+
+
+def test_cold_p3_1_fabricated_stop_is_refused_when_the_inputs_exist(tmp_path):
+    """Probe 2: a STOPPED partner-event-missing seal committed while the partner frozen ledger and a resolvable
+    Layer-A result are in the repository."""
+    document, partner, seal, folder = build_repository(tmp_path, with_decision=False)
+    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
+    for partner_doc, result_doc in ((None, None), (partner, None)):
+        fake = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner_doc,
+                                       layer_a=result_doc, recorded_at=SEALED_AT, recorded_by="x")
+        assert fake["status"] == "STOPPED"
+        record = folder / f"{EVENT}.md"
+        write(record, record.read_text().replace(document_sha256(seal), document_sha256(fake)))
+        write(bs.seal_path(tmp_path, document, GATE), canonical_json(fake).decode())
+        refused("baseline_stop_reason_contradicted", validate_repository, tmp_path)
+        seal = fake
+    # a stop whose reason differs from the one the inputs derive is refused too
+    wrong = dict(stopped_evidence(document)[GATE]["seal"], stopReason="identity-mismatch")
+    proof = stopped_evidence(document)
+    refused("baseline_stop_reason_contradicted", bs.verify_baseline_seal, wrong, frozen=document,
+            protocol_sha256=PROTOCOL, partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
+
+
+def test_cold_p3_2_an_accessed_stop_records_the_d_access():
+    """Probe 8a: a protected-d-accessed stop with dExecutionStartedAt null is refused; the access time is recorded."""
+    document = m3_ledger()
+    partner = partner_ledger()
+    result = layer_a(document, partner)
+    with pytest.raises(CredibilityError):
+        bs.derive_baseline_seal(document, GATE, protocol_sha256=PROTOCOL, partner_ledger=partner, layer_a=result,
+                                recorded_at=SEALED_AT, recorded_by="x", protected_d_rows_read=5)
+    seal = bs.derive_baseline_seal(document, GATE, protocol_sha256=PROTOCOL, partner_ledger=partner, layer_a=result,
+                                   recorded_at=SEALED_AT, recorded_by="x", protected_d_rows_read=5,
+                                   protected_d_accessed_at="2026-07-01T09:00:00Z")
+    proof = {GATE: {"seal": seal, "layerA": result, "partnerLedger": partner}}
+    summary = m3_decision(document, proof, state="TECHNICAL_DECISION_RECORDED", implementation=None)
+    assert summary["benchmarkOnlyBaselines"]["dExecutionStartedAt"] == "2026-07-01T09:00:00Z"
+    check(summary, document, proof)
+    for value in (None, D_STARTED):
+        changed = copy.deepcopy(summary)
+        changed["benchmarkOnlyBaselines"]["dExecutionStartedAt"] = value
+        refused("baseline_d_access_not_recorded", check, changed, document, proof)
+    for field, value in (("protectedDAccessedAt", None), ("protectedDAccessedAt", "2026-07-02T09:00:00Z")):
+        refused("baseline_seal_d_state_contradicted" if value else "instant_malformed", bs.verify_baseline_seal,
+                dict(seal, **{field: value}), frozen=document, protocol_sha256=PROTOCOL, partner_ledger=partner,
+                layer_a=result)
+    not_accessed = stopped_evidence(document)[GATE]["seal"]
+    refused("baseline_seal_d_state_contradicted", bs.verify_baseline_seal,
+            dict(not_accessed, protectedDAccessedAt=SEALED_AT), frozen=document, protocol_sha256=PROTOCOL,
+            partner_ledger=stopped_evidence(document)[GATE]["partnerLedger"],
+            layer_a=stopped_evidence(document)[GATE]["layerA"])
+
+
+def test_cold_p3_3_bob_bytes_under_another_identity_are_refused():
+    """Probe 7b: the BOB's weights re-listed in the partner event as PD-TESS (another identity document)."""
+    document = m3_ledger()
+    twin = established("PD-TESS", "bob")
+    twin["identity"]["tag"] = "v1.0-mirror"
+    partner = partner_ledger(established("PD-A", "pda"), established("PD-B", "pdb"), twin)
+    tess = {"candidateId": "PD-TESS", "identitySha256": document_sha256(twin["identity"]),
+            "reason": "not a detector release of interest"}
+    excluded_doc = copy.deepcopy(document)
+    excluded_doc["candidates"][-1]["benchmarkBaseline"]["compositions"][0]["excludedPartners"] = [tess]
+    excluded_doc = m3_ledger(*[e for e in excluded_doc["candidates"]])
+    proof = evidence(excluded_doc, partner=partner)
+    summary = m3_decision(excluded_doc, proof)
+    digest = document_sha256(proof[GATE]["seal"])
+    est = next(e for e in excluded_doc["candidates"] if e["candidateId"] == "VC-EST")
+    smuggled = {"compositionId": "C-TESS", "components": [
+        component(PARTNER_EVENT, "PD-TESS", document_sha256(twin["identity"])),
+        component(EVENT, "VC-EST", document_sha256(est["identity"]))],
+        "gates": {GATE: "passed"}, "technicalGates": "passed", "comparativeScore": 0.95,
+        "dResultSha256": sha("d"), "baselineSealSha256s": {GATE: digest}}
+    block_ = summary["benchmarkOnlyBaselines"]
+    block_["compositionCandidates"].append(smuggled)
+    block_["rankedCompositions"] = ["C-TESS"] + block_["rankedCompositions"]
+    block_["strongestEvaluatedComposition"] = "C-TESS"
+    block_["frontier"] = ["C-TESS"]
+    refused("benchmark_baseline_in_composition_candidate", check, summary, excluded_doc, proof)
+    # and as an eligible partner of the gate-only composition
+    as_partner = copy.deepcopy(document)
+    rule = as_partner["candidates"][-1]["benchmarkBaseline"]["compositions"][0]
+    rule["eligiblePartners"] = sorted(partners() + [{k: tess[k] for k in ("candidateId", "identitySha256")}],
+                                      key=lambda p: p["candidateId"])
+    as_partner = m3_ledger(*as_partner["candidates"])
+    refused("benchmark_baseline_bytes_as_partner", bs.check_partner_universe,
+            as_partner["candidates"][-1]["benchmarkBaseline"]["compositions"][0], partner, "p",
+            as_partner["candidates"][-1])
+
+
+def test_cold_p3_4_partner_universe_subset_needs_recorded_exclusions():
+    """Probe 4: the frozen universe is the partner shortlist exactly; an excluded partner carries its reason."""
+    document = m3_ledger()
+    rule = document["candidates"][-1]["benchmarkBaseline"]["compositions"][0]
+    rule["eligiblePartners"] = [partners()[1]]
+    subset = m3_ledger(*document["candidates"])
+    refused("baseline_partner_universe_not_the_shortlist", bs.check_partner_universe,
+            subset["candidates"][-1]["benchmarkBaseline"]["compositions"][0], partner_ledger(), "p",
+            subset["candidates"][-1])
+    rule["excludedPartners"] = [dict(partners()[0], reason="fails the frozen input-size requirement")]
+    recorded = m3_ledger(*document["candidates"])
+    bs.check_partner_universe(recorded["candidates"][-1]["benchmarkBaseline"]["compositions"][0], partner_ledger(),
+                              "p", recorded["candidates"][-1])
+    rule["excludedPartners"] = [dict(partners()[1], reason="duplicate")]
+    refused("excluded_partners_not_sorted_unique_disjoint", validate_ledger, m3_ledger(*document["candidates"]))
+
+
+def test_cold_p3_5_decision_seal_commit_is_bound_where_git_history_exists(tmp_path):
+    repo = tmp_path / "r"
+    document, partner, seal, folder = committed_repository(repo)
+    commit = git(repo, "rev-parse", "HEAD")
+    proof = {GATE: {"seal": seal, "layerA": json.loads(bs.layer_a_path(repo, document, GATE).read_text()),
+                    "partnerLedger": partner}}
+    summary = m3_decision(document, proof)
+    summary["protocolSha256"] = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
+    summary["benchmarkOnlyBaselines"]["baselineSeals"][0]["sealCommit"] = commit
+    decision_path = write(folder / f"{EVENT}-decision.json", json.dumps(summary))
+    snapshot_path = write(folder / f"{EVENT}-evidence-ledger-decided.json", json.dumps(document))
+    record = folder / f"{EVENT}.md"
+    write(record, record.read_text() + f"Decision SHA-256: {lf_normalised_sha256(decision_path)}" + NL +
+          f"Snapshot SHA-256: {lf_normalised_sha256(snapshot_path)}" + NL)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "decision")
+    validate_repository(repo)
+    summary["benchmarkOnlyBaselines"]["baselineSeals"][0]["sealCommit"] = "0" * 40
+    write(decision_path, json.dumps(summary))
+    write(record, record.read_text() + f"Decision SHA-256: {lf_normalised_sha256(decision_path)}" + NL)
+    refused("decision_baseline_seal_commit_mismatch", validate_repository, repo)
+    refused("malformed", check, dict(summary, benchmarkOnlyBaselines=dict(
+        summary["benchmarkOnlyBaselines"], baselineSeals=[dict(summary["benchmarkOnlyBaselines"]["baselineSeals"][0],
+                                                                sealCommit="HEAD")])), document, proof)
+
+
+def test_cold_p3_6_bob_without_a_gate_is_refused():
+    """Probe 14: a benchmark-only component with zero gate-only compositions."""
+    entry = bob()
+    entry["benchmarkBaseline"]["compositions"] = []
+    refused("benchmark_baseline_without_gate", validate_ledger, m3_ledger(entry))

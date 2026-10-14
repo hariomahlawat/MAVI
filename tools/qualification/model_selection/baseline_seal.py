@@ -334,6 +334,8 @@ _STOP_FOR_CODE = {
     "baseline_partner_event_missing": "partner-event-missing",
     "baseline_partner_event_mismatch": "partner-event-inconsistent",
     "baseline_partner_not_in_partner_shortlist": "partner-universe-inconsistent",
+    "baseline_partner_universe_not_the_shortlist": "partner-universe-inconsistent",
+    "benchmark_baseline_bytes_as_partner": "partner-universe-inconsistent",
     "layer_a_partner_outside_frozen_universe": "partner-universe-inconsistent",
     "layer_a_result_inconsistent_with_frozen_universe": "partner-universe-inconsistent",
     "layer_a_identity_mismatch": "identity-mismatch",
@@ -652,7 +654,11 @@ def check_decision_seal_commits(repo: Path, decision: Mapping, frozen: Mapping) 
         return state
     for row in decision["benchmarkOnlyBaselines"]["baselineSeals"]:
         path = seal_path(Path(repo), frozen, row["compositionId"])
-        if _committed_bytes_sha(Path(repo), row["sealCommit"], path) != row["sealSha256"]:
+        try:
+            committed = _committed_bytes_sha(Path(repo), row["sealCommit"], path)
+        except CredibilityError:
+            committed = None  # no such commit, or the seal is not in it
+        if committed != row["sealSha256"]:
             raise _fail("decision_baseline_seal_commit_mismatch", row["compositionId"])
     return state
 
