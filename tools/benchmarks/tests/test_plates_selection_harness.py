@@ -408,6 +408,13 @@ def test_sealed_resolution_cannot_change_and_oc5_is_never_rankable():
             ev.baseline_gate(bad, ev.CompositionScore("PD2-N", "OC5-BEST", base), RESOLUTION)
 
 
+def test_benchmark_only_component_never_enters_top_k():
+    ocr = [ev.ComponentScore("OC2-A", True, 100, 0.8, 0.1, 0.1), ev.ComponentScore("OC5-BEST", True, 100, 0.99, 0.0, 0.0)]
+    with pytest.raises(ValueError, match="cannot_enter_top_k"):
+        ev.top_k(ocr, 2, 50, "recogniser", benchmark_only=(RESOLUTION.benchmark_only_id,))
+    assert ev.top_k(ocr[:1], 2, 50, "recogniser", benchmark_only=("OC5-BEST",)) == ["OC2-A"]
+
+
 def test_detector_matched_tesseract_is_diagnostic_only():
     base = score(_population(1, lambda i: [_plate_text(i)]))
     high = ev.CompositionScore("PD2-S", "OC1-XS", dataclasses.replace(base, d_score=Fraction(1, 2)))

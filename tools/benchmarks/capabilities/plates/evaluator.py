@@ -446,10 +446,17 @@ class ComponentScore:
     contract_fail: bool = False
 
 
-def top_k(scores: Iterable[ComponentScore], k: int, minimum_support: int, kind: str) -> list[str]:
-    """N4 tie-breaks. Missing metrics sort last; contract-failed or non-independent components never enter."""
+def top_k(scores: Iterable[ComponentScore], k: int, minimum_support: int, kind: str,
+          benchmark_only: Iterable[str] = ()) -> list[str]:
+    """N4 tie-breaks. Missing metrics sort last; contract-failed or non-independent components never enter.
+
+    ``benchmark_only`` names the frozen benchmark-only components (M3; OC5). One of them among the scores is refused
+    outright: it is never a top-K entry, and it is never silently filtered."""
     if kind not in ("detector", "recogniser"):
         raise ValueError("top_k_kind")
+    scores = list(scores)
+    if {s.candidate_id for s in scores} & set(benchmark_only):
+        raise ValueError("benchmark_only_component_cannot_enter_top_k")
 
     def high(value):
         return (value is None, -(value or 0))
