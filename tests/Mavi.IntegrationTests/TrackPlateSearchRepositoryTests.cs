@@ -182,11 +182,11 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
     // --- Page strategies ---------------------------------------------------------------------------
 
     /// <summary>
-    /// The walk, the sparse path and the sparse path's overflow back into the walk all return exactly the
-    /// plate predicate's rows in page order, across every page (cold review P1-1). The batch and cap sizes are
-    /// shrunk so a 24-Track corpus drives every path: a text matching most Tracks (walk), a text matching two
-    /// old Tracks (sparse path within the cap) and one matching five Tracks spread out (sparse path over the
-    /// cap of three, so the walk resumes).
+    /// The candidate read (ADR-018) returns exactly the plate predicate's rows in page order, across every
+    /// page (cold review P1-1). The batch sizes are shrunk to 2 and 4 so a 24-Track corpus, whose Tracks all
+    /// start at the same instant (ordered by id alone), drives one page across several candidate batches: a text
+    /// matching most Tracks, one matching two old Tracks, one matching five Tracks spread out, prefix, exact and
+    /// no match. (Before ADR-018 the same cases drove the walk, the sparse path and its overflow.)
     /// </summary>
     [Theory]
     [InlineData("AAA", TrackPlateMatch.Contains)]
@@ -239,9 +239,8 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
             {
                 var repository = new TrackSearchRepository(fixture.CreateDbContext(), world.Clock)
                 {
-                    FirstWalkBatch = 2,
-                    MaximumWalkBatch = 4,
-                    MaximumScopedMatchIds = 3,
+                    FirstCandidateBatch = 2,
+                    MaximumCandidateBatch = 4,
                 };
                 var cursor = keyset is null
                     ? null
@@ -258,13 +257,271 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
         }
     }
 
+    /// <summary>
+    /// The candidate read (ADR-018) against the pre-optimisation semantics, verbatim: the plan §2.8 correlated
+    /// EXISTS over <c>plate_track_texts</c> for a visible analysis of the pinned identity of the Track's own run,
+    /// ANDed with the base chain and ordered <c>StartTimestampUtc DESC, Id DESC</c>, evaluated as LINQ at the
+    /// first page's snapshot. Every page of every page size must concatenate to exactly that sequence, for
+    /// contains, prefix and exact, under ordinary filters (confidence, a window on either bound, a run, a camera)
+    /// and with: Tracks holding two matching texts; a superseded analysis (still fact-bearing for its pinned
+    /// identity); a run analysed only under another identity; a hidden run; equal start times (ordered by id);
+    /// start times changed after publication (carried by the trigger); and an analysis published after the
+    /// first page's snapshot, which no continuation of that result set may admit. Batches are shrunk to 2 and 4
+    /// so a page spans several candidate batches.
+    /// </summary>
+    [Theory]
+    [InlineData("AB0", TrackPlateMatch.Contains)]
+    [InlineData("KA01", TrackPlateMatch.Prefix)]
+    [InlineData("MH12", TrackPlateMatch.Contains)]
+    [InlineData("KA02AB0008", TrackPlateMatch.Exact)]
+    [InlineData("ZZZ", TrackPlateMatch.Contains)]
+    public async Task TheCandidateReadEqualsThePreOptimisationPredicate(string text, TrackPlateMatch match)
+    {
+        using var world = await VisualAttributeWorld.CreateAsync(fixture, Now);
+        var older = Identity with { Fingerprint = new string('c', 64) };
+        var current = await world.SeedRunAsync(persons: 1, vehicles: 6);
+        var superseded = await world.SeedRunAsync(persons: 0, vehicles: 5);
+        var otherIdentity = await world.SeedRunAsync(persons: 0, vehicles: 4);
+        var hidden = await world.SeedRunAsync(persons: 0, vehicles: 3, visible: false);
+        var late = await world.SeedRunAsync(persons: 0, vehicles: 4);
+
+        var position = 0;
+        SeedPlateTrack[] Texts(SeededRun run) =>
+        [
+            .. run.Tracks.Where(track => track.ObjectClass == ObjectClass.Vehicle).Select(track =>
+            {
+                position++;
+                var first = $"KA{position % 3:00}AB{position:0000}";
+                // Every third Track has a second distinct text, so it is a candidate twice.
+                return position % 3 == 0
+                    ? SeedPlateTrack.Analysed(track.TrackId,
+                        new SeedPlate(track.Observations[0].ObservationId, 0.9, (first, 0.9)),
+                        new SeedPlate(track.Observations[0].ObservationId, 0.8, ($"MH12ZZ{position:0000}", 0.8)))
+                    : SeedPlateTrack.Analysed(track.TrackId, new SeedPlate(track.Observations[0].ObservationId, 0.9, (first, 0.9)));
+            }),
+        ];
+
+        await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, current.RunId, Identity, Texts(current));
+        var supersededAnalysis = await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, superseded.RunId, Identity, Texts(superseded));
+        await TrackPlateSearchWorld.SupersedeAsync(fixture.CreateDbContext, supersededAnalysis);
+        await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, otherIdentity.RunId, older, Texts(otherIdentity));
+        await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, hidden.RunId, Identity, Texts(hidden));
+        var lateTexts = Texts(late);
+
+        // Distinct start (and end) times across runs and Tracks, with deliberate ties, set after publication so
+        // the trigger on tracks must carry them; confidence varied for the confidence filter.
+        var vehicles = new[] { current, superseded, otherIdentity, hidden, late }
+            .SelectMany(run => run.Tracks.Where(track => track.ObjectClass == ObjectClass.Vehicle))
+            .ToList();
+        await using (var db = fixture.CreateDbContext())
+        {
+            for (var index = 0; index < vehicles.Count; index++)
+            {
+                var start = Now.AddHours(-10).AddMinutes(17 * ((index * 7) % vehicles.Count / 2));
+                var confidence = index % 4 == 0 ? 0.5 : 0.8;
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE tracks SET start_timestamp_utc = {start}, end_timestamp_utc = {start.AddSeconds(4)}, mean_confidence = {confidence} WHERE id = {vehicles[index].TrackId}");
+            }
+        }
+
+        Assert.Equal(0, await TrackStartDriftAsync());
+
+        var baseQuery = PlateQuery(text, match);
+        TrackSearchQuery[] queries =
+        [
+            baseQuery,
+            baseQuery with { MinimumConfidence = 0.7 },
+            baseQuery with { FromUtc = Now.AddHours(-9) },
+            baseQuery with { ToUtc = Now.AddHours(-8) },
+            baseQuery with { ProcessingRunId = superseded.RunId },
+            baseQuery with { CameraId = world.CameraId },
+        ];
+
+        var lateAnalysis = (Guid?)null;
+        var everNonEmpty = false;
+        foreach (var query in queries)
+        {
+            foreach (var limit in new[] { 1, 3, 50 })
+            {
+                var seen = new List<Guid>();
+                TrackPlateSearchRepositoryPage? first = null;
+                TrackCursorPosition? keyset = null;
+                while (true)
+                {
+                    var repository = new TrackSearchRepository(fixture.CreateDbContext(), world.Clock)
+                    {
+                        FirstCandidateBatch = 2,
+                        MaximumCandidateBatch = 4,
+                    };
+                    var cursor = keyset is null
+                        ? null
+                        : new TrackPlateCursorPosition(keyset, Identity.Fingerprint, first!.PlateCoverage);
+                    var page = (await repository.SearchPlatesAsync(query, Identity.Fingerprint, cursor, limit + 1, default)).Page!;
+                    first ??= page;
+                    var rows = page.Items.Take(limit).ToList();
+                    seen.AddRange(rows.Select(row => row.Id));
+                    Assert.Equal(rows.Count, rows.Count(row => page.ItemPlates.ContainsKey(row.Id)));
+
+                    // Published after the first page's snapshot: the continuation must not admit it.
+                    lateAnalysis ??= await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, late.RunId, Identity, lateTexts);
+
+                    if (page.Items.Count <= limit) break;
+                    keyset = new TrackCursorPosition(first.SnapshotUtc, first.SnapshotVisibilitySequence,
+                        rows[^1].StartTimestampUtc, rows[^1].Id, new string('a', 64));
+                }
+
+                await using var oracle = fixture.CreateDbContext();
+                var expected = await PreOptimisationOrderAsync(oracle, query, Identity.Fingerprint, first!.SnapshotVisibilitySequence);
+                everNonEmpty |= expected.Count > 0;
+                Assert.True(expected.SequenceEqual(seen),
+                    $"{text} {match} limit {limit} {QueryLabel(query)}: expected [{string.Join(",", expected)}], got [{string.Join(",", seen)}]");
+            }
+        }
+
+        // The control: the corpus is not vacuous for the texts that should match.
+        Assert.Equal(text != "ZZZ", everNonEmpty);
+        Assert.Equal(0, await TrackStartDriftAsync());
+    }
+
+    /// <summary>
+    /// The denormalised Track start (ADR-018) is the database's, never the application's: derived on insert
+    /// (here, EF's insert; PR-3's COPY publication is checked by <c>PlateCompletionTimingTests</c>), re-derived
+    /// when a text is updated whatever value is supplied, carried to the texts when the Track's start changes,
+    /// and a text whose Track is not of its analysis's run is refused.
+    /// </summary>
+    [Fact]
+    public async Task TheTrackStartIsDerivedAndCarriedByTheDatabase()
+    {
+        using var world = await VisualAttributeWorld.CreateAsync(fixture, Now);
+        var run = await world.SeedRunAsync(persons: 0, vehicles: 2);
+        var other = await world.SeedRunAsync(persons: 0, vehicles: 1);
+        var analysisId = await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, run.RunId, Identity,
+        [
+            SeedPlateTrack.Analysed(run.Track(0).TrackId,
+                new SeedPlate(run.Track(0).Observations[0].ObservationId, 0.9, ("KA01AB1234", 0.9)),
+                new SeedPlate(run.Track(0).Observations[0].ObservationId, 0.8, ("KA01AB1284", 0.8))),
+            SeedPlateTrack.Analysed(run.Track(1).TrackId, new SeedPlate(run.Track(1).Observations[0].ObservationId, 0.9, ("MH12DE4321", 0.9))),
+        ]);
+
+        // Derived on insert: the same instant as the Track's own start, for every text.
+        await using (var db = fixture.CreateDbContext())
+        {
+            var texts = await db.PlateTrackTexts.AsNoTracking()
+                .Where(text => text.AnalysisId == analysisId)
+                .Select(text => new { text.TrackId, Start = EF.Property<DateTimeOffset>(text, PlateSearchIndexConfiguration.TrackStartProperty) })
+                .ToListAsync();
+            Assert.Equal(3, texts.Count);
+            var starts = await db.Tracks.AsNoTracking().Where(track => track.ProcessingRunId == run.RunId)
+                .ToDictionaryAsync(track => track.Id, track => track.StartTimestampUtc);
+            Assert.All(texts, text => Assert.Equal(starts[text.TrackId], text.Start));
+        }
+
+        Assert.Equal(0, await TrackStartDriftAsync());
+
+        // A supplied value never survives: the trigger re-derives it.
+        await ExecuteAsync("UPDATE plate_track_texts SET track_start_timestamp_utc = '2000-01-01T00:00:00Z' WHERE analysis_id = $1", analysisId);
+        Assert.Equal(0, await TrackStartDriftAsync());
+
+        // A changed Track start is carried to that Track's texts (and only to them) in the same statement.
+        var moved = Now.AddDays(-3);
+        await ExecuteAsync("UPDATE tracks SET start_timestamp_utc = $1 WHERE id = $2", moved, run.Track(0).TrackId);
+        Assert.Equal(0, await TrackStartDriftAsync());
+        Assert.Equal(2L, await CountAsync(
+            "SELECT count(*) FROM plate_track_texts WHERE track_id = $1 AND track_start_timestamp_utc = $2", run.Track(0).TrackId, moved));
+        Assert.Equal(0L, await CountAsync(
+            "SELECT count(*) FROM plate_track_texts WHERE track_id = $1 AND track_start_timestamp_utc = $2", run.Track(1).TrackId, moved));
+
+        // A text naming a Track of another run than its analysis's is refused (the candidate read relies on it).
+        var plateId = await ScalarAsync($"SELECT best_plate_observation_id FROM plate_track_texts WHERE analysis_id = '{analysisId}' LIMIT 1");
+        await ExecuteAsync(
+            "INSERT INTO plate_track_outcomes (analysis_id, track_id, outcome, reason, plate_observation_count, distinct_text_count) VALUES ($1, $2, 'Analysed', NULL, 0, 0)",
+            analysisId, other.Track(0).TrackId);
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(
+            "INSERT INTO plate_track_texts (analysis_id, track_id, normalised_text, support_count, max_confidence, best_plate_observation_id) VALUES ($1, $2, 'KA01ZZ0001', 1, 0.9, $3)",
+            analysisId, other.Track(0).TrackId, plateId!));
+        Assert.Equal(PostgresErrorCodes.CheckViolation, refused.SqlState);
+        Assert.Equal("tr_plate_track_texts_track_start", refused.ConstraintName);
+    }
+
+    /// <summary>
+    /// The sort-key migration over an existing populated database (ADR-018): Down to the search indexes removes
+    /// the column, triggers and functions and keeps every fact row; a corrupt text (a Track of another run) makes
+    /// Up fail atomically; Up then backfills every text from <c>tracks</c>, NOT NULL, with both triggers and the
+    /// (b) index (ADR-019) in place, and the model snapshot matches the model.
+    /// </summary>
+    [Fact]
+    public async Task TheTrackStartMigrationBackfillsAPopulatedDatabaseAndRoundTrips()
+    {
+        using var world = await VisualAttributeWorld.CreateAsync(fixture, Now);
+        var runs = new List<SeededRun>();
+        for (var index = 0; index < 3; index++)
+        {
+            var run = await world.SeedRunAsync(persons: 1, vehicles: 4);
+            runs.Add(run);
+            await TrackPlateSearchWorld.PublishAsync(fixture.CreateDbContext, Now, run.RunId, Identity,
+            [
+                .. run.Tracks.Where(track => track.ObjectClass == ObjectClass.Vehicle).Select((track, position) => SeedPlateTrack.Analysed(track.TrackId,
+                    new SeedPlate(track.Observations[0].ObservationId, 0.9, ($"KA{index:00}AB{position:0000}", 0.9)))),
+            ]);
+            await ExecuteAsync("UPDATE tracks SET start_timestamp_utc = start_timestamp_utc - make_interval(mins => $1) WHERE processing_run_id = $2",
+                index * 37, run.RunId);
+        }
+
+        const string Keys = "SELECT count(*) FROM plate_track_texts";
+        var texts = await CountAsync(Keys);
+        Assert.Equal(12L, texts);
+
+        await using var db = fixture.CreateDbContext();
+        Assert.False(db.Database.HasPendingModelChanges(), "the model snapshot does not match the model");
+        var migrator = db.GetService<IMigrator>();
+        await migrator.MigrateAsync(SearchMigration);
+        Assert.Equal(0L, await CountAsync(
+            "SELECT count(*) FROM information_schema.columns WHERE table_name = 'plate_track_texts' AND column_name = 'track_start_timestamp_utc'"));
+        Assert.Equal(0L, await CountAsync(
+            "SELECT count(*) FROM pg_trigger WHERE tgname IN ('tr_plate_track_texts_track_start', 'tr_tracks_plate_text_track_start')"));
+        Assert.Equal(0L, await CountAsync(
+            "SELECT count(*) FROM pg_proc WHERE proname IN ('plate_track_texts_derive_track_start', 'tracks_carry_plate_text_track_start')"));
+        Assert.DoesNotContain(TrackConfiguration.EndTimestampIndexName, (await IndexesAsync()).Keys);
+        Assert.Equal(texts, await CountAsync(Keys));
+
+        // A text whose Track is of another run than its analysis's: Up refuses the database, atomically.
+        var analysis = (Guid)(await ScalarAsync($"SELECT id FROM plate_analyses WHERE processing_run_id = '{runs[0].RunId}'"))!;
+        var foreign = runs[1].Tracks.First(track => track.ObjectClass == ObjectClass.Vehicle).TrackId;
+        var plate = (Guid)(await ScalarAsync($"SELECT best_plate_observation_id FROM plate_track_texts WHERE analysis_id = '{analysis}' LIMIT 1"))!;
+        await ExecuteAsync(
+            "INSERT INTO plate_track_outcomes (analysis_id, track_id, outcome, reason, plate_observation_count, distinct_text_count) VALUES ($1, $2, 'Analysed', NULL, 0, 0)",
+            analysis, foreign);
+        await ExecuteAsync(
+            "INSERT INTO plate_track_texts (analysis_id, track_id, normalised_text, support_count, max_confidence, best_plate_observation_id) VALUES ($1, $2, 'KA99ZZ0001', 1, 0.9, $3)",
+            analysis, foreign, plate);
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync());
+        Assert.Contains("another run", refused.MessageText, StringComparison.Ordinal);
+        Assert.Equal(0L, await CountAsync(
+            "SELECT count(*) FROM information_schema.columns WHERE table_name = 'plate_track_texts' AND column_name = 'track_start_timestamp_utc'"));
+        await ExecuteAsync("DELETE FROM plate_track_texts WHERE analysis_id = $1 AND track_id = $2", analysis, foreign);
+        await ExecuteAsync("DELETE FROM plate_track_outcomes WHERE analysis_id = $1 AND track_id = $2", analysis, foreign);
+
+        await migrator.MigrateAsync();
+        Assert.Equal(texts, await CountAsync(Keys));
+        Assert.Equal(0, await TrackStartDriftAsync());
+        Assert.Equal("NO", await ScalarAsync(
+            "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'plate_track_texts' AND column_name = 'track_start_timestamp_utc'"));
+        Assert.Equal(2L, await CountAsync(
+            "SELECT count(*) FROM pg_trigger WHERE tgname IN ('tr_plate_track_texts_track_start', 'tr_tracks_plate_text_track_start')"));
+        Assert.Contains("USING btree (object_class, end_timestamp_utc)", (await IndexesAsync())[TrackConfiguration.EndTimestampIndexName],
+            StringComparison.Ordinal);
+
+        // The run starts were moved before the migration: the backfill took each Track's own start.
+        Assert.Equal(3L, await CountAsync("SELECT count(DISTINCT track_start_timestamp_utc) FROM plate_track_texts"));
+    }
+
     // --- Query shape -----------------------------------------------------------------------------
 
     /// <summary>
-    /// A first page and its continuation each cost a fixed number of SELECTs whatever the page size: one
-    /// read of the runs in scope, one of their plate analyses (every run is Ready, so no Track count), one
-    /// walk batch of the scope's Track ids, their plate check, the page restricted to the matches, and one
-    /// explanation keyed on the page's Tracks.
+    /// A first page costs a fixed number of queries whatever the page size: one read of the runs in scope,
+    /// one of their plate analyses (every run is Ready, so no Track count), one of the eligible runs, one
+    /// candidate batch (a WITH statement, captured since ADR-018), the page restricted to the candidates, and
+    /// one explanation keyed on the page's Tracks.
     /// </summary>
     [Fact]
     public async Task APageCostsTheSameStatementsForTwoRowsOrTwenty()
@@ -415,7 +672,7 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
         var before = await IndexesAsync();
         Assert.DoesNotContain(PlateSearchIndexConfiguration.TrigramIndexName, before.Keys);
 
-        await db.Database.MigrateAsync();
+        await db.GetService<IMigrator>().MigrateAsync(SearchMigration);
         Assert.Contains(SearchMigration, await db.Database.GetAppliedMigrationsAsync());
         var after = await IndexesAsync();
         Assert.Contains("gin_trgm_ops", after[PlateSearchIndexConfiguration.TrigramIndexName], StringComparison.Ordinal);
@@ -431,8 +688,9 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
 
         await db.GetService<IMigrator>().MigrateAsync(PrecedingMigration);
         Assert.Equal(before, await IndexesAsync());
-        await db.Database.MigrateAsync();
+        await db.GetService<IMigrator>().MigrateAsync(SearchMigration);
         Assert.Equal(after, await IndexesAsync());
+        await db.Database.MigrateAsync();
     }
 
     /// <summary>
@@ -464,11 +722,12 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
         await using (var setup = new NpgsqlCommand(
             """
             CREATE TEMP TABLE plate_text_probe (LIKE plate_track_texts INCLUDING INDEXES);
-            INSERT INTO plate_text_probe (analysis_id, track_id, normalised_text, support_count, max_confidence, best_plate_observation_id)
+            INSERT INTO plate_text_probe (analysis_id, track_id, normalised_text, support_count, max_confidence, best_plate_observation_id,
+                track_start_timestamp_utc)
             SELECT gen_random_uuid(), gen_random_uuid(),
                    chr(65 + (i * 7) % 26) || chr(65 + (i / 26 * 11) % 26) || lpad(((i * 13) % 100)::text, 2, '0') ||
                    chr(65 + (i / 7 * 17) % 26) || chr(65 + (i / 3 * 19) % 26) || lpad(((i * 31) % 10000)::text, 4, '0'),
-                   1, 0.9, gen_random_uuid()
+                   1, 0.9, gen_random_uuid(), timestamptz '2026-09-01 00:00:00+00' + i * interval '13 seconds'
             FROM generate_series(1, 200000) AS i;
             """, connection) { CommandTimeout = ProbeSetupTimeoutSeconds })
             await setup.ExecuteNonQueryAsync();
@@ -494,6 +753,65 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
     }
 
     // --- Helpers -----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The pre-optimisation semantics, verbatim (plan §2.8): the base chain with a correlated EXISTS over the
+    /// texts of a visible analysis of the pinned identity of the Track's own run, in page order.
+    /// </summary>
+    private static async Task<List<Guid>> PreOptimisationOrderAsync(MaviDbContext db, TrackSearchQuery query, string fingerprint, long snapshot)
+    {
+        var plate = query.Plate!;
+        var value = plate.Text;
+        var texts = db.PlateTrackTexts.AsNoTracking();
+        if (plate.Match == TrackPlateMatch.Exact)
+        {
+            texts = texts.Where(text => text.NormalisedText == value);
+        }
+        else
+        {
+            var pattern = TrackPlateQueryRules.LikePattern(plate);
+            texts = texts.Where(text => EF.Functions.Like(text.NormalisedText, pattern));
+        }
+
+        var analyses = db.PlateAnalyses.AsNoTracking().Where(analysis =>
+            analysis.IdentityFingerprint == fingerprint
+            && (analysis.Status == PlateAnalysisStatus.Completed || analysis.Status == PlateAnalysisStatus.Superseded)
+            && analysis.VisibilitySequence != null
+            && analysis.VisibilitySequence <= snapshot);
+        return await AnalyticsScopeQuery.BaseCandidates(db, AnalyticsScopeRequest.From(query), snapshot)
+            .Where(x => analyses.Any(analysis => analysis.ProcessingRunId == x.track.ProcessingRunId
+                && texts.Any(text => text.AnalysisId == analysis.Id && text.TrackId == x.track.Id)))
+            .OrderByDescending(x => x.track.StartTimestampUtc)
+            .ThenByDescending(x => x.track.Id)
+            .Select(x => x.track.Id)
+            .ToListAsync();
+    }
+
+    private static string QueryLabel(TrackSearchQuery query) =>
+        $"confidence={query.MinimumConfidence} from={query.FromUtc:O} to={query.ToUtc:O} run={query.ProcessingRunId} camera={query.CameraId}";
+
+    /// <summary>Texts whose denormalised Track start differs from the Track's own (ADR-018: always zero).</summary>
+    private Task<long> TrackStartDriftAsync() => CountAsync(
+        "SELECT count(*) FROM plate_track_texts x JOIN tracks t ON t.id = x.track_id " +
+        "WHERE x.track_start_timestamp_utc IS DISTINCT FROM t.start_timestamp_utc");
+
+    private async Task<long> CountAsync(string sql, params object[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var parameter in parameters) command.Parameters.AddWithValue(parameter);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private async Task ExecuteAsync(string sql, params object[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var parameter in parameters) command.Parameters.AddWithValue(parameter);
+        await command.ExecuteNonQueryAsync();
+    }
 
     private static async Task CommitAnalyticsFactsAsync(SceneAnalyticsWorld world)
     {

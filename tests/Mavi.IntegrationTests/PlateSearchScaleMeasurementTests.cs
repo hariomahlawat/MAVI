@@ -65,7 +65,8 @@ public sealed class PlateSearchScaleFactAttribute : FactAttribute
 /// <b>Stress probe.</b> <c>S1 prefix XQ0</c> is declared before measuring as the walk's known worst
 /// case (more in-scope matches than the sparse path's cap, all of them at the far end of the page
 /// order), so its cost grows with the scope by design. It is measured and reported, with fewer samples,
-/// and is outside both bounds; it is never a pass.
+/// and is outside both bounds; it is never a pass. (Since ADR-018 the candidate read is bounded by the matching
+/// texts rather than by the scope; the probe keeps its frozen definition and its place outside both bounds.)
 /// </para>
 /// </remarks>
 [Collection(DatabaseIntegrationGroup.Name)]
@@ -154,9 +155,20 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
         Assert.True(mode is "development" or "ci", $"{ModeVariable} must be 'development' or 'ci', not '{mode}'");
         var bound = mode == "ci" ? CatastrophicMilliseconds : BudgetMilliseconds;
 
+        var migration = Stopwatch.StartNew();
         await using (var db = CreateContext(connectionString, null))
             await db.Database.MigrateAsync();
+        migration.Stop();
+        output.WriteLine($"migrate: {migration.Elapsed.TotalSeconds:F1} s (includes any pending migration's backfill)");
         await SeedAsync(connectionString);
+
+        // ADR-018: the denormalised Track start equals the authoritative one for every text of the corpus.
+        var drift = Convert.ToInt64(await ScalarAsync(connectionString, """
+            SELECT count(*) FROM plate_track_texts x JOIN tracks t ON t.id = x.track_id
+            WHERE x.track_start_timestamp_utc IS DISTINCT FROM t.start_timestamp_utc
+            """), CultureInfo.InvariantCulture);
+        output.WriteLine($"track_start drift rows: {drift}");
+        Assert.Equal(0, drift);
 
         var newestText = (string)(await ScalarAsync(connectionString, $"""
             SELECT x.normalised_text FROM plate_track_texts x
@@ -214,7 +226,8 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
             var queryPlans = new List<string>();
             foreach (var statement in capture.Statements)
             {
-                var plan = await SqlCapture.ExplainAsync(connectionString, statement);
+                // Replayed with the search's own transaction setting (ADR-019), so the plan is the one it runs.
+                var plan = await SqlCapture.ExplainAsync(connectionString, statement, sessionSetting: TrackSearchRepository.NoParallelWorkers);
                 queryPlans.Add(plan);
                 plans.AppendLine(CultureInfo.InvariantCulture, $"===== {frozen.Name}");
                 plans.AppendLine(statement.Sql);
@@ -227,7 +240,7 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
                 }
             }
 
-            // The sparse path (a text with no match in the first walk batch) reads the trigram index.
+            // A contains search reads its candidates through the trigram index (ADR-018's candidate statement).
             if (prefix is "Q07" or "Q11" &&
                 !queryPlans.Any(plan => plan.Contains("ix_plate_track_texts_normalised_text_trgm", StringComparison.Ordinal)))
                 shapeFailures.Add($"{frozen.Name}: no statement reads ix_plate_track_texts_normalised_text_trgm");

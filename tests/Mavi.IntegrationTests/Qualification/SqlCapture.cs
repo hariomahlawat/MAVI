@@ -51,13 +51,15 @@ public sealed class SqlCapture : DbCommandInterceptor
 
     private void Record(DbCommand command)
     {
-        // Only SELECTs are planned; the advisory-lock and sequence calls that
-        // bracket a snapshot are control statements, not analytical queries. They
-        // also never arrive here, because only reader execution is intercepted and
-        // those go out as scalar or non-query commands — this filter is the second
-        // line rather than the first.
+        // Only queries are planned: SELECTs and WITH ... SELECTs (a materialised CTE,
+        // as the plate search's candidate statement is). The advisory-lock and
+        // sequence calls that bracket a snapshot are control statements, not
+        // analytical queries. They also never arrive here, because only reader
+        // execution is intercepted and those go out as scalar or non-query commands
+        // — this filter is the second line rather than the first.
         var sql = command.CommandText.TrimStart();
-        if (!sql.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)) return;
+        if (!sql.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) &&
+            !sql.StartsWith("WITH", StringComparison.OrdinalIgnoreCase)) return;
 
         var parameters = new List<CapturedParameter>(command.Parameters.Count);
         foreach (DbParameter parameter in command.Parameters)
@@ -84,10 +86,18 @@ public sealed class SqlCapture : DbCommandInterceptor
     public static async Task<string> ExplainAsync(
         string connectionString,
         CapturedStatement statement,
+        string? sessionSetting = null,
         CancellationToken cancellationToken = default)
     {
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
+        // A setting the product applies to the statement's own transaction (for example the plate
+        // search's SET LOCAL), applied to the replay's session so the planner sees the same inputs.
+        if (sessionSetting is not null)
+        {
+            await using var setting = new NpgsqlCommand(sessionSetting.Replace("SET LOCAL ", "SET ", StringComparison.Ordinal), connection);
+            await setting.ExecuteNonQueryAsync(cancellationToken);
+        }
 
         await using var command = new NpgsqlCommand(
             "EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT TEXT) " + statement.Sql,

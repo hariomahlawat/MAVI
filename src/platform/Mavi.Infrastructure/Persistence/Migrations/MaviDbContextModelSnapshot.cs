@@ -356,6 +356,8 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("VideoAssetId", "StartTimestampUtc");
 
+                    b.HasIndex(new[] { "ObjectClass", "EndTimestampUtc" }, "ix_tracks_object_class_end_timestamp_utc");
+
                     b.ToTable("tracks", null, t =>
                         {
                             t.HasCheckConstraint("ck_tracks_confidence", "mean_confidence >= 0 AND mean_confidence <= 1 AND max_confidence >= 0 AND max_confidence <= 1");
@@ -1099,6 +1101,11 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     b.Property<int>("SupportCount")
                         .HasColumnType("integer")
                         .HasColumnName("support_count");
+
+                    b.Property<DateTimeOffset>("TrackStartTimestampUtc")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("track_start_timestamp_utc");
 
                     b.HasKey("AnalysisId", "TrackId", "NormalisedText");
 

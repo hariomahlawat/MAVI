@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Application.Modules.SceneAnalytics.Engine;
@@ -29,9 +30,18 @@ namespace Mavi.Infrastructure.Persistence.Repositories;
 /// <para>
 /// <b>Privacy.</b> Nothing here logs; the plate text reaches PostgreSQL only as a bound parameter.
 /// </para>
+/// <para>
+/// <b>No parallel workers (ADR-019).</b> Every plate search, first page or continuation, runs in its own
+/// transaction with <c>SET LOCAL max_parallel_workers_per_gather = 0</c>: on the Development host a parallel
+/// worker's start-up cost about 150 ms per statement, more than the statements it parallelised. The setting
+/// ends with the transaction; nothing else in the installation is affected.
+/// </para>
 /// </remarks>
 public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
 {
+    /// <summary>The plate search's only session setting, scoped to its own transaction (ADR-019).</summary>
+    internal const string NoParallelWorkers = "SET LOCAL max_parallel_workers_per_gather = 0";
+
     public async Task<TrackPlateSearchRepositoryResult> SearchPlatesAsync(
         TrackSearchQuery query,
         string? preferredFingerprint,
@@ -46,9 +56,16 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
             throw new ArgumentException("The cursor was minted for a different query kind.", nameof(cursor));
 
         if (cursor is not null)
-            return await ContinuePlatesAsync(query, plate, cursor, take, cancellationToken);
+        {
+            await using var continuation = await db.Database.BeginTransactionAsync(cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(NoParallelWorkers, cancellationToken);
+            var continued = await ContinuePlatesAsync(query, plate, cursor, take, cancellationToken);
+            await continuation.CommitAsync(cancellationToken);
+            return continued;
+        }
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await db.Database.ExecuteSqlRawAsync(NoParallelWorkers, cancellationToken);
 
         // As an analytic first page: the barrier before any scope is read, so the snapshot, the
         // plate analyses it admits and both coverage blocks describe one world.
@@ -221,46 +238,44 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
         return texts.Where(row => EF.Functions.Like(row.NormalisedText, pattern));
     }
 
-    /// <summary>The first walk batch: also the density sample that chooses the strategy.</summary>
-    internal int FirstWalkBatch { get; init; } = 256;
-
-    /// <summary>The largest walk batch; batches double from <see cref="FirstWalkBatch"/> up to it.</summary>
-    internal int MaximumWalkBatch { get; init; } = 4096;
+    /// <summary>The first candidate batch; batches double from it up to <see cref="MaximumCandidateBatch"/>.</summary>
+    internal int FirstCandidateBatch { get; init; } = 256;
 
     /// <summary>
-    /// The most in-scope matching Track ids the sparse path may hold. A text with more matches in scope is
-    /// paged by the walk instead, so no statement ever carries more than this many ids. Tests shrink these
-    /// three to drive every path over a small corpus; production uses the defaults, fixed before measuring.
+    /// The largest candidate batch. Tests shrink both to drive several batches over a small corpus; production
+    /// uses the defaults, fixed before measuring.
     /// </summary>
-    internal int MaximumScopedMatchIds { get; init; } = 4096;
+    internal int MaximumCandidateBatch { get; init; } = 4096;
 
     private delegate Task<(IReadOnlyList<TrackSearchRow> Rows, IReadOnlyDictionary<Guid, TrackItemAnalytics>? Analytics)> RestrictedPage(
         Guid[] trackIds, TrackCursorPosition? keyset, int take);
 
     /// <summary>
-    /// One page of a plate search, bounded by the page and the scope rather than by how many Tracks of the
-    /// whole installation match (cold review P1-1; plan §2.8). Results and ordering are exactly those of the
-    /// plate predicate ANDed with the base chain, ordered <c>StartTimestampUtc DESC, Id DESC</c>.
+    /// One page of a plate search, bounded by the matching texts and the page rather than by the scope
+    /// (plan §2.8; ADR-018). Results and ordering are exactly those of the plate predicate ANDed with the base
+    /// chain, ordered <c>StartTimestampUtc DESC, Id DESC</c>.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Walk.</b> The scope's Tracks are read in page order from the keyset in batches (256, doubling to
-    /// 4 096); each batch's Track ids are checked against the plate predicate in one keyed statement
-    /// (run → analysis → (analysis, Track) text), and the matching ones go through the page's own query
-    /// (every other predicate, keyset and order) restricted to them. It stops as soon as the page is full or
-    /// the scope is exhausted, so a text common in the scope costs a few batches however many Tracks of the
-    /// installation it matches.
+    /// <b>Eligible runs.</b> A Track can match only through a visible analysis of the pinned identity of its own
+    /// run, so only the runs of the scope (<see cref="RunsInScope"/>) holding one are read; none means no match.
     /// </para>
     /// <para>
-    /// <b>Sparse path.</b> When the first batch holds no match, the text is rare where the page starts, and
-    /// walking could read the whole scope. The plate predicate is then evaluated from the text index, but only
-    /// over the scope's runs (<see cref="RunsInScope"/>) and capped at <see cref="MaximumScopedMatchIds"/>
-    /// + 1 ids: within the cap those ids go through the page's own query; over it the text is common in
-    /// scope after all and the walk continues. The id list is never the installation's.
+    /// <b>Candidates.</b> The matching texts of those runs' visible analyses are read in page order by their
+    /// denormalised Track start time (<c>track_start_timestamp_utc</c>, then Track id) after the keyset, in
+    /// batches (256, doubling to 4 096); the text match is computed once per batch in a materialised CTE, served
+    /// by the trigram or pattern index. Each batch's Tracks go through the page's own query (every other
+    /// predicate, the keyset and the order, all over <c>tracks</c> itself) restricted to them, and the read
+    /// stops as soon as the page is full or the candidates are exhausted.
     /// </para>
     /// <para>
-    /// The strategy changes only cost: every path returns exactly the matching rows after the keyset, in
-    /// page order. The constants are fixed before measurement and are not tuned to it.
+    /// <b>Why it is exact.</b> Membership is decided by the text, its analysis and the base chain, never by the
+    /// denormalised column; the column only chooses which candidates a batch holds. It equals the Track's own
+    /// start time by construction (ADR-018: derived by trigger in the writing transaction, carried on any
+    /// change of the Track, verified by test), and a text's Track belongs to its analysis's run (the same
+    /// trigger refuses any other). Hence every matching Track strictly between the keyset and a batch's last
+    /// candidate is in that batch, the batches partition the page order, and the next batch resumes strictly
+    /// after the last candidate: no Track is missed, repeated or reordered.
     /// </para>
     /// </remarks>
     private async Task<(IReadOnlyList<TrackSearchRow> Rows, IReadOnlyDictionary<Guid, TrackItemAnalytics>? Analytics)> PlatePageAsync(
@@ -276,95 +291,106 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
         var rows = new List<TrackSearchRow>(take);
         Dictionary<Guid, TrackItemAnalytics>? analytics = null;
 
-        async Task AddAsync(Guid[] ids, TrackCursorPosition? from)
+        var visibleRuns = VisiblePlateAnalyses(fingerprint, snapshotVisibilitySequence).Select(analysis => analysis.ProcessingRunId);
+        var eligibleRuns = await RunsInScope(query, snapshotVisibilitySequence)
+            .Where(runId => visibleRuns.Contains(runId))
+            .ToArrayAsync(cancellationToken);
+        if (eligibleRuns.Length == 0)
+            return (rows, analytics);
+
+        var position = keyset;
+        var batch = FirstCandidateBatch;
+        while (rows.Count < take)
         {
-            if (ids.Length == 0 || rows.Count >= take) return;
-            var (page, explained) = await restricted(ids, from, take - rows.Count);
+            var candidates = await CandidateBatchAsync(
+                plate, fingerprint, snapshotVisibilitySequence, eligibleRuns, position, batch, cancellationToken);
+            if (candidates.Length == 0)
+                break;
+
+            // A Track with several matching texts is one candidate per text; the restricted page is per Track.
+            var (page, explained) = await restricted(
+                candidates.Select(candidate => candidate.TrackId).Distinct().ToArray(), position, take - rows.Count);
             rows.AddRange(page);
             if (explained is not null)
             {
                 analytics ??= [];
                 foreach (var (id, value) in explained) analytics[id] = value;
             }
-        }
 
-        var position = keyset;
-        var batch = FirstWalkBatch;
-        var sampled = false;
-        while (rows.Count < take)
-        {
-            var chunk = await BuildQuery(query, snapshotVisibilitySequence, position)
-                .Select(row => new { row.Id, row.StartTimestampUtc })
-                .Take(batch)
-                .ToArrayAsync(cancellationToken);
-            if (chunk.Length == 0)
+            if (rows.Count >= take || candidates.Length < batch)
                 break;
 
-            var chunkIds = chunk.Select(row => row.Id).ToArray();
-            var matched = await MatchingTrackIdsAmongAsync(plate, fingerprint, snapshotVisibilitySequence, chunkIds, cancellationToken);
-            await AddAsync(matched, position);
-            if (rows.Count >= take || chunk.Length < batch)
-                break;
-
-            var last = chunk[^1];
-            var next = new TrackCursorPosition(DateTimeOffset.MinValue, snapshotVisibilitySequence, last.StartTimestampUtc, last.Id, string.Empty);
-
-            if (!sampled)
-            {
-                sampled = true;
-                if (matched.Length == 0)
-                {
-                    var runIds = await RunsInScope(query, snapshotVisibilitySequence).ToArrayAsync(cancellationToken);
-                    var scoped = await ScopedMatchingTrackIdsAsync(plate, fingerprint, snapshotVisibilitySequence, runIds, cancellationToken);
-                    if (scoped.Length <= MaximumScopedMatchIds)
-                    {
-                        await AddAsync(scoped, next);
-                        break;
-                    }
-                }
-            }
-
-            position = next;
-            batch = Math.Min(batch * 2, MaximumWalkBatch);
+            var last = candidates[^1];
+            position = new TrackCursorPosition(
+                DateTimeOffset.MinValue, snapshotVisibilitySequence, last.TrackStartTimestampUtc, last.TrackId, string.Empty);
+            batch = Math.Min(batch * 2, MaximumCandidateBatch);
         }
 
         return (rows, analytics);
     }
 
-    /// <summary>Which of these Tracks match the plate predicate under the pinned, snapshot-visible analysis of their own run.</summary>
-    private Task<Guid[]> MatchingTrackIdsAmongAsync(
-        TrackPlateQuery plate,
-        string fingerprint,
-        long snapshotVisibilitySequence,
-        Guid[] trackIds,
-        CancellationToken cancellationToken) =>
-        (from track in db.Tracks.AsNoTracking()
-         where trackIds.Contains(track.Id)
-         join analysis in VisiblePlateAnalyses(fingerprint, snapshotVisibilitySequence) on track.ProcessingRunId equals analysis.ProcessingRunId
-         join text in MatchingTexts(plate) on new { AnalysisId = analysis.Id, TrackId = track.Id } equals new { text.AnalysisId, text.TrackId }
-         select track.Id)
-        .Distinct()
-        .ToArrayAsync(cancellationToken);
+    /// <summary>One candidate: a matching text's Track and its denormalised start time.</summary>
+    internal sealed class PlateTextCandidate
+    {
+        public Guid TrackId { get; init; }
+
+        public DateTimeOffset TrackStartTimestampUtc { get; init; }
+    }
 
     /// <summary>
-    /// The sparse path: matching Tracks of the scope's runs only, from the text index, at most
-    /// <see cref="MaximumScopedMatchIds"/> + 1 (one more tells the caller the cap was exceeded).
+    /// One batch of candidates in page order after <paramref name="after"/>: the matching texts (computed once,
+    /// materialised) of the visible analyses of the pinned identity in the eligible runs.
     /// </summary>
-    private Task<Guid[]> ScopedMatchingTrackIdsAsync(
+    /// <remarks>
+    /// Raw SQL because the text match must be materialised before the join: without it the planner re-ran the
+    /// trigram bitmap once per analysis (measured on the scratch prototype (c), 4.8 s). Every value is a bound
+    /// parameter; the fragments chosen here are fixed SQL text.
+    /// </remarks>
+    private Task<PlateTextCandidate[]> CandidateBatchAsync(
         TrackPlateQuery plate,
         string fingerprint,
         long snapshotVisibilitySequence,
-        Guid[] runIds,
-        CancellationToken cancellationToken) =>
-        (from text in MatchingTexts(plate)
-         join analysis in VisiblePlateAnalyses(fingerprint, snapshotVisibilitySequence) on text.AnalysisId equals analysis.Id
-         where runIds.Contains(analysis.ProcessingRunId)
-         join track in db.Tracks.AsNoTracking() on text.TrackId equals track.Id
-         where track.ProcessingRunId == analysis.ProcessingRunId
-         select text.TrackId)
-        .Distinct()
-        .Take(MaximumScopedMatchIds + 1)
-        .ToArrayAsync(cancellationToken);
+        Guid[] eligibleRuns,
+        TrackCursorPosition? after,
+        int batch,
+        CancellationToken cancellationToken)
+    {
+        var exact = plate.Match == TrackPlateMatch.Exact;
+        var text = exact ? plate.Text : TrackPlateQueryRules.LikePattern(plate);
+        var arguments = new List<object> { text, fingerprint, snapshotVisibilitySequence, eligibleRuns, batch };
+        var keysetBound = string.Empty;
+        if (after is not null)
+        {
+            keysetBound = " AND (x.track_start_timestamp_utc, x.track_id) < ({5}, {6})";
+            arguments.Add(after.StartTimestampUtc.ToUniversalTime());
+            arguments.Add(after.TrackId);
+        }
+
+        var match = exact ? "x.normalised_text = {0}" : "x.normalised_text LIKE {0} ESCAPE ''";
+        var sql = CandidateSql
+            .Replace("<match>", match, StringComparison.Ordinal)
+            .Replace("<keyset>", keysetBound, StringComparison.Ordinal);
+        return db.Database
+            .SqlQuery<PlateTextCandidate>(FormattableStringFactory.Create(sql, [.. arguments]))
+            .ToArrayAsync(cancellationToken);
+    }
+
+    /// <summary>The candidate statement; <c>&lt;match&gt;</c> and <c>&lt;keyset&gt;</c> are replaced by fixed fragments.</summary>
+    private static readonly string CandidateSql = $$"""
+        WITH matched AS MATERIALIZED (
+            SELECT x.analysis_id, x.track_id, x.track_start_timestamp_utc
+            FROM plate_track_texts x
+            WHERE <match><keyset>)
+        SELECT m.track_id AS "{{nameof(PlateTextCandidate.TrackId)}}", m.track_start_timestamp_utc AS "{{nameof(PlateTextCandidate.TrackStartTimestampUtc)}}"
+        FROM matched m
+        JOIN plate_analyses a ON a.id = m.analysis_id
+        WHERE a.identity_fingerprint = {1}
+          AND a.status IN ('{{nameof(PlateAnalysisStatus.Completed)}}', '{{nameof(PlateAnalysisStatus.Superseded)}}')
+          AND a.visibility_sequence IS NOT NULL AND a.visibility_sequence <= {2}
+          AND a.processing_run_id = ANY ({3})
+        ORDER BY m.track_start_timestamp_utc DESC, m.track_id DESC
+        LIMIT {4}
+        """;
 
     /// <summary>Step two: the base chain, every other filter, keyset and ordering, over those Tracks only.</summary>
     private static IQueryable<TrackCandidate> WhereTrackIn(IQueryable<TrackCandidate> candidates, Guid[] trackIds) =>
