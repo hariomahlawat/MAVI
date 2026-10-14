@@ -275,6 +275,20 @@ describe('a pinned data-response order (server.mjs `forward`)', () => {
     assert.equal(stale, 'refused');
   });
 
+  it('orders an artifact’s content (a trajectory, a crop) like any data answer; only a video stream is media (owner ruling 5)', async () => {
+    await pinned.page(`<main id="log"></main><script>
+      const log = [];
+      const landed = (p) => Math.round(performance.getEntriesByName(location.origin + p)[0]?.responseEnd ?? -1);
+      const get = (p) => fetch(p).then((r) => r.text()).then(() => { log.push([p, landed(p)]); log.sort((a, b) => a[1] - b[1]); document.getElementById('log').textContent = log.map((e) => e[0]).join(','); });
+      Promise.all([get('/api/first'), get('/api/artifacts/t1/content'), get('/api/third')]);
+      window.__log = log;
+    </script>`, { api: { '/api/first': { ok: 1 }, '/api/third': { ok: 3 } } });
+    const done = await settle(pinned, { expectText: '/api/first,/api/artifacts/t1/content,/api/third' }, { timeoutMs: 8000 });
+    assert.equal(done.ok, true, JSON.stringify(done));
+    const log = await pinned.browser.evaluate('window.__log');
+    assert.ok(log.at(-1)[1] - log[0][1] >= RESPONSE_SPACING_MS, JSON.stringify(log));
+  });
+
   it('refuses an order it does not know', async () => {
     await assert.rejects(() => openBrowser({ responseOrder: 'shuffled' }), /unknown response order "shuffled"/);
   });

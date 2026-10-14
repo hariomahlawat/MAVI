@@ -189,6 +189,21 @@ describe('Evidence Player transport', () => {
   });
 });
 
+describe('Evidence Player timeline and the media metadata (owner ruling 5, §38)', () => {
+  it('lays the timeline out on the declared duration, before and after the metadata, whatever the file reports', () => {
+    renderPlayer({ declaredDurationMs: 600_000 });
+    const marker = () => (document.querySelector('[data-kind="representative"]') as HTMLElement | null)?.style.left
+      ?? (document.querySelector('.evidence-timeline li[style]') as HTMLElement | null)?.style.left;
+    const before = marker();
+    expect(before).toBeTruthy();
+    // The file reports another duration (600 s by default in this suite; here 800 s).
+    Object.defineProperty(HTMLMediaElement.prototype, 'duration', { configurable: true, get: () => 800 });
+    fireEvent(video(), new Event('loadedmetadata'));
+    fireEvent(video(), new Event('durationchange'));
+    expect(marker()).toBe(before);
+  });
+});
+
 describe('Evidence Player keyboard grammar', () => {
   function pressOnStage(key: string, options: Record<string, unknown> = {}) {
     // The stage is inside the player but is not itself a control, so it is where

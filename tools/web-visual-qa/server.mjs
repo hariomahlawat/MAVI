@@ -121,7 +121,12 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
     const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
     if (process.env.MAVI_VQA_TRACE && path.startsWith('/api/')) process.stderr.write(`  [trace] ${Date.now() % 100000} ${req.method} ${path}
 `);
-    if (!path.endsWith('/content') && path !== '/__blank') {
+    // A video stream is media — the element asks for ranges for as long as it
+    // plays, and the overlay check settles it on its own. An artifact's content
+    // (a trajectory, an evidence crop) is data the page lays out: it is counted
+    // and, under a pinned order, ordered like any other answer (owner ruling 5).
+    const videoStream = /^\/api\/videos\/[^/]+\/content$/.test(path);
+    if (!videoStream && path !== '/__blank') {
       network.inflight += 1;
       network.started += 1;
       let done = false;
@@ -148,7 +153,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
       }
     };
     if (responseOrder !== 'natural' && path.startsWith('/api/') && staleDocument(req)) { res.destroy(); return; }
-    if (responseOrder !== 'natural' && req.method === 'GET' && path.startsWith('/api/') && !path.endsWith('/content')) {
+    if (responseOrder !== 'natural' && req.method === 'GET' && path.startsWith('/api/') && !videoStream) {
       if (responseOrder === 'reverse') {
         if (!burst) {
           burst = [];
