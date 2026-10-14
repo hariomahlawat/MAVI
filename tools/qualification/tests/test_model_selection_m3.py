@@ -646,26 +646,19 @@ def test_every_failed_prerequisite_stops_without_a_baseline(partner, result, acc
                             layer_a=result_doc)
 
 
-def test_stopped_event_holds_no_d_result_and_no_fabricated_outcome():
-    """Owner decision 2: a STOPPED record permits no D execution and does not force NO_QUALIFIABLE_CANDIDATE."""
+def test_stopped_event_holds_no_decision_summary_at_all():
+    """Convergence review P1-A (owner, strict): a STOPPED all-gating baseline refuses every decision summary, before
+    any M1 rule runs. No outcome is fabricated: the event stays PLANNED for owner action."""
     document = m3_ledger()
     proof = stopped_evidence(document)
-    summary = m3_decision(document, proof, state="TECHNICAL_DECISION_RECORDED", implementation=None)
-    check(summary, document, proof)
-    changed = copy.deepcopy(summary)
-    changed["benchmarkOnlyBaselines"]["dExecutionStartedAt"] = D_STARTED
-    refused("baseline_stopped_d_started", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    resolved = m3_block(document, evidence(document))
-    changed["benchmarkOnlyBaselines"]["compositionCandidates"] = resolved["compositionCandidates"]
-    changed["benchmarkOnlyBaselines"]["dExecutionStartedAt"] = D_STARTED
-    refused("baseline_stopped_no_d_result", check, changed, document, proof)
-    # the ordinary M1 outcome rules decide a later close; no outcome is forced or fabricated
-    for outcome in ("INCUMBENT_RETAINED", "NO_QUALIFIABLE_CANDIDATE"):
-        closed = m3_decision(document, proof, state="CLOSED", implementation=None)
-        closed["outcome"] = outcome
-        check(closed, document, proof)
-
+    for state in ("TECHNICAL_DECISION_RECORDED", "QUALIFICATION_PENDING", "CLOSED"):
+        for implementation in (None, ("VC-EST",), ("VC-B0",)):
+            summary = m3_decision(document, proof, state=state, implementation=implementation)
+            for outcome in ((None,) if state != "CLOSED" else
+                            ("INCUMBENT_RETAINED", "NO_QUALIFIABLE_CANDIDATE", "BASELINE_SELECTED",
+                             "SELECTED_FOR_PACKAGING")):
+                summary["outcome"] = outcome
+                refused("baseline_stopped_decision_refused", check, summary, document, proof)
 
 # ------------------------------------------------------------------ P2-4: outcome invariance
 
@@ -722,10 +715,8 @@ def test_adding_a_benchmark_only_baseline_never_changes_the_m1_outcome(name):
         summary = build(document)
         summary["evaluated"].append(bob_row(document, document_sha256(proof[GATE]["seal"])))
         summary["benchmarkOnlyBaselines"] = m3_block(document, proof)
-        expected = without
-        if stopped and (summary["implementation"] is not None or summary["outcome"] == "SELECTED_FOR_PACKAGING"):
-            # final round, item 1: a STOPPED baseline gating every composition forbids any selection
-            expected = "baseline_stopped_no_selection"
+        # RESOLVED: the M1 verdict is unchanged. STOPPED (all-gating, the only scope): no decision beyond PLANNED.
+        expected = "baseline_stopped_decision_refused" if stopped else without
         assert _verdict(check, summary, document, proof) == expected, (name, stopped)
 
 
@@ -1269,7 +1260,7 @@ def test_cold_p3_1_fabricated_stop_is_refused_when_the_inputs_exist(tmp_path):
 
 
 def test_cold_p3_2_an_accessed_stop_records_the_d_access():
-    """Probe 8a: a protected-d-accessed stop with dExecutionStartedAt null is refused; the access time is recorded."""
+    """A protected-d-accessed stop records when D was accessed; its seal is checked, and no decision may follow it."""
     document = m3_ledger()
     partner = partner_ledger()
     result = layer_a(document, partner)
@@ -1279,14 +1270,11 @@ def test_cold_p3_2_an_accessed_stop_records_the_d_access():
     seal = bs.derive_baseline_seal(document, GATE, protocol_sha256=PROTOCOL, partner_ledger=partner, layer_a=result,
                                    recorded_at=SEALED_AT, recorded_by="x", protected_d_rows_read=5,
                                    protected_d_accessed_at="2026-07-01T09:00:00Z")
+    assert seal["protectedDState"] == "ACCESSED" and seal["protectedDAccessedAt"] == "2026-07-01T09:00:00Z"
+    bs.verify_baseline_seal(seal, frozen=document, protocol_sha256=PROTOCOL, partner_ledger=partner, layer_a=result)
     proof = {GATE: {"seal": seal, "layerA": result, "partnerLedger": partner}}
     summary = m3_decision(document, proof, state="TECHNICAL_DECISION_RECORDED", implementation=None)
-    assert summary["benchmarkOnlyBaselines"]["dExecutionStartedAt"] == "2026-07-01T09:00:00Z"
-    check(summary, document, proof)
-    for value in (None, D_STARTED):
-        changed = copy.deepcopy(summary)
-        changed["benchmarkOnlyBaselines"]["dExecutionStartedAt"] = value
-        refused("baseline_d_access_not_recorded", check, changed, document, proof)
+    refused("baseline_stopped_decision_refused", check, summary, document, proof)
     for field, value in (("protectedDAccessedAt", None), ("protectedDAccessedAt", "2026-07-02T09:00:00Z")):
         refused("baseline_seal_d_state_contradicted" if value else "instant_malformed", bs.verify_baseline_seal,
                 dict(seal, **{field: value}), frozen=document, protocol_sha256=PROTOCOL, partner_ledger=partner,
@@ -1296,7 +1284,6 @@ def test_cold_p3_2_an_accessed_stop_records_the_d_access():
             dict(not_accessed, protectedDAccessedAt=SEALED_AT), frozen=document, protocol_sha256=PROTOCOL,
             partner_ledger=stopped_evidence(document)[GATE]["partnerLedger"],
             layer_a=stopped_evidence(document)[GATE]["layerA"])
-
 
 def test_cold_p3_3_bob_bytes_under_another_identity_are_refused():
     """Probe 7b: the BOB's weights re-listed in the partner event as PD-TESS (another identity document)."""
@@ -1525,33 +1512,34 @@ def test_chronology_needs_full_history_for_an_event_with_d(tmp_path):
 
 
 def test_stopped_pr2_shape_permits_no_protected_d_and_no_selection():
-    """PR-2 shape: the one gate-only baseline gates every ordinary composition. A STOPPED seal permits no D result,
-    no ranking, frontier or winner, no implementation and no SELECTED_FOR_PACKAGING; nothing becomes
-    NO_QUALIFIABLE_CANDIDATE by itself."""
+    """PR-2 shape, strict: with the one gate-only baseline STOPPED, nothing beyond PLANNED is recorded: no winner,
+    frontier, top-K, finalists, ranked or scored composition, no implementation and no outcome of any kind."""
     document = m3_ledger()
     proof = stopped_evidence(document)
-    summary = m3_decision(document, proof, state="TECHNICAL_DECISION_RECORDED", implementation=None)
-    check(summary, document, proof)
+    base = m3_decision(document, proof, state="TECHNICAL_DECISION_RECORDED", implementation=None)
     resolved = m3_block(document, evidence(document))
-    for field in ("compositionCandidates",):
-        changed = copy.deepcopy(summary)
-        changed["benchmarkOnlyBaselines"][field] = resolved[field][:1]
-        changed["benchmarkOnlyBaselines"]["dExecutionStartedAt"] = D_STARTED
-        refused("baseline_stopped_no_d_result", check, changed, document, proof)
-    for field, value in (("rankedCompositions", ["C-B-EMG"]), ("strongestEvaluatedComposition", "C-B-EMG"),
-                         ("frontier", ["C-B-EMG"])):
-        changed = copy.deepcopy(summary)
-        changed["benchmarkOnlyBaselines"][field] = value
-        with pytest.raises(CredibilityError):
-            check(changed, document, proof)
-    for implementation, outcome in ((("VC-EST",), "SELECTED_FOR_PACKAGING"), (("VC-B0",), "BASELINE_SELECTED"),
-                                    (None, "SELECTED_FOR_PACKAGING")):
-        closed = m3_decision(document, proof, state="CLOSED", implementation=implementation)
-        closed["outcome"] = outcome
-        refused("baseline_stopped_no_selection", check, closed, document, proof)
-    pending = m3_decision(document, proof, state="QUALIFICATION_PENDING", implementation=("VC-EST",))
-    refused("baseline_stopped_no_selection", check, pending, document, proof)
-
+    variants = {"empty": lambda b, s: None}
+    for field in ("topK", "componentFinalists"):
+        variants[field] = lambda b, s, f=field: b.update({f: ["VC-EST"]})
+    variants["frontier"] = lambda b, s: b.update(frontier=["VC-EST"])
+    variants["winner"] = lambda b, s: s.update(strongestEvaluatedTechnical="VC-EMG")
+    variants["compositions"] = lambda b, s: b.update(
+        compositionCandidates=resolved["compositionCandidates"], rankedCompositions=resolved["rankedCompositions"],
+        strongestEvaluatedComposition=resolved["strongestEvaluatedComposition"], frontier=resolved["frontier"],
+        dExecutionStartedAt=D_STARTED)
+    variants["incumbent"] = lambda b, s: b.update(incumbent="VC-EST")
+    for name, mutate in variants.items():
+        for state, implementation, outcome in (("TECHNICAL_DECISION_RECORDED", None, None),
+                                               ("QUALIFICATION_PENDING", ("VC-EST",), None),
+                                               ("CLOSED", None, "INCUMBENT_RETAINED"),
+                                               ("CLOSED", None, "NO_QUALIFIABLE_CANDIDATE"),
+                                               ("CLOSED", ("VC-B0",), "BASELINE_SELECTED"),
+                                               ("CLOSED", ("VC-EST",), "SELECTED_FOR_PACKAGING")):
+            summary = m3_decision(document, proof, state=state, implementation=implementation)
+            summary["outcome"] = outcome
+            mutate(summary["benchmarkOnlyBaselines"], summary)
+            refused("baseline_stopped_decision_refused", check, summary, document, proof)
+    assert base["eventState"] == "TECHNICAL_DECISION_RECORDED"
 
 def test_listed_compositions_scope_is_disabled():
     """Convergence review P1-B: listing gated compositions by free-text id is disabled."""

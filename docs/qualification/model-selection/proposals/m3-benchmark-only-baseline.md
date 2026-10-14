@@ -127,8 +127,8 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
    ordinary M1 outcome rules then apply unchanged:
    - `INCUMBENT_RETAINED` and `SELECTED_FOR_PACKAGING` stay valid wherever ordinary M1 produces them;
    - `BASELINE_SELECTED` refers only to the ordinary, packageable (`mavi-owned`) M1 baseline, never a BOB;
-   - exception (final round): a STOPPED baseline gating every ordinary composition forbids any implementation
-     and `SELECTED_FOR_PACKAGING`, because no protected D was run (rule 9);
+   - exception (convergence review P1-A): a STOPPED gate-only baseline refuses every decision summary, so the
+     event has no outcome until the protocol is revised (rule 9);
    - `NO_QUALIFIABLE_CANDIDATE` follows only where ordinary M1 yields it. M3 adds no rule such as "no
      implementation-eligible candidate means `NO_QUALIFIABLE_CANDIDATE`".
 
@@ -157,14 +157,13 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
      names no partner and no composition, so it cannot name a replacement baseline. It permits no D execution, holds
      no ranked D result, and is immutable once written. A later protocol revision re-freezes the gate-only
      composition under a new composition id; the STOPPED seal stays as history, cited by the record.
-   - **STOPPED scope (owner decision, final round).** A STOPPED baseline seal forbids protected-D execution, and any D result, for every ordinary composition the frozen gating map assigns to that baseline (`gateScope`: `all-ordinary-compositions`, or `listed-compositions` with the exact `gatedCompositionIds`). It does not erase or invalidate lawful measurements made before protected D, and a composition explicitly outside the map is not blocked. The map is machine-checked for every composition row. When the stopped baseline gates every ordinary composition (the Stage-4 PR-2 shape: the single PD_BASE + OC5 gates all of them), the event has no protected D, no D score, no ranked composition, frontier or technical winner, no implementation and no `SELECTED_FOR_PACKAGING` (`baseline_stopped_no_selection`). The event state follows the governing protocol (PR-2: N9, back to or staying at `PLANNED`); the stop is never turned into `NO_QUALIFIABLE_CANDIDATE`.
-   - A STOPPED seal does **not** otherwise fix the event state or outcome. The governing event protocol does. For Stage-4 PR-2,
-     N9 applies: a pre-D stop returns to, or stays at, `PLANNED` for owner action, and no `NO_QUALIFIABLE_CANDIDATE`
-     is fabricated. If the owner later closes the event, the ordinary M1 outcome rules (rule 5) decide the outcome.
+   - **STOPPED is strict (owner decision, convergence review P1-A).** Every gate-only baseline gates every ordinary composition (`listed-compositions` is disabled), so a STOPPED seal stops the whole event before protected D: no protected-D execution, no D score, and no decision summary of any kind. TECHNICAL_DECISION_RECORDED, QUALIFICATION_PENDING and CLOSED (with any outcome, including `INCUMBENT_RETAINED` and `NO_QUALIFIABLE_CANDIDATE`), top-K, finalists, frontier, winners, ranked or scored rows, an incumbent and any implementation are all refused (`baseline_stopped_decision_refused`), before any ordinary M1 rule runs. The event stays PLANNED for owner action (Stage-4 PR-2: N9). To proceed, the owner revises the protocol: the gate-only composition is re-frozen under a new composition id and gets a new seal, and the STOPPED seal stays as cited history. Ordinary M1 rules never run on a stopped event.
+   - A STOPPED seal keeps the event at PLANNED (Stage-4 PR-2: N9); no ordinary M1 rule runs on it, and no outcome
+     is recorded until the owner revises the protocol under a new composition id and seal.
    - A decision summary v1 on an event with a BOB carries the mandatory block `benchmarkOnlyBaselines`: the seals (by
      hash and status), the one event-level D start, the incumbent, top-K, component finalists, every ordinary
      composition candidate with its hard-gate results and seal hashes, the ranked compositions, the frontier and the
-     strongest evaluated composition. With a STOPPED seal it records no D start and no composition result.
+     strongest evaluated composition. No decision summary exists while any seal is STOPPED.
 
 ## 4. Governing clauses modified (owner item 7)
 

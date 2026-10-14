@@ -1346,6 +1346,16 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
     if decision["frozenLedgerSha256"] != document_sha256(frozen):
         raise _fail("decision_frozen_ledger_hash_mismatch", "decision.frozenLedgerSha256")
     _match(decision["protocolSha256"], SHA256_RE, "decision.protocolSha256")
+    if benchmark:
+        # M3 convergence P1-A: a STOPPED gate-only baseline refuses every decision summary before any M1 rule runs.
+        from .baseline_seal import frozen_compositions, load_baseline_evidence, refuse_decision_after_stop, \
+            verify_event_seals
+        if frozen_compositions(frozen):
+            if baseline_evidence is None:
+                if repo is None:
+                    raise _fail("m3_decision_requires_baseline_evidence", "decision")
+                baseline_evidence = load_baseline_evidence(Path(repo), frozen)
+            refuse_decision_after_stop(verify_event_seals(baseline_evidence, frozen, decision["protocolSha256"]))
     state = _enum(decision["eventState"], EVENT_STATES, "decision.eventState")
     decided_on = _date(decision["decidedOn"], "decision.decidedOn")
     _check_sealed_on(ledger, decided_on, "decision_snapshot_postdates_decision")

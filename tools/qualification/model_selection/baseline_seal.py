@@ -931,6 +931,17 @@ def _unique_members(value: object, where: str) -> list:
     return members
 
 
+def refuse_decision_after_stop(verified: Mapping[str, Mapping]) -> None:
+    """Convergence review P1-A (owner, strict): every gate-only baseline gates every ordinary composition, so a STOPPED
+    seal stops the whole event before protected D. No decision summary may exist for it: no TECHNICAL_DECISION_RECORDED
+    or later state, no CLOSED outcome of any kind, no ranked or scored set and no selection. The event stays PLANNED
+    for owner action (Stage-4 PR-2: N9); to proceed the owner revises the protocol, re-freezing the gate-only
+    composition under a new composition id and a new seal (the superseded STOPPED seal stays as history)."""
+    for composition_id, item in sorted(verified.items()):
+        if item["status"] == STOPPED:
+            raise _fail("baseline_stopped_decision_refused", f"{composition_id}:{item['seal']['stopReason']}")
+
+
 def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen: Mapping, evaluated: Mapping[str, dict],
                       ranked: Mapping[str, dict], evidence: Mapping[str, Mapping]) -> None:
     """M3 rules 3-5 and 9 on a decision summary v1 whose frozen ledger holds a benchmark-only baseline.
@@ -964,39 +975,21 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
                 (verified[composition_id]["sha256"], verified[composition_id]["status"]):
             raise _fail("decision_baseline_seal_mismatch", f"{where}.baselineSeals.{composition_id}")
     seals = {c: verified[c]["sha256"] for c in sorted(gate_ids)}
-    stopped = any(verified[c]["status"] == STOPPED for c in gate_ids)
+    refuse_decision_after_stop(verified)  # defensive: validate_decision already refused before any M1 rule
 
     for candidate_id in sorted(benchmark):
         expected = {c: seals[c] for c, (entry, _rule) in declared.items() if entry["candidateId"] == candidate_id}
         if evaluated[candidate_id].get("baselineSealSha256s") != expected:
             raise _fail("benchmark_baseline_row_seal_mismatch", f"decision.evaluated.{candidate_id}")
 
-    # Final round, item 1: a STOPPED baseline that gates every ordinary composition (the Stage-4 PR-2 shape) forbids
-    # all protected D, so the event can select nothing: no implementation and no SELECTED_FOR_PACKAGING. The outcome
-    # is otherwise the governing protocol's; a stop is never turned into NO_QUALIFIABLE_CANDIDATE here.
-    stopped_all = any(verified[c]["status"] == STOPPED and declared[c][1]["gateScope"] == GATE_SCOPE_ALL
-                      for c in gate_ids)
-    if stopped_all and (decision["implementation"] is not None or decision["outcome"] == "SELECTED_FOR_PACKAGING"):
-        raise _fail("baseline_stopped_no_selection", f"{where}.baselineSeals")
     started = block["dExecutionStartedAt"]
-    accessed = sorted(verified[c]["seal"]["protectedDAccessedAt"] for c in gate_ids
-                      if verified[c]["status"] == STOPPED and verified[c]["seal"]["protectedDState"] == D_ACCESSED)
-    measured_d = bool(_list(block["compositionCandidates"], f"{where}.compositionCandidates"))
-    if accessed:
-        # Cold review P3-2: protected D was accessed before resolution; the decision records that access, never "no D".
-        if started != accessed[0]:
-            raise _fail("baseline_d_access_not_recorded", f"{where}.dExecutionStartedAt")
-    elif gate_ids and (measured_d or not stopped):
+    if gate_ids:
         start = _instant(started, f"{where}.dExecutionStartedAt")
         for composition_id in sorted(gate_ids):
-            if verified[composition_id]["status"] == RESOLVED and \
-                    not _instant(verified[composition_id]["seal"]["recordedAt"], "seal.recordedAt") < start:
+            if not _instant(verified[composition_id]["seal"]["recordedAt"], "seal.recordedAt") < start:
                 raise _fail("baseline_resolved_after_d_started", f"{where}.dExecutionStartedAt")
         if start.date() > date.fromisoformat(decision["decidedOn"]):
             raise _fail("d_started_after_decision", f"{where}.dExecutionStartedAt")
-    elif stopped:
-        if started is not None:
-            raise _fail("baseline_stopped_d_started", f"{where}.dExecutionStartedAt")
     elif started is not None:
         _instant(started, f"{where}.dExecutionStartedAt")
 
@@ -1030,10 +1023,7 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
         if composition_id in composition_ids or composition_id in entries:
             raise _fail("composition_id_collides", f"{at}.compositionId")
         composition_ids.add(composition_id)
-        # every frozen gate-only baseline gates every ordinary composition (the only scope); a STOPPED one forbids its D
-        gating = set(gate_ids)
-        if any(verified[g]["status"] == STOPPED for g in gating):
-            raise _fail("baseline_stopped_no_d_result", at)
+        gating = set(gate_ids)  # every frozen gate-only baseline gates every ordinary composition (the only scope)
         components = _list(composition["components"], f"{at}.components")
         keys = []
         for cindex, component in enumerate(components):

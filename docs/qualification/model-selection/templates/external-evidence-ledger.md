@@ -186,7 +186,7 @@ decision carries the mandatory block:
 "benchmarkOnlyBaselines": {
   "baselineSeals": [{"compositionId": "…", "sealSha256": "<canonical SHA-256 of the committed seal>", "status": "RESOLVED | STOPPED",
                      "sealCommit": "<Git commit holding the seal bytes>"}],
-  "dExecutionStartedAt": "YYYY-MM-DDThh:mm:ssZ | the protectedDAccessedAt of an access stop | null (other STOPPED)",
+  "dExecutionStartedAt": "YYYY-MM-DDThh:mm:ssZ (no decision summary exists while any seal is STOPPED)",
   "incumbent": "<ranked candidateId> | null",
   "topK": ["<ranked candidateId>"], "componentFinalists": ["<ranked candidateId>"],
   "compositionCandidates": [{"compositionId": "…",
