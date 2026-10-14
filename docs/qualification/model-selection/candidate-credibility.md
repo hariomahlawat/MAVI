@@ -221,6 +221,8 @@ Some identifiers carry the letters "licen" and cannot be reworded, for example a
 - Declarations are part of the ledger frozen at `PROTOCOL_FROZEN`; any change after freeze is refused
   (`identifier_exemptions_changed_after_freeze`), so nothing can be exempted after scoring begins.
 - The concrete identifiers of an event are authored with that event's ledger, never in validator code.
+- Owner decision: `model-identifier` applies only to `candidateName`, and only through such an exact, frozen,
+  reasoned declaration; repository URLs and artefact paths are separate kinds and never exempt a name, nor a name them.
 
 ## 5. Person and vehicle stay separate
 

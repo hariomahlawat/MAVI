@@ -1517,3 +1517,33 @@ def test_exemptions_are_fixed_by_the_freeze():
 @pytest.mark.parametrize("value", ["the l1cense plate", "".join(map(U, (0x29f, 0x26a, 0x1d04, 0x1d07, 0x274))) + "se"])
 def test_digit_and_small_capital_look_alikes_are_refused(value):
     assert _in_scan(value)
+
+
+MODEL_ID = "acme-license-plate-yolo-v2"
+
+
+def test_model_identifier_exempts_only_the_exact_frozen_candidate_name():
+    """Owner decision: `model-identifier` maps to `candidateName` only, by exact whole-value, frozen declaration."""
+    entry = established()
+    entry["candidateName"] = MODEL_ID
+    declared = exemptions(("VC-EST", "model-identifier", MODEL_ID, "upstream model identifier"))
+    validate_ledger(identified_ledger(declared, copy.deepcopy(entry)))
+    refused("licence_reasoning_in_ledger", validate_ledger, identified_ledger(None, copy.deepcopy(entry)))
+    for near_miss in (MODEL_ID + "x", MODEL_ID[:-1], MODEL_ID.upper(), "acme-license-plate", "*license-plate*"):
+        with pytest.raises(CredibilityError):
+            validate_ledger(identified_ledger(exemptions(("VC-EST", "model-identifier", near_miss, "r")),
+                                              copy.deepcopy(entry)))
+    for field in ("caveats", "summary", "repository"):
+        prose = copy.deepcopy(entry)
+        if field == "caveats":
+            prose["caveats"] = [MODEL_ID]
+        elif field == "summary":
+            prose["evidence"][0]["summary"] = MODEL_ID
+        else:
+            prose["identity"]["repository"] = MODEL_ID  # a repository field needs its own repository-url exemption
+        with pytest.raises(CredibilityError):
+            validate_ledger(identified_ledger(declared, prose))
+    spaced = copy.deepcopy(entry)
+    spaced["candidateName"] = "Acme license plate YOLO"
+    refused("licence_reasoning_in_ledger", validate_ledger, identified_ledger(
+        exemptions(("VC-EST", "model-identifier", "Acme license plate YOLO", "a name with spaces is prose")), spaced))
