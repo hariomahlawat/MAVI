@@ -214,7 +214,7 @@ export default function AnalyticsPage() {
           surface="analytics"
           object={isGuid(cameraId) ? { label: `Camera ${cameraId.toLowerCase().slice(0, 8)}…`, to: `/cameras/${cameraId}/scene` } : undefined}
         />
-        <StateRegion kind="page" state={{ kind: 'loading' }} label="camera analytics" loadingLabel="Reading the camera…">
+        <StateRegion kind="page" state={{ kind: 'loading' }} label="camera analytics" loadingLabel="Loading camera analytics…">
           {() => null}
         </StateRegion>
       </section>
