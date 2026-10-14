@@ -180,4 +180,41 @@ field, badges and actions).
 
 ### Final evidence (identical bytes)
 
-FINAL_EVIDENCE_PLACEHOLDER
+Local, Windows host with the CI font injected (DejaVu Sans; a labelled
+approximation of the Linux runner), every run on one build of the final
+source:
+
+| Run | Order | Scope | CLS over limit | Long tasks | Harness faults |
+| --- | --- | --- | --- | --- | --- |
+| G4 (CI-like: full sweep, all lanes, + long-task lane, judged) | forward | 3800 cases | 0 | 0 of 413 | 1 (Chromium did not answer one evaluate within 30 s under 8 lanes; 0/270 on rerun) |
+| F4, F5 | forward | ordinary sweep | 0, 0 | — | 0 |
+| RV2 (4 reverse shards, judged `--ordinary-lane`) | reverse | ordinary sweep | 0 | — | 0 |
+
+Stability, G4 + F4 + F5 on identical bytes: 1836 case-families measured in
+all three; **0 classification changes**, 0 ever over a limit (135 vary in
+value, all well inside their limits, the largest 0.0001→0.0334 on a Tier C
+limit of 0.1756). Before the last ledger fix, three runs showed one flip
+(`processing-queue-row-degraded-wide-font@1366x768`: 0.0062, 0.0062,
+0.0103 / 0.0097); after it, processing-queue states 4x forward / 2x reverse
+and videos and shell states 3x / 2x varied in no value at all.
+
+Per-case before (forward, branch harness before the UI fixes) → after:
+`shell-menu-overlay@761x900` 0.1627 → 0; `overview-empty@768x1024` 0.1534 → 0;
+`search-filtered@768x1024` 0.2413 → 0; `processing-detail-analytics-stale@1024x768`
+0.2272 → 0; `scene-editor-inactive@1024x768` 0.0126 → 0;
+`scene-editor-narrow-band@768x900` 0.0199 → 0; `processing-queue@1024x768`
+0.0158 → 0; `videos-cameras-unavailable@1024x768` 0.0492 → 0.0381;
+`review-narrow-band@600x900` 0.0244 → 0.0138; reverse
+`analytics-enabled-empty-window@768x1024` 0.0348 → 0.0004. All 49 forward
+cases that were over → under.
+
+Other checks on the final source: keyboard journeys 18/18; frontend tests
+1574/1574; harness unit tests 352/352, end-to-end 110/110; `verify_repo` PASSED.
+
+Still open: the residual media nondeterminism — `/content` responses (video,
+images) are not pinned, and a fixture clip's real duration (4 s) differs from
+the declared one (10 min), so Review's timeline can re-lay out when the
+metadata lands (`review-long-identity@1920x1080` flipped once in three local
+repetitions before the final fixes; not seen in the final runs). Local hover
+and tooltip findings appeared only in 8-lane runs and passed 160/160 at the CI
+concurrency (3 lanes).
