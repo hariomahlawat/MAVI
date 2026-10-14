@@ -32,7 +32,7 @@ public sealed class CameraApiTests(PostgresFixture database)
         Assert.Equal(created.Code, retrieved.Code);
         Assert.Equal(created.Name, retrieved.Name);
         Assert.Equal(created.TimeZoneId, retrieved.TimeZoneId);
-        Assert.Equal("mavi_test", new Npgsql.NpgsqlConnectionStringBuilder(factory.ConnectionString).Database);
+        Assert.Equal(TestDatabase.DatabaseName, new Npgsql.NpgsqlConnectionStringBuilder(factory.ConnectionString).Database);
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public sealed class CameraApiTests(PostgresFixture database)
     // Test infrastructure
     private async Task<ApiTestFactory> CreateFactoryAsync()
     {
-        Assert.Equal(database.ConnectionString, Environment.GetEnvironmentVariable("MAVI_TEST_DB_CONNECTION"));
+        Assert.Equal(database.ConnectionString, TestDatabase.ConnectionString);
         var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
         return factory;

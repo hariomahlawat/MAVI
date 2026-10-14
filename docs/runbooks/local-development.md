@@ -263,6 +263,47 @@ To exercise it in Development:
 
    It exits `2` if the binding has no `attributes` role and `3` if the role cannot become READY (for example a missing Model Pack); it never leases while not READY. `GET /api/processing/runs/{id}/visual-attributes` reports readiness, including `no_ready_attributes_worker` while no READY worker has polled for the preferred identity, or renewed a lease of it, within `VisualAttributes:WorkerPresenceSeconds` (a worker busy with a long analysis stays present through its heartbeats).
 
+## Plate lifecycle (Stage 4 PR-3, Development fixture only)
+
+PR-3 ships the plate analysis lifecycle (ADR-013 implementation amendment 2026-10-13, items 11–15) with a **deterministic, model-free fixture** detector and recogniser and no real model. Nothing is configured in the shipped release: plate readiness for every run is `NotConfigured`, no unit is queued and no plates worker exists. The fixture is Development-only on both sides — the platform refuses to start with it outside `Development`/`Testing` (`plate_development_definition_forbidden`) and the worker's resolver refuses it in Production (`plate_development_profile_forbidden`).
+
+The bounded v1 processing profile is part of the identity: at most 2 detector proposals and 1 accepted plate per evidence crop, at most 3 candidate readings for it. A model that emits more fails the attempt (`plate_output_invalid`); nothing is truncated.
+
+To exercise it in Development:
+
+1. Compose the Development overlay (fixture Model Pack serving `ocr` and `plate-detector`, qualification records, gate set and a Component Binding with the `plates` role); it prints the paths it wrote:
+
+   ```bash
+   cd src/vision
+   python -m tests.plate_overlay <a directory outside the repository>
+   ```
+
+2. Point the platform at that binding and the fixture profile, and enable its loop:
+
+   ```json
+   "Plates": {
+     "Enabled": true,
+     "ComponentBindingPath": "<componentBindingPath>",
+     "PipelineProfilePath": "<pipelineProfilePath>"
+   }
+   ```
+
+   The loop records the identity's activation, queues runs with Vehicle Tracks that complete **after** it (no backfill), fails units past their deadline or out of attempts, and reclaims `staging-plates/`. Historical runs are queued only by an explicit, bounded request: `POST /api/plates/reanalysis` with exactly one of `{"processingRunIds": [...]}` or `{"cameraId": ..., "fromUtc": ..., "toUtc": ...}`, at most `Plates:MaximumRunsPerReanalysisRequest` (default 100) runs, idempotent. A window selects exactly the latest completed, visible run of each overlapping video (highest visibility sequence, which is unique), never an older or superseded one, and the bound applies to that selection; a run list queues exactly the supplied runs, never newer ones. The response and audit event 2125 name the selected run ids.
+
+3. Start the plates worker as its own process (it reads no platform filesystem):
+
+   ```bash
+   cd src/vision
+   MAVI_API_BASE_URL=http://localhost:5000 MAVI_WORKER_ID=plates-01 \
+   MAVI_COMPONENT_BINDING_PATH=<componentBindingPath> MAVI_PIPELINE_PROFILE_PATH=<pipelineProfilePath> \
+   MAVI_OVERLAY_ROOT=<overlayRoot> MAVI_MODEL_ROOT=<modelRoot> \
+   python -m mavi_vision.plates.main
+   ```
+
+   It exits `2` if the binding has no `plates` role and `3` if the role cannot become READY; it never leases while not READY. `GET /api/processing/runs/{id}/plates` reports readiness (`NotConfigured`, `NotApplicable` for a run without Vehicle Tracks, `Pending` with `no_ready_plates_worker` or `historical_run_not_queued`, `Ready`, `Failed`, `Stale`). Evidence integrity incidents appear under `plateIntegrity` in `/api/health`. Plate text is never written to logs.
+
+The .NET end-to-end test (`PlateEndToEndTests`) runs this path with the real worker when `MAVI_S2B_WORKER_PYTHON` names a Python with the `mavi_vision` dependencies.
+
 ## Analytic search cursor signing key
 
 Analytic Track searches (any `GET /api/tracks` request with a scene-analytics key) page through a signed v3 cursor that pins the resolved scene revision, algorithm version and coverage snapshot. The key that signs it is `TrackSearch:CursorSigningKey`: base64 of exactly 32 bytes, written to the machine configuration by `Setup-MAVI` and kept across re-runs.
@@ -384,6 +425,13 @@ dotnet test MAVI.sln
 ```
 
 In Visual Studio, after restarting with `MAVI_TEST_DB_CONNECTION` available, run **Test > Run All Tests**. Integration tests should no longer fail with `MAVI_TEST_DB_CONNECTION is required`.
+
+**Concurrent test runs.** The integration tests reset the schema of the database they use, so two runs against the same `mavi_test` at the same time (two worktrees, two agents, Visual Studio beside a terminal) corrupt each other — deadlocks, missing `__EFMigrationsHistory`, duplicate constraints — and those failures say nothing about the code. Give each concurrent run its own database with `MAVI_TEST_DB_RUN_ID`:
+
+- `MAVI_TEST_DB_RUN_ID=auto` — a stable database per checkout, `mavi_test_wt<12 hex of the repository path>`;
+- `MAVI_TEST_DB_RUN_ID=<id>` — a caller-chosen run (`mavi_test_<id>`; a long or non-`[a-z0-9]` id is shortened with a hash).
+
+The database is created on first use on the server `MAVI_TEST_DB_CONNECTION` names; that variable must still name `mavi_test`. A run only ever resets its own database, and `TestDatabase.DropIsolatedDatabaseAsync` drops only that run's derived database. Unset, the tests use `mavi_test` exactly as before (CI runs one job per server).
 
 ## Run the complete local quality checks
 

@@ -83,6 +83,7 @@ from mavi_vision.runtime.variants import RUNTIME_VARIANTS, VariantClass
 
 if TYPE_CHECKING:
     from mavi_vision.attributes.pipeline import AttributeIdentity, AttributePipelineProfile
+    from mavi_vision.plates.profile import PlateIdentity, PlatePipelineProfile
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -101,13 +102,23 @@ RUNTIME_PROFILES_RELATIVE = Path("src/vision/runtime")
 VISION_PROVENANCE_CONTRACT = "vision-job-complete-v3.3"
 ATTRIBUTE_PROVENANCE_CONTRACT = "visual-attribute-complete-v1"
 ATTRIBUTE_CONTROL_VERSION = "mavi-visual-attribute-control-v1"
+PLATE_PROVENANCE_CONTRACT = "plate-complete-v1"
+PLATE_CONTROL_VERSION = "mavi-plate-control-v1"
 PROVENANCE_CONTRACT_VERSIONS: Mapping[str, str] = MappingProxyType(
-    {VISION_PROVENANCE_CONTRACT: "3.3", ATTRIBUTE_PROVENANCE_CONTRACT: ATTRIBUTE_CONTROL_VERSION}
+    {
+        VISION_PROVENANCE_CONTRACT: "3.3",
+        ATTRIBUTE_PROVENANCE_CONTRACT: ATTRIBUTE_CONTROL_VERSION,
+        PLATE_PROVENANCE_CONTRACT: PLATE_CONTROL_VERSION,
+    }
 )
 # The capabilities each provenance contract's runtime serves. A role declaring one its
 # contract does not serve is refused: the vision worker never runs attributes, nor the reverse.
 CONTRACT_CAPABILITIES: Mapping[str, frozenset[str]] = MappingProxyType(
-    {VISION_PROVENANCE_CONTRACT: frozenset({"detector"}), ATTRIBUTE_PROVENANCE_CONTRACT: frozenset({"person-attributes", "vehicle-attributes"})}
+    {
+        VISION_PROVENANCE_CONTRACT: frozenset({"detector"}),
+        ATTRIBUTE_PROVENANCE_CONTRACT: frozenset({"person-attributes", "vehicle-attributes"}),
+        PLATE_PROVENANCE_CONTRACT: frozenset({"plate-detector", "ocr"}),
+    }
 )
 # The explicit, Development-only, non-qualifying override (P-16; ADR-014 amendment).
 COMPLETION_OVERRIDE_VERSIONS = frozenset({"3.0", "3.1"})
@@ -117,7 +128,7 @@ _QUALIFIED_VARIANT_STATUS = {"cpu": "qualified-hosted-cpu", "cuda": "qualified-h
 # point describes an executable this worker is not, so it is refused rather than
 # attested under the binding's SHA.
 IMPLEMENTED_ROLE_ENTRY_POINTS: Mapping[str, str] = MappingProxyType(
-    {"vision": "mavi_vision.worker.main", "attributes": "mavi_vision.attributes.main"}
+    {"vision": "mavi_vision.worker.main", "attributes": "mavi_vision.attributes.main", "plates": "mavi_vision.plates.main"}
 )
 
 
@@ -228,9 +239,10 @@ class ResolvedRole:
     family: RoleFamily
     runtime_pack: ResolvedRuntimePack
     capabilities: Mapping[str, ResolvedCapability]
-    # The role's pipeline policy: the vision profile, or the attribute pipeline profile
-    # for a ``visual-attribute-complete-v1`` role (S2b).
-    pipeline_profile: PipelineProfile | AttributePipelineProfile
+    # The role's pipeline policy: the vision profile, the attribute pipeline profile for a
+    # ``visual-attribute-complete-v1`` role (S2b), or the plate pipeline profile for a
+    # ``plate-complete-v1`` role (Stage 4).
+    pipeline_profile: PipelineProfile | AttributePipelineProfile | PlatePipelineProfile
     pipeline_profile_sha256: str
     completion: CompletionContract
     production_mode: bool
@@ -253,6 +265,15 @@ class ResolvedRole:
             profile, {capability_id: item.model_pack_id for capability_id, item in self.capabilities.items()}
         )
         return AttributeSelection(resolved_role=self, profile=profile, identity=identity)
+
+    def plate_selection(self) -> "PlateSelection":
+        from mavi_vision.plates.profile import PlatePipelineProfile, plate_identity
+
+        profile = self.pipeline_profile
+        if not isinstance(profile, PlatePipelineProfile):
+            raise _fail(f"role_not_plate_role:{self.role.role_id}")
+        identity = plate_identity(profile, {capability_id: item.model_pack_id for capability_id, item in self.capabilities.items()})
+        return PlateSelection(resolved_role=self, profile=profile, identity=identity)
 
     def detector_selection(self) -> DetectorSelection:
         if not isinstance(self.pipeline_profile, PipelineProfile):
@@ -299,6 +320,15 @@ class AttributeSelection:
     resolved_role: ResolvedRole
     profile: AttributePipelineProfile
     identity: AttributeIdentity
+
+
+@dataclass(frozen=True, slots=True)
+class PlateSelection:
+    """What the plates runtime and its provenance need, from one resolution (Stage 4)."""
+
+    resolved_role: ResolvedRole
+    profile: PlatePipelineProfile
+    identity: PlateIdentity
 
 
 # --------------------------------------------------------------------------- contract (P-16)
@@ -659,7 +689,7 @@ def _resolve_capability(
     manifests: Mapping[str, tuple[ModelManifestV2, Path]],
     records: Mapping[str, tuple[QualificationRecordV2, Path]],
     model_root: Path,
-    pipeline_profile: PipelineProfile | AttributePipelineProfile,
+    pipeline_profile: PipelineProfile | AttributePipelineProfile | PlatePipelineProfile,
     pipeline_profile_sha256: str,
 ) -> ResolvedCapability:
     capability_id = binding.capability_id
@@ -910,8 +940,16 @@ def resolve_role(
         interpreter_prefix=Path(sys.prefix) if interpreter_prefix is None else interpreter_prefix,
     )
 
-    pipeline_profile: PipelineProfile | AttributePipelineProfile
-    if role.provenance_contract == ATTRIBUTE_PROVENANCE_CONTRACT:
+    pipeline_profile: PipelineProfile | AttributePipelineProfile | PlatePipelineProfile
+    if role.provenance_contract == PLATE_PROVENANCE_CONTRACT:
+        # Imported here: the plates package imports the runtime package.
+        from mavi_vision.plates.profile import load_plate_pipeline
+
+        pipeline_profile = load_plate_pipeline(pipeline_profile_path)
+        # A Development-only profile (the Stage-4 fixture) never starts in Production.
+        if production_mode and pipeline_profile.development_only:
+            raise _fail("plate_development_profile_forbidden")
+    elif role.provenance_contract == ATTRIBUTE_PROVENANCE_CONTRACT:
         # Imported here: the attribute package imports the runtime package.
         from mavi_vision.attributes.pipeline import load_attribute_pipeline
 
@@ -992,6 +1030,9 @@ __all__ = [
     "ATTRIBUTE_CONTROL_VERSION",
     "ATTRIBUTE_PROVENANCE_CONTRACT",
     "AttributeSelection",
+    "PLATE_CONTROL_VERSION",
+    "PLATE_PROVENANCE_CONTRACT",
+    "PlateSelection",
     "COMPLETION_OVERRIDE_VERSIONS",
     "CONTRACT_CAPABILITIES",
     "VISION_PROVENANCE_CONTRACT",

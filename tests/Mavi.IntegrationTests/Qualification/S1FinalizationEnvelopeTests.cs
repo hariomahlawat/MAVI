@@ -497,7 +497,7 @@ public sealed class S1FinalizationEnvelopeTests
         var root = Environment.GetEnvironmentVariable("MAVI_S1_ENVELOPE_ROOT");
         Assert.False(string.IsNullOrWhiteSpace(root), "MAVI_S1_ENVELOPE_ROOT must name a directory on the filesystem being qualified.");
 
-        var environment = await QualificationGate.CaptureEnvironmentAsync(Environment.GetEnvironmentVariable("MAVI_TEST_DB_CONNECTION")!);
+        var environment = await QualificationGate.CaptureEnvironmentAsync(TestDatabase.ConnectionString);
         var runId = QualificationGate.NewRunId();
         var fileName = $"s1-b3b-finalization.{S1QualificationSupport.RuntimeVariant()}.json";
         QualificationGate.Begin(fileName, runId, environment);

@@ -9,12 +9,12 @@ public sealed class PostgresFixture
     // Configuration
     public PostgresFixture()
     {
-        ConnectionString = Environment.GetEnvironmentVariable("MAVI_TEST_DB_CONNECTION")
-            ?? throw new InvalidOperationException("MAVI_TEST_DB_CONNECTION is required for PostgreSQL integration tests.");
+        // mavi_test, or this run's isolated mavi_test_<id> (TestDatabase): never another run's database.
+        ConnectionString = TestDatabase.ConnectionString;
         var builder = new NpgsqlConnectionStringBuilder(ConnectionString);
-        if (!string.Equals(builder.Database, "mavi_test", StringComparison.Ordinal))
+        if (!TestDatabase.IsTestDatabaseName(builder.Database))
         {
-            throw new InvalidOperationException("Integration tests may reset only the mavi_test database.");
+            throw new InvalidOperationException("Integration tests may reset only their own mavi_test database.");
         }
     }
 

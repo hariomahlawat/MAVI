@@ -22,6 +22,6 @@ public sealed class HealthApiTests(PostgresFixture database)
         var response = await client.GetAsync("/api/health");
 
         response.EnsureSuccessStatusCode();
-        Assert.Equal("mavi_test", configuredDatabase);
+        Assert.Equal(TestDatabase.DatabaseName, configuredDatabase);
     }
 }

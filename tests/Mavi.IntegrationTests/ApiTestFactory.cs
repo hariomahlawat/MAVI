@@ -17,9 +17,9 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     // Configuration
     public ApiTestFactory()
     {
-        ConnectionString = Environment.GetEnvironmentVariable("MAVI_TEST_DB_CONNECTION")
-            ?? throw new InvalidOperationException(
-                "MAVI_TEST_DB_CONNECTION is required for API integration tests; mavi_dev fallback is forbidden.");
+        // MAVI_TEST_DB_CONNECTION is required (a mavi_dev fallback is forbidden); TestDatabase resolves this
+        // run's database from it.
+        ConnectionString = TestDatabase.ConnectionString;
         EnsureTestDatabase(ConnectionString);
     }
 
@@ -89,6 +89,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     public string EnvironmentName { get; init; } = "Testing";
     public string? VisualAttributePipelineProfilePath { get; init; }
 
+    /// <summary>The plate release (Stage 4 PR-3): a Component Binding with a <c>plates</c> role and its profile.</summary>
+    public string? PlateComponentBindingPath { get; init; }
+    public string? PlatePipelineProfilePath { get; init; }
+
     public int StartupMigrationLockTimeoutSeconds { get; init; } = 30;
     public int StartupMigrationCommandTimeoutSeconds { get; init; } = 120;
 
@@ -121,6 +125,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["VisualAttributes:Enabled"] = "false",
                 ["VisualAttributes:ComponentBindingPath"] = VisualAttributeComponentBindingPath ?? string.Empty,
                 ["VisualAttributes:PipelineProfilePath"] = VisualAttributePipelineProfilePath ?? string.Empty,
+                // The plate loop stays off too: plate tests drive RunCycleAsync themselves.
+                ["Plates:Enabled"] = "false",
+                ["Plates:ComponentBindingPath"] = PlateComponentBindingPath ?? string.Empty,
+                ["Plates:PipelineProfilePath"] = PlatePipelineProfilePath ?? string.Empty,
                 ["DatabaseMigrations:LockTimeoutSeconds"] =
                     StartupMigrationLockTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["DatabaseMigrations:CommandTimeoutSeconds"] =
@@ -185,9 +193,9 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     private static void EnsureTestDatabase(string connectionString)
     {
         var database = new NpgsqlConnectionStringBuilder(connectionString).Database;
-        if (!string.Equals(database, "mavi_test", StringComparison.Ordinal))
+        if (!TestDatabase.IsTestDatabaseName(database))
         {
-            throw new InvalidOperationException("API integration tests may use and reset only the mavi_test database.");
+            throw new InvalidOperationException("API integration tests may use and reset only their own mavi_test database.");
         }
     }
 }

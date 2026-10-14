@@ -135,7 +135,7 @@ public sealed class S1FinalizationRecoveryTests
         var tracks = S1QualificationSupport.Setting("MAVI_S1_RECOVERY_TRACKS", S1QualificationSupport.WorstTracks);
         var root = Environment.GetEnvironmentVariable("MAVI_S1_RECOVERY_ROOT");
         Assert.False(string.IsNullOrWhiteSpace(root), "MAVI_S1_RECOVERY_ROOT must name a directory on the filesystem being qualified.");
-        var connection = Environment.GetEnvironmentVariable("MAVI_TEST_DB_CONNECTION")!;
+        var connection = TestDatabase.ConnectionString;
         var environment = await QualificationGate.CaptureEnvironmentAsync(connection);
         var runId = QualificationGate.NewRunId();
         var fileName = $"s1-b3-crash-matrix.{S1QualificationSupport.RuntimeVariant()}.json";

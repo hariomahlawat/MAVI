@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "mavi-plate-summary-policy-v1",
+  "summaryPolicyId": "plate-track-text-rank0",
+  "summaryPolicyVersion": "1.0.0",
+  "method": "distinct-rank0-normalised-text"
+}

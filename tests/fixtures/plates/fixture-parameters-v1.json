@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "mavi-plate-parameters-v1",
+  "maxDetectionsPerCrop": 2,
+  "maxPlatesPerCrop": 1,
+  "maxReadingsPerPlate": 3,
+  "detectorConfidenceFloor": 0.25,
+  "ocrConfidenceFloor": 0.5,
+  "excludedRoles": [],
+  "fixtureSeed": "mavi-stage4-pr3-fixture-v1"
+}

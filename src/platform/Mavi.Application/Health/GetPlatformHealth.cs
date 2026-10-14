@@ -15,7 +15,8 @@ public sealed record PlatformHealth(
 public sealed record PlatformHealthDetails(
     StagingJanitorHealth StagingJanitor,
     VisionFinalizationHealth? VisionFinalization = null,
-    Mavi.Application.Modules.VisualAttributes.VisualAttributeIntegrityHealth? VisualAttributeIntegrity = null);
+    Mavi.Application.Modules.VisualAttributes.VisualAttributeIntegrityHealth? VisualAttributeIntegrity = null,
+    Mavi.Application.Modules.Plates.PlateIntegrityHealth? PlateIntegrity = null);
 
 public static class GetPlatformHealth
 {

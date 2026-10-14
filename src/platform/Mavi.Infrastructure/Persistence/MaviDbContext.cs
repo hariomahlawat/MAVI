@@ -1,6 +1,7 @@
 using Mavi.Domain.Cameras;
 using Mavi.Domain.Intelligence;
 using Mavi.Domain.Media;
+using Mavi.Domain.Plates;
 using Mavi.Domain.Processing;
 using Mavi.Domain.Scene;
 using Mavi.Domain.SceneAnalytics;
@@ -34,6 +35,13 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<VisualAttributeIdentityActivation> VisualAttributeIdentityActivations => Set<VisualAttributeIdentityActivation>();
     public DbSet<VisualAttributeTrackOutcome> VisualAttributeTrackOutcomes => Set<VisualAttributeTrackOutcome>();
     public DbSet<VisualAttribute> VisualAttributes => Set<VisualAttribute>();
+    public DbSet<PlateAnalysis> PlateAnalyses => Set<PlateAnalysis>();
+    public DbSet<PlateAttemptFailure> PlateAttemptFailures => Set<PlateAttemptFailure>();
+    public DbSet<PlateIdentityActivation> PlateIdentityActivations => Set<PlateIdentityActivation>();
+    public DbSet<PlateTrackOutcome> PlateTrackOutcomes => Set<PlateTrackOutcome>();
+    public DbSet<PlateObservation> PlateObservations => Set<PlateObservation>();
+    public DbSet<PlateReading> PlateReadings => Set<PlateReading>();
+    public DbSet<PlateTrackText> PlateTrackTexts => Set<PlateTrackText>();
 
     // Model configuration
     protected override void OnModelCreating(ModelBuilder modelBuilder)
