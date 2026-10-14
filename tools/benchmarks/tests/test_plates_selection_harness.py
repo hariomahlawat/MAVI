@@ -46,10 +46,10 @@ DET, REC, OC5, PD_BASE = ident("PD2-S"), ident("OC1-XS"), ident("OC5-BEST"), ide
 EVENTS = ("msr-ocr-2026-01", "GATE-BASE", "msr-plate-detector-2026-01")
 
 
-def comp(candidate_id, independent, support, primary, second, third, contract_fail=False):
+def comp(candidate_id, independent, support, primary, second, third, contract_fail=False, kind="detector"):
     """Test fixture only: a ranking-path component score with chosen metrics."""
     return ev._seal(ev._COMPONENT, ev.ComponentScore(candidate_id, independent, support, primary, second, third,
-                                                     contract_fail, _h(candidate_id)))
+                                                     contract_fail, _h(candidate_id), kind))
 
 
 def relabel(score, detector, recogniser):
@@ -70,6 +70,11 @@ def read(items):
 
 
 def detect(items, detector_floor=FLOOR):
+    """Hand-built A items: the diagnostic path (never sealed)."""
+    return ev.diagnostic_evaluate_detection(items, detector_floor)
+
+
+def detect_ranked(items, detector_floor=FLOOR):
     return ev.evaluate_detection(items, detector_floor, detector=DET)
 
 
@@ -80,7 +85,7 @@ def with_d(base, d, **changes):
 
 # Stage 1 (synthetic): the frozen eligible detector universe, OC5 identity, Layer-A gates, freeze time and rule.
 FREEZE = ev.BaselineFreeze((("PD1-X", _h("PD1-X")), ("PD2-N", _h("PD2-N")), ("PD2-S", _h("PD2-S"))),
-                           "OC5-BEST", _h("OC5-BEST"), _h("layer-a-gates"), "2026-10-01T00:00:00Z", *EVENTS)
+                           "OC5-BEST", _h("OC5-BEST"), _h("layer-a-gates"), "2026-10-01T00:00:00Z", *EVENTS, 7)
 WHEN = "2026-10-14T00:00:00Z"
 
 
@@ -485,8 +490,8 @@ def test_any_output_contract_violation_is_a_hard_fail_in_d(detector, recogniser,
     result = score([ev.TrackItem("m", "s", "KA01AB1234", run)])
     assert (result.outcome, result.d_score) == (ev.CONTRACT_FAIL, None)  # never silence scored as 0
     observation = crops[0].observation_id
-    item = ev.detection_item_from_run("m", (SQUARE,), run, observation)
-    assert detect([item], FLOOR).outcome == ev.CONTRACT_FAIL  # A
+    item = ev.detection_item_from_run("m", (SQUARE,), run, observation, detector_floor=FLOOR)
+    assert detect_ranked([item]).outcome == ev.CONTRACT_FAIL  # A
     c = read([ev.ReadItem("m", "KA01AB1234", ev.accepted_plate(run, observation))])
     assert c.outcome == ev.CONTRACT_FAIL  # C
 
@@ -507,7 +512,7 @@ def test_valid_runs_are_unchanged_by_the_guards():
     run = _track("ok", "s", "KA01AB1234", ["KA01AB1234"]).run
     assert run.contract_violation is None and run.record.outcome == "analysed"
     observation = run.record.crops[0].observation_id
-    item = ev.detection_item_from_run("ok", (SQUARE,), run, observation)
+    item = ev.detection_item_from_run("ok", (SQUARE,), run, observation, detector_floor=FLOOR)
     assert item.crop_size == (64, 32) and len(item.proposals) == 1
     assert ev.accepted_plate(run, observation).plate.readings[0].raw_text == "KA01AB1234"
 
@@ -556,7 +561,7 @@ def test_gates_and_decisions_refuse_diagnostic_and_forged_scores():
         score([dataclasses.replace(ranked[0], run=relabel_floor)] + ranked[1:], queries, composition=(DET, REC))
     with pytest.raises(ValueError, match="not_from_ranking_path"):
         ev.top_k([ev.ComponentScore("OC2-A", True, 100, 0.9, 0.1, 0.1)], 1, 50, "recogniser",
-                 benchmark_only={"OC5-BEST"})
+                 freeze=FREEZE)
     with pytest.raises(ValueError, match="not_from_ranking_path"):
         ev.detector_component(True, dataclasses.replace(detect([], FLOOR), plates=99))
 
@@ -573,7 +578,8 @@ def test_candidate_silence_scores_zero_and_corpus_deficiency_is_insufficient():
     deficient = score(no_plates, gen([]))
     assert deficient.d_status == ev.INSUFFICIENT and deficient.d_score is None
     deficient_bound = with_d(deficient, None, query_set_sha256=result.query_set_sha256,
-                             generator_config_sha256=result.generator_config_sha256)
+                             generator_config_sha256=result.generator_config_sha256,
+                             population_digest=result.population_digest)
     assert gate(C("PD2-N", "OC1-XS", deficient_bound),
                 C("PD2-N", "OC5-BEST", result)) == ev.INSUFFICIENT
     with pytest.raises(ev.BaselineStop, match="baseline_not_evaluable"):
@@ -618,8 +624,11 @@ def test_pd_base_resolves_mechanically_from_the_frozen_rule():
     ev.verify_resolution(FREEZE, RESOLUTION, _layer_a())
     # The frozen tie-break: equal primary -> lower false plates per crop -> higher AP50 -> candidate id.
     tied = {"PD1-X": (0.9, 0.1, 0.9), "PD2-N": (0.9, 0.1, 0.9), "PD2-S": (0.9, 0.1, 0.9)}
-    assert ev.resolve_baseline(FREEZE, _layer_a(("PD2-S", "PD2-N"), tied), d_rows_read=0,
-                               resolved_at_utc=WHEN).pd_base_id == "PD2-N"
+    with pytest.raises(ev.BaselineStop, match="layer_a_rank_ambiguous"):  # review 4 P2-3a: ambiguity STOPS
+        ev.resolve_baseline(FREEZE, _layer_a(("PD2-S", "PD2-N"), tied), d_rows_read=0, resolved_at_utc=WHEN)
+    tied_below = {"PD1-X": (0.9, 0.1, 0.9), "PD2-N": (0.95, 0.1, 0.9), "PD2-S": (0.9, 0.1, 0.9)}
+    assert ev.resolve_baseline(FREEZE, _layer_a(("PD2-S", "PD2-N", "PD1-X"), tied_below), d_rows_read=0,
+                               resolved_at_utc=WHEN).pd_base_id == "PD2-N"  # a tie below the top does not matter
     second = {"PD1-X": (0.9, 0.1, 0.9), "PD2-N": (0.9, 0.2, 0.99), "PD2-S": (0.9, 0.1, 0.5)}
     assert ev.resolve_baseline(FREEZE, _layer_a(("PD2-S", "PD2-N"), second), d_rows_read=0,
                                resolved_at_utc=WHEN).pd_base_id == "PD2-S"
@@ -652,14 +661,14 @@ def test_pd_base_resolution_stops_and_never_chooses():
     hand_built[1] = dataclasses.replace(hand_built[1], score=ev.ComponentScore("PD2-N", True, 100, 0.95, 0.1, 0.9))
     stop("not_from_ranking_path:PD2-N", hand_built)
     with pytest.raises(ValueError, match="benchmark_only_component_cannot_be_a_detector_candidate"):
-        ev.BaselineFreeze((("OC5-BEST", _h("x")), ("PD2-N", _h("PD2-N"))), "OC5-BEST", _h("o"), _h("g"), WHEN, *EVENTS)
+        ev.BaselineFreeze((("OC5-BEST", _h("x")), ("PD2-N", _h("PD2-N"))), "OC5-BEST", _h("o"), _h("g"), WHEN, *EVENTS, 7)
     with pytest.raises(ValueError, match="ranking_rule_not_the_frozen_rule"):
-        ev.BaselineFreeze(FREEZE.eligible_detectors, "OC5-BEST", _h("o"), _h("g"), WHEN, *EVENTS,
+        ev.BaselineFreeze(FREEZE.eligible_detectors, "OC5-BEST", _h("o"), _h("g"), WHEN, *EVENTS, 7,
                           ranking_rule_sha256=_h("another rule"))
     with pytest.raises(ValueError, match="sorted_unique_nonempty"):
-        ev.BaselineFreeze((), "OC5-BEST", _h("o"), _h("g"), WHEN, *EVENTS)
+        ev.BaselineFreeze((), "OC5-BEST", _h("o"), _h("g"), WHEN, *EVENTS, 7)
     with pytest.raises(ValueError, match="time_malformed"):
-        ev.BaselineFreeze(FREEZE.eligible_detectors, "OC5-BEST", _h("o"), _h("g"), "yesterday", *EVENTS)
+        ev.BaselineFreeze(FREEZE.eligible_detectors, "OC5-BEST", _h("o"), _h("g"), "yesterday", *EVENTS, 7)
 
 
 def test_sealed_resolution_cannot_change_or_be_forged_and_oc5_is_never_rankable():
@@ -693,14 +702,15 @@ def test_sealed_resolution_cannot_change_or_be_forged_and_oc5_is_never_rankable(
 
 
 def test_benchmark_only_component_never_enters_top_k():
-    ocr = [comp("OC2-A", True, 100, 0.8, 0.1, 0.1), comp("OC5-BEST", True, 100, 0.99, 0.0, 0.0)]
+    ocr = [comp("OC2-A", True, 100, 0.8, 0.1, 0.1, kind="recogniser"),
+           comp("OC5-BEST", True, 100, 0.99, 0.0, 0.0, kind="recogniser")]
     with pytest.raises(ValueError, match="cannot_enter_top_k"):
-        ev.top_k(ocr, 2, 50, "recogniser", benchmark_only=(RESOLUTION.benchmark_only_id,))
-    assert ev.top_k(ocr[:1], 2, 50, "recogniser", benchmark_only=("OC5-BEST",)) == ["OC2-A"]
+        ev.top_k(ocr, 2, 50, "recogniser", freeze=FREEZE)
+    assert ev.top_k(ocr[:1], 2, 50, "recogniser", freeze=FREEZE) == ["OC2-A"]
     with pytest.raises(TypeError):
         ev.top_k(ocr, 2, 50, "recogniser")  # type: ignore[call-arg]  # P2-5: the refusal is not opt-in
-    with pytest.raises(ValueError, match="frozen_benchmark_only_ids"):
-        ev.top_k(ocr, 2, 50, "recogniser", benchmark_only=())
+    with pytest.raises(ValueError, match="requires_the_baseline_freeze"):
+        ev.top_k(ocr, 2, 50, "recogniser", freeze=None)
 
 
 def test_detector_matched_tesseract_is_diagnostic_only():
@@ -787,7 +797,7 @@ def pair():
 
 
 def compare(a, b, queries, **overrides):
-    arguments = dict(seed=7, calibration_minimum_clusters=60, detector_floor_a=FLOOR, detector_floor_b=FLOOR,
+    arguments = dict(calibration_minimum_clusters=60, detector_floor_a=FLOOR, detector_floor_b=FLOOR,
                      composition_a=(DET, REC), composition_b=(DET, REC), freeze=FREEZE, **bind(queries))
     arguments.update(overrides)
     return ev.paired_cluster_bootstrap(a, b, queries, **arguments)
@@ -813,7 +823,7 @@ def test_interval_must_exclude_zero_even_above_mpid():
     b = [_track(f"t{i}", "siteA" if i < 10 else f"site{i}", _plate_text(i), ["" if i < 10 else _plate_text(i)])
          for i in range(70)]
     queries = _queries(a)
-    result = compare(a, b, queries, seed=3)
+    result = compare(a, b, queries)
     assert result.difference >= ev.MPID
     assert result.outcome == ("superior" if result.lower > 0 else "not-superior")
     assert result.lower <= 0 and result.outcome == "not-superior"
@@ -893,19 +903,23 @@ def test_top_k_is_deterministic_and_excludes_failures():
               comp("PD5-V5M", False, 100, 0.99, 0.0, 0.99), comp("PD2-M", True, 10, 1, 0, 1),
               comp("PD5-V6S", True, 100, None, None, None),
               comp("PD9-X", True, 100, 1.0, 0.0, 1.0, contract_fail=True)]
-    assert ev.top_k(scores, 3, 50, "detector", benchmark_only={"OC5-BEST"}) == ["PD2-N", "PD2-S", "PD5-V6S"]
-    ocr = [comp("OC2-B", True, 60, 0.8, 0.1, 0.2), comp("OC2-A", True, 60, 0.8, 0.1, None)]
-    assert ev.top_k(ocr, 2, 50, "recogniser", benchmark_only={"OC5-BEST"}) == ["OC2-B", "OC2-A"]
+    assert ev.top_k(scores, 3, 50, "detector", freeze=FREEZE) == ["PD2-N", "PD2-S", "PD5-V6S"]
+    ocr = [comp("OC2-B", True, 60, 0.8, 0.1, 0.2, kind="recogniser"), comp("OC2-A", True, 60, 0.8, 0.1, None,
+                                                                            kind="recogniser")]
+    assert ev.top_k(ocr, 2, 50, "recogniser", freeze=FREEZE) == ["OC2-B", "OC2-A"]
     assert (ev.MPID, ev.ABSOLUTE_MINIMUM_CLUSTERS, ev.RANKING_OCR_CONFIDENCE_FLOOR) == (Fraction(4, 100), 60, 0.0)
     params = ev.ranking_parameters(FLOOR)
     assert (params.max_detections_per_crop, params.max_plates_per_crop, params.max_readings_per_plate,
             params.ocr_confidence_floor) == (2, 1, 3, 0.0)
     # Components are built from ranking-path results only.
-    detection = detect([ev.DetectionItem("c", (SQUARE,), ((10, 10, 20, 10, 0.9),), crop_size=(100, 100))], FLOOR)
-    built = ev.detector_component(True, detection)
-    assert (built.primary, built.support, built.contract_fail) == (1.0, 1, False)
+    run = _track("z", "s", "KA01AB1234", ["KA01AB1234"]).run
+    item = ev.detection_item_from_run("z", (((1, 1), (21, 1), (21, 11), (1, 11)),), run,
+                                      run.record.crops[0].observation_id, detector_floor=FLOOR)
+    built = ev.detector_component(True, detect_ranked([item]))
+    assert (built.primary, built.support, built.contract_fail, built.kind) == (1.0, 1, False, "detector")
     reading = read([ev.ReadItem("p", "KA01AB1234", _plate(("KA01AB1234", 0.9)))])
-    assert ev.recogniser_component(True, reading).primary == 1.0
+    assert (ev.recogniser_component(True, reading).primary, ev.recogniser_component(True, reading).kind) == \
+        (1.0, "recogniser")
 
 
 # ---------------------------------------------------------------------------------------------- third cold review
@@ -959,15 +973,17 @@ def test_composition_hash_is_m3s():
 
 
 def test_components_take_their_id_from_the_sealed_result():
-    detection = detect([ev.DetectionItem("c", (SQUARE,), ((10, 10, 20, 10, 0.9),), crop_size=(100, 100))])
+    run = _track("y", "s", "KA01AB1234", ["KA01AB1234"]).run
+    detection = detect_ranked([ev.detection_item_from_run("y", (SQUARE,), run, run.record.crops[0].observation_id,
+                                                          detector_floor=FLOOR)])
     built = ev.detector_component(True, detection)
     assert (built.candidate_id, built.identity_sha256) == (DET.candidate_id, DET.identity_sha256)
     with pytest.raises(TypeError):
         ev.detector_component("ANY", True, detection)  # type: ignore[call-arg]
     run = _track("x", "s", "KA01AB1234", ["KA01AB1234"], det=ident("PD5-V6S")).run
-    item = ev.detection_item_from_run("x", (SQUARE,), run, run.record.crops[0].observation_id)
+    item = ev.detection_item_from_run("x", (SQUARE,), run, run.record.crops[0].observation_id, detector_floor=FLOOR)
     with pytest.raises(ValueError, match="another_detector"):
-        detect([item])
+        detect_ranked([item])
 
 
 def test_one_replicate_cannot_declare_superiority(pair):
@@ -1007,3 +1023,117 @@ def test_detection_item_must_carry_its_crop_size():
 def test_n3_non_normalising_rank0_gives_no_support():
     items = [_track("t1", "s1", "KA01AB1234", ["KA01AB1235", "KA01AB1235", "KA01-AB/1234!"])]
     assert score(items).counts.consistent_wrong == 1  # owner rule: a bad rank-0 neither breaks nor supports
+
+
+# ---------------------------------------------------------------------------------------------- fourth cold review
+
+
+def _with_violation_at_zero(items, drop):
+    run = ev.run_track(uuid.uuid5(uuid.NAMESPACE_URL, "t0"), _crops("t0", 1), _NaNScore(), Recogniser([_plate_text(0)]),
+                       ev.ranking_parameters(FLOOR), detector_identity=DET, recogniser_identity=REC)
+    assert "score_out_of_range" in run.contract_violation
+    return [dataclasses.replace(items[0], run=None if drop else run)] + items[1:]
+
+
+def test_population_digest_binds_compared_scores():
+    """Review 4, P1-1 (probe1): dropping a violating run, or a subset of Tracks, cannot pass the gate or compare."""
+    base_items = _composition_population(70, lambda i: [""], PD_BASE, OC5)
+    queries = _queries(base_items)
+    baseline = ev.CompositionScore(score(base_items, queries))
+    candidate = _composition_population(70, lambda i: [_plate_text(i)], DET, REC)
+    violating = score(_with_violation_at_zero(candidate, drop=False), queries)
+    assert (violating.outcome, violating.d_score) == (ev.CONTRACT_FAIL, None)
+    dropped = score(_with_violation_at_zero(candidate, drop=True), queries)
+    assert dropped.outcome == ev.MEASURED and dropped.population_digest != baseline.score.population_digest
+    with pytest.raises(ValueError, match="same_population"):
+        gate(ev.CompositionScore(dropped), baseline)
+    other_rec = ident("OC2-X")
+    b = _composition_population(70, lambda i: [""], DET, other_rec)
+    with pytest.raises(ValueError, match="paired_population_mismatch"):
+        compare(_with_violation_at_zero(candidate, drop=True), b, queries, composition_b=(DET, other_rec))
+    # subsetting: dropping the junk NO_GT_VEHICLE Tracks changes the digest, so the subset cannot be gated
+    extra = [_track(f"ngv{i}", f"site{i}", ev.NO_GT_VEHICLE, [_plate_text(i)[:6] + "ZZ"]) for i in range(70)]
+    base_extra = [_track(f"ngv{i}", f"site{i}", ev.NO_GT_VEHICLE, [""], det=PD_BASE, rec=OC5) for i in range(70)]
+    baseline_full = ev.CompositionScore(score(base_items + base_extra, queries))
+    full, subset = score(candidate + extra, queries), score(candidate, queries)
+    assert full.d_score < subset.d_score and full.population_digest != subset.population_digest
+    with pytest.raises(ValueError, match="same_population"):
+        gate(ev.CompositionScore(subset), baseline_full)  # same labels, smaller population: refused
+    assert gate(ev.CompositionScore(full), baseline_full) in (ev.PASS, ev.FAIL)  # the full population is gated
+    # cluster relabelling is folded into the digest as well
+    moved = [dataclasses.replace(i, cluster=f"site{k % 30}") for k, i in enumerate(candidate)]
+    assert score(moved, queries).population_digest != subset.population_digest
+    assert gate(ev.CompositionScore(subset), baseline) == ev.PASS  # same population: the gate works
+
+
+def test_contract_fail_publishes_no_d_terms():
+    items = [_track("t1", "s1", "KA01AB1234", ["KA01AB1234"]), _track("t2", "s2", "MH12AB0001", ["MH12AB0001"], boxes=3)]
+    result = score(items)
+    assert result.outcome == ev.CONTRACT_FAIL
+    assert (result.exact_recall, result.contains_recall, result.contains_precision, result.d_score,
+            result.consistent_wrong_rate, result.consistent_wrong_conditional_rate, result.conflicting_rate,
+            result.no_text_rate) == (None,) * 8
+    assert result.counts == ev.TrackCounts() and result.consistent_wrong_status == ev.FAIL
+
+
+def test_top_k_refuses_oc5_by_identity_and_wrong_kinds():
+    """Review 4, P2-2 and P3 (probe2), via the public API."""
+    alias = ev.ComponentIdentity("OC9-ALIAS", OC5.identity_sha256)
+    def component(who):
+        items = [ev.ReadItem(f"p{i}", "KA01AB1234", ev.ranking_plate_record([Reading("KA01AB1234", 0.9)],
+                                                                            recogniser=who)) for i in range(60)]
+        return ev.recogniser_component(True, ev.evaluate_reading(items, recogniser=who))
+    for who in (alias, OC5):
+        with pytest.raises(ValueError, match="cannot_enter_top_k"):
+            ev.top_k([component(who)], 3, 50, "recogniser", freeze=FREEZE)
+    ordinary = component(REC)
+    assert ev.top_k([ordinary], 3, 50, "recogniser", freeze=FREEZE) == ["OC1-XS"]
+    with pytest.raises(ValueError, match="another_kind"):
+        ev.top_k([ordinary], 3, 50, "detector", freeze=FREEZE)
+    pd1 = ident("PD1-X")
+    as_detector = ev.recogniser_component(True, ev.evaluate_reading(
+        [ev.ReadItem(f"p{i}", "KA01AB1234", ev.ranking_plate_record([Reading("KA01AB1234", 0.9)], recogniser=pd1))
+         for i in range(60)], recogniser=pd1))
+    layer_a = [ev.LayerAResult(as_detector, as_detector.identity_sha256, True)] + \
+        [x for x in _layer_a() if x.score.candidate_id != "PD1-X"]
+    with pytest.raises(ev.BaselineStop, match="not_a_detector_result"):
+        ev.resolve_baseline(FREEZE, layer_a, d_rows_read=0, resolved_at_utc=WHEN)
+
+
+def test_hand_built_a_items_never_reach_the_ranking_path():
+    fake = [ev.DetectionItem(f"c{i}", (((0, 0), (10, 0), (10, 5), (0, 5)),), ((0, 0, 10, 5, 0.99),), None, (64, 32))
+            for i in range(100)]
+    with pytest.raises(ValueError, match="not_from_ranking_path"):
+        ev.evaluate_detection(fake, FLOOR, detector=ident("PD1-X"))
+    diagnostic = ev.diagnostic_evaluate_detection(fake, FLOOR)
+    assert diagnostic.recall == 1 and not ev._is_sealed(ev._A, diagnostic)
+    with pytest.raises(ValueError, match="not_from_ranking_path"):
+        ev.detector_component(True, diagnostic)
+    run = _track("f", "s", "KA01AB1234", ["KA01AB1234"]).run
+    with pytest.raises(ValueError, match="ranking_profile_or_floor"):
+        ev.detection_item_from_run("f", (SQUARE,), run, run.record.crops[0].observation_id, detector_floor=0.5)
+    seeded = dataclasses.replace(ev.ranking_parameters(FLOOR), fixture_seed="abc")
+    assert not ev.is_ranking_profile(seeded, FLOOR)
+    with pytest.raises(ValueError, match="ranking_profile"):
+        score([_track("g", "s", "KA01AB1234", ["KA01AB1234"], parameters=seeded)])
+
+
+def test_diagnostic_uplift_needs_the_same_population():
+    ordinary = _composition_population(3, lambda i: [""], DET, REC)
+    queries = _queries(ordinary)
+    s = score(ordinary, queries)
+    truths = ["ZZ01AB9999", "ZZ02AB9998", "ZZ03AB9997"]
+    other = [dataclasses.replace(x, truth=t) for x, t in
+             zip(_composition_population(3, lambda i: [_plate_text(i)], DET, OC5), truths)]
+    q2 = gen(truths, OTHER_MANIFEST)
+    o = ev.evaluate_tracks(other, q2, detector_floor=FLOOR, detector=DET, recogniser=OC5, **bind(q2, OTHER_MANIFEST))
+    with pytest.raises(ValueError, match="same_population"):
+        ev.diagnostic_ocr_uplift(ev.CompositionScore(s), ev.CompositionScore(o), FREEZE)
+
+
+def test_bootstrap_seed_is_the_frozen_one():
+    assert FREEZE.bootstrap_seed == 7
+    with pytest.raises(TypeError):
+        ev.paired_cluster_bootstrap([], [], None, seed=1)  # type: ignore[call-arg]  # no caller seed
+    with pytest.raises(ValueError, match="bootstrap_seed_invalid"):
+        ev.BaselineFreeze(FREEZE.eligible_detectors, "OC5-BEST", _h("o"), _h("g"), WHEN, *EVENTS, True)
