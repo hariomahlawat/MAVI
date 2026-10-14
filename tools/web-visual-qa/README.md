@@ -619,10 +619,14 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   video stream; artifact content is data) one at a time, `RESPONSE_SPACING_MS` apart: `forward` in the order they
   arrive — the blocking sweep and long-task lane run it, and the judge faults
   any other order (`GATE_RESPONSE_ORDER`) — or `reverse`, each burst's
-  requests in the opposite order: the adversarial lane, the sweep shards'
-  ordinary cases again, judged for CLS only (`performance.mjs --ordinary-lane
+  requests in the opposite order: the adversarial lane, the sweep's
+  ordinary cases again in its own four-shard CI job (`performance-reverse`),
+  judged for CLS only (`performance.mjs --ordinary-lane
   --response-order reverse --sweep <shard>,…`). `natural` (the default for
-  local runs and the journeys) answers as requests arrive. Under a pinned
+  local runs and the journeys) answers as requests arrive. Each case is one
+  scheduler generation: a reset cancels the previous one's timers and drops
+  its queue and any burst being gathered, so nothing of a case can shift the
+  next one's order, grouping or timing. Under a pinned
   order a document carries the epoch it was served in (a cookie), and a
   request from a document the harness has left is refused, so it cannot take
   the next case's sequenced answers.

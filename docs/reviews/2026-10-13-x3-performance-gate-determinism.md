@@ -131,7 +131,8 @@ class was changed.
 - The sweep shards and the long-task lane run with
   `MAVI_VQA_RESPONSE_ORDER=forward`; `performance.mjs` judges only results of
   that order (`GATE_RESPONSE_ORDER`) and faults any other.
-- Each sweep shard runs its ordinary cases again in `reverse` order;
+- The sweep's ordinary cases run again in `reverse` order, in their own
+  four-shard job (`performance-reverse`, beside the sweep);
   `performance` judges their CLS (`--ordinary-lane --response-order reverse`)
   against the same budgets, after the forward verdict.
 - The fixture server answers pinned-order data GETs from a queue, one at a

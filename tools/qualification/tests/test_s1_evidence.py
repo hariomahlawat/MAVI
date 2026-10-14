@@ -2534,13 +2534,17 @@ def test_the_quality_gate_retains_a_trx_per_test_project_and_the_web_junit() -> 
         assert "retention-days: 14\n" in step, step
         assert "qualification-evidence" not in step, step
     assert any("name: keyboard-journeys\n" in u.split("\n      - ", 1)[0] for u in journeys)
-    # S6/X3: the performance gate's evidence likewise: the long-task run and
-    # the budgets' verdict.
+    # S6/X3: the performance gate's evidence likewise: the long-task run, the
+    # reverse-order lane's results (X3 determinism: one upload in its own
+    # four-shard job) and the budgets' verdict (forward and reverse).
     performance = [
         u for u in uploads
-        if any(f"name: {name}\n" in u.split("\n      - ", 1)[0] for name in ("performance-long-tasks", "performance-budgets"))
+        if any(
+            f"name: {name}\n" in u.split("\n      - ", 1)[0]
+            for name in ("performance-long-tasks", "performance-reverse-shard-${{ matrix.shard }}", "performance-budgets")
+        )
     ]
-    assert len(performance) == 2
+    assert len(performance) == 3
     for upload in performance:
         step = upload.split("\n      - ", 1)[0]
         assert "retention-days: 14\n" in step, step

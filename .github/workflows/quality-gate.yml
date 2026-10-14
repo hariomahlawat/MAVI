@@ -603,35 +603,6 @@ jobs:
           include-hidden-files: true
           retention-days: 14
           if-no-files-found: warn
-      # X3 determinism (2026-10-13): the adversarial lane — this shard's
-      # ordinary cases again, data responses answered in reverse order, for
-      # `performance` to judge their CLS (performance.mjs --ordinary-lane). Its
-      # visual findings are the forward sweep's (--keep). A fault here must not
-      # hide the forward verdicts (it would skip the aggregate and the judge),
-      # so the step continues on error and the judge fails closed instead: a
-      # missing shard, or a shard with an unreached or failed case, is its
-      # fault (cold review P2).
-      - name: Run the reverse-order ordinary lane shard
-        if: success() || failure()
-        continue-on-error: true
-        timeout-minutes: 20
-        shell: bash
-        env:
-          SHARD_INDEX: ${{ matrix.shard }}
-          MAVI_VQA_RESPONSE_ORDER: reverse
-          MAVI_VQA_OUT: tools/web-visual-qa/.performance/reverse
-        run: node tools/web-visual-qa/run.mjs --workers 3 --shard "$SHARD_INDEX/$SHARD_COUNT" --zoom none --text-spacing none --reduced-motion none --keep
-      - name: Retain the reverse-order lane shard
-        if: success() || failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: performance-reverse-shard-${{ matrix.shard }}
-          path: tools/web-visual-qa/.performance/reverse/results.json
-          include-hidden-files: true
-          retention-days: 14
-          # Missing evidence is the judge's fault (it counts the shards), not
-          # this job's: the forward sweep's results must still be aggregated.
-          if-no-files-found: warn
 
   visual-aggregate:
     # The full sweep's verdict from its shards (aggregate.mjs): the same head,
@@ -913,6 +884,91 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  performance-reverse:
+    # X3 determinism (2026-10-13; owner ruling 1): the adversarial lane — the
+    # sweep's ordinary cases again, in the same four shards of the one plan,
+    # data responses answered in reverse order, for `performance` to judge
+    # their CLS against the same budgets (performance.mjs --ordinary-lane
+    # --response-order reverse). Its own job, in parallel with the sweep, so
+    # neither lane's measurement shares the other's time envelope. Its visual
+    # and accessibility findings are recorded, not gating (--keep: run.mjs
+    # exits 0 on findings); a harness fault (exit 2) fails this job, which
+    # `quality` requires, and missing or partial shards fail the judge.
+    name: performance reverse shard ${{ matrix.shard }}
+    needs: scope
+    if: needs.scope.outputs.visual != 'false'
+    runs-on: ubuntu-latest
+    # The lane keeps its own 20-minute budget (its step, below); the job's
+    # envelope also covers setup (a slow mirror installing FFmpeg took 14-20
+    # minutes once, S7), as the sweep's does.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      SHARD_COUNT: '4'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/web/mavi-web/package-lock.json
+      - name: Locate Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "$browser"
+          "$browser" --version
+          echo "MAVI_CHROMIUM=$browser" >> "$GITHUB_ENV"
+      - name: Ensure FFmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -version | head -n 1
+            exit 0
+          fi
+          if sudo apt-get install -y --no-install-recommends ffmpeg; then
+            exit 0
+          fi
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
+          sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Install frontend dependencies
+        working-directory: src/web/mavi-web
+        run: npm ci
+      - name: Build frontend (production)
+        working-directory: src/web/mavi-web
+        run: npm run build
+      - name: Run the reverse-order ordinary lane shard
+        timeout-minutes: 20
+        shell: bash
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          MAVI_VQA_RESPONSE_ORDER: reverse
+          MAVI_VQA_OUT: tools/web-visual-qa/.performance/reverse
+        run: node tools/web-visual-qa/run.mjs --workers 3 --shard "$SHARD_INDEX/$SHARD_COUNT" --zoom none --text-spacing none --reduced-motion none --keep
+      # The shard's results (small): the performance gate judges them.
+      - name: Retain the reverse-order lane shard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-reverse-shard-${{ matrix.shard }}
+          path: tools/web-visual-qa/.performance/reverse/results.json
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: error
+
   performance:
     # Stage 3.5 S6/X3 (§38): the performance budgets, judged in their own job
     # (performance.mjs against performance-budgets.mjs, the one budget
@@ -926,12 +982,13 @@ jobs:
       - scope
       - visual-aggregate
       - performance-long-tasks
-    # Judged even when the visual aggregate or the lane failed (a blocking
+      - performance-reverse
+    # Judged even when the visual aggregate or a lane failed (a blocking
     # visual finding fails both): a performance regression landing beside a
     # visual one is still reported, never hidden behind it. Both upload their
     # results with if: always(); missing or partial evidence is the gate's own
     # fault (plan, full sweep, head), never a pass.
-    if: always() && needs.scope.outputs.visual != 'false' && needs.visual-aggregate.result != 'cancelled' && needs.visual-aggregate.result != 'skipped' && needs.performance-long-tasks.result != 'cancelled' && needs.performance-long-tasks.result != 'skipped'
+    if: always() && needs.scope.outputs.visual != 'false' && needs.visual-aggregate.result != 'cancelled' && needs.visual-aggregate.result != 'skipped' && needs.performance-long-tasks.result != 'cancelled' && needs.performance-long-tasks.result != 'skipped' && needs.performance-reverse.result != 'cancelled' && needs.performance-reverse.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # actions: read, for a closure head to confirm its implementation head's
@@ -1048,6 +1105,7 @@ jobs:
       - keyboard-journeys
       - keyboard-journeys-aggregate
       - performance-long-tasks
+      - performance-reverse
       - performance
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1112,6 +1170,7 @@ jobs:
           require keyboard-journeys '${{ needs.keyboard-journeys.result }}' '${{ needs.scope.outputs.visual }}'
           require keyboard-journeys-aggregate '${{ needs.keyboard-journeys-aggregate.result }}' '${{ needs.scope.outputs.visual }}'
           require performance-long-tasks '${{ needs.performance-long-tasks.result }}' '${{ needs.scope.outputs.visual }}'
+          require performance-reverse '${{ needs.performance-reverse.result }}' '${{ needs.scope.outputs.visual }}'
           require performance '${{ needs.performance.result }}' '${{ needs.scope.outputs.visual }}'
       - name: Require one TRX per test project and the web JUnit
         shell: bash
