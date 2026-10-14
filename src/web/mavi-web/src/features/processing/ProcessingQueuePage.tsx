@@ -81,7 +81,12 @@ export default function ProcessingQueuePage() {
   // Drawn before either answer, a row re-wraps when it arrives and every row
   // beneath moves (§38). Each row's run lookup is its own region (§37.1),
   // reserved at its final shape while it loads, not this hold.
-  const ledgerState = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending);
+  // And, on the queue, every row's first run lookup: each landed in its own
+  // frame and re-sized the status and timing columns, moving the columns
+  // beside them by a different amount from run to run (§38). The queue is
+  // drawn once they have all settled; a row whose lookup failed arrives with
+  // its failure, and a later refresh updates its row in place.
+  const ledgerState = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending && processing.pending === 0);
   const ledgerReady = ledgerState.kind !== 'loading';
 
   const counts = useMemo(() => {

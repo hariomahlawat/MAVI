@@ -282,10 +282,12 @@ describe('ProcessingQueuePage', () => {
     });
 
     renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
-    const table = await screen.findByRole('table');
+    // §38: the queue is drawn once every row's first lookup has settled — here
+    // after the failing one's retry — so the failed row arrives with its failure.
+    const table = await screen.findByRole('table', {}, { timeout: 4000 });
     const rows = within(table).getAllByRole('row').slice(1);
 
-    expect(await within(rows[1]).findByText(/run status unavailable/i)).toBeInTheDocument();
+    expect(within(rows[1]).getByText(/run status unavailable/i)).toBeInTheDocument();
     expect(within(rows[1]).queryByText(/Loading run/)).not.toBeInTheDocument();
     // S6/X3: the failed row keeps its folded-values reserve, invisible, so the
     // columns do not move back when the lookup fails.
@@ -296,20 +298,19 @@ describe('ProcessingQueuePage', () => {
     expect(await within(rows[1]).findByText('worker_watchdog_timeout')).toBeInTheDocument();
   });
 
-  it('holds the folded values\' width, hidden, while a row\'s run loads, and drops the reserve when it arrives (S6/X3)', async () => {
+  it('draws the queue once every row’s first run lookup has settled, with each row’s run in place (§38)', async () => {
     const pending: Array<(value: Awaited<ReturnType<typeof getProcessingStatus>>) => void> = [];
     vi.mocked(getProcessingStatus).mockImplementation(() => new Promise((r) => { pending.push(r); }));
     renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
-    const table = await screen.findByRole('table');
-    const row = within(table).getAllByRole('row')[1];
-    const reserve = row.querySelectorAll('.ledger-folded .queue-reserve');
-    // Queued, Attempt and a Tracks value: the completed run's full shape.
-    expect(reserve).toHaveLength(3);
-    expect(reserve[2]).toHaveTextContent(/tracks$/);
-    reserve.forEach((node) => expect(node).toHaveAttribute('aria-hidden', 'true'));
+    // While the lookups are out the queue is its loading presentation: no row
+    // is drawn in a provisional layout that a landing lookup would re-size.
+    await waitFor(() => expect(pending.length).toBeGreaterThan(0));
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
 
     pending.forEach((r) => r({ videoStatus: 'Processed', latestRun: run('Completed', { progressPercent: 100, tracksCreated: 42 }) }));
-    await waitFor(() => expect(row.querySelector('.ledger-folded .queue-reserve')).toBeNull());
+    const table = await screen.findByRole('table');
+    const row = within(table).getAllByRole('row')[1];
+    expect(row.querySelector('.ledger-folded .queue-reserve')).toBeNull();
     expect(row.querySelectorAll('.ledger-folded .ledger-folded__value').length).toBeGreaterThan(0);
   });
 
@@ -321,9 +322,9 @@ describe('ProcessingQueuePage', () => {
         return { videoStatus: 'Processed', latestRun: run('Completed', { progressPercent: 100, tracksCreated: 42 }) };
       });
       renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
-      const table = await screen.findByRole('table');
+      const table = await screen.findByRole('table', {}, { timeout: 4000 });
       const row = within(table).getAllByRole('row')[2];
-      expect(await within(row).findByText('Run status unavailable')).toBeInTheDocument();
+      expect(within(row).getByText('Run status unavailable')).toBeInTheDocument();
 
       // Named for its request and video, icon-only (R2's dense-cell retry),
       // and never one of several controls called just "Retry".
