@@ -220,6 +220,8 @@ export function mergeOrdinaryShards(shards) {
   if (orders.size !== 1) problems.push(`the ordinary-lane shards were answered in ${[...orders].join(' and ')} orders`);
   const cases = shards.flatMap((s) => s.cases ?? []);
   if (cases.some((c) => !isOrdinary(c))) problems.push('the ordinary lane holds a case that is not an anchor or a probe');
+  // The shard's run continues on error in CI: a fault it reported is this lane's.
+  for (const s of shards) for (const e of s.harnessErrors ?? []) problems.push(`an ordinary-lane shard reported a harness error: ${String(e).split(String.fromCharCode(10))[0]}`);
   return { head: [...heads][0] ?? null, responseOrder: [...orders][0], ordinaryLane: true, fullSweep: false, problems, cases };
 }
 

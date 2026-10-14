@@ -606,9 +606,14 @@ jobs:
       # X3 determinism (2026-10-13): the adversarial lane — this shard's
       # ordinary cases again, data responses answered in reverse order, for
       # `performance` to judge their CLS (performance.mjs --ordinary-lane). Its
-      # visual findings are the forward sweep's (--keep); a fault still fails.
+      # visual findings are the forward sweep's (--keep). A fault here must not
+      # hide the forward verdicts (it would skip the aggregate and the judge),
+      # so the step continues on error and the judge fails closed instead: a
+      # missing shard, or a shard with an unreached or failed case, is its
+      # fault (cold review P2).
       - name: Run the reverse-order ordinary lane shard
         if: success() || failure()
+        continue-on-error: true
         timeout-minutes: 20
         shell: bash
         env:
@@ -624,7 +629,9 @@ jobs:
           path: tools/web-visual-qa/.performance/reverse/results.json
           include-hidden-files: true
           retention-days: 14
-          if-no-files-found: error
+          # Missing evidence is the judge's fault (it counts the shards), not
+          # this job's: the forward sweep's results must still be aggregated.
+          if-no-files-found: warn
 
   visual-aggregate:
     # The full sweep's verdict from its shards (aggregate.mjs): the same head,

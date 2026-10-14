@@ -260,6 +260,7 @@ describe('the performance gate (X3)', () => {
     assert.ok(lane([shard([a]), shard([b], { head: 'other' })]).faults.some((f) => f.includes('2 heads')));
     assert.ok(lane([shard([a]), shard([b], { responseOrder: 'forward' })]).faults.some((f) => f.includes('orders')));
     assert.ok(lane([shard([a, { ...b, kind: 'zoom' }])]).faults.some((f) => f.includes('not an anchor or a probe')));
+    assert.ok(lane([shard([a]), shard([b], { harnessErrors: ['x @ 1366x768: Chromium closed the connection'] })]).faults.some((f) => f.includes('reported a harness error')));
     // Never judged as the blocking gate's evidence: the full sweep is still required there.
     assert.ok(evaluatePerformance({ sweep: mergeOrdinaryShards([shard([a, b])]), longTasks: lanesOf([ltCase()]), budgets: BUDGETS, responseOrder: 'reverse' }).faults.some((f) => f.includes('not the full sweep')));
   });
