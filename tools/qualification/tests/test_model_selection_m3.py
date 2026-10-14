@@ -70,7 +70,8 @@ def partners():
 def stage1(**changes):
     rule = {"compositionId": GATE, "partnerEventId": PARTNER_EVENT, "eligiblePartners": partners(),
             "excludedPartners": [], "partnerRankingRuleSha256": sha("rule"), "layerAGatesSha256": sha("gates"),
-            "layerAGateIds": list(GATE_IDS), "derivationRule": bs.DERIVATION_RULE, "gateScope": bs.GATE_SCOPE_ALL}
+            "layerAGateIds": list(GATE_IDS), "derivationRule": bs.DERIVATION_RULE, "gateScope": bs.GATE_SCOPE_ALL,
+            "gatedCompositionIds": []}
     rule.update(changes)
     return rule
 
@@ -658,6 +659,7 @@ def test_stopped_event_holds_no_d_result_and_no_fabricated_outcome():
     changed = copy.deepcopy(summary)
     resolved = m3_block(document, evidence(document))
     changed["benchmarkOnlyBaselines"]["compositionCandidates"] = resolved["compositionCandidates"]
+    changed["benchmarkOnlyBaselines"]["dExecutionStartedAt"] = D_STARTED
     refused("baseline_stopped_no_d_result", check, changed, document, proof)
     # the ordinary M1 outcome rules decide a later close; no outcome is forced or fabricated
     for outcome in ("INCUMBENT_RETAINED", "NO_QUALIFIABLE_CANDIDATE"):
@@ -721,7 +723,11 @@ def test_adding_a_benchmark_only_baseline_never_changes_the_m1_outcome(name):
         summary = build(document)
         summary["evaluated"].append(bob_row(document, document_sha256(proof[GATE]["seal"])))
         summary["benchmarkOnlyBaselines"] = m3_block(document, proof)
-        assert _verdict(check, summary, document, proof) == without, (name, stopped)
+        expected = without
+        if stopped and (summary["implementation"] is not None or summary["outcome"] == "SELECTED_FOR_PACKAGING"):
+            # final round, item 1: a STOPPED baseline gating every composition forbids any selection
+            expected = "baseline_stopped_no_selection"
+        assert _verdict(check, summary, document, proof) == expected, (name, stopped)
 
 
 def test_removing_the_benchmark_only_baseline_never_changes_the_m1_outcome():
@@ -1487,3 +1493,81 @@ def test_chronology_needs_full_history_for_an_event_with_d(tmp_path):
     import shutil
     shutil.copytree(repo, copy_dir, ignore=shutil.ignore_patterns(".git"))
     refused("baseline_seal_history_unavailable", validate_repository, copy_dir)
+
+
+
+# ------------------------------------------------------------------ final round, item 1: scoped STOPPED semantics
+
+
+def test_stopped_pr2_shape_permits_no_protected_d_and_no_selection():
+    """PR-2 shape: the one gate-only baseline gates every ordinary composition. A STOPPED seal permits no D result,
+    no ranking, frontier or winner, no implementation and no SELECTED_FOR_PACKAGING; nothing becomes
+    NO_QUALIFIABLE_CANDIDATE by itself."""
+    document = m3_ledger()
+    proof = stopped_evidence(document)
+    summary = m3_decision(document, proof, state="TECHNICAL_DECISION_RECORDED", implementation=None)
+    check(summary, document, proof)
+    resolved = m3_block(document, evidence(document))
+    for field in ("compositionCandidates",):
+        changed = copy.deepcopy(summary)
+        changed["benchmarkOnlyBaselines"][field] = resolved[field][:1]
+        changed["benchmarkOnlyBaselines"]["dExecutionStartedAt"] = D_STARTED
+        refused("baseline_stopped_no_d_result", check, changed, document, proof)
+    for field, value in (("rankedCompositions", ["C-B-EMG"]), ("strongestEvaluatedComposition", "C-B-EMG"),
+                         ("frontier", ["C-B-EMG"])):
+        changed = copy.deepcopy(summary)
+        changed["benchmarkOnlyBaselines"][field] = value
+        with pytest.raises(CredibilityError):
+            check(changed, document, proof)
+    for implementation, outcome in ((("VC-EST",), "SELECTED_FOR_PACKAGING"), (("VC-B0",), "BASELINE_SELECTED"),
+                                    (None, "SELECTED_FOR_PACKAGING")):
+        closed = m3_decision(document, proof, state="CLOSED", implementation=implementation)
+        closed["outcome"] = outcome
+        refused("baseline_stopped_no_selection", check, closed, document, proof)
+    pending = m3_decision(document, proof, state="QUALIFICATION_PENDING", implementation=("VC-EST",))
+    refused("baseline_stopped_no_selection", check, pending, document, proof)
+
+
+def listed_gate_ledger():
+    entry = bob()
+    rule = entry["benchmarkBaseline"]["compositions"][0]
+    rule.update(gateScope=bs.GATE_SCOPE_LISTED, gatedCompositionIds=["C-A-EST"])
+    return m3_ledger(baseline(), established(), emerging(), entry)
+
+
+def test_stopped_generic_baseline_does_not_invalidate_compositions_outside_its_frozen_map():
+    """Generic event: the frozen map gates only C-A-EST. With the baseline STOPPED, a D measurement of an explicitly
+    non-gated composition stays lawful; a measurement of the gated one is refused."""
+    document = listed_gate_ledger()
+    proof = stopped_evidence(document)
+    summary = m3_decision(document, proof, state="TECHNICAL_DECISION_RECORDED", implementation=None)
+    resolved = m3_block(document, evidence(document))
+    free = copy.deepcopy(resolved["compositionCandidates"][0])  # C-B-EMG, not in the frozen map
+    free.update(gates={}, baselineSealSha256s={})
+    block_ = summary["benchmarkOnlyBaselines"]
+    block_.update(compositionCandidates=[free], rankedCompositions=["C-B-EMG"], strongestEvaluatedComposition="C-B-EMG",
+                  frontier=["C-B-EMG"], dExecutionStartedAt=D_STARTED)
+    check(summary, document, proof)
+    gated = copy.deepcopy(summary)
+    gated["benchmarkOnlyBaselines"]["compositionCandidates"].append(copy.deepcopy(resolved["compositionCandidates"][1]))
+    refused("baseline_stopped_no_d_result", check, gated, document, proof)
+    # the map is checked: an ungated composition may not claim the gate, nor drop it when gated
+    claimed = copy.deepcopy(summary)
+    claimed["benchmarkOnlyBaselines"]["compositionCandidates"][0].update(resolved["compositionCandidates"][0])
+    refused("composition_hard_gate_mapping_invalid", check, claimed, document, proof)
+    # lawful pre-D candidate measurements stay in the decision unchanged
+    assert [row["candidateId"] for row in summary["evaluated"][:-1]] == ["VC-B0", "VC-EST", "VC-EMG"]
+
+
+def test_gating_map_is_frozen_and_well_formed():
+    for scope, ids, code in ((bs.GATE_SCOPE_ALL, ["C-X"], "gated_compositions_invalid"),
+                             (bs.GATE_SCOPE_LISTED, [], "gated_compositions_invalid"),
+                             (bs.GATE_SCOPE_LISTED, ["C-Z", "C-A"], "gated_compositions_invalid"),
+                             ("some-compositions", ["C-A"], "value_not_allowed")):
+        entry = bob()
+        entry["benchmarkBaseline"]["compositions"][0].update(gateScope=scope, gatedCompositionIds=ids)
+        refused(code, validate_ledger, m3_ledger(entry))
+    frozen = listed_gate_ledger()
+    later = copy.deepcopy(frozen)
+    later["candidates"][-1]["benchmarkBaseline"]["compositions"][0]["gatedCompositionIds"] = ["C-A-EST", "C-B-EMG"]
+    refused("frozen_benchmark_baseline_field_changed", validate_evolution, frozen, later)

@@ -67,7 +67,8 @@ Field rules:
   "compositions": [{"compositionId": "…", "partnerEventId": "msr-…", "eligiblePartners": [{"candidateId": "…", "identitySha256": "<canonical SHA-256 of the partner's identity block>"}],
   "excludedPartners": [{"candidateId": "…", "identitySha256": "…", "reason": "…"}],
   "partnerRankingRuleSha256": "…", "layerAGatesSha256": "…", "layerAGateIds": ["<sorted gate ids>"],
-  "derivationRule": "highest-ranked-partner-passing-every-layer-a-gate", "gateScope": "all-ordinary-compositions"}]}`
+  "derivationRule": "highest-ranked-partner-passing-every-layer-a-gate",
+  "gateScope": "all-ordinary-compositions | listed-compositions", "gatedCompositionIds": ["<[] for all, else exact ids>"]}]}`
   (`../candidate-credibility.md` §4.4). No other entry may carry it. `hostManifests` has one key per decision target
   profile. One permission per artefact kind, covering exactly the manifest files of that kind (`model-data`: the pinned
   identity files plus every `data` file). `eligiblePartners` and `excludedPartners` together are exactly the partner

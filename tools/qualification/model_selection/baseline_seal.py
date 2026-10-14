@@ -66,7 +66,8 @@ LAYER_A_SCHEMA = "mavi-model-selection-layer-a-result-v1"
 RESOLVED, STOPPED = "RESOLVED", "STOPPED"
 SEAL_STATUSES = (RESOLVED, STOPPED)
 GATE_SCOPE_ALL = "all-ordinary-compositions"
-GATE_SCOPES = (GATE_SCOPE_ALL,)
+GATE_SCOPE_LISTED = "listed-compositions"
+GATE_SCOPES = (GATE_SCOPE_ALL, GATE_SCOPE_LISTED)
 DERIVATION_RULE = "highest-ranked-partner-passing-every-layer-a-gate"
 DERIVATION_RULES = (DERIVATION_RULE,)
 D_NOT_STARTED, D_ACCESSED = "NOT_STARTED", "ACCESSED"
@@ -171,13 +172,20 @@ def check_stage1_rule(composition: Mapping, entry: Mapping, where: str) -> None:
     """Structural checks of one frozen Stage-1 rule (called from the ledger check)."""
     _keys(composition, ("compositionId", "partnerEventId", "eligiblePartners", "excludedPartners",
                         "partnerRankingRuleSha256", "layerAGatesSha256", "layerAGateIds", "derivationRule",
-                        "gateScope"), where)
+                        "gateScope", "gatedCompositionIds"), where)
     _match(composition["compositionId"], LOCAL_ID_RE, f"{where}.compositionId")
     _match(composition["partnerEventId"], EVENT_ID_RE, f"{where}.partnerEventId")
     _match(composition["partnerRankingRuleSha256"], SHA256_RE, f"{where}.partnerRankingRuleSha256")
     _match(composition["layerAGatesSha256"], SHA256_RE, f"{where}.layerAGatesSha256")
     _enum(composition["derivationRule"], DERIVATION_RULES, f"{where}.derivationRule")
-    _enum(composition["gateScope"], GATE_SCOPES, f"{where}.gateScope")
+    scope = _enum(composition["gateScope"], GATE_SCOPES, f"{where}.gateScope")
+    # The frozen baseline -> composition gating map (final round, item 1): every ordinary composition, or exactly the
+    # listed composition ids. A STOPPED baseline forbids protected D only for the compositions it gates.
+    gated = _list(composition["gatedCompositionIds"], f"{where}.gatedCompositionIds")
+    for index, gated_id in enumerate(gated):
+        _match(gated_id, LOCAL_ID_RE, f"{where}.gatedCompositionIds[{index}]")
+    if gated != sorted(set(gated)) or (scope == GATE_SCOPE_ALL) != (not gated):
+        raise _fail("gated_compositions_invalid", f"{where}.gatedCompositionIds")
     gate_ids = _list(composition["layerAGateIds"], f"{where}.layerAGateIds")
     for index, gate in enumerate(gate_ids):
         _match(gate, LOCAL_ID_RE, f"{where}.layerAGateIds[{index}]")
@@ -916,23 +924,32 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
         if evaluated[candidate_id].get("baselineSealSha256s") != expected:
             raise _fail("benchmark_baseline_row_seal_mismatch", f"decision.evaluated.{candidate_id}")
 
+    # Final round, item 1: a STOPPED baseline that gates every ordinary composition (the Stage-4 PR-2 shape) forbids
+    # all protected D, so the event can select nothing: no implementation and no SELECTED_FOR_PACKAGING. The outcome
+    # is otherwise the governing protocol's; a stop is never turned into NO_QUALIFIABLE_CANDIDATE here.
+    stopped_all = any(verified[c]["status"] == STOPPED and declared[c][1]["gateScope"] == GATE_SCOPE_ALL
+                      for c in gate_ids)
+    if stopped_all and (decision["implementation"] is not None or decision["outcome"] == "SELECTED_FOR_PACKAGING"):
+        raise _fail("baseline_stopped_no_selection", f"{where}.baselineSeals")
     started = block["dExecutionStartedAt"]
     accessed = sorted(verified[c]["seal"]["protectedDAccessedAt"] for c in gate_ids
                       if verified[c]["status"] == STOPPED and verified[c]["seal"]["protectedDState"] == D_ACCESSED)
+    measured_d = bool(_list(block["compositionCandidates"], f"{where}.compositionCandidates"))
     if accessed:
         # Cold review P3-2: protected D was accessed before resolution; the decision records that access, never "no D".
         if started != accessed[0]:
             raise _fail("baseline_d_access_not_recorded", f"{where}.dExecutionStartedAt")
-    elif stopped:
-        if started is not None:
-            raise _fail("baseline_stopped_d_started", f"{where}.dExecutionStartedAt")
-    elif gate_ids:
+    elif gate_ids and (measured_d or not stopped):
         start = _instant(started, f"{where}.dExecutionStartedAt")
         for composition_id in sorted(gate_ids):
-            if not _instant(verified[composition_id]["seal"]["recordedAt"], "seal.recordedAt") < start:
+            if verified[composition_id]["status"] == RESOLVED and \
+                    not _instant(verified[composition_id]["seal"]["recordedAt"], "seal.recordedAt") < start:
                 raise _fail("baseline_resolved_after_d_started", f"{where}.dExecutionStartedAt")
         if start.date() > date.fromisoformat(decision["decidedOn"]):
             raise _fail("d_started_after_decision", f"{where}.dExecutionStartedAt")
+    elif stopped:
+        if started is not None:
+            raise _fail("baseline_stopped_d_started", f"{where}.dExecutionStartedAt")
     elif started is not None:
         _instant(started, f"{where}.dExecutionStartedAt")
 
@@ -965,7 +982,10 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
         if composition_id in composition_ids or composition_id in entries:
             raise _fail("composition_id_collides", f"{at}.compositionId")
         composition_ids.add(composition_id)
-        if stopped:
+        # the frozen gating map decides which baselines gate this composition; a STOPPED one forbids its D result
+        gating = {g for g, (_entry, rule) in declared.items()
+                  if rule["gateScope"] == GATE_SCOPE_ALL or composition_id in rule["gatedCompositionIds"]}
+        if any(verified[g]["status"] == STOPPED for g in gating):
             raise _fail("baseline_stopped_no_d_result", at)
         components = _list(composition["components"], f"{at}.components")
         keys = []
@@ -1000,11 +1020,11 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
         if len(keys) < 2 or keys != sorted(set(keys)):
             raise _fail("composition_components_invalid", f"{at}.components")
         gates = composition["gates"]
-        if not isinstance(gates, dict) or set(gates) != gate_ids:
+        if not isinstance(gates, dict) or set(gates) != gating:
             raise _fail("composition_hard_gate_mapping_invalid", f"{at}.gates")
         for gate, result in gates.items():
             _enum(result, (PASSED, FAILED), f"{at}.gates.{gate}")
-        if composition["baselineSealSha256s"] != seals:
+        if composition["baselineSealSha256s"] != {g: seals[g] for g in sorted(gating)}:
             raise _fail("d_result_baseline_seal_mismatch", f"{at}.baselineSealSha256s")
         _match(composition["dResultSha256"], SHA256_RE, f"{at}.dResultSha256")
         technical = _enum(composition["technicalGates"], (PASSED, FAILED), f"{at}.technicalGates")

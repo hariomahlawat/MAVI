@@ -127,6 +127,8 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
    ordinary M1 outcome rules then apply unchanged:
    - `INCUMBENT_RETAINED` and `SELECTED_FOR_PACKAGING` stay valid wherever ordinary M1 produces them;
    - `BASELINE_SELECTED` refers only to the ordinary, packageable (`mavi-owned`) M1 baseline, never a BOB;
+   - exception (final round): a STOPPED baseline gating every ordinary composition forbids any implementation
+     and `SELECTED_FOR_PACKAGING`, because no protected D was run (rule 9);
    - `NO_QUALIFIABLE_CANDIDATE` follows only where ordinary M1 yields it. M3 adds no rule such as "no
      implementation-eligible candidate means `NO_QUALIFIABLE_CANDIDATE`".
 
@@ -155,7 +157,8 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
      names no partner and no composition, so it cannot name a replacement baseline. It permits no D execution, holds
      no ranked D result, and is immutable once written. A later protocol revision re-freezes the gate-only
      composition under a new composition id; the STOPPED seal stays as history, cited by the record.
-   - A STOPPED seal does **not** fix the event state or outcome. The governing event protocol does. For Stage-4 PR-2,
+   - **STOPPED scope (owner decision, final round).** A STOPPED baseline seal forbids protected-D execution, and any D result, for every ordinary composition the frozen gating map assigns to that baseline (`gateScope`: `all-ordinary-compositions`, or `listed-compositions` with the exact `gatedCompositionIds`). It does not erase or invalidate lawful measurements made before protected D, and a composition explicitly outside the map is not blocked. The map is machine-checked for every composition row. When the stopped baseline gates every ordinary composition (the Stage-4 PR-2 shape: the single PD_BASE + OC5 gates all of them), the event has no protected D, no D score, no ranked composition, frontier or technical winner, no implementation and no `SELECTED_FOR_PACKAGING` (`baseline_stopped_no_selection`). The event state follows the governing protocol (PR-2: N9, back to or staying at `PLANNED`); the stop is never turned into `NO_QUALIFIABLE_CANDIDATE`.
+   - A STOPPED seal does **not** otherwise fix the event state or outcome. The governing event protocol does. For Stage-4 PR-2,
      N9 applies: a pre-D stop returns to, or stays at, `PLANNED` for owner action, and no `NO_QUALIFIABLE_CANDIDATE`
      is fabricated. If the owner later closes the event, the ordinary M1 outcome rules (rule 5) decide the outcome.
    - A decision summary v1 on an event with a BOB carries the mandatory block `benchmarkOnlyBaselines`: the seals (by
