@@ -154,7 +154,7 @@ threshold change.
 
 | Surface | What moved, and why | Fix |
 | --- | --- | --- |
-| Videos, Processing queue | rows drawn with explicit-UTC timestamps and camera identifiers re-wrapped when the timezone and camera metadata landed | the ledger waits for both (`holdUntilSettled`); notices arrive with the rows; per-row lookups keep their reserved row regions (§37.1) |
+| Videos, Processing queue | rows drawn with explicit-UTC timestamps and camera identifiers re-wrapped when the timezone and camera metadata landed | the ledger waits for both (`holdUntilSettled`), then is drawn once; per-row run lookups never hold it: a row whose lookup is out draws at once in its final geometry with unseen placeholders (§37.1; see owner ruling 3 below) |
 | Scene Editor | the reference strip's one-line loading row grew to the strip and moved the inspector | the stage waits for the video list |
 | Search | committed chips and rail re-wrapped for the timezone, camera and video names | the workspace waits for those answers |
 | Processing detail | the run panel, its analytics and the camera-named facts landed in turn | the Record is drawn once (first draw), in its own layout instance |
@@ -211,10 +211,65 @@ cases that were over → under.
 Other checks on the final source: keyboard journeys 18/18; frontend tests
 1574/1574; harness unit tests 352/352, end-to-end 110/110; `verify_repo` PASSED.
 
-Still open: the residual media nondeterminism — `/content` responses (video,
-images) are not pinned, and a fixture clip's real duration (4 s) differs from
-the declared one (10 min), so Review's timeline can re-lay out when the
-metadata lands (`review-long-identity@1920x1080` flipped once in three local
-repetitions before the final fixes; not seen in the final runs). Local hover
-and tooltip findings appeared only in 8-lane runs and passed 160/160 at the CI
-concurrency (3 lanes).
+The figures above predate the owner's rulings below; the verification of the
+final head follows them.
+
+## Owner rulings after the cold review
+
+### Accepted trade-offs (only these two)
+
+1. **Reverse lane: ordinary non-CLS findings are recorded, not gating.** The
+   reverse shards run with `--keep`; their visual and accessibility findings are
+   order-dependent evidence, uploaded, not a verdict. Their CLS is judged
+   against the same budgets (`--ordinary-lane --response-order reverse`) and
+   blocks; a reverse shard's harness fault, a missing shard, or a head or order
+   mismatch fails closed.
+2. **Zone drawing: one operator input per browser task.** The two vertex clicks
+   are two separate operator clicks, so the long-task measurement runs them in
+   two tasks. This corrects the measurement's fidelity to the real action; it
+   is not a budget, threshold or class change.
+
+### Fixes (not trade-offs)
+
+3. **No first-load block for per-row lookups.** The ledger's hold covers only
+   the camera and timezone answers; the drawn-once latch stays. A row whose run
+   lookup is out draws at once with unseen placeholders shaped as its status
+   predicts (queue: folded values, Tracks only for Processed; the status line's
+   inline value, an active row's progress or a failed row's capped code; the
+   Queued cell's dash over a timestamp of this year's shape drawn by CSS).
+   Probed column widths and row heights, lookups held vs answered, are
+   identical at 390/768/1024/1366/1920 (queue) and 1366/1024/768 (Videos).
+   Tests: a slow lookup does not block any other row; the slow row holds its
+   placeholders. Not zero everywhere: where a row's final run adds a line its
+   status cannot predict, a small deterministic shift remains
+   (`videos-dense@1024x768` 0.0073; every other such case ≤ 0.0032), the same in
+   every run and inside its limit.
+4. **Settle race.** The app registers its query client's activity (fetching,
+   mutating) on the harness handle, only when the harness installed it.
+   `settle()` treats any query still fetching or waiting out a retry's backoff
+   (beyond the requests the server holds open on purpose) as unsettled, so CLS
+   after the old `settledAt` is now inside the window. Proof: the
+   `review-geometry-unavailable` live-region case and four other retry/failure
+   states, forward, all lanes, ×3: 270/270 ok, 0 verdict changes. Tests: a page
+   in a 900 ms backoff with nothing in flight is not settled until its retry
+   answers (fails without the fix); a held loading state still settles.
+5. **Review media.** Correction: the Review fixtures already declared the clip's
+   real duration (4000 ms for the 4 s clips); this record's earlier "declared
+   10 min" was wrong (that is the Videos inventory's record). What moved Review
+   was artifact content (`/api/artifacts/{id}/content`, trajectories and
+   crops), which the harness treated as media: neither counted for settling
+   nor ordered. Only a video stream is media now; artifact content is ordered
+   like any answer. `EvidencePlayer` lays its timeline out on the declared
+   duration (the element's only where none is declared), so the rail never
+   re-lays out when media metadata lands. Test: the marker's position is
+   unchanged when the element reports another duration (fails without it).
+
+### Known follow-up (not in this change): focus after Process
+
+After **Process** on a Videos row, the button leaves with the row's new status
+and focus falls to the document body: a keyboard-accessibility defect that
+predates this change. It is left out of #216. No regression: the same probe
+(render Videos, Process a NotQueued row, wait for Queued, read
+`document.activeElement`) run unchanged on `main@4150f96b` and on this branch
+gives `BODY` on both.
+

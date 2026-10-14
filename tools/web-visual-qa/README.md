@@ -145,7 +145,9 @@ consecutive probes: the page's expected text is shown and its forbidden text is
 not; no loading presentation is on screen (or, for a state that `holds:
 'loading'`, one is); images have loaded; a visible video has its metadata and
 is not mid-seek (a page that seeks on load has done so); no finite transition is running; the
-DOM has stopped changing; and no request is in flight or newly started. A
+DOM has stopped changing; no request is in flight or newly started; and no
+query is fetching or waiting out a retry's backoff (the app's query activity,
+registered on the harness handle only when the harness installed it). A
 request held open to keep a loading state is not "in flight" — it never
 completes by design. Preparations wait for the consequence of each action, never
 for a guessed duration. Every wait is bounded; a timeout refuses the state and
@@ -612,8 +614,8 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   data responses were answered in one pinned order, so every intermediate
   layout of a load is painted and a case's CLS is a function of the bundle
   alone (`docs/reviews/2026-10-13-x3-performance-gate-determinism.md`). With
-  `MAVI_VQA_RESPONSE_ORDER` the fixture server answers data GETs (not media)
-  one at a time, `RESPONSE_SPACING_MS` apart: `forward` in the order they
+  `MAVI_VQA_RESPONSE_ORDER` the fixture server answers data GETs (not a
+  video stream; artifact content is data) one at a time, `RESPONSE_SPACING_MS` apart: `forward` in the order they
   arrive — the blocking sweep and long-task lane run it, and the judge faults
   any other order (`GATE_RESPONSE_ORDER`) — or `reverse`, each burst's
   requests in the opposite order: the adversarial lane, the sweep shards'
@@ -625,7 +627,9 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   the next case's sequenced answers.
 - **Drawn once**: the product draws a region when every answer that decides
   its final layout has settled (`holdUntilSettled`, §38), so the pinned order
-  measures the loading-to-content transition, not a provisional layout.
+  measures the loading-to-content transition, not a provisional layout. A
+  per-row lookup never holds a ledger: the row draws at once in its final
+  geometry, its pending values held by unseen placeholders.
 - **One operator input per task**: a preparation that stands for several
   operator inputs (the Import form's camera, time and file) dispatches each in
   its own task, after a frame, as an operator's inputs arrive (the zone
