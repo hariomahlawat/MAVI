@@ -4071,8 +4071,9 @@ export const STATES = [
     prepare: `(async () => {
       ${UNTIL}
       await ${OPEN_FILTERS};
-      // First read: the zone resolves to its name from the active scene.
-      if (!document.body.innerText.includes('Loading bay')) return false;
+      // First read: the zone resolves to its name from the active scene. Waited
+      // for, not assumed: at Tier C the drawer's geometry is read when it opens.
+      await until(() => document.body.innerText.includes('Loading bay'), 'the zone named from the active scene');
       // The scene must be older than its 30s stale time. Rather than sleep for
       // it, the page's clock is moved past it: staleness is judged against
       // Date.now(), so this is the same condition the operator reaches by
