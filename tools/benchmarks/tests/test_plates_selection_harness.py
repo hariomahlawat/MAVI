@@ -29,8 +29,14 @@ def gen(truths, manifest=MANIFEST):
     return q.generate(truths, PARAMS, manifest)
 
 
-def bind(queries, manifest=MANIFEST):
-    return dict(population_manifest_sha256=manifest, generator_config_sha256=queries.generator_config_sha256,
+def population_of(items, manifest=MANIFEST):
+    """Fixture: the closed population these items describe (in the event this is the frozen corpus manifest)."""
+    return ev.closed_population([ev.PopulationTrack(i.track_id, i.cluster, i.truth, i.run is not ev.NO_RUN)
+                                 for i in items], manifest)
+
+
+def bind(queries, items, manifest=MANIFEST):
+    return dict(population=population_of(items, manifest), generator_config_sha256=queries.generator_config_sha256,
                 query_set_sha256=queries.query_set_sha256)
 
 
@@ -331,12 +337,12 @@ def _queries(items, manifest=MANIFEST):
     return gen([i.truth for i in items if i.truth not in special and ev.normalised_truth(i.truth)], manifest)
 
 
-def score(items, queries=None, floor=FLOOR, composition=None):
+def score(items, queries=None, floor=FLOOR, composition=None, population=None):
     queries = queries or _queries(items)
-    run = next((i.run for i in items if i.run is not None), None)
+    run = next((i.run for i in items if isinstance(i.run, ev.TrackRun)), None)
     detector, recogniser = composition or ((run.detector, run.recogniser) if run is not None else (DET, REC))
     return ev.evaluate_tracks(items, queries, detector_floor=floor, detector=detector, recogniser=recogniser,
-                              **bind(queries))
+                              **dict(bind(queries, items), **({"population": population} if population else {})))
 
 
 # ---------------------------------------------------------------------------------------------- D
@@ -347,7 +353,7 @@ def test_d_score_on_a_closed_population_exactly():
              _track("t2", "s1", "MH12CD5678", ["MH12CD5670", "MH12CD5670"]),
              _track("t3", "s2", ev.NO_PLATE, ["KA01ZZ9999"]),
              _track("t5", "s2", ev.NO_GT_VEHICLE, ["DL3CAB0002"]),
-             ev.TrackItem("t4", "s2", "DL3CAB0001", None)]
+             ev.TrackItem("t4", "s2", "DL3CAB0001", ev.NO_RUN)]
     queries = _queries(items)
     result = score(items, queries)
     assert result.outcome == ev.MEASURED and result.counts.exact_denominator == 3
@@ -392,11 +398,11 @@ def test_population_binding_and_truth_refusals():
     plain = [_track("p", "s1", "KA01AB1234", ["KA01AB1234"])]
     other = gen(["KA01AB1234"], OTHER_MANIFEST)
     with pytest.raises(ValueError, match="another_population"):
-        ev.evaluate_tracks(plain, other, detector_floor=FLOOR, detector=DET, recogniser=REC, **dict(bind(other), population_manifest_sha256=MANIFEST))
+        ev.evaluate_tracks(plain, other, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(other, plain))
     with pytest.raises(ValueError, match="not_bound"):
         score(plain, gen(["KA01AB1234", "MH12AB0001"]))
     with pytest.raises(ValueError, match="truth_empty"):
-        score([ev.TrackItem("e", "s", " ", None)], gen([]))
+        score([ev.TrackItem("e", "s", " ", ev.NO_RUN)], gen([]))
 
 
 def test_query_set_hashes_are_recomputed_not_trusted():
@@ -404,18 +410,18 @@ def test_query_set_hashes_are_recomputed_not_trusted():
     queries = _queries(ranked)
     tampered = dataclasses.replace(queries, metric_queries=queries.metric_queries[:1])  # SHA fields kept
     with pytest.raises(ValueError, match="do_not_match"):
-        ev.evaluate_tracks(ranked, tampered, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries))
+        ev.evaluate_tracks(ranked, tampered, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries, ranked))
     relabelled = dataclasses.replace(queries, generator_config_sha256="0" * 64)
     with pytest.raises(ValueError, match="do_not_match"):
-        ev.evaluate_tracks(ranked, relabelled, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries))
+        ev.evaluate_tracks(ranked, relabelled, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries, ranked))
     other_params = q.generate(queries.truths, q.QueryParameters(2, 1, "another-seed"), MANIFEST)
     with pytest.raises(ValueError, match="generator_config_not_frozen"):
-        ev.evaluate_tracks(ranked, other_params, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries))
+        ev.evaluate_tracks(ranked, other_params, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries, ranked))
     with pytest.raises(ValueError, match="query_set_not_frozen"):
-        ev.evaluate_tracks(ranked, queries, detector_floor=FLOOR, detector=DET, recogniser=REC, **dict(bind(queries), query_set_sha256="1" * 64))
+        ev.evaluate_tracks(ranked, queries, detector_floor=FLOOR, detector=DET, recogniser=REC, **dict(bind(queries, ranked), query_set_sha256="1" * 64))
     with pytest.raises(ValueError, match="do_not_match"):
         ev._bootstrap_replicates(ranked, ranked, tampered, replicates=2, seed=1, detector_floor_a=FLOOR,
-                                detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries))
+                                detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries, ranked))
 
 
 def test_contract_violation_fails_the_whole_composition():
@@ -527,10 +533,10 @@ def test_ranking_floor_is_enforced_and_diagnostics_are_separate():
         score(items)
     ranked = [_track("t1", "s1", "KA01AB1234", ["KA01AB1234"])]
     queries = _queries(ranked)
-    diagnostic = ev.diagnostic_evaluate_at_floor(ranked, queries, 0.5, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries))
+    diagnostic = ev.diagnostic_evaluate_at_floor(ranked, queries, 0.5, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries, ranked))
     assert isinstance(diagnostic, ev.DiagnosticTrackScore) and diagnostic.values.accounting["diagnosticFloor"] == 0.5
     with pytest.raises(ValueError, match="not_declared"):
-        ev.diagnostic_evaluate_at_floor(ranked, queries, 0.0, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries))
+        ev.diagnostic_evaluate_at_floor(ranked, queries, 0.0, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries, ranked))
     with pytest.raises(ValueError, match="pinned_detector_floor"):
         score(ranked, floor=0.3)
 
@@ -539,7 +545,7 @@ def test_gates_and_decisions_refuse_diagnostic_and_forged_scores():
     ranked = _population(3, lambda i: [_plate_text(i)])
     queries = _queries(ranked)
     silent = score(_population(3, lambda i: [""]))
-    diag = ev.diagnostic_evaluate_at_floor(ranked, queries, 0.7, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries))
+    diag = ev.diagnostic_evaluate_at_floor(ranked, queries, 0.7, detector_floor=FLOOR, detector=DET, recogniser=REC, **bind(queries, ranked))
     for forged in (diag, diag.values, dataclasses.replace(silent, d_score=Fraction(1))):
         with pytest.raises(ValueError, match="not_a_ranking_d_score"):
             gate(C("PD2-S", "OC1", silent), C("PD2-N", "OC5-BEST", forged))
@@ -555,7 +561,7 @@ def test_gates_and_decisions_refuse_diagnostic_and_forged_scores():
         score(forged_items, queries, composition=(DET, REC))
     with pytest.raises(ValueError, match="not_from_ranking_path"):
         ev._bootstrap_replicates(forged_items, ranked, queries, replicates=2, seed=1, detector_floor_a=FLOOR,
-                                detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries))
+                                detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries, ranked))
     relabel_floor = dataclasses.replace(ranked[0].run, parameters=ev.ranking_parameters(0.1))
     with pytest.raises(ValueError, match="not_from_ranking_path"):
         score([dataclasses.replace(ranked[0], run=relabel_floor)] + ranked[1:], queries, composition=(DET, REC))
@@ -776,7 +782,7 @@ def test_n3_denominators_are_unchanged():
     items = [_n3_item("w", [[Reading(WRONG, 0.9)], [Reading(WRONG, 0.9)]]),
              _n3_item("one", [[Reading(WRONG, 0.9)]]),
              _n3_item("ok", [[Reading(RIGHT, 0.9)], [Reading(RIGHT, 0.9)]]),
-             ev.TrackItem("none", "s", "KA01AB1234", None),
+             ev.TrackItem("none", "s", "KA01AB1234", ev.NO_RUN),
              _n3_item("np", [[Reading(WRONG, 0.9)], [Reading(WRONG, 0.9)]], truth=ev.NO_PLATE)]
     result = score(items, gen(["KA01AB1234"]))
     assert result.consistent_wrong_rate == Fraction(1, 4)
@@ -798,7 +804,7 @@ def pair():
 
 def compare(a, b, queries, **overrides):
     arguments = dict(calibration_minimum_clusters=60, detector_floor_a=FLOOR, detector_floor_b=FLOOR,
-                     composition_a=(DET, REC), composition_b=(DET, REC), freeze=FREEZE, **bind(queries))
+                     composition_a=(DET, REC), composition_b=(DET, REC), freeze=FREEZE, **bind(queries, a))
     arguments.update(overrides)
     return ev.paired_cluster_bootstrap(a, b, queries, **arguments)
 
@@ -837,7 +843,7 @@ def test_percentile_indices_are_exact_integers():
 
 def test_fast_bootstrap_equals_re_evaluation(pair):
     good, _, half, _, queries = pair
-    kwargs = dict(replicates=15, seed=11, detector_floor_a=FLOOR, detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries))
+    kwargs = dict(replicates=15, seed=11, detector_floor_a=FLOOR, detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries, good))
     assert ev._bootstrap_replicates(good, half, queries, **kwargs) == \
         ev._bootstrap_replicates(good, half, queries, slow=True, **kwargs)
 
@@ -851,7 +857,7 @@ def test_fast_bootstrap_on_multi_track_sites_equals_independent_evaluation():
             a.append(_track(tid, f"site{site}", truth, [truth if (site + k) % 3 else "KA01AB1235"]))
             b.append(_track(tid, f"site{site}", truth, [truth if (site + k) % 2 else ""]))
     queries = gen(truths)
-    kwargs = dict(replicates=40, seed=5, detector_floor_a=FLOOR, detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries))
+    kwargs = dict(replicates=40, seed=5, detector_floor_a=FLOOR, detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries, a))
     fast = ev._bootstrap_replicates(a, b, queries, **kwargs)
     assert fast == ev._bootstrap_replicates(a, b, queries, slow=True, **kwargs)
     # Independent re-run: rebuild each replicate's population and score it with evaluate_tracks itself.
@@ -891,9 +897,9 @@ def test_bootstrap_refusals_and_no_silent_drops(pair):
             compare(good, changed, queries)
         with pytest.raises(ValueError, match="paired_population_mismatch"):  # P3: the bootstrap checks pairing too
             ev._bootstrap_replicates(good, changed, queries, replicates=2, seed=1, detector_floor_a=FLOOR,
-                                    detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries))
+                                    detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries, good))
     assert ev._bootstrap_replicates(good, silent, queries, replicates=50, seed=1, detector_floor_a=FLOOR,
-                                   detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries)).count(None) == 0  # silence never drops
+                                   detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC), **bind(queries, good)).count(None) == 0  # silence never drops
     violating = [_track("t0", "site0", _plate_text(0), [_plate_text(0)], boxes=3)] + good[1:]
     assert compare(violating, silent, queries).outcome == "contract-fail"
 
@@ -1007,7 +1013,7 @@ def test_bootstrap_refuses_contract_violating_runs(pair):
     with pytest.raises(ValueError, match="contract_violating_run"):
         ev._bootstrap_replicates(good, violating, queries, replicates=5, seed=1, detector_floor_a=FLOOR,
                                  detector_floor_b=FLOOR, composition_a=(DET, REC), composition_b=(DET, REC),
-                                 **bind(queries))
+                                 **bind(queries, good))
     assert not hasattr(ev, "bootstrap_replicates")  # private: decisions go through paired_cluster_bootstrap
     assert compare(good, violating, queries).outcome == "contract-fail"
 
@@ -1032,7 +1038,7 @@ def _with_violation_at_zero(items, drop):
     run = ev.run_track(uuid.uuid5(uuid.NAMESPACE_URL, "t0"), _crops("t0", 1), _NaNScore(), Recogniser([_plate_text(0)]),
                        ev.ranking_parameters(FLOOR), detector_identity=DET, recogniser_identity=REC)
     assert "score_out_of_range" in run.contract_violation
-    return [dataclasses.replace(items[0], run=None if drop else run)] + items[1:]
+    return [dataclasses.replace(items[0], run=ev.NO_RUN if drop else run)] + items[1:]
 
 
 def test_population_digest_binds_compared_scores():
@@ -1049,7 +1055,7 @@ def test_population_digest_binds_compared_scores():
         gate(ev.CompositionScore(dropped), baseline)
     other_rec = ident("OC2-X")
     b = _composition_population(70, lambda i: [""], DET, other_rec)
-    with pytest.raises(ValueError, match="paired_population_mismatch"):
+    with pytest.raises(ValueError, match="no_evidence_track_must_be_no_run"):  # B ran t0: the population disagrees
         compare(_with_violation_at_zero(candidate, drop=True), b, queries, composition_b=(DET, other_rec))
     # subsetting: dropping the junk NO_GT_VEHICLE Tracks changes the digest, so the subset cannot be gated
     extra = [_track(f"ngv{i}", f"site{i}", ev.NO_GT_VEHICLE, [_plate_text(i)[:6] + "ZZ"]) for i in range(70)]
@@ -1126,7 +1132,7 @@ def test_diagnostic_uplift_needs_the_same_population():
     other = [dataclasses.replace(x, truth=t) for x, t in
              zip(_composition_population(3, lambda i: [_plate_text(i)], DET, OC5), truths)]
     q2 = gen(truths, OTHER_MANIFEST)
-    o = ev.evaluate_tracks(other, q2, detector_floor=FLOOR, detector=DET, recogniser=OC5, **bind(q2, OTHER_MANIFEST))
+    o = ev.evaluate_tracks(other, q2, detector_floor=FLOOR, detector=DET, recogniser=OC5, **bind(q2, other, OTHER_MANIFEST))
     with pytest.raises(ValueError, match="same_population"):
         ev.diagnostic_ocr_uplift(ev.CompositionScore(s), ev.CompositionScore(o), FREEZE)
 
@@ -1137,3 +1143,42 @@ def test_bootstrap_seed_is_the_frozen_one():
         ev.paired_cluster_bootstrap([], [], None, seed=1)  # type: ignore[call-arg]  # no caller seed
     with pytest.raises(ValueError, match="bootstrap_seed_invalid"):
         ev.BaselineFreeze(FREEZE.eligible_detectors, "OC5-BEST", _h("o"), _h("g"), WHEN, *EVENTS, True)
+
+
+# ---------------------------------------------------------------------------------------------- closed population (owner)
+
+
+def test_population_digest_is_candidate_independent_and_run_states_are_explicit():
+    candidate = _composition_population(70, lambda i: [_plate_text(i)], DET, REC)
+    silent = _composition_population(70, lambda i: [""], DET, REC)
+    queries = _queries(candidate)
+    frozen = population_of(candidate)
+    # 1. the same population with different candidate outputs (and outcomes) has the same digest
+    failing = [_track("t0", "site0", _plate_text(0), [_plate_text(0)], boxes=3)] + candidate[1:]
+    digests = {score(items, queries, population=frozen).population_digest for items in (candidate, silent, failing)}
+    assert digests == {frozen.digest}
+    assert score(failing, queries, population=frozen).outcome == ev.CONTRACT_FAIL
+    # 2. dropping or adding a Track is refused against the frozen population
+    with pytest.raises(ValueError, match="do_not_cover_the_closed_population"):
+        score(candidate[1:], queries, population=frozen)
+    with pytest.raises(ValueError, match="do_not_cover_the_closed_population"):
+        score(candidate + [_track("x", "site0", _plate_text(0), [""])], queries, population=frozen)
+    # 3. a contract-failed run cannot become NO_RUN (or vanish) to escape CONTRACT_FAIL
+    with pytest.raises(ValueError, match="evidence_track_without_a_sealed_run"):
+        score(_with_violation_at_zero(candidate, drop=True), queries, population=frozen)
+    with pytest.raises(ValueError, match="evidence_track_without_a_sealed_run"):
+        score([dataclasses.replace(candidate[0], run=None)] + candidate[1:], queries, population=frozen)
+    # ... and a caller who rewrites the population to say "no evidence" gets a different digest
+    rewritten = population_of(_with_violation_at_zero(candidate, drop=True))
+    assert rewritten.digest != frozen.digest
+    # 4. pairing mismatch (another truth or site) is refused
+    with pytest.raises(ValueError, match="paired_population_mismatch"):
+        compare(candidate, [dataclasses.replace(silent[0], cluster="elsewhere")] + silent[1:], queries)
+    with pytest.raises(ValueError, match="does_not_match_the_population"):
+        score([dataclasses.replace(candidate[0], cluster="elsewhere")] + candidate[1:], queries, population=frozen)
+    # 5. cluster relabelling changes the digest
+    moved = [dataclasses.replace(i, cluster=f"site{k % 30}") for k, i in enumerate(candidate)]
+    assert population_of(moved).digest != frozen.digest
+    # a hand-made population object is refused
+    with pytest.raises(ValueError, match="not_from_closed_population"):
+        score(candidate, queries, population=dataclasses.replace(frozen, digest="0" * 64))

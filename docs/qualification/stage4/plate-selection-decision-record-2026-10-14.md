@@ -86,8 +86,15 @@ It does not change PR-3/PR-4 product semantics or the frozen plate normalisation
   - A re-sealed record that does not follow from those results is refused.
   - A different but self-consistent set of Layer-A results (for example flipped `gates_passed`) gives a different, self-consistent resolution. Layer-A provenance is bound only by the M3 committed-seal integration (P1-2).
   - Layer-A scores must be sealed detector-kind results.
-- **Population (review 4, P1-1):** `evaluate_tracks` seals a canonical digest over the sorted (track id, cluster, truth, run present) tuples. The gate, the comparison and `diagnostic_ocr_uplift` require equal digests (plus the manifest and query-set hashes), and pairing includes run presence. Dropping a violating run (`run=None`), subsetting Tracks or relabelling clusters therefore cannot be compared against the other candidate's population.
-  - `run=None` means "no MAVI Track or no evidence for this GT vehicle". Whether it truly is that, rather than a dropped violation, is the caller's and the frozen corpus manifest's responsibility until that manifest exists.
+- **Population (owner decision 2026-10-14; supersedes the review-4 "run present" digest):**
+  - **Candidate-independent digest:** the D population is the frozen closed GT population (`closed_population`). Its digest hashes only that population: the manifest SHA-256, then per Track its id, site, truth state (TEXT / NO_PLATE / UNREADABLE / NO_GT_VEHICLE), supported text, raw truth, and `has_mavi_evidence` (a corpus fact). No candidate output, score, contract outcome or run presence enters it, so candidates with different outputs on the same population share one digest.
+  - **Paired over the same Track ids, with explicit run states.** Every candidate must cover exactly the population's Track ids, with the population's site and truth:
+    - an evidence-bearing Track must carry a sealed `run_track` run, so a CONTRACT_FAIL run cannot be replaced by `NO_RUN` or omitted;
+    - a Track without evidence must carry the typed `NO_RUN`;
+    - dropping or adding a Track is refused.
+  - **Where it is checked:** the gate, the comparison and `diagnostic_ocr_uplift` require equal digests.
+  - **Caller-provided until the frozen corpus manifest exists:** the `ClosedPopulation` itself, including `has_mavi_evidence`. Altering it changes the digest for every candidate.
+- **Scope of #218:** it is accepted as the level-1 A–D / query harness only. It does **not** claim that the M3 pre-D seal integration (P1-2) is complete.
 - **CONTRACT_FAIL D (P2-1):** every D term and rate is None, and the counts are empty, as in A and B.
 - **Top-K (P2-2):** `top_k` takes the `BaselineFreeze` and refuses the benchmark-only component by id OR identity. Every component score carries a sealed kind (detector/recogniser); `top_k` and `resolve_baseline` refuse the wrong kind.
 - **A (P2-3c):** the ranking path accepts only sealed `detection_item_from_run` items (profile and floor checked). Hand-built items go to `diagnostic_evaluate_detection`, which never seals.

@@ -29,21 +29,24 @@ function takes in-memory ground truth and candidate outputs.
 * **Superiority** (owner item 2): observed ΔD ≥ MPID, the paired hierarchical 95 % interval excludes zero, and clusters ≥ ``required_clusters``. Exact rationals, integer percentile indices.
 * **Query binding** (item 12): every D function regenerates the query set from its own truths, parameters and population, and checks it against the frozen generator-config and query-set SHA-256 arguments.
 
-**Population binding (review 4, P1-1).** ``evaluate_tracks`` computes a canonical population digest over the sorted
-(track id, cluster, truth, run present) tuples, and seals it into the score. The gate, the comparison and
-``diagnostic_ocr_uplift`` require equal digests, and pairing includes run presence. Compared candidates are therefore
-always scored on the SAME population, and dropping a violating run (``run=None``) or a subset of Tracks is refused.
+**Population binding (owner decision 2026-10-14).** The population is the frozen, closed GT population, a
+``ClosedPopulation`` built by ``closed_population``.
+- **Candidate-independent digest:** the digest hashes only that population: the manifest SHA-256, then per Track its id, site, truth state (TEXT / NO_PLATE / UNREADABLE / NO_GT_VEHICLE), supported text, raw truth, and whether MAVI has a Track/evidence for it (``has_mavi_evidence``, a corpus fact). It never includes candidate output, score, contract outcome or run presence, so candidates with different outputs on the same population have the same digest.
+- **Explicit run state:** every candidate's items must cover exactly the population's Track ids, with the population's site and truth.
+  - Every Track with MAVI evidence must carry a sealed ``run_track`` run: a CONTRACT_FAIL run stays one, and cannot be replaced by ``NO_RUN`` or omitted.
+  - Every Track without MAVI evidence must carry the typed ``NO_RUN`` state.
+  - Deleting a Track, adding one, or swapping a run for ``NO_RUN`` is refused.
+- **Caller-provided until the frozen corpus manifest exists:** the ``ClosedPopulation`` itself, including ``has_mavi_evidence``. A caller who alters it changes the digest for every candidate, which then no longer matches the frozen manifest.
 
-``run=None`` means "the GT vehicle has no MAVI Track or no evidence". Whether a missing run really is that, rather
-than a dropped violation, is the caller's and the frozen corpus manifest's responsibility until that manifest exists.
-The digest only guarantees that both compared candidates agree on it.
+#218 is accepted as the level-1 A–D / query harness only. It does NOT claim the M3 pre-D seal integration (review
+P1-2) is complete.
 
 **Caller-provided values (labelled, not proven here; the protocol and review bind them):**
 - the ``ComponentIdentity`` given to ``run_track`` (after that it is sealed and cannot be relabelled), to ``ranking_plate_record`` for B on GT crops, and to ``evaluate_reading`` / ``evaluate_detection``;
 - the query-set SHA-256 arguments: checked against the regenerated set, but their frozen values come from the protocol;
 - the bootstrap ``seed`` (a frozen protocol input; R is fixed at ``BOOTSTRAP_REPLICATES``);
 - the frozen calibration minimum given to the comparison (``required_clusters`` = max(60, it) is computed here);
-- ``TrackItem.cluster``: the site identity. It is folded into the population digest, so compared scores agree on it; the frozen site manifest binds it later;
+- the ``ClosedPopulation`` (sites, truths, ``has_mavi_evidence``): its digest binds every compared score; the frozen corpus manifest binds it later;
 - ``TrackItem.truth``: the adjudicated ground truth;
 - ``LayerAResult.gates_passed``: the Layer-A gate thresholds are not frozen yet, so the verdict cannot be derived here. ``verify_resolution`` re-derives the resolution from the Layer-A results it is GIVEN. A different, self-consistent set of results (for example flipped verdicts) gives a different, self-consistent resolution. Binding the Layer-A results is the M3 committed-seal integration (review P1-2);
 - the pinned detector floor passed to ``evaluate_detection`` / ``evaluate_tracks``. ``evaluate_tracks`` checks that every run used exactly that floor;
@@ -827,18 +830,76 @@ def top_k(scores: Iterable[ComponentScore], k: int, minimum_support: int, kind: 
 # ---------------------------------------------------------------------------------------------- D (N8, N3)
 
 
+class _NoRun:
+    """The typed run state of a Track with no MAVI Track/evidence (``PopulationTrack.has_mavi_evidence`` False)."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "NO_RUN"
+
+
+NO_RUN = _NoRun()
+_POP = "population"
+
+
+@dataclass(frozen=True, slots=True)
+class PopulationTrack:
+    """One Track of the frozen closed GT population: candidate-independent identity fields only."""
+
+    track_id: str
+    cluster: str                 # physical capture site
+    truth: str                   # raw GT text, NO_PLATE, UNREADABLE or NO_GT_VEHICLE
+    has_mavi_evidence: bool      # corpus fact: MAVI has a Track with evidence for this GT vehicle
+
+
+@dataclass(frozen=True, slots=True)
+class ClosedPopulation:
+    tracks: tuple[PopulationTrack, ...]   # sorted by track id
+    population_manifest_sha256: str
+    digest: str
+    seal: str = ""
+
+
+def _truth_state(truth: str) -> tuple[str, str | None]:
+    if truth in (NO_PLATE, UNREADABLE, NO_GT_VEHICLE):
+        return {NO_PLATE: "NO_PLATE", UNREADABLE: "UNREADABLE", NO_GT_VEHICLE: "NO_GT_VEHICLE"}[truth], None
+    return "TEXT", normalised_truth(truth)
+
+
+def closed_population(tracks: Iterable[PopulationTrack], population_manifest_sha256: str) -> ClosedPopulation:
+    """Build the frozen closed population and its candidate-independent digest."""
+    if not _is_sha256(population_manifest_sha256):
+        raise ValueError("population_manifest_sha256_malformed")
+    tracks = sorted(tracks, key=lambda pt: pt.track_id)
+    ids = [pt.track_id for pt in tracks]
+    if not ids or len(ids) != len(set(ids)):
+        raise ValueError("population_empty_or_duplicate_track")
+    for pt in tracks:
+        if not isinstance(pt, PopulationTrack):
+            raise ValueError("population_track_type")
+        if not (isinstance(pt.track_id, str) and pt.track_id and isinstance(pt.cluster, str) and pt.cluster):
+            raise ValueError("population_track_identity_missing")
+        if not isinstance(pt.truth, str) or not pt.truth.strip():
+            raise ValueError("d_truth_empty_or_missing")
+        if not isinstance(pt.has_mavi_evidence, bool):
+            raise ValueError("population_evidence_flag_not_bool")
+    rows = [[pt.track_id, pt.cluster, *_truth_state(pt.truth), pt.truth, pt.has_mavi_evidence] for pt in tracks]
+    digest = _canonical_sha256({"manifest": population_manifest_sha256, "population": rows})
+    return _seal(_POP, ClosedPopulation(tuple(tracks), population_manifest_sha256, digest))
+
+
 @dataclass(frozen=True, slots=True)
 class TrackItem:
-    """One Track of a fully labelled, closed population (one physical capture site = ``cluster``).
+    """One candidate's state on one Track of the closed population (one physical capture site = ``cluster``).
 
-    ``truth``: raw GT plate text, ``NO_PLATE``, ``UNREADABLE`` or ``NO_GT_VEHICLE``. ``run`` None means the GT vehicle has
-    no MAVI Track or no evidence: not read, still in every denominator. ``cluster`` and ``truth`` are caller-provided.
-    """
+    ``run`` is a sealed ``run_track`` result (possibly CONTRACT_FAIL) for a Track with MAVI evidence, or the typed
+    ``NO_RUN`` for a Track without. ``cluster`` and ``truth`` must equal the population's."""
 
     track_id: str
     cluster: str
     truth: str
-    run: TrackRun | None
+    run: "TrackRun | _NoRun"
 
 
 @dataclass(frozen=True, slots=True)
@@ -905,6 +966,12 @@ class _Prepared:
     run: TrackRun | None
 
 
+def _require_population(population: object) -> ClosedPopulation:
+    if not isinstance(population, ClosedPopulation) or not _is_sealed(_POP, population):
+        raise ValueError("d_population_not_from_closed_population")
+    return population
+
+
 def _verify_queries(queries: QuerySet, population_manifest_sha256: str, generator_config_sha256: str,
                     query_set_sha256: str) -> None:
     """Item 12: the query set is regenerated from its own truths and parameters, and must equal itself and the frozen
@@ -918,19 +985,35 @@ def _verify_queries(queries: QuerySet, population_manifest_sha256: str, generato
         raise ValueError("d_query_set_not_frozen")
 
 
-def _prepare(items: Sequence[TrackItem], queries: QuerySet, detector_floor: float, detector: ComponentIdentity,
-             recogniser: ComponentIdentity) -> tuple[list[_Prepared], dict]:
+def _prepare(items: Sequence[TrackItem], population: ClosedPopulation, queries: QuerySet, detector_floor: float,
+             detector: ComponentIdentity, recogniser: ComponentIdentity) -> tuple[list[_Prepared], dict]:
+    """Items must cover EXACTLY the population's Tracks, with an explicit run state for each; returned in population
+    order. A Track with MAVI evidence needs a sealed run (never ``NO_RUN``); one without needs ``NO_RUN``."""
+    population = _require_population(population)
     _identity(detector, "d_detector_identity_required")
     _identity(recogniser, "d_recogniser_identity_required")
-    seen: set[str] = set()
+    by_id: dict[str, TrackItem] = {}
+    for item in items:
+        if not isinstance(item, TrackItem):
+            raise ValueError("d_item_type")
+        if item.track_id in by_id:
+            raise ValueError("d_population_duplicate_track")
+        by_id[item.track_id] = item
+    if set(by_id) != {pt.track_id for pt in population.tracks}:
+        raise ValueError("d_items_do_not_cover_the_closed_population")  # a Track can be neither dropped nor added
     prepared = []
     accounting = {"text": 0, "unsupported": 0, "unqueryable": 0, "no-plate": 0, "unreadable": 0, "no-gt-vehicle": 0}
-    for item in items:
-        if not isinstance(item.truth, str) or not item.truth.strip():
-            raise ValueError("d_truth_empty_or_missing")
-        if item.track_id in seen:
-            raise ValueError("d_population_duplicate_track")
-        seen.add(item.track_id)
+    for pt in population.tracks:
+        item = by_id[pt.track_id]
+        if (item.cluster, item.truth) != (pt.cluster, pt.truth):
+            raise ValueError("d_item_does_not_match_the_population")
+        if pt.has_mavi_evidence:
+            if item.run is NO_RUN or item.run is None:
+                raise ValueError("d_evidence_track_without_a_sealed_run")  # a failed run cannot become NO_RUN
+        elif item.run is not NO_RUN:
+            raise ValueError("d_no_evidence_track_must_be_no_run")
+        run = None if item.run is NO_RUN else item.run
+        item = replace(item, run=run)
         if item.run is not None:
             _require_run(item.run, "d_run_not_from_ranking_path")
             if not is_ranking_profile(item.run.parameters):
@@ -1064,35 +1147,32 @@ def _score(prepared: Sequence[_Prepared], queries: QuerySet, accounting: dict) -
                       dict(accounting))
 
 
-def population_digest(items: Sequence[TrackItem]) -> str:
-    """Canonical digest of a scored population: sorted (track id, cluster, truth, run present)."""
-    rows = sorted([item.track_id, item.cluster, item.truth, item.run is not None] for item in items)
-    return _canonical_sha256({"population": rows})
-
-
-def evaluate_tracks(items: Sequence[TrackItem], queries: QuerySet, *, population_manifest_sha256: str,
+def evaluate_tracks(items: Sequence[TrackItem], queries: QuerySet, *, population: ClosedPopulation,
                     generator_config_sha256: str, query_set_sha256: str, detector_floor: float,
                     detector: ComponentIdentity, recogniser: ComponentIdentity) -> TrackScore:
-    """D on the ranking profile only, at the candidate's pinned detector floor, on the frozen query set, for exactly the
-    composition whose sealed runs these are. Any contract violation makes the composition CONTRACT_FAIL."""
-    _verify_queries(queries, population_manifest_sha256, generator_config_sha256, query_set_sha256)
-    prepared, accounting = _prepare(items, queries, detector_floor, detector, recogniser)
-    score = replace(_score(prepared, queries, accounting), population_manifest_sha256=population_manifest_sha256,
+    """D on the ranking profile only, at the candidate's pinned detector floor, on the frozen query set and the closed
+    population, for exactly the composition whose sealed runs these are. Any contract violation is CONTRACT_FAIL."""
+    population = _require_population(population)
+    _verify_queries(queries, population.population_manifest_sha256, generator_config_sha256, query_set_sha256)
+    prepared, accounting = _prepare(items, population, queries, detector_floor, detector, recogniser)
+    score = replace(_score(prepared, queries, accounting),
+                    population_manifest_sha256=population.population_manifest_sha256,
                     generator_config_sha256=generator_config_sha256, query_set_sha256=query_set_sha256,
-                    detector=detector, recogniser=recogniser, population_digest=population_digest(items))
+                    detector=detector, recogniser=recogniser, population_digest=population.digest)
     return _seal(_D, score)
 
 
 def diagnostic_evaluate_at_floor(items: Sequence[TrackItem], queries: QuerySet, floor: float, *,
-                                 population_manifest_sha256: str, generator_config_sha256: str,
+                                 population: ClosedPopulation, generator_config_sha256: str,
                                  query_set_sha256: str, detector_floor: float, detector: ComponentIdentity,
                                  recogniser: ComponentIdentity) -> DiagnosticTrackScore:
     """DIAGNOSTIC ONLY (D6): D as PR-3 would publish it at another OCR floor. The result is a ``DiagnosticTrackScore``,
     which no gate, comparison or ranking function accepts."""
     if floor not in DIAGNOSTIC_OCR_FLOORS:
         raise ValueError("diagnostic_floor_not_declared")
-    _verify_queries(queries, population_manifest_sha256, generator_config_sha256, query_set_sha256)
-    prepared, accounting = _prepare(items, queries, detector_floor, detector, recogniser)
+    population = _require_population(population)
+    _verify_queries(queries, population.population_manifest_sha256, generator_config_sha256, query_set_sha256)
+    prepared, accounting = _prepare(items, population, queries, detector_floor, detector, recogniser)
     refloored = []
     for p in prepared:
         run = p.run
@@ -1138,8 +1218,10 @@ def percentile_indices(replicates: int) -> tuple[int, int]:
 
 
 def _pairing(items_a: Sequence[TrackItem], items_b: Sequence[TrackItem]) -> None:
-    key = lambda i: (i.track_id, i.truth, i.cluster, i.run is not None)  # noqa: E731
-    if [key(i) for i in items_a] != [key(i) for i in items_b]:
+    """Both candidates cover the same Track ids with the same site and truth (run states are each candidate's own,
+    and are checked against the population in ``_prepare``)."""
+    key = lambda i: (i.track_id, i.truth, i.cluster)  # noqa: E731
+    if sorted(key(i) for i in items_a) != sorted(key(i) for i in items_b):
         raise ValueError("paired_population_mismatch")
 
 
@@ -1151,7 +1233,7 @@ def _draws(rng: random.Random, members: dict[str, list[int]], names: list[str]) 
     return picked
 
 
-def _bootstrap_replicates(items_a, items_b, queries, *, replicates: int, seed: int, population_manifest_sha256: str,
+def _bootstrap_replicates(items_a, items_b, queries, *, replicates: int, seed: int, population: ClosedPopulation,
                           generator_config_sha256: str, query_set_sha256: str, detector_floor_a: float,
                           detector_floor_b: float, composition_a: tuple[ComponentIdentity, ComponentIdentity],
                           composition_b: tuple[ComponentIdentity, ComponentIdentity],
@@ -1162,9 +1244,10 @@ def _bootstrap_replicates(items_a, items_b, queries, *, replicates: int, seed: i
     if not (isinstance(replicates, int) and not isinstance(replicates, bool) and replicates >= 1):
         raise ValueError("bootstrap_replicates_invalid")
     _pairing(items_a, items_b)
-    _verify_queries(queries, population_manifest_sha256, generator_config_sha256, query_set_sha256)
-    pa, _ = _prepare(items_a, queries, detector_floor_a, *composition_a)
-    pb, _ = _prepare(items_b, queries, detector_floor_b, *composition_b)
+    population = _require_population(population)
+    _verify_queries(queries, population.population_manifest_sha256, generator_config_sha256, query_set_sha256)
+    pa, _ = _prepare(items_a, population, queries, detector_floor_a, *composition_a)
+    pb, _ = _prepare(items_b, population, queries, detector_floor_b, *composition_b)
     if any(p.run is not None and p.run.contract_violation is not None for p in (*pa, *pb)):
         raise ValueError("bootstrap_refuses_a_contract_violating_run")
     members: dict[str, list[int]] = {}
@@ -1202,7 +1285,7 @@ def required_clusters(calibration_minimum: int) -> int:
 
 
 def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[TrackItem], queries: QuerySet, *,
-                             calibration_minimum_clusters: int, population_manifest_sha256: str,
+                             calibration_minimum_clusters: int, population: ClosedPopulation,
                              generator_config_sha256: str, query_set_sha256: str, detector_floor_a: float,
                              detector_floor_b: float, composition_a: tuple[ComponentIdentity, ComponentIdentity],
                              composition_b: tuple[ComponentIdentity, ComponentIdentity], freeze: "BaselineFreeze",
@@ -1224,8 +1307,8 @@ def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[Tra
         raise ValueError("bootstrap_replicates_must_be_the_frozen_value")
     seed = freeze.bootstrap_seed
     _pairing(items_a, items_b)
-    binding = dict(population_manifest_sha256=population_manifest_sha256,
-                   generator_config_sha256=generator_config_sha256, query_set_sha256=query_set_sha256)
+    binding = dict(population=population, generator_config_sha256=generator_config_sha256,
+                   query_set_sha256=query_set_sha256)
     a = evaluate_tracks(items_a, queries, detector_floor=detector_floor_a, detector=composition_a[0],
                         recogniser=composition_a[1], **binding)
     b = evaluate_tracks(items_b, queries, detector_floor=detector_floor_b, detector=composition_b[0],
@@ -1234,7 +1317,7 @@ def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[Tra
     _refuse_benchmark_only(b, freeze)
     if a.population_digest != b.population_digest:
         raise ValueError("comparison_populations_differ")
-    clusters = sorted({i.cluster for i in items_a})
+    clusters = sorted({pt.cluster for pt in population.tracks})
     per_cluster, signs = {}, {"a": 0, "b": 0, "tie": 0, "insufficient": 0}
 
     def result(outcome, difference=None, lower=None, upper=None, insufficient=0):
@@ -1245,8 +1328,8 @@ def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[Tra
         return result("contract-fail")
     if a.d_score is None or b.d_score is None:
         return result("insufficient-evidence")
-    pa, _ = _prepare(items_a, queries, detector_floor_a, *composition_a)
-    pb, _ = _prepare(items_b, queries, detector_floor_b, *composition_b)
+    pa, _ = _prepare(items_a, population, queries, detector_floor_a, *composition_a)
+    pb, _ = _prepare(items_b, population, queries, detector_floor_b, *composition_b)
     n_contains = _contains_queries(queries)
     for name in clusters:
         ca, cb = TrackCounts(), TrackCounts()
