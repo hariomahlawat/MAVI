@@ -1103,6 +1103,10 @@ def test_published_schemas_accept_derived_seals_and_layer_a_results():
         jsonschema.validate(proof[GATE]["layerA"], layer_schema)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(dict(stopped_evidence(document)[GATE]["seal"], partnerCandidateId="PD-A"), seal_schema)
+    d_schema = json.loads((schemas / "mavi-model-selection-d-manifest-v1.schema.json").read_text())
+    binding = bs.SealBinding(GATE, document_sha256(evidence(document)[GATE]["seal"]), "a" * 40, "PD-A",
+                             identity_of("pda"), sha("composition"))
+    jsonschema.validate(bs.d_manifest_document(document, "RUN-1", sha("d"), [binding]), d_schema)
 
 
 def test_a_stop_survives_later_inputs_and_a_protocol_revision(tmp_path):

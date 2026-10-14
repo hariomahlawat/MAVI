@@ -109,9 +109,12 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
      what the frozen rule re-derives from the frozen ledger, the protocol hash, the partner event's frozen ledger and
      the committed Layer-A result. Re-sealing to another partner therefore needs a different Layer-A result.
    - **Ordering is proven by hashes, not by timestamps.** The event record cites the seal on exactly one structured
-     line, `Baseline seal <compositionId> SHA-256: <hash>`, equal to the file. With full Git history, seal and
-     Layer-A files are add-only and record citations never change (machine-checked); without it (shallow clone)
-     that is a reviewer item. Every protected D
+     line, `Baseline seal <compositionId> SHA-256: <hash>`, equal to the file. With full Git history, seal, Layer-A
+     and D-manifest files are add-only and record citations never change (machine-checked). Every protected-D
+     artefact (committed `<event-id>-d-manifest-<manifestId>.json`, and the decision summary) cites the seal hash and
+     the seal commit, which must hold those bytes and be a strict ancestor of the commit that added the artefact
+     (owner decision 2). Without full history an event holding a D artefact is refused; the `repo contracts` CI job
+     checks out full history for this. Every protected D
      manifest and result, the BOB's decision row and every ordinary composition's D result carry it, so none of them
      can exist before the seal. Once any of them exists, a changed seal no longer matches what it recorded and is
      refused. That makes the resolution immutable once D has started.
@@ -221,6 +224,7 @@ credibility requirements for candidate selection or implementation.
 | seal (RESOLVED) | `baseline_seal_differs_from_frozen_inputs`, `baseline_seal_partner_not_derived`, `baseline_seal_not_derivable`, `baseline_seal_d_state_contradicted`, `baseline_resolved_before_freeze` |
 | seal (STOPPED) | `baseline_stop_evidence_required`, `baseline_stop_reason_contradicted`; no partner field (`unknown_field`) |
 | repository mode | `baseline_seal_not_canonical`, `layer_a_result_not_canonical`, `baseline_seal_not_recorded`, `baseline_seal_cited_twice`, `baseline_seal_cited_without_file`, `baseline_artefact_without_frozen_composition`; with full Git history `baseline_artefact_rewritten_in_history`, `baseline_seal_citation_changed`, `decision_baseline_seal_commit_mismatch` |
+| seal chronology (owner decision 2) | `d_manifest_not_canonical`, `d_manifest_location_mismatch`, `d_manifest_baseline_seal_mismatch`, `d_manifest_without_frozen_composition`, `d_artefact_seal_commit_mismatch`, `d_artefact_seal_commit_not_ancestral`, `baseline_seal_history_unavailable`, `baseline_stopped_no_d_result` |
 | cold-review additions | `baseline_stop_reason_contradicted` (absent-input stop), `baseline_d_access_not_recorded`, `baseline_partner_universe_not_the_shortlist`, `excluded_partners_not_sorted_unique_disjoint`, `benchmark_baseline_bytes_as_partner`, `benchmark_baseline_without_gate`; BOB bytes as a component: `benchmark_baseline_in_composition_candidate` |
 | harness API | `baseline_seal_missing`, `baseline_seal_not_committed`, `baseline_seal_stopped_no_d`, `d_manifest_baseline_seal_mismatch`, `baseline_seal_git_unavailable` |
 | evaluated set = shortlist + BOBs | `evaluated_set_differs_from_shortlist` |
@@ -237,15 +241,16 @@ credibility requirements for candidate selection or implementation.
 exemption runs on NFKC/case-folded text with combining marks and invisible format characters removed, Unicode dashes
 folded and whitespace runs folded. It is fail-closed: the phrase is exempt only after the start of the text, a
 phrase-opening punctuation mark, a clause end, or a word from a small closed allowlist of determiners, prepositions and
-plate-domain modifiers (`candidate-credibility.md` §4). Any other word, and any hyphen before "license", keeps it
-refused. The remainder is folded through a small Cyrillic/Greek/Armenian confusable table before "licen" is searched.
+plate-domain modifiers, with no conjunction or preposition other than "per" (owner decision 2026-10-14;
+`candidate-credibility.md` §4). Any other word, and any hyphen before "license", keeps it refused. The remainder is folded through a small Cyrillic/Greek/Armenian confusable table before "licen" is searched.
 The benign phrasings this refuses are listed for the owner (`DOCUMENTED_FALSE_POSITIVES`).
 
 **Not machine-checked (review rules, M1 §9):**
 - that the Layer-A rank keys were computed by the frozen ranking rule from the Layer-A measurements. The validator
   checks the derivation from the keys; the harness that writes the Layer-A result is bound by the rule hash;
-- without full Git history (shallow clone, CI): that no seal, Layer-A file or record citation was rewritten in place,
-  and that a decision `sealCommit` holds the seal bytes;
+- before any D artefact exists and without full Git history: that no seal, Layer-A file or record citation was
+  rewritten in place (with a D artefact, missing history is a refusal);
+- that every protected D run committed its D manifest;
 - that the Layer-A result was committed before the seal and the seal before protected D data was read, beyond what the
   hash chain proves (rule 4a). The harness check (`require_committed_baseline_seal`) proves it at D time; a later
   coordinated rewrite of the Layer-A result, the seal, the record, the decision and every D manifest is a Git-review

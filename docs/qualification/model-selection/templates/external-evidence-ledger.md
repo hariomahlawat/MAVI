@@ -220,6 +220,13 @@ afterwards; the event record cites each seal on exactly one line `Baseline seal 
  "protectedDState": "NOT_STARTED", "recordedAt": "YYYY-MM-DDThh:mm:ssZ", "recordedBy": "…"}
 ```
 
+A protected-D manifest binding, committed in a commit after the seal's (`d_manifest_document`):
+
+```json
+{"schema": "mavi-model-selection-d-manifest-v1", "eventId": "…", "manifestId": "…", "resultSha256": "…",
+ "baselineSeals": [{"compositionId": "…", "sealSha256": "…", "sealCommit": "<strict ancestor of this file's first commit>"}]}
+```
+
 A STOPPED seal has the same common fields (`partnerFrozenLedgerSha256` and `layerAResultSha256` may be `null`),
 `"status": "STOPPED"`, `"protectedDAccessedAt"` (an instant for a `protected-d-accessed` stop, else `null`), `"stopReason"` (one of `no-partner-passed-layer-a`, `partner-event-missing`,
 `partner-event-inconsistent`, `partner-universe-inconsistent`, `identity-mismatch`, `resolution-ambiguous`,
