@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError } from '../../api/client';
@@ -99,7 +99,13 @@ export default function VideosPage() {
   // failed row its first run lookup (its progress, phase or failure detail).
   // Drawn before those answers, a row re-wraps as each lands and every row
   // beneath moves (§38); a later refresh updates its row in place.
-  const ledgerState = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending && processing.pending === 0);
+  // Only the first drawing waits (cold review P1): once drawn, a refetch that
+  // adds a row, a queued row's new lookup or a widened filter updates the
+  // table in place — the new row shows its own loading — and never blanks it.
+  const drawn = useRef(false);
+  const held = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending && processing.pending === 0);
+  if (held.kind !== 'loading') drawn.current = true;
+  const ledgerState = drawn.current ? fromQuery(videos) : held;
   const ledgerReady = ledgerState.kind !== 'loading';
 
   // One mutation serves every row, so which rows are being queued, and which

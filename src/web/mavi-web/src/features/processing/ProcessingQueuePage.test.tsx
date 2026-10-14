@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
@@ -312,6 +312,25 @@ describe('ProcessingQueuePage', () => {
     const row = within(table).getAllByRole('row')[1];
     expect(row.querySelector('.ledger-folded .queue-reserve')).toBeNull();
     expect(row.querySelectorAll('.ledger-folded .ledger-folded__value').length).toBeGreaterThan(0);
+  });
+
+  it('keeps the queue drawn when a refetch adds a video whose lookup is still out; only its row waits (§38, cold review P1)', async () => {
+    const { queryClient } = renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    const table = await screen.findByRole('table');
+    const arrived = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21425', 'Queued');
+    vi.mocked(getProcessingStatus).mockImplementation((id) => (id === arrived.id
+      ? new Promise(() => {})
+      : Promise.resolve({ videoStatus: 'Processed', latestRun: run('Completed', { progressPercent: 100, tracksCreated: 42 }) })));
+    vi.mocked(listVideos).mockResolvedValue([done, idle, failed, running, arrived]);
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.videos }); });
+
+    await waitFor(() => expect(listVideos).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(arrived.originalFileName)).toBeInTheDocument());
+    expect(screen.getByRole('table')).toBe(table);
+    // The new row holds its run's shape, hidden, while its lookup is out; the
+    // rows already drawn keep theirs.
+    const newRow = within(table).getAllByRole('row').find((row) => row.textContent?.includes(arrived.originalFileName)) as HTMLElement;
+    expect(newRow.querySelectorAll('.ledger-folded .queue-reserve').length).toBeGreaterThan(0);
   });
 
   describe('M2: the run-status retry in the capped status cell', () => {

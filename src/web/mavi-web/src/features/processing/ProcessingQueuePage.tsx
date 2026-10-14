@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { isFinalizationFailure, isFinalizing, listVideos } from '../../api/videos';
@@ -86,7 +86,13 @@ export default function ProcessingQueuePage() {
   // beside them by a different amount from run to run (§38). The queue is
   // drawn once they have all settled; a row whose lookup failed arrives with
   // its failure, and a later refresh updates its row in place.
-  const ledgerState = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending && processing.pending === 0);
+  // Only the first drawing waits (cold review P1): once drawn, a refetch that
+  // adds a row, a queued row's new lookup or a widened filter updates the
+  // table in place — the new row shows its own loading — and never blanks it.
+  const drawn = useRef(false);
+  const held = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending && processing.pending === 0);
+  if (held.kind !== 'loading') drawn.current = true;
+  const ledgerState = drawn.current ? fromQuery(videos) : held;
   const ledgerReady = ledgerState.kind !== 'loading';
 
   const counts = useMemo(() => {
