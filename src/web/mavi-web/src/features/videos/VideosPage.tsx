@@ -314,6 +314,12 @@ export default function VideosPage() {
                             {row.processingStatus === 'Failed' && run?.failureCode ? (
                               <code><TruncatedText text={run.failureCode} className="cap-sm" /></code>
                             ) : null}
+                            {/* Owner ruling 3 (§38): while the row's run is out, the
+                                status line holds, unseen, the inline value its
+                                status will carry, so the column is already as
+                                wide as it will be when the run lands. */}
+                            {!run && liveState.kind === 'loading' && active ? <span className="queue-reserve" aria-hidden="true"><Progress value={0} inline /></span> : null}
+                            {!run && liveState.kind === 'loading' && row.processingStatus === 'Failed' ? <code className="queue-reserve" aria-hidden="true"><span className="truncate cap-sm">vision_job_attempts_exhausted</span></code> : null}
                           </span>
                           {/* The run's phase, where it says more than the badge (§16). */}
                           {active && isFinalizing(run) ? <span className="run-cell__line"><TruncatedText text="Run: Finalizing" /></span> : null}

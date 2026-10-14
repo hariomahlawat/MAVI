@@ -568,3 +568,22 @@ describe('VideosPage — drawn once, then updated in place (§38; cold review P1
     expect(screen.queryByText('Loading videos…')).not.toBeInTheDocument();
   });
 });
+
+describe('VideosPage — a slow run lookup holds its row, not the table (owner ruling 3, §38)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+  });
+
+  it('draws every row at once; the slow row holds its run’s inline shape, unseen', async () => {
+    const moving = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21426', { originalFileName: 'gate-live.mp4', processingStatus: 'Processing', recordingStartUtc: '2026-09-15T02:00:00Z' });
+    vi.mocked(listVideos).mockResolvedValue([moving, failed, processed]);
+    vi.mocked(getProcessingStatus).mockImplementation((id) => (id === moving.id ? new Promise(() => {}) : Promise.resolve({ videoStatus: 'Failed', latestRun: null })));
+    renderWithApp(<VideosPage />, { route: '/videos' });
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('dock-night.mp4')).toBeInTheDocument();
+    const slow = within(table).getByText('gate-live.mp4').closest('tr') as HTMLElement;
+    expect(slow.querySelector('.run-cell .queue-reserve[aria-hidden="true"] .progress--inline')).not.toBeNull();
+  });
+});
