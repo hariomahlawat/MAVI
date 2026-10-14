@@ -95,15 +95,15 @@ export default function VideosPage() {
   );
   const processing = useVideoProcessing(runStatusIds);
   // The rows are drawn once, in their final layout: their timestamps need the
-  // display timezone, their camera cells the camera metadata, and a moving or
-  // failed row its first run lookup (its progress, phase or failure detail).
-  // Drawn before those answers, a row re-wraps as each lands and every row
-  // beneath moves (§38); a later refresh updates its row in place.
+  // display timezone and their camera cells the camera metadata. Drawn before
+  // either answer, a row re-wraps when it lands and every row beneath moves
+  // (§38). A row's own run lookup never holds the table: the row is drawn at
+  // once and its run cell holds its final geometry while the lookup is out.
   // Only the first drawing waits (cold review P1): once drawn, a refetch that
   // adds a row, a queued row's new lookup or a widened filter updates the
   // table in place — the new row shows its own loading — and never blanks it.
   const drawn = useRef(false);
-  const held = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending && processing.pending === 0);
+  const held = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending);
   if (held.kind !== 'loading') drawn.current = true;
   const ledgerState = drawn.current ? fromQuery(videos) : held;
   const ledgerReady = ledgerState.kind !== 'loading';

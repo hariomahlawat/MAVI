@@ -81,16 +81,11 @@ export default function ProcessingQueuePage() {
   // Drawn before either answer, a row re-wraps when it arrives and every row
   // beneath moves (§38). Each row's run lookup is its own region (§37.1),
   // reserved at its final shape while it loads, not this hold.
-  // And, on the queue, every row's first run lookup: each landed in its own
-  // frame and re-sized the status and timing columns, moving the columns
-  // beside them by a different amount from run to run (§38). The queue is
-  // drawn once they have all settled; a row whose lookup failed arrives with
-  // its failure, and a later refresh updates its row in place.
   // Only the first drawing waits (cold review P1): once drawn, a refetch that
   // adds a row, a queued row's new lookup or a widened filter updates the
   // table in place — the new row shows its own loading — and never blanks it.
   const drawn = useRef(false);
-  const held = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending && processing.pending === 0);
+  const held = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending);
   if (held.kind !== 'loading') drawn.current = true;
   const ledgerState = drawn.current ? fromQuery(videos) : held;
   const ledgerReady = ledgerState.kind !== 'loading';

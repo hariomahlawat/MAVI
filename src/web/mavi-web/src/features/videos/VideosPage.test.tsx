@@ -490,10 +490,8 @@ describe('VideosPage — R2 actions, run lookups and failure copy', () => {
     const user = userEvent.setup();
     vi.mocked(getProcessingStatus).mockRejectedValue(new Error('down'));
     renderWithApp(<VideosPage />, { route: '/videos' });
-    // The rows are drawn once their first run lookups have settled (§38): this
-    // one fails only after its retry, and the row arrives with its failure said.
-    const row = (await screen.findByText('dock-night.mp4', undefined, { timeout: 5000 })).closest('tr') as HTMLElement;
-    expect(within(row).getByText('Failure detail unavailable')).toBeInTheDocument();
+    const row = await rowOf('dock-night.mp4');
+    expect(await within(row).findByText('Failure detail unavailable', undefined, { timeout: 5000 })).toBeInTheDocument();
 
     vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: run({ failureCode: 'vision_job_attempts_exhausted' }) });
     // Distinct from the row's own Retry (processing): one control per meaning.
