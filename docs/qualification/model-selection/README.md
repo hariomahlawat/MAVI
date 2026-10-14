@@ -1,4 +1,4 @@
-# Model Selection Records — Methodology (MSR method v1, revisions M1/M2)
+# Model Selection Records — Methodology (MSR method v1, revisions M1/M2/M3)
 
 **Status:** Accepted — PR #115 merged the independently reviewed MSR method v1 at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; that merge is the acceptance event. Future learned Model Pack selections must follow the accepted ADR-014 Model Selection Records note. S2c.0 records/reconciles the accepted method into the implementation baseline; it does not create a second acceptance event. **Revision M1** (candidate credibility and admissibility, `candidate-credibility.md`, slice S2c.2a) is an additive revision of v1, merged in PR #118 at `main@db2b25a24d0f850c3841a9eabcb915f7c92eebfb` (§14).
 **Scope:** every learned component MAVI binds through a Model Pack. That includes detectors, trackers with learned parts, person and vehicle attributes, embeddings, re-identification, segmentation, OCR, VLMs, and any later capability.
@@ -100,7 +100,7 @@ PLANNED → PROTOCOL_FROZEN → EVALUATING → TECHNICAL_DECISION_RECORDED → Q
 A `CLOSED` event has exactly one **outcome**:
 - `SELECTED_FOR_PACKAGING`: an implementation candidate goes on to become a Model Pack.
 - `INCUMBENT_RETAINED`: no challenger justified replacement.
-- `BASELINE_SELECTED`: no learned candidate beat the deterministic baseline, and the baseline is packaged.
+- `BASELINE_SELECTED`: no learned candidate beat the deterministic baseline, and the baseline is packaged. A benchmark-only baseline (M3) can never produce `BASELINE_SELECTED`; with no ranked candidate past the gates the outcome is `NO_QUALIFIABLE_CANDIDATE`.
 - `NO_QUALIFIABLE_CANDIDATE`: the capability or attribute stays disabled.
 
 `CLOSED` does not mean qualified. Qualification of the resulting pack is decided by its qualification record and reported back through an addendum.
@@ -109,7 +109,7 @@ A `CLOSED` event has exactly one **outcome**:
 
 Each candidate carries **two independent status axes** and a **role**. They are never collapsed into one field. Revision M1 adds a third, independent **credibility class** (`established`, `emerging`, `reference-only`, `excluded-discovery`, `mavi-owned`), computed from the event's External Evidence Ledger (`candidate-credibility.md` §3). It restricts which candidates may be `SHORTLISTED` and which may become the implementation candidate. It never enters the technical ranking.
 
-**Role:** `baseline` (deterministic/simple floor), `incumbent` (the currently bound pack, if any), `challenger`, or `reference` (reported only, never evaluated).
+**Role:** `baseline` (deterministic/simple floor), `incumbent` (the currently bound pack, if any), `challenger`, `reference` (reported only, never evaluated), or `benchmark-only-baseline` (M3, §14.3: a `reference-only` third-party component measured only to define frozen baselines or gates; never selectable).
 
 **Technical disposition:**
 
@@ -119,7 +119,8 @@ DISCOVERED ─→ SHORTLISTED ─→ EVALUATED ─→ TECHNICALLY_SELECTED
     │              │             └──────→ REJECTED_TECHNICAL      (failed a technical gate, or dominated where the governing protocol defines dominance, §8.2; gate/measurement cited)
     │              ├──────────────────→ DEFERRED                  (evidence or resources insufficient; revisit trigger stated)
     │              └──────────────────→ REFERENCE_ONLY            (could not be evaluated: permission, availability; or under M1 held for credibility; reported evidence kept, marked not reproduced)
-    └──────────────────────────────────→ NOT_SHORTLISTED          (technical reason recorded, or under M1 the credibility reason of an excluded discovery; never a licence reason)
+    ├──────────────────────────────────→ NOT_SHORTLISTED          (technical reason recorded, or under M1 the credibility reason of an excluded discovery; never a licence reason)
+    └──────────────────────────────────→ BENCHMARK_BASELINE       (M3; `reference-only` class only; measured for a frozen gate, never ranked, derived or implemented)
 ```
 
 **Licence / deployment qualification status** (per target deployment profile; independent of technical disposition):
@@ -181,7 +182,7 @@ Some capabilities are served by one Model Pack that composes components solving 
    - every tuple of finalists that **share a backbone** (one tower serving both sub-tasks with separate heads), which is evaluated as its own candidate because its heads are trained on the shared features;
    - the protocol's cap on further tuples from the finalist product, ordered by the sum of sub-task ranks.
 
-   Non-packageable baselines never enter a tuple. Each composition is written as an exact tuple (`<T-PC component>`, `<T-PO component>`, optional shared backbone or region component), each element with its exact identity (§5). No composition may be proposed after results are seen.
+   Non-packageable baselines never enter a ranked tuple. A gate-only baseline composition (M3, §14.3) is measured only as the frozen comparison for the compositions its protocol names. It is never a composition candidate, frontier member, finalist or ranked row. Each composition is written as an exact tuple (`<T-PC component>`, `<T-PO component>`, optional shared backbone or region component), each element with its exact identity (§5). No composition may be proposed after results are seen.
 3. **Composition evaluation**, on the same partitions and hosts. Each composition records:
    - combined per-attribute quality, with each sub-task's primary metrics taken from its components;
    - end-to-end CPU latency per crop and per Track, and aggregate throughput;
@@ -344,6 +345,7 @@ For non-S2c events, a record at `TECHNICAL_DECISION_RECORDED` or later states ea
 | Deltas | quality and resource deltas between each pair of the fields above that differ: highest task-quality vs strongest evaluated technical, which shows when accuracy lost on cost or scale; strongest evaluated technical vs strongest cleared; strongest cleared vs implementation |
 | Projected system-scale footprint | per finalist or composition (§7.1) |
 | Evidence, risks, qualification status | evidence by hash; unresolved risks and assumptions; qualification status |
+| Benchmark-only baselines (M3) | each benchmark-only component and each sealed gate-only baseline composition, reported separately under "benchmark-only baseline — not a selectable candidate". They never appear in any field above |
 
 Once they exist, the identities follow, recorded when created and by reference:
 - Model Pack id;
@@ -448,6 +450,9 @@ Revisions are additive and numbered, and never silently rewrite an earlier rule.
 - **What changes:** M1 adds a precondition to the owner's implementation choice (§4): an implementation candidate must now also be `established`. It also adds a shortlist precondition and three event files: the ledger, its frozen copy and the decision summary. The technical ranking, the licence axis, the outcomes and the qualification-record link are unchanged.
 - **What does not change:** no ADR, contract, schema of any existing record, or gate set. ADR-014's Model Selection Records note governs the method, including its revisions. The note's decision list (three separate assessments, exact bytes, reported versus measured evidence) is what M1 strengthens.
 
+| **M3** Benchmark-only baseline component and derived gate-only composition | Stage-4 PR-2 | `proposals/m3-benchmark-only-baseline.md`; `candidate-credibility.md` §3, §4, §8, §9, §11; validator `credibility.py` (`BENCHMARK_BASELINE`, `msr-v1-m3`) | **proposed — governing only when merged after independent review and exact-head CI** |
+
+See §14.3 for M3.
 
 ### 14.1 M2 — S2c joint operational decisions
 
@@ -474,3 +479,12 @@ Run `python tools/qualification/s2c_operational_check.py repository`, `python to
 ### 14.2 Architecture closure principle
 
 After this implementation and one independent post-implementation review, the S2c selection/qualification architecture is considered closed. Subsequent changes should address material defects found during execution, qualification or production integration. New machinery is justified only when it materially improves quality, reproducibility, operational feasibility, auditability or deployment legality. This principle does not enlarge this slice or weaken existing gates.
+
+### 14.3 M3 — benchmark-only baseline role (proposed)
+
+The `BENCHMARK_BASELINE` disposition applies only to a third-party candidate whose computed M1 class is `reference-only`, in an `msr-v1-m3` ledger and decision summary v1. Decision v2 (M2/S2c) is unchanged and refuses it. M3 separates two things:
+
+- the **benchmark-only component** (for example a Tesseract baseline). Its exact identity, per-host byte manifests, configuration and evaluation permissions are fully pinned before `PROTOCOL_FROZEN`;
+- the **derived gate-only baseline composition**. Its finite partner universe (exact identities), deterministic derivation rule, ranking/tie-break hash and gate-set hash are frozen before any scoring. The exact composition is then resolved mechanically after the frozen pre-gate layer and sealed before any protected data is read. This is not a late candidate addition, and it permits no owner choice.
+
+*M3 trade-off:* the owner's wording is in `proposals/m3-benchmark-only-baseline.md` §5.

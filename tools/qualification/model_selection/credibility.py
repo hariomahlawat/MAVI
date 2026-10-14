@@ -18,6 +18,12 @@ module enforces the rules marked **[checked]** there, on three documents:
   the ranking, and gates the implementation candidate on clearance and an
   ``established`` class on the decision date.
 
+Method revision M3 (``proposals/m3-benchmark-only-baseline.md``) adds the
+``BENCHMARK_BASELINE`` disposition. It applies to ``reference-only`` candidates in
+``msr-v1-m3`` ledgers and decision summary v1 only. Such a candidate is measured solely
+to define frozen comparative gates, is never ranked, derived or implemented, and is
+refused anywhere in decision v2.
+
 Standard library only; nothing here reads the network, a model or imagery.
 """
 
@@ -34,6 +40,7 @@ from pathlib import Path
 LEDGER_SCHEMA = "mavi-external-evidence-ledger-v1"
 DECISION_SCHEMA = "mavi-model-selection-decision-v1"
 METHOD_REVISION = "msr-v1-m1"
+METHOD_REVISION_M3 = "msr-v1-m3"
 UNKNOWN = "UNKNOWN"
 REPORTED_LABEL = "reported, not reproduced by MAVI"
 
@@ -80,18 +87,20 @@ CLAIM_KINDS = ("task-quality", "runtime")
 DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED = (
     "DISCOVERED", "SHORTLISTED", "NOT_SHORTLISTED", "REFERENCE_ONLY", "DEFERRED",
 )
-DISPOSITIONS = (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED)
+BENCHMARK_BASELINE = "BENCHMARK_BASELINE"  # M3: measured only to define frozen gates; never ranked
+DISPOSITIONS = (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED, BENCHMARK_BASELINE)
 REASONS_BY_DISPOSITION = {
     DISCOVERED: (),
     SHORTLISTED: (),
     NOT_SHORTLISTED: ("technical", "credibility"),
     REFERENCE_ONLY: ("credibility", "evaluation-permission", "availability"),
     DEFERRED: ("technical", "resources", "availability"),
+    BENCHMARK_BASELINE: ("technical",),
 }
 DISPOSITIONS_BY_CLASS = {
     ESTABLISHED: (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED),
     EMERGING: (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED),
-    REFERENCE: (DISCOVERED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED),
+    REFERENCE: (DISCOVERED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED, BENCHMARK_BASELINE),
     EXCLUDED: (DISCOVERED, NOT_SHORTLISTED),
     MAVI_OWNED: (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, DEFERRED),
 }
@@ -114,6 +123,9 @@ LICENCE_STATUSES = ("NOT_ASSESSED", "REVIEW_PENDING", "CLEARED", "CONSTRAINED", 
 CLEARED = "CLEARED"
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+UTC_INSTANT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+EVENT_ID_RE = re.compile(r"^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\d{4}-\d{2}$")
+NOT_APPLICABLE = "n/a"
 IMMUTABLE_REVISION_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 TOKEN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 CANDIDATE_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$")
@@ -571,7 +583,7 @@ def _check_structure(entry: dict, ledger: dict, where: str) -> dict[str, dict]:
          "architecture", "evidence", "claims", "popularitySignals", "caveats", "classification",
          "classificationHistory", "disposition"),
         where,
-        optional=("methodCode",),
+        optional=("methodCode", "benchmarkBaseline"),
     )
     _match(entry["candidateId"], CANDIDATE_ID_RE, f"{where}.candidateId")
     _text(entry["candidateName"], f"{where}.candidateName")
@@ -829,6 +841,10 @@ def _check_disposition(entry: dict, items: Mapping[str, dict], computed: str, co
         _optional_text(disposition["revisitTrigger"], f"{where}.disposition.revisitTrigger")
     _optional_text(disposition.get("reviewedBy"), f"{where}.disposition.reviewedBy")
 
+    if status == BENCHMARK_BASELINE:
+        _check_benchmark_baseline(entry, computed, confidence, where)
+    elif "benchmarkBaseline" in entry:
+        raise _fail("benchmark_baseline_block_without_role", f"{where}.benchmarkBaseline")
     if status not in DISPOSITIONS_BY_CLASS[computed]:
         raise _fail("disposition_not_allowed_for_class", f"{where}.disposition.status")
     if reason_class == "credibility" and computed not in CREDIBILITY_REASON_CLASSES[status]:
@@ -860,6 +876,90 @@ def _check_disposition(entry: dict, items: Mapping[str, dict], computed: str, co
                 raise _fail("shortlist_requires_snapshotted_evidence", f"{where}.evidence.{evidence_id}")
 
 
+def _instant(value: object, where: str) -> datetime:
+    if not isinstance(value, str) or not UTC_INSTANT_RE.match(value):
+        raise _fail("instant_malformed", where)
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise _fail("instant_malformed", where) from exc
+    if parsed.date() > _today():
+        raise _fail("date_in_future", where)
+    return parsed
+
+
+def _check_benchmark_baseline(entry: dict, computed: str, confidence: str, where: str) -> None:
+    """M3 §2 rules 1-2 and 4, §6(c): the role, its pinned bytes and its frozen gate-only compositions."""
+    if computed != REFERENCE:
+        raise _fail("benchmark_baseline_class", f"{where}.disposition.status")
+    if entry["candidateKind"] == BASELINE:
+        raise _fail("benchmark_baseline_class", f"{where}.candidateKind")
+    if confidence != HIGH or not _pinned_files(entry["identity"]):
+        raise _fail("benchmark_baseline_requires_pinned_provenance", f"{where}.identity")
+    at = f"{where}.benchmarkBaseline"
+    block = _keys(entry.get("benchmarkBaseline"), ("purpose", "protocolSection", "configurationSha256", "adapterSha256",
+                                                   "hostManifests", "evaluationPermissions", "compositions"), at)
+    _text(block["purpose"], f"{at}.purpose")
+    _text(block["protocolSection"], f"{at}.protocolSection")
+    _match(block["configurationSha256"], SHA256_RE, f"{at}.configurationSha256")  # invocation / configuration
+    _match(block["adapterSha256"], SHA256_RE, f"{at}.adapterSha256")  # adapter / preprocessing
+    manifests = block["hostManifests"]
+    if not isinstance(manifests, dict) or not manifests:
+        raise _fail("benchmark_baseline_host_manifest_required", f"{at}.hostManifests")
+    for profile, files in manifests.items():
+        _match(profile, TOKEN_RE, f"{at}.hostManifests")
+        files = _list(files, f"{at}.hostManifests.{profile}")
+        if not files:
+            raise _fail("benchmark_baseline_host_manifest_required", f"{at}.hostManifests.{profile}")
+        paths = []
+        for index, item in enumerate(files):
+            fat = f"{at}.hostManifests.{profile}[{index}]"
+            _keys(item, ("path", "sha256", "size"), fat)
+            paths.append(_text(item["path"], f"{fat}.path"))
+            _match(item["sha256"], SHA256_RE, f"{fat}.sha256")
+            if isinstance(item["size"], bool) or not isinstance(item["size"], int) or item["size"] <= 0:
+                raise _fail("number_required", f"{fat}.size")
+        if paths != sorted(set(paths)):
+            raise _fail("benchmark_baseline_manifest_not_sorted_unique", f"{at}.hostManifests.{profile}")
+    permissions = _list(block["evaluationPermissions"], f"{at}.evaluationPermissions")
+    if not permissions:
+        raise _fail("benchmark_baseline_permission_required", f"{at}.evaluationPermissions")
+    for index, item in enumerate(permissions):
+        pat = f"{at}.evaluationPermissions[{index}]"
+        _keys(item, ("artefact", "decidedBy", "decidedOn", "primarySourceSha256"), pat)
+        _text(item["artefact"], f"{pat}.artefact")
+        _text(item["decidedBy"], f"{pat}.decidedBy")
+        _date(item["decidedOn"], f"{pat}.decidedOn")
+        _match(item["primarySourceSha256"], SHA256_RE, f"{pat}.primarySourceSha256")
+    ids = set()
+    for index, composition in enumerate(_list(block["compositions"], f"{at}.compositions")):
+        cat = f"{at}.compositions[{index}]"
+        _keys(composition, ("compositionId", "partnerEventId", "eligiblePartners", "partnerRankingRuleSha256",
+                            "layerAGatesSha256", "derivationRule"), cat)
+        composition_id = _match(composition["compositionId"], LOCAL_ID_RE, f"{cat}.compositionId")
+        if composition_id in ids:
+            raise _fail("duplicate_composition_id", cat)
+        ids.add(composition_id)
+        _match(composition["partnerEventId"], EVENT_ID_RE, f"{cat}.partnerEventId")
+        _match(composition["partnerRankingRuleSha256"], SHA256_RE, f"{cat}.partnerRankingRuleSha256")
+        _match(composition["layerAGatesSha256"], SHA256_RE, f"{cat}.layerAGatesSha256")
+        _text(composition["derivationRule"], f"{cat}.derivationRule")
+        partners = _list(composition["eligiblePartners"], f"{cat}.eligiblePartners")
+        partner_ids = []
+        for pindex, partner in enumerate(partners):
+            _keys(partner, ("candidateId", "identitySha256"), f"{cat}.eligiblePartners[{pindex}]")
+            partner_ids.append(_match(partner["candidateId"], CANDIDATE_ID_RE, f"{cat}.eligiblePartners[{pindex}]"))
+            _match(partner["identitySha256"], SHA256_RE, f"{cat}.eligiblePartners[{pindex}].identitySha256")
+        if not partner_ids or partner_ids != sorted(set(partner_ids)):
+            raise _fail("eligible_partners_not_sorted_unique", f"{cat}.eligiblePartners")
+        if entry["candidateId"] in partner_ids:
+            raise _fail("benchmark_baseline_cannot_be_its_own_partner", f"{cat}.eligiblePartners")
+
+
+def _benchmark_baselines(ledger: Mapping) -> set[str]:
+    return {e["candidateId"] for e in ledger["candidates"] if e["disposition"]["status"] == BENCHMARK_BASELINE}
+
+
 def validate_ledger(ledger: object) -> dict[str, dict]:
     """Validate a ledger; return ``{candidateId: {class, provenanceConfidence, disposition}}``."""
     _reject_licence_keys(ledger, "ledger")
@@ -873,8 +973,10 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
         _date(ledger["frozenOn"], "ledger.frozenOn")
     if ledger["schema"] != LEDGER_SCHEMA:
         raise _fail("schema_unsupported", "ledger.schema")
-    if ledger["methodRevision"] not in (METHOD_REVISION, "msr-v1-m2"):
+    if ledger["methodRevision"] not in (METHOD_REVISION, "msr-v1-m2", METHOD_REVISION_M3):
         raise _fail("method_revision_unsupported", "ledger.methodRevision")
+    if ledger["methodRevision"] == METHOD_REVISION_M3 and ledger["capabilityId"] in EVENT_SCOPES:
+        raise _fail("m3_scope_unsupported", "ledger.capabilityId")  # S2c events use decision v2 (M3 §2 rule 8)
     if ledger["methodRevision"] == "msr-v1-m2" and ledger["capabilityId"] not in ("person-attributes", "vehicle-attributes"):
         raise _fail("m2_scope_unsupported", "ledger.capabilityId")
     capability = _match(ledger["capabilityId"], TOKEN_RE, "ledger.capabilityId")
@@ -893,6 +995,7 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
 
     summary: dict[str, dict] = {}
     owners: dict[str, list[dict]] = {}
+    composition_ids: set[str] = set()
     for index, entry in enumerate(_list(ledger["candidates"], "ledger.candidates")):
         where = f"ledger.candidates[{index}]"
         items = _check_structure(entry, ledger, where)
@@ -909,6 +1012,8 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
             owners[sha].append(entry)
         computed = credibility_class(entry, items)
         confidence = provenance_confidence(entry, items)
+        if entry["disposition"].get("status") == BENCHMARK_BASELINE and ledger["methodRevision"] != METHOD_REVISION_M3:
+            raise _fail("benchmark_baseline_requires_m3", f"{where}.disposition.status")
         classification = _keys(entry["classification"], ("class", "provenanceConfidence"), f"{where}.classification")
         if classification["class"] != computed:
             raise _fail("declared_class_differs_from_computed", f"{where}.classification.class")
@@ -916,6 +1021,11 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
             raise _fail("declared_confidence_differs_from_computed", f"{where}.classification.provenanceConfidence")
         _check_history(entry, items, computed, where)
         _check_disposition(entry, items, computed, confidence, where)
+        if candidate_id in composition_ids:
+            raise _fail("gate_only_composition_id_collides", where)
+        composition_ids |= {c["compositionId"] for c in (entry.get("benchmarkBaseline") or {}).get("compositions", ())}
+        if composition_ids & (set(summary) | {candidate_id}):
+            raise _fail("gate_only_composition_id_collides", where)
         summary[candidate_id] = {
             "class": computed,
             "provenanceConfidence": confidence,
@@ -976,6 +1086,8 @@ def validate_evolution(older: dict, newer: dict, since: date | None = None) -> N
             raise _fail("frozen_ledger_scope_changed", f"ledger.{field}")
     if _shortlist(older) != _shortlist(newer):
         raise _fail("shortlist_changed_after_freeze", "ledger.candidates")
+    if _benchmark_baselines(older) != _benchmark_baselines(newer):
+        raise _fail("benchmark_baselines_changed_after_freeze", "ledger.candidates")
     before = {entry["candidateId"]: entry for entry in older["candidates"]}
     for later in newer["candidates"]:
         if later["candidateId"] not in before and any(value < bound for value in _dates(later)):
@@ -1017,6 +1129,12 @@ def validate_evolution(older: dict, newer: dict, since: date | None = None) -> N
             for field in sorted(fixed):
                 if later.get(field) != entry[field]:
                     raise _fail("frozen_shortlisted_field_changed", f"{where}.{field}")
+        elif entry["disposition"]["status"] == BENCHMARK_BASELINE:
+            # M3 §6(b): identity, manifests, permissions, configuration and frozen compositions are fixed.
+            fixed = (set(entry) | set(later)) - (set(FROZEN_APPEND_ONLY) - {"claims"}) - {"classification"}
+            for field in sorted(fixed):
+                if later.get(field) != entry.get(field):
+                    raise _fail("frozen_benchmark_baseline_field_changed", f"{where}.{field}")
 
 
 # ------------------------------------------------------------- decision summary
@@ -1036,6 +1154,9 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
     decided.json``); nothing it holds may postdate the decision.
     """
     validate_evolution(frozen, ledger)
+    benchmark = _benchmark_baselines(frozen)
+    if isinstance(decision, dict) and decision.get("schema") == "mavi-model-selection-decision-v2" and benchmark:
+        raise _fail("m3_v2_unsupported", "decision.schema")  # M3 §2 rule 8: v2 is unchanged and takes no BOB
     if isinstance(decision, dict) and decision.get("schema") == "mavi-model-selection-decision-v2":
         if repo is None:
             raise _fail("decision_v2_requires_repository", "decision")
@@ -1055,6 +1176,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
          "protocolSha256", "targetProfiles", "evaluated", "licence", "strongestReported",
          "highestTaskQualityEvaluated", "strongestEvaluatedTechnical", "strongestClearedPerProfile", "implementation"),
         "decision",
+        optional=("gateOnlyBaselineResolutions", "rankedSets") if benchmark else (),
     )
     if decision["schema"] != DECISION_SCHEMA:
         raise _fail("schema_unsupported", "decision.schema")
@@ -1084,6 +1206,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
             ("candidateId", "artefactSha256s", "maviTrainedArtefacts", "maviRevision", "technicalGates",
              "comparativeScore", "taskQualityScore", "measurementSha256"),
             at,
+            optional=("hostManifestSha256s",) if benchmark else (),
         )
         candidate_id = row["candidateId"]
         if candidate_id in evaluated:
@@ -1091,6 +1214,19 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         if candidate_id not in entries:
             raise _fail("evaluated_candidate_not_in_ledger", at)
         _match(row["measurementSha256"], SHA256_RE, f"{at}.measurementSha256")
+        if candidate_id in benchmark:
+            # M3 §6(a): measured, never scored for selection; §6(c): the exact pinned host bytes.
+            if row["technicalGates"] != NOT_APPLICABLE or row["comparativeScore"] is not None \
+                    or row["taskQualityScore"] is not None:
+                raise _fail("benchmark_baseline_row_scored", at)
+            manifests = entries[candidate_id]["benchmarkBaseline"]["hostManifests"]
+            if row.get("hostManifestSha256s") != {p: document_sha256(m) for p, m in manifests.items()}:
+                raise _fail("benchmark_baseline_host_manifest_mismatch", f"{at}.hostManifestSha256s")
+            _check_evaluated_artefact(entries[candidate_id], row, at)
+            evaluated[candidate_id] = row
+            continue
+        if "hostManifestSha256s" in row:
+            raise _fail("host_manifests_only_for_benchmark_baseline", f"{at}.hostManifestSha256s")
         _number(row["taskQualityScore"], f"{at}.taskQualityScore")
         gates = _enum(row["technicalGates"], ("passed", "failed"), f"{at}.technicalGates")
         if gates == "passed":
@@ -1099,20 +1235,50 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
             raise _fail("failed_gate_has_score", f"{at}.comparativeScore")
         _check_evaluated_artefact(entries[candidate_id], row, at)
         evaluated[candidate_id] = row
-    if set(evaluated) != _shortlist(frozen):
+    if set(evaluated) != _shortlist(frozen) | benchmark:
         raise _fail("evaluated_set_differs_from_shortlist", "decision.evaluated")
+    ranked = {c: row for c, row in evaluated.items() if c not in benchmark}
 
-    licence = _keys(decision["licence"], evaluated, "decision.licence")
-    for candidate_id in evaluated:
+    # M3 §2 rule 3: a benchmark-only baseline is never named by a derived output or the implementation.
+    implementation = decision["implementation"]
+    reported = decision["strongestReported"]
+    named = [
+        ("strongestReported", reported.get("candidateId") if isinstance(reported, dict) else None),
+        ("highestTaskQualityEvaluated", decision["highestTaskQualityEvaluated"]),
+        ("strongestEvaluatedTechnical", decision["strongestEvaluatedTechnical"]),
+    ]
+    if isinstance(decision["strongestClearedPerProfile"], dict):
+        named += [(f"strongestClearedPerProfile.{p}", c) for p, c in decision["strongestClearedPerProfile"].items()]
+    if isinstance(implementation, dict) and isinstance(implementation.get("components"), list):
+        named += [("implementation.components", c) for c in implementation["components"]]
+    for field, candidate_id in named:
+        if isinstance(candidate_id, str) and candidate_id in benchmark:
+            raise _fail("benchmark_baseline_in_derived_output", f"decision.{field}")
+    if benchmark:
+        # M3 §6(d): top-K cuts, finalists and frontiers, when recorded, hold ranked evaluated candidates only.
+        ranked_sets = decision.get("rankedSets", {})
+        if not isinstance(ranked_sets, dict):
+            raise _fail("not_object", "decision.rankedSets")
+        for name, members in ranked_sets.items():
+            _match(name, TOKEN_RE, "decision.rankedSets")
+            for candidate_id in _list(members, f"decision.rankedSets.{name}"):
+                if candidate_id in benchmark:
+                    raise _fail("benchmark_baseline_in_ranked_set", f"decision.rankedSets.{name}")
+                if candidate_id not in evaluated:
+                    raise _fail("ranked_set_member_not_evaluated", f"decision.rankedSets.{name}")
+        _check_gate_only_resolutions(decision.get("gateOnlyBaselineResolutions"), entries, benchmark, frozen,
+                                     evaluated)
+
+    licence = _keys(decision["licence"], ranked, "decision.licence")
+    for candidate_id in ranked:
         statuses = _keys(licence[candidate_id], profiles, f"decision.licence.{candidate_id}")
         for profile in profiles:
             _enum(statuses[profile], LICENCE_STATUSES, f"decision.licence.{candidate_id}.{profile}")
 
     # The strongest reported candidate is a recorded judgement over class R evidence; it
     # must resolve to a ledger claim and carry the "not reproduced" label.
-    reported = decision["strongestReported"]
     if reported is None:
-        if any(entry["claims"] for entry in entries.values()):
+        if any(entry["claims"] for c, entry in entries.items() if c not in benchmark):
             raise _fail("strongest_reported_required", "decision.strongestReported")
     else:
         _keys(reported, ("candidateId", "claimId", "label"), "decision.strongestReported")
@@ -1123,7 +1289,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
             raise _fail("strongest_reported_label", "decision.strongestReported.label")
 
     # Task quality alone, over every evaluated candidate (gates, runtime and licence ignored).
-    quality = {candidate: row["taskQualityScore"] for candidate, row in evaluated.items()}
+    quality = {candidate: row["taskQualityScore"] for candidate, row in ranked.items()}
     highest = decision["highestTaskQualityEvaluated"]
     if quality and highest not in _maximal(quality):
         raise _fail("highest_task_quality_not_maximal", "decision.highestTaskQualityEvaluated")
@@ -1131,7 +1297,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         raise _fail("highest_task_quality_without_evaluation", "decision.highestTaskQualityEvaluated")
 
     # The technical ranking reads recorded scores only: never licence, never credibility.
-    technical = {c: row["comparativeScore"] for c, row in evaluated.items() if row["technicalGates"] == "passed"}
+    technical = {c: row["comparativeScore"] for c, row in ranked.items() if row["technicalGates"] == "passed"}
     strongest = decision["strongestEvaluatedTechnical"]
     if technical and strongest not in _maximal(technical):
         raise _fail("strongest_technical_not_maximal", "decision.strongestEvaluatedTechnical")
@@ -1147,15 +1313,17 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         if not eligible and named is not None:
             raise _fail("strongest_cleared_not_derived", f"decision.strongestClearedPerProfile.{profile}")
 
-    implementation = decision["implementation"]
     if implementation is not None:
-        _check_implementation(implementation, state, evaluated, licence, profiles, entries)
+        _check_implementation(implementation, state, ranked, licence, profiles, entries)
     outcome = decision["outcome"]
     if state != "CLOSED":
         if outcome is not None:
             raise _fail("outcome_before_closed", "decision.outcome")
         return
     _enum(outcome, OUTCOMES, "decision.outcome")
+    if benchmark and not technical and outcome != "NO_QUALIFIABLE_CANDIDATE":
+        # M3 §2 rule 5: with no ranked candidate passing, a benchmark-only baseline cannot carry an outcome.
+        raise _fail("m3_outcome_requires_no_qualifiable_candidate", "decision.outcome")
     components = [] if implementation is None else implementation["components"]
     baseline_only = bool(components) and all(entries[c]["candidateKind"] == BASELINE for c in components)
     if outcome == "SELECTED_FOR_PACKAGING" and (not components or baseline_only):
@@ -1164,6 +1332,58 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         raise _fail("outcome_implementation_inconsistent", "decision.outcome")
     if outcome in ("INCUMBENT_RETAINED", "NO_QUALIFIABLE_CANDIDATE") and components:
         raise _fail("outcome_implementation_inconsistent", "decision.outcome")
+
+
+def _check_gate_only_resolutions(value: object, entries: Mapping[str, dict], benchmark: set[str], frozen: Mapping,
+                                 evaluated: Mapping[str, dict]) -> None:
+    """M3 §2 rule 4: the Stage-2 seal of each derived gate-only baseline composition.
+
+    The Stage-1 rule (finite partner universe with identities, ranking-rule hash, Layer-A gate hash) is frozen in the
+    benchmark-only baseline's ledger entry. Stage 2 records the mechanically resolved partner, which must come from
+    that universe with the frozen identity, and must be sealed after the freeze and strictly before any D execution.
+    The partner's Layer-A ordering is re-derived by the event harness. This validator binds the result to the frozen
+    universe and rule and checks the seal."""
+    frozen_entries = {e["candidateId"]: e for e in frozen["candidates"]}
+    declared = {}
+    for candidate_id in sorted(benchmark):
+        for composition in frozen_entries[candidate_id]["benchmarkBaseline"]["compositions"]:
+            declared[composition["compositionId"]] = (candidate_id, composition)
+    records = [] if value is None else _list(value, "decision.gateOnlyBaselineResolutions")
+    seen = set()
+    frozen_on = datetime.combine(date.fromisoformat(frozen["frozenOn"]), datetime.min.time(), tzinfo=timezone.utc)
+    for index, record in enumerate(records):
+        at = f"decision.gateOnlyBaselineResolutions[{index}]"
+        _keys(record, ("compositionId", "benchmarkBaselineId", "partnerCandidateId", "partnerIdentitySha256",
+                       "partnerRankingRuleSha256", "layerAResultSha256", "resolvedAt", "dExecutionStartedAt",
+                       "recordSha256"), at)
+        composition_id = record["compositionId"]
+        if composition_id not in declared or declared[composition_id][0] != record["benchmarkBaselineId"]:
+            raise _fail("gate_only_composition_not_frozen", f"{at}.compositionId")
+        if composition_id in seen:
+            raise _fail("gate_only_composition_resolved_twice", f"{at}.compositionId")
+        seen.add(composition_id)
+        rule = declared[composition_id][1]
+        partners = {p["candidateId"]: p["identitySha256"] for p in rule["eligiblePartners"]}
+        if record["partnerCandidateId"] not in partners \
+                or partners[record["partnerCandidateId"]] != record["partnerIdentitySha256"]:
+            raise _fail("baseline_partner_not_in_frozen_universe", f"{at}.partnerCandidateId")
+        if record["partnerRankingRuleSha256"] != rule["partnerRankingRuleSha256"]:
+            raise _fail("baseline_ranking_rule_mismatch", f"{at}.partnerRankingRuleSha256")
+        _match(record["layerAResultSha256"], SHA256_RE, f"{at}.layerAResultSha256")
+        resolved = _instant(record["resolvedAt"], f"{at}.resolvedAt")
+        started = _instant(record["dExecutionStartedAt"], f"{at}.dExecutionStartedAt")
+        if resolved < frozen_on:
+            raise _fail("baseline_resolved_before_freeze", f"{at}.resolvedAt")
+        if not resolved < started:
+            raise _fail("baseline_resolved_after_d_started", f"{at}.resolvedAt")
+        if record["recordSha256"] != document_sha256({k: v for k, v in record.items() if k != "recordSha256"}):
+            raise _fail("baseline_resolution_record_altered", f"{at}.recordSha256")
+        if composition_id in evaluated or composition_id in entries:
+            raise _fail("gate_only_composition_id_collides", at)
+    # Every decision state follows D, so every frozen composition must have been sealed.
+    missing = sorted(set(declared) - seen)
+    if missing:
+        raise _fail("gate_only_composition_unresolved", f"decision.gateOnlyBaselineResolutions.{missing[0]}")
 
 
 def _check_evaluated_artefact(entry: dict, row: dict, where: str) -> None:

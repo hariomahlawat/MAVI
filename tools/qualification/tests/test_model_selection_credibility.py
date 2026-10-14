@@ -1285,6 +1285,22 @@ def test_plate_domain_term_is_not_licence_wording(field, value):
     "license plates license",
     "licen\u017fe plate",
     "LICENSE",
+    # unsupported separators (M3 review): only one ASCII space or hyphen joins the phrase
+    "license\tplate",
+    "license\u2010plate",
+    "license\u2011plate",
+    "license\u2013plate",
+    "license\u2212plate",
+    "license/plate",
+    "license+plate",
+    "license\u200bplate",
+    "license\u3000plate",
+    # Unicode look-alikes inside the plate word are not the phrase, so nothing is stripped
+    "license pl\u0430te",
+    "license \uff50late",
+    "license plat\u0435",
+    "license \u0440late",
+    "licence pl\u0251te",
 ])
 def test_real_licence_wording_is_still_refused_next_to_the_plate_term(value):
     entry = established()

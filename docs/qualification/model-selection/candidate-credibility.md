@@ -46,7 +46,7 @@ Each ledger candidate has exactly one class. It is **computed** from the recorde
 |---|---|---|
 | `established` | pinned to the original source; recognised publication; independent technical confirmation; support from at least two independent producer groups | any pre-evaluation disposition. Never with a `credibility` reason. **Implementation-eligible** (§8) |
 | `emerging` | pinned provenance (original source, or a documented official conversion); architecture documented first-party; every claim traceable; independent support insufficient | **default `REFERENCE_ONLY` (credibility)**. `SHORTLISTED` only with `emergingShortlistBasis` and a second reviewer. Also `NOT_SHORTLISTED` (technical) or `DEFERRED`. **Not implementation-eligible** until promoted |
-| `reference-only` | origin known, but provenance confidence Low, architecture undocumented, or a claim untraceable | `DISCOVERED`, `REFERENCE_ONLY`, `NOT_SHORTLISTED` (technical), `DEFERRED`. **Never `SHORTLISTED`** |
+| `reference-only` | origin known, but provenance confidence Low, architecture undocumented, or a claim untraceable | `DISCOVERED`, `REFERENCE_ONLY`, `NOT_SHORTLISTED` (technical), `DEFERRED`, and under M3 `BENCHMARK_BASELINE` (§4.4). **Never `SHORTLISTED`** |
 | `excluded-discovery` | no identifiable original source, unknown publisher, no author group, or an integrity conflict (the bytes conflict with what the source publishes) | `DISCOVERED` or `NOT_SHORTLISTED` with reason class `credibility`; retained in the ledger |
 | `mavi-owned` | a MAVI-owned deterministic baseline (for example PC-B0, VC-B0), identified by a MAVI commit | as MSR method v1. It may be shortlisted before its code exists, because the commit is bound at evaluation (§8) |
 
@@ -97,7 +97,7 @@ There is one ledger per Model Selection Event: `docs/qualification/model-selecti
 - holds every candidate the event considered seriously, including every `excluded-discovery`, so a later reader can reconstruct each inclusion and exclusion;
 - holds **external evidence only**:
   - it has no field for a MAVI measurement and refuses MAVI-produced evidence (§2);
-  - it admits only the pre-evaluation dispositions `DISCOVERED`, `SHORTLISTED`, `NOT_SHORTLISTED`, `REFERENCE_ONLY` and `DEFERRED`;
+  - it admits only the pre-evaluation dispositions `DISCOVERED`, `SHORTLISTED`, `NOT_SHORTLISTED`, `REFERENCE_ONLY`, `DEFERRED` and, under M3, `BENCHMARK_BASELINE` (§4.4);
   - it refuses every unknown field **[checked]**.
 
   No ledger can claim that a candidate passed a MAVI bake-off;
@@ -172,6 +172,22 @@ A candidate is its bytes, not its name (MSR method §5).
 - **Fixed bytes per entry.** Once pinned, bytes never change under the same entry: a different checkpoint, even under the same name, is a new candidate entry with a new id **[checked]** (§7).
 - **Evaluation binds the same bytes.** Each evaluated artefact set in the decision summary equals the ledger identity, plus the MAVI-trained artefacts declared with their training-manifest hashes **[checked]** (§8).
 - **Other bindings.** Preprocessing (as data, with its hash), runtime requirements and licence documents (with retrieved-bytes hashes) are recorded in the MSR candidate card (MSR method §5) and the frozen protocol.
+
+### 4.4 Benchmark-only baselines (M3, proposed)
+
+**New rules [checked]:**
+- `BENCHMARK_BASELINE` is allowed only for computed class `reference-only`, only in a ledger with `methodRevision: msr-v1-m3`, and never for an S2c capability. It needs reason class `technical` and provenance High with every file pinned.
+- The entry carries `benchmarkBaseline`:
+  - `purpose` and `protocolSection`;
+  - `configurationSha256` (invocation/configuration) and `adapterSha256` (adapter/preprocessing);
+  - `hostManifests`, `{profileId: [{path, sha256, size}]}`, covering every executable, runtime library and data file on each host profile;
+  - `evaluationPermissions`, with each artefact's decision-maker, date and primary-source hash;
+  - `compositions`: each gate-only baseline composition's frozen Stage-1 rule. That is its partner event, its finite `eligiblePartners` (candidate id + exact identity hash), the partner ranking/tie-break hash, the gate-set hash and the derivation rule.
+- After freeze, the set of benchmark-only baselines, and every field of each, is fixed (§7).
+
+**Restated, not new:**
+- MAVI measurements never enter the ledger and never change a class (I4).
+- A `reference-only` candidate is never `SHORTLISTED`.
 
 ## 5. Person and vehicle stay separate
 
@@ -262,7 +278,23 @@ For non-S2c events these rules are checked in the **decision summary** (`mavi-mo
 - after the decision the working ledger must grow append-only from the snapshot, with nothing added dated before the decision date. A promotion made later cannot be backdated in the working ledger to support the decision;
 - the event record `<event-id>.md` carries the LF-normalised SHA-256 of the decision summary and of the snapshot. A snapshot without a decision is refused. Rewriting the snapshot, the decision and the record together remains a Git-review item (§9);
 - the repository check requires `protocolSha256` to equal the LF-normalised SHA-256 of `<event-id>-protocol.md`, which the event record also carries;
-- the evaluated set equals the **frozen** shortlist, and the working ledger's shortlist has not changed since. A strong candidate with an inconvenient licence cannot be dropped, before or after freezing;
+- the evaluated set equals the **frozen** shortlist plus the frozen benchmark-only baselines (M3), and the working ledger's shortlist has not changed since. A strong candidate with an inconvenient licence cannot be dropped, before or after freezing;
+- **M3, benchmark-only baseline rows** (new rules):
+  - `technicalGates: "n/a"`, `comparativeScore: null`, `taskQualityScore: null`;
+  - `hostManifestSha256s` equal to the ledger manifests' canonical hashes, and the evaluated bytes equal the pinned identity;
+  - no licence status, because they are never implemented;
+  - excluded from every derivation;
+  - never named by `strongestReported`, `highestTaskQualityEvaluated`, `strongestEvaluatedTechnical`, `strongestClearedPerProfile` or `implementation.components`;
+  - when no ranked row passes the gates, the outcome is `NO_QUALIFIABLE_CANDIDATE`;
+- **M3, gate-only baseline compositions** (new rules): each frozen composition has exactly one `gateOnlyBaselineResolutions` record. It names:
+  - a partner from the frozen `eligiblePartners` with the frozen identity hash;
+  - the frozen ranking-rule hash;
+  - the Layer-A result hash;
+  - `resolvedAt` on or after the freeze and strictly before `dExecutionStartedAt`;
+  - a `recordSha256` over the rest of the record.
+
+  The partner's ordering is re-derived from the frozen rule by the event harness, not by this validator. A composition id never collides with a candidate id, so it cannot enter a ranked, derived or implementation field;
+- **M3, `rankedSets`** (new, optional): top-K cuts, finalists and frontiers, when recorded, may hold only ranked evaluated candidates. A benchmark-only baseline or a composition id is refused;
 - each evaluated artefact set equals the ledger identity:
   - a checkpoint: exactly its weight hashes;
   - a method: its backbone hashes plus at least one declared MAVI-trained artefact with its training-manifest hash, and nothing undeclared;
@@ -284,6 +316,10 @@ Before `PROTOCOL_FROZEN`, the independent reviewer named in the event's frozen p
 - **Frozen files.** Any change to a frozen ledger, a protocol, a decision snapshot, a decision summary or their hashes in the record is reviewed as a protocol revision or a decision revision. The decision file changes as the event state advances, so the reviewer compares each version's snapshot hash with the previous one.
 - **Discovery coverage.** Discovery covered the survey's sources plus a dated re-survey, and no candidate was left out because it was inconvenient. An unlisted strong candidate is a review finding.
 - **Freeze record.** The frozen protocol records the frozen ledger's SHA-256 (template `selection-protocol.md` §2).
+- **Benchmark-only baselines (M3).** Decision v1 holds top-K cuts, finalists and frontiers only if `rankedSets` records them, and holds ranked compositions not at all. So the reviewer confirms:
+  - no benchmark-only component or gate-only composition appears in any of them;
+  - each gate-only resolution was re-derived from the frozen Layer-A artefact by the event harness under the frozen rule, with no owner choice;
+  - the host manifests cover every executable and runtime library actually loaded.
 
 ## 10. 500-camera standing requirement
 
@@ -301,18 +337,20 @@ Nothing in this revision, and no ledger, claims 500-camera qualification.
 
 | # | Invariant | Enforced by |
 |---|---|---|
-| I1 | No shortlist without known provenance: `SHORTLISTED` needs `established`/`emerging` (with basis and second reviewer), provenance High/Medium and pinned bytes. A `mavi-owned` baseline is bound to its commit at evaluation | validator |
+| I1 | No shortlist without known provenance: `SHORTLISTED` needs `established`/`emerging` (with basis and second reviewer), provenance High/Medium and pinned bytes. A `mavi-owned` baseline is bound to its commit at evaluation. A benchmark-only baseline (M3) is never shortlisted; it is measured under its pinned identity, host manifests and permissions | validator |
 | I2 | First-party repetition cannot masquerade as independent evidence | validator (§4.2) |
 | I3 | The credibility class is computed from recorded evidence, never asserted | validator |
 | I4 | Credibility cannot alter measured MAVI technical results, and MAVI results cannot alter credibility | no MAVI result or MAVI-produced evidence in the ledger; the ranking reads recorded scores only |
 | I5 | Licence cannot rewrite the technical ranking, and discovery is licence-blind | no licence field or licence reason in the ledger; derived outputs ignore licence except "strongest cleared" |
-| I6 | A technically strongest but deployment-ineligible candidate remains recorded | evaluated set equals the frozen shortlist; strongest technical derived without licence or credibility |
+| I6 | A technically strongest but deployment-ineligible candidate remains recorded | evaluated set equals the frozen shortlist plus frozen benchmark-only baselines; strongest technical derived without licence or credibility |
 | I7 | The implementation candidate traces to one MSR event and exact artefacts | decision summary: event id, ledger and frozen-ledger hashes; repository check: protocol hash, recorded in the event record; evaluated bytes equal the ledger bytes plus declared MAVI-trained artefacts. A coordinated rewrite of the frozen files is a Git-review item (§9) |
 | I8 | Class changes leave an auditable reason; promotions cannot outrun their evidence; after freeze, frozen content is never rewritten and nothing added is backdated | history rules (inputs hash, recomputation) and the frozen-ledger evolution check (§7) |
 | I9 | An `emerging` candidate cannot become the implementation candidate without a recorded promotion | implementation eligibility on the decision date (§8) |
 | I10 | A name cannot keep its entry while its bytes change | identity hash and pinned-hash history; no weight bytes shared except an identical method backbone |
 | I11 | Person and vehicle evidence cannot be conflated | fixed event scopes; claim and technical-evidence sub-task and object-class checks |
 | I12 | No S2c.2a artefact claims a MAVI bake-off result | pre-evaluation dispositions only; strict fields; no MAVI evidence; no ledger or decision summary exists in S2c.2a |
+| I13 (M3) | A benchmark-only baseline cannot affect any derived output, outcome or credibility | validator: unscored rows, derivation exclusion, derived-output refusal, outcome rule; I4 |
+| I14 (M3) | A gate-only baseline composition comes only from its frozen finite universe, under its frozen rule, sealed before D, and never enters ranking, the frontier or implementation | validator: frozen composition rule, resolution record, id-collision refusal; harness re-derivation; reviewer (§9) |
 
 ## 12. Loopholes considered
 

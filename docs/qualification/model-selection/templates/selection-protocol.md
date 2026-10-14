@@ -24,7 +24,7 @@ For S2c person/vehicle events, instantiate `../s2c-quality-statistics.md` and ci
 
 Metrics per attribute kind; required operating-point gates and diagnostics; strata; levels (crop / Representative-only / Track, with Track primary); post-aggregation calibration evidence; unsupported-assertion and all-assigned delivery measurements. Engineering probes are specified separately by the event.
 
-**Baselines.** For each attribute, the exact baseline and how it is scored under every primary metric, including its tie rule and whether it can be packaged or serves only as a statistical floor.
+**Baselines.** For each attribute, the exact baseline and how it is scored under every primary metric, including its tie rule and whether it can be packaged or serves only as a statistical floor. **M3 benchmark-only baselines:** name each benchmark-only component with its pinned identity, host manifests and permissions. For each gate-only baseline composition, freeze the finite eligible partner universe with exact identities, the pre-gate layer and its gates, the ranking/tie-break rule and its hash, the derivation rule, and the exact set of compositions it gates. The composition is resolved mechanically after that layer and sealed before any protected data is read. If no partner qualifies, or the derivation is ambiguous, the event stops.
 
 **Predeclared aggregation references.** The pooling or aggregation rules evaluated beside the frozen family's default, and the tuning-partition rule that picks among them. Nothing may be added after results.
 

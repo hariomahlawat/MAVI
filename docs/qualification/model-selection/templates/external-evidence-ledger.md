@@ -48,7 +48,7 @@ For `person-attributes` the object class is `person` with sub-tasks `T-PC`, `T-P
   "caveats": ["…"],
   "classification": {"class": "<computed>", "provenanceConfidence": "High | Medium | Low"},
   "classificationHistory": [ <history entry>, … ],
-  "disposition": {"status": "DISCOVERED | SHORTLISTED | NOT_SHORTLISTED | REFERENCE_ONLY | DEFERRED",
+  "disposition": {"status": "DISCOVERED | SHORTLISTED | NOT_SHORTLISTED | REFERENCE_ONLY | DEFERRED | BENCHMARK_BASELINE (M3)",
                   "reasonClass": "technical | credibility | evaluation-permission | availability | resources | null",
                   "reason": "…", "revisitTrigger": "…", "decidedBy": "…",
                   "emergingShortlistBasis": "<only when an emerging candidate is SHORTLISTED>",
@@ -59,6 +59,13 @@ For `person-attributes` the object class is `person` with sub-tasks `T-PC`, `T-P
 Field rules:
 - `methodCode` is present only for `method` candidates. Their `identity` is the **backbone** checkpoint.
 - A `mavi-baseline` identity is `{"repository": "MAVI", "revision": "<commit | UNKNOWN>"}` with no evidence and no claims.
+- **M3 only** (`methodRevision: msr-v1-m3`, computed class `reference-only`, reason class `technical`): a `BENCHMARK_BASELINE` entry carries
+  `"benchmarkBaseline": {"purpose": "…", "protocolSection": "…", "configurationSha256": "…", "adapterSha256": "…",
+  "hostManifests": {"<profile-id>": [{"path": "…", "sha256": "…", "size": 1}]},
+  "evaluationPermissions": [{"artefact": "…", "decidedBy": "…", "decidedOn": "YYYY-MM-DD", "primarySourceSha256": "…"}],
+  "compositions": [{"compositionId": "…", "partnerEventId": "msr-…", "eligiblePartners": [{"candidateId": "…", "identitySha256": "…"}],
+  "partnerRankingRuleSha256": "…", "layerAGatesSha256": "…", "derivationRule": "…"}]}`
+  (`../candidate-credibility.md` §4.4). No other entry may carry it.
 - `derivation` is required when the publisher is `recognised-framework-maintainer`: `{"fromRepository", "fromRevision", "fromSha256", "conversionDocumentedBy": "<evidenceId>"}`.
 - `integrityConflict` is null or `{"at": "YYYY-MM-DD", "reason": "…"}`, for example retrieved bytes that differ from the published hash. From its date the candidate is `excluded-discovery`.
 - An `emerging` candidate is normally `REFERENCE_ONLY` with reason class `credibility`. Shortlisting it needs `emergingShortlistBasis` and a `reviewedBy` different from `decidedBy`.
@@ -143,8 +150,8 @@ Rules:
  "evaluated": [{"candidateId": "…", "artefactSha256s": ["<ledger weight hashes + MAVI-trained hashes, sorted>"],
                 "maviTrainedArtefacts": [{"sha256": "…", "trainingManifestSha256": "…"}],
                 "maviRevision": "<baseline commit | null>",
-                "technicalGates": "passed | failed", "comparativeScore": 0.0, "taskQualityScore": 0.0,
-                "measurementSha256": "…"}],
+                "technicalGates": "passed | failed | n/a (M3 benchmark-only baseline)", "comparativeScore": 0.0, "taskQualityScore": 0.0,
+                "measurementSha256": "…", "hostManifestSha256s": {"<profile-id>": "<M3 benchmark-only baseline rows only>"}}],
  "licence": {"<candidateId>": {"<profile-id>": "NOT_ASSESSED | REVIEW_PENDING | CLEARED | CONSTRAINED | NOT_CLEARED"}},
  "strongestReported": {"candidateId": "…", "claimId": "…", "label": "reported, not reproduced by MAVI"},
  "highestTaskQualityEvaluated": "…", "strongestEvaluatedTechnical": "…",
@@ -157,4 +164,5 @@ The validator checks `candidate-credibility.md` §8:
 - the evaluated set equals the frozen shortlist;
 - the evaluated bytes equal the ledger identity plus declared MAVI-trained artefacts (a method needs at least one; a checkpoint none);
 - the derived "strongest" outputs;
-- implementation eligibility.
+- implementation eligibility;
+- under M3, the benchmark-only baseline rules, plus one `gateOnlyBaselineResolutions` record per frozen composition: `{"compositionId", "benchmarkBaselineId", "partnerCandidateId", "partnerIdentitySha256", "partnerRankingRuleSha256", "layerAResultSha256", "resolvedAt": "YYYY-MM-DDThh:mm:ssZ", "dExecutionStartedAt": "…", "recordSha256"}`, and optional `"rankedSets": {"<set-name>": ["<ranked candidateId>"]}` (`../candidate-credibility.md` §8).
