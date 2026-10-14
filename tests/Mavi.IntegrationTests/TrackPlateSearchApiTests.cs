@@ -315,6 +315,52 @@ public sealed class TrackPlateSearchApiTests(PostgresFixture fixture)
 
     // --- Detail --------------------------------------------------------------------------------------
 
+    /// <summary>
+    /// Agreement through the product path (plan §2.7, owner clarification 2026-10-14): only Read plates
+    /// whose rank-0 reading normalises count; a rejected rank-0 reading and lower-ranked alternates never
+    /// manufacture or break agreement.
+    /// </summary>
+    [Fact]
+    public async Task AgreementCountsOnlyNormalisedRank0Readings()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, Now);
+        var run = await host.World.SeedRunAsync(persons: 0, vehicles: 3, observationsPerTrack: 2);
+        await TrackPlateSearchWorld.AttachRepresentativesAsync(host.World.Read, run);
+        var (single, none, consistent) = (run.Track(0), run.Track(1), run.Track(2));
+        var identity = TrackPlateSearchWorld.IdentityA(host.Factory.Services.GetRequiredService<IPlateRelease>());
+        await TrackPlateSearchWorld.PublishAsync(host.World.Read, Now, run.RunId, identity,
+        [
+            // A rejected rank 0 (its rank 1 would normalise) beside one valid plate: single, not consistent.
+            SeedPlateTrack.Analysed(single.TrackId,
+                new SeedPlate(single.Observations[0].ObservationId, 0.9, ("KA01AB1234#", 0.95), ("KA01AB1234", 0.5)),
+                new SeedPlate(single.Observations[1].ObservationId, 0.9, ("KA01AB1234", 0.9))),
+            // Two Read plates, both rank-0 readings rejected: none.
+            SeedPlateTrack.Analysed(none.TrackId,
+                new SeedPlate(none.Observations[0].ObservationId, 0.9, ("KA01#AB1234", 0.9), ("KA01AB1234", 0.4)),
+                new SeedPlate(none.Observations[1].ObservationId, 0.9, ("MH12DE4321?", 0.9))),
+            // One rank-0 text on both plates, differing alternates: consistent, not conflicting.
+            SeedPlateTrack.Analysed(consistent.TrackId,
+                new SeedPlate(consistent.Observations[0].ObservationId, 0.9, ("KA01AB1234", 0.9), ("KA01AB1284", 0.4)),
+                new SeedPlate(consistent.Observations[1].ObservationId, 0.9, ("KA01AB1234", 0.9), ("MH12DE4321", 0.3))),
+        ]);
+
+        async Task<JsonElement> PlatesAsync(Guid trackId) =>
+            (await host.Client.GetFromJsonAsync<JsonElement>($"/api/tracks/{trackId}")).GetProperty("plates");
+
+        var singleDetail = await PlatesAsync(single.TrackId);
+        Assert.Equal("single", singleDetail.GetProperty("agreement").GetString());
+        Assert.Equal(1, Assert.Single(singleDetail.GetProperty("texts").EnumerateArray()).GetProperty("supportCount").GetInt32());
+        Assert.Equal(2, singleDetail.GetProperty("observations").GetArrayLength());
+
+        var noneDetail = await PlatesAsync(none.TrackId);
+        Assert.Equal("none", noneDetail.GetProperty("agreement").GetString());
+        Assert.Empty(noneDetail.GetProperty("texts").EnumerateArray());
+        Assert.All(noneDetail.GetProperty("observations").EnumerateArray(),
+            observation => Assert.Equal("Read", observation.GetProperty("outcome").GetString()));
+
+        Assert.Equal("consistent", (await PlatesAsync(consistent.TrackId)).GetProperty("agreement").GetString());
+    }
+
     [Fact]
     public async Task AVehicleDetailCarriesItsPlateEvidenceAndAPersonDetailOmitsIt()
     {

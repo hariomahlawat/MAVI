@@ -137,15 +137,79 @@ public sealed class TrackPlateSearchRulesTests
 
     // --- Agreement -------------------------------------------------------------------------
 
+    // Plan §2.7 as clarified by the owner on 2026-10-14: qualifying observations are Read ones whose
+    // rank-0 reading normalises; rank > 0 never counts; a rejected rank-0 reading supplies nothing.
+
+    private static TrackPlateReadingRow Ok(int rank, string text) =>
+        new(rank, text, 1, text, PlateNormalisationOutcome.Ok, 0.9 - rank * 0.1, "IndianStandard");
+
+    private static TrackPlateReadingRow Rejected(int rank, string raw) =>
+        new(rank, raw, 1, null, PlateNormalisationOutcome.Rejected, 0.8 - rank * 0.1, null);
+
+    private static TrackPlateObservationRow Plate(PlateObservationOutcome outcome, params TrackPlateReadingRow[] readings) =>
+        new(Guid.CreateVersion7(), Guid.CreateVersion7(), Mavi.Domain.Intelligence.ObservationType.Representative, 0, 0, 400, 10,
+            DateTimeOffset.UnixEpoch, 1, 2, 30, 10, 400, 300, 0.95, outcome, readings);
+
+    private static TrackPlateObservationRow Read(params TrackPlateReadingRow[] readings) => Plate(PlateObservationOutcome.Read, readings);
+
+    private static string Agreement(params TrackPlateObservationRow[] observations) =>
+        PlateAgreementRule.Derive(PlateAgreementRule.QualifyingRank0Texts(observations));
+
+    [Fact]
+    public void NoneWhenNoObservationQualifies()
+    {
+        Assert.Equal("none", Agreement());
+        Assert.Equal("none", Agreement(Plate(PlateObservationOutcome.Unreadable)));
+        // Two Read plates whose rank-0 readings are both rejected: still none, whatever rank 1 says.
+        Assert.Equal("none", Agreement(
+            Read(Rejected(0, "KA-01?"), Ok(1, "KA01AB1234")),
+            Read(Rejected(0, "#KA01"), Ok(1, "KA01AB1234"))));
+    }
+
+    [Fact]
+    public void SingleWhenExactlyOneObservationQualifies()
+    {
+        Assert.Equal("single", Agreement(Read(Ok(0, "KA01AB1234"))));
+        // A rejected rank-0 reading beside it supplies no text, so it does not make "consistent".
+        Assert.Equal("single", Agreement(Read(Ok(0, "KA01AB1234")), Read(Rejected(0, "KA01AB1234?"), Ok(1, "KA01AB1234"))));
+        // An Unreadable plate does not count either.
+        Assert.Equal("single", Agreement(Read(Ok(0, "KA01AB1234")), Plate(PlateObservationOutcome.Unreadable)));
+        // A lower-ranked alternate on the same plate does not make "conflicting".
+        Assert.Equal("single", Agreement(Read(Ok(0, "KA01AB1234"), Ok(1, "KA01AB1284"))));
+    }
+
+    [Fact]
+    public void ConsistentWhenTwoOrMoreQualifyWithOneDistinctText()
+    {
+        Assert.Equal("consistent", Agreement(Read(Ok(0, "KA01AB1234")), Read(Ok(0, "KA01AB1234"))));
+        // Observations of one text are counted, not collapsed first.
+        Assert.Equal("consistent", Agreement(Read(Ok(0, "KA01AB1234")), Read(Ok(0, "KA01AB1234")), Read(Ok(0, "KA01AB1234"))));
+        // Differing lower-ranked alternates never turn it into "conflicting".
+        Assert.Equal("consistent", Agreement(
+            Read(Ok(0, "KA01AB1234"), Ok(1, "KA01AB1284")),
+            Read(Ok(0, "KA01AB1234"), Ok(1, "KAO1AB1234"))));
+        // A rejected rank-0 reading neither adds nor breaks it.
+        Assert.Equal("consistent", Agreement(Read(Ok(0, "KA01AB1234")), Read(Ok(0, "KA01AB1234")), Read(Rejected(0, "MH12??"))));
+    }
+
+    [Fact]
+    public void ConflictingWhenTwoOrMoreDistinctRank0TextsQualify()
+    {
+        Assert.Equal("conflicting", Agreement(Read(Ok(0, "KA01AB1234")), Read(Ok(0, "KA01AB1284"))));
+        Assert.Equal("conflicting", Agreement(Read(Ok(0, "KA01AB1234")), Read(Ok(0, "KA01AB1234")), Read(Ok(0, "MH12CD5678"))));
+        // A rank-1 reading equal to the other plate's rank 0 does not reconcile them.
+        Assert.Equal("conflicting", Agreement(Read(Ok(0, "KA01AB1234"), Ok(1, "KA01AB1284")), Read(Ok(0, "KA01AB1284"))));
+    }
+
     [Theory]
-    [InlineData(new int[0], "none")]
-    [InlineData(new[] { 1 }, "single")]
-    [InlineData(new[] { 2 }, "consistent")]
-    [InlineData(new[] { 4 }, "consistent")]
-    [InlineData(new[] { 3, 1 }, "conflicting")]
-    [InlineData(new[] { 1, 1, 1 }, "conflicting")]
-    public void AgreementIsDerivedFromTheTexts(int[] supports, string expected) =>
-        Assert.Equal(expected, PlateAgreementRule.Derive(supports));
+    [InlineData(new string[0], "none")]
+    [InlineData(new[] { "A" }, "single")]
+    [InlineData(new[] { "A", "A" }, "consistent")]
+    [InlineData(new[] { "A", "A", "A", "A" }, "consistent")]
+    [InlineData(new[] { "A", "A", "A", "B" }, "conflicting")]
+    [InlineData(new[] { "A", "B", "C" }, "conflicting")]
+    public void AgreementCountsQualifyingObservationsAndDistinctTexts(string[] rank0Texts, string expected) =>
+        Assert.Equal(expected, PlateAgreementRule.Derive(rank0Texts));
 
     // --- Coverage as of a snapshot -----------------------------------------------------------
 

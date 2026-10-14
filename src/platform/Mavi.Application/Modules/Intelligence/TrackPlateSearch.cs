@@ -250,8 +250,13 @@ public static class PlateCoverageRule
 }
 
 /// <summary>
-/// The agreement of a Track's searchable readings (plan §2.7), derived from its Track texts: each
-/// text's support is the number of Read plates whose rank-0 reading normalises to it.
+/// The agreement of a Track's plate observations (plan §2.7 as clarified by the owner on 2026-10-14,
+/// the frozen rank-0 summary policy <c>plate-track-text-rank0</c>): derived from the <b>qualifying</b>
+/// observations only — <c>Read</c> observations whose rank-0 reading normalises successfully under
+/// <c>mavi-plate-normalisation-v1</c>. Rank &gt; 0 readings never count, and a Read observation whose
+/// rank-0 reading is rejected supplies no Track text, so it cannot manufacture agreement. Observations
+/// carrying the same rank-0 text are each counted; they are not collapsed first. Nothing here confirms
+/// a plate.
 /// </summary>
 public static class PlateAgreementRule
 {
@@ -261,21 +266,39 @@ public static class PlateAgreementRule
     public const string Conflicting = "conflicting";
 
     /// <summary>
-    /// <c>none</c> — no searchable reading; <c>single</c> — exactly one; <c>consistent</c> — two or
-    /// more, all one text; <c>conflicting</c> — two or more distinct texts.
+    /// <c>none</c> — no qualifying observation; <c>single</c> — exactly one; <c>consistent</c> — two or
+    /// more, with exactly one distinct normalised rank-0 text; <c>conflicting</c> — two or more distinct
+    /// normalised rank-0 texts.
     /// </summary>
-    public static string Derive(IReadOnlyCollection<int> supportCounts)
+    /// <param name="qualifyingRank0Texts">The normalised rank-0 text of each qualifying observation, one entry per observation.</param>
+    public static string Derive(IReadOnlyCollection<string> qualifyingRank0Texts)
     {
-        ArgumentNullException.ThrowIfNull(supportCounts);
-        if (supportCounts.Count >= 2)
+        ArgumentNullException.ThrowIfNull(qualifyingRank0Texts);
+        if (qualifyingRank0Texts.Distinct(StringComparer.Ordinal).Count() >= 2)
             return Conflicting;
-        var support = supportCounts.Sum();
-        return support switch
+        return qualifyingRank0Texts.Count switch
         {
             0 => NoReading,
             1 => OneReading,
             _ => Consistent,
         };
+    }
+
+    /// <summary>The normalised rank-0 text of each qualifying observation, in the order given.</summary>
+    public static IReadOnlyList<string> QualifyingRank0Texts(IEnumerable<TrackPlateObservationRow> observations)
+    {
+        ArgumentNullException.ThrowIfNull(observations);
+        var texts = new List<string>();
+        foreach (var observation in observations)
+        {
+            if (observation.Outcome != PlateObservationOutcome.Read)
+                continue;
+            var rank0 = observation.Readings.FirstOrDefault(reading => reading.Rank == 0);
+            if (rank0 is { NormalisationOutcome: PlateNormalisationOutcome.Ok, NormalisedText: { Length: > 0 } text })
+                texts.Add(text);
+        }
+
+        return texts;
     }
 }
 
@@ -337,9 +360,9 @@ public sealed record TrackPlateFacts(
     IReadOnlyList<TrackPlateObservationRow> Observations,
     TrackPlateProvenance Provenance)
 {
-    /// <summary>The derived agreement of an <c>Analysed</c> Track's texts; null otherwise.</summary>
+    /// <summary>The derived agreement of an <c>Analysed</c> Track's qualifying observations; null otherwise.</summary>
     public string? Agreement => Outcome == PlateTrackOutcomeKind.Analysed
-        ? PlateAgreementRule.Derive(Texts.Select(text => text.SupportCount).ToArray())
+        ? PlateAgreementRule.Derive(PlateAgreementRule.QualifyingRank0Texts(Observations))
         : null;
 }
 
