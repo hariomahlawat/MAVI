@@ -117,3 +117,67 @@ Labels: tables and reproductions are *observed*; "63 cases" is *observed*
 under an approximate (Windows + injected DejaVu Sans) environment and is an
 estimate of the Linux count; the attribution of residual long frames to
 rendering is *derived* from LoAF.
+
+## Owner decision: Option A, implemented
+
+The owner chose **A**: response ordering is deterministic, the `forward` order
+is the blocking lane, the product's order-dependent layouts are fixed by
+drawing the final layout once (never by hiding the late answer), and a
+`reverse` lane is added as the adversarial check. No budget, tolerance or
+class was changed.
+
+### Gate and harness
+
+- The sweep shards and the long-task lane run with
+  `MAVI_VQA_RESPONSE_ORDER=forward`; `performance.mjs` judges only results of
+  that order (`GATE_RESPONSE_ORDER`) and faults any other.
+- Each sweep shard runs its ordinary cases again in `reverse` order;
+  `performance` judges their CLS (`--ordinary-lane --response-order reverse`)
+  against the same budgets, after the forward verdict.
+- The fixture server answers pinned-order data GETs from a queue, one at a
+  time and 120 ms from the previous send; `reverse` answers each burst
+  (requests within 100 ms) in the opposite order. A document carries the epoch
+  it was served in, and a request from a document the harness has left is
+  refused: without this, a previous page's poll took the next case's first
+  sequenced answer (`videos-row-degraded` unreached in 17 of 54 forward and 20
+  of 54 reverse cases; 0 of 54 each after).
+
+### Method correction (long tasks)
+
+One genuine operator input per browser task: the Import preparation's three
+inputs (accepted earlier) and the zone drawing's two vertex clicks, which are
+two separate operator clicks (each click's pointerdown and pointerup stay in
+one task). Recorded as a correction of the measurement's fidelity, not a
+threshold change.
+
+### Product fixes (drawn once, in the final layout)
+
+| Surface | What moved, and why | Fix |
+| --- | --- | --- |
+| Videos, Processing queue | rows drawn with explicit-UTC timestamps and camera identifiers re-wrapped when the timezone and camera metadata landed | the ledger waits for both (`holdUntilSettled`); notices arrive with the rows; per-row lookups keep their reserved row regions (§37.1) |
+| Scene Editor | the reference strip's one-line loading row grew to the strip and moved the inspector | the stage waits for the video list |
+| Search | committed chips and rail re-wrapped for the timezone, camera and video names | the workspace waits for those answers |
+| Processing detail | the run panel, its analytics and the camera-named facts landed in turn | the Record is drawn once (first draw), in its own layout instance |
+| Overview | Recent tracks' empty answer pulled the stacked panel up | the panel reserves the skeleton's 8 rows in every state |
+| Review | transport and rail re-wrapped for the timezone | evidence drawn once the timezone settles |
+| Camera analytics | window band and stage re-wrapped for the timezone (reverse lane) | Workbench drawn once camera and timezone settle; the scene keeps its designed region |
+
+Forward-order full ordinary sweep (local, CI font approximated): **49 → 0**
+cases over their limits (before → after); reverse: the five reverse-only
+cases of the review's first reverse sweep → **0** (the last,
+`analytics-enabled-empty-window@768x1024`, by the analytics fix).
+
+### Scene Editor rename (metric and 50 ms threshold unchanged)
+
+The rename re-rendered the whole stage. `SceneCanvas` is now memoised with a
+geometry-stable draft (names and note excluded) and stable props, so a rename
+renders no SVG, video or overlay. Traced at 3–4x CPU throttling, the rename
+task's React script fell from ~65 ms to ~15–18 ms. Same bytes, 10 repetitions
+× 2 viewports: at 3x, cases with a long task **8/20 → 0/20**; at 4x both still
+exceed (median 70 → 67 ms at 1366, 65 → 60 ms at 1024): what remains is the
+first dirty frame's style, layout and paint (the Context Bar gains its note
+field, badges and actions).
+
+### Final evidence (identical bytes)
+
+FINAL_EVIDENCE_PLACEHOLDER
