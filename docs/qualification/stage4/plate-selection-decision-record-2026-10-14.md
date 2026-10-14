@@ -101,7 +101,18 @@ metrics never trust caller-assembled populations, evidence sets, item sets or ru
 1. the frozen expected digests (the manifest digest; the configuration is inside it);
 2. the real corpus manifest content, until the committed corpus / MAVI-association manifest exists. That manifest is an **integration prerequisite before the PR-2 freeze**;
 3. the candidate under test (its callables and its asserted `ComponentIdentity`), the `BaselineFreeze` and Layer-A `gates_passed` (thresholds not yet frozen; mandated M3 integration);
-4. the N4 `independent` verdict.
+4. the N4 `independent` verdict;
+5. `resolve_baseline`'s self-attested `d_rows_read` and `resolved_at_utc` (the time is only format-checked and not before the freeze). Binding them to Git chronology and the committed pre-D seal is an **M3-chronology integration item**.
+
+**Disclosed limit (P3-5):** an in-process caller can still forge a seal through the private `_seal`. The seal stops relabelling through the public API only.
+
+**Review 6 additions:**
+- **No alias items:** the manifest refuses a MAVI Track shared by two GT Tracks, an evidence image owned twice, two A crops on one image, two C plates on one (Track, image), and two B plates on one image (by id or SHA-256). A plate's text must equal its Track's TEXT truth.
+- **Frozen top-K values:** K (3) and the top-K support floor (50) are frozen in `ProtocolConfig` and read from the verified manifest. `top_k` refuses duplicate candidates, and `BaselineFreeze` refuses one identity under two ids.
+- **C failure:** C is CONTRACT_FAIL when ANY run of the composition violates the contract.
+- **Truth names:** TEXT whose letters spell a truth-state name (any case, any separators) is refused.
+- **`c_minus_b`:** requires a sealed C and B pair on the same manifest and recogniser.
+- **Config types:** a non-integer R (for example 1000.0) is refused.
 
 ## 5. Still-open values (required parameters; fixed in the PR-2 protocol before freeze)
 

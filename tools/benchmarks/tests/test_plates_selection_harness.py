@@ -53,15 +53,23 @@ WHEN = "2026-10-14T00:00:00Z"
 # ---------------------------------------------------------------------------------------------- corpus fixtures
 
 
-def _jpeg(size) -> bytes:
+def _jpeg(size, colour=(200, 200, 200)) -> bytes:
     buffer = io.BytesIO()
-    Image.new("RGB", size, (200, 200, 200)).save(buffer, format="JPEG")
+    Image.new("RGB", size, colour).save(buffer, format="JPEG")
     return buffer.getvalue()
 
 
-JPEG, PLATE_JPEG = _jpeg((64, 32)), _jpeg((40, 12))
-SHA, PLATE_SHA = hashlib.sha256(JPEG).hexdigest(), hashlib.sha256(PLATE_JPEG).hexdigest()
-IMAGES = {SHA: JPEG, PLATE_SHA: PLATE_JPEG}
+JPEG = _jpeg((64, 32))
+SHA = hashlib.sha256(JPEG).hexdigest()
+IMAGES = {SHA: JPEG}
+
+
+def plate_image(i):
+    """A distinct GT plate-crop image per B plate (the manifest refuses one image under two plates)."""
+    content = _jpeg((40, 12), (i * 3 % 256, 90, 160))
+    sha = hashlib.sha256(content).hexdigest()
+    IMAGES[sha] = content
+    return ev.EvidenceImage(oid(f"plate{i}", 0), "gt-plate-crop", 0, sha, len(content))
 
 
 def images(ref):
@@ -94,7 +102,9 @@ class M:
 
 def build(tracks, crops=(), plates=(), config=CONFIG, manifest_id="synthetic"):
     manifest = ev.EvaluationManifest(manifest_id, tuple(tracks), tuple(crops), tuple(plates), config)
-    return M(manifest, ev.manifest_digest(manifest))
+    result = M(manifest, ev.manifest_digest(manifest))
+    _MANIFESTS[result.digest] = result
+    return result
 
 
 class Detector:
@@ -215,6 +225,15 @@ def with_d(base, d, **changes):
     return ev._seal(ev._D, dataclasses.replace(base, d_score=d, seal="", **changes))
 
 
+def TOPK(scores, kind, freeze, mf=None):  # noqa: N802
+    """top_k on the manifest the freeze belongs to (K and the support floor come from its frozen config)."""
+    mf = mf or _MANIFESTS[freeze.manifest_digest]
+    return ev.top_k(scores, kind, freeze=freeze, manifest=mf.m, expected_manifest_digest=mf.digest)
+
+
+_MANIFESTS: dict = {}
+
+
 def compare(mf, ra, rb, **overrides):
     freeze, layer_a, resolution = baseline_for(mf.digest)
     arguments = dict(composition_a=(DET, REC), composition_b=(DET, REC), freeze=freeze, resolution=resolution,
@@ -297,8 +316,9 @@ def test_typed_truth_fails_closed():
     for bad in ("NO_PLATE", "<no-plate>", None):
         with pytest.raises(ValueError, match="truth_state_not_typed"):
             ev.Truth(bad)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="looks_like_a_sentinel"):
-        ev.TEXT("<NO-PLATE>")
+    for sentinel in ("<NO-PLATE>", "NO_PLATE", "UNREADABLE", "NO-GT-VEHICLE", "unreadable", "no plate", "<NO_PLATE"):
+        with pytest.raises(ValueError, match="looks_like_a_sentinel"):
+            ev.TEXT(sentinel)
     with pytest.raises(ValueError, match="truth_text_required"):
         ev.TEXT(" ")
     with pytest.raises(ValueError, match="truth_text_only_for_text"):
@@ -522,10 +542,9 @@ def test_a_population_attacks():
 
 
 def _plate_manifest(texts, *, b=True, c=False):
-    tracks = [T(f"t{i}", f"s{i}", text if ev.normalised_truth(text) else _plate_text(i)) for i, text in enumerate(texts)]
-    plates = [ev.ManifestPlate(f"p{i}", f"t{i}", text,
-                               ev.EvidenceImage(oid(f"plate{i}", 0), "gt-plate-crop", 0, PLATE_SHA, len(PLATE_JPEG))
-                               if b else None, oid(f"t{i}", 0) if c else None) for i, text in enumerate(texts)]
+    tracks = [T(f"t{i}", f"s{i}", text) for i, text in enumerate(texts)]
+    plates = [ev.ManifestPlate(f"p{i}", f"t{i}", text, plate_image(i) if b else None, oid(f"t{i}", 0) if c else None)
+              for i, text in enumerate(texts)]
     return build(tracks, plates=plates)
 
 
@@ -571,7 +590,8 @@ def test_reading_metrics_and_input_order_invariance():
         random.Random(seed).shuffle(shuffled)
         again = ev.evaluate_b(mf.m, mf.digest, shuffled, recogniser=REC)
         assert (again.ece, again.risk_coverage, again.em) == (result.ece, result.risk_coverage, result.em)
-    assert ev.c_minus_b(result, result) == 0
+    with pytest.raises(ValueError, match="not_comparable"):  # review 6, P3-3: needs a sealed C and B pair
+        ev.c_minus_b(result, result)
 
 
 def test_b_population_attacks():
@@ -769,8 +789,8 @@ def test_gates_and_decisions_refuse_diagnostic_and_forged_scores():
     with pytest.raises(ValueError, match="not_sealed"):
         score(mf, [forged_floor] + ranked[1:])
     with pytest.raises(ValueError, match="not_from_ranking_path"):
-        ev.top_k([ev.ComponentScore("OC2-A", True, 100, 0.9, 0.1, 0.1, False, _h("OC2-A"), "recogniser", mf.digest,
-                                    _h("m"))], 1, 50, "recogniser", freeze=freeze)
+        TOPK([ev.ComponentScore("OC2-A", True, 100, 0.9, 0.1, 0.1, False, _h("OC2-A"), "recogniser", mf.digest,
+                                 _h("m"))], "recogniser", freeze, mf)
 
 
 def test_silent_baseline_and_corpus_deficiency():
@@ -946,27 +966,30 @@ def test_benchmark_only_component_never_enters_top_k():
 
     for who in (ev.ComponentIdentity("OC9-ALIAS", OC5.identity_sha256), OC5):
         with pytest.raises(ValueError, match="cannot_enter_top_k"):
-            ev.top_k([component(who)], 3, 50, "recogniser", freeze=freeze)
+            TOPK([component(who)], "recogniser", freeze)
     ordinary = component(REC)
-    assert ev.top_k([ordinary], 3, 50, "recogniser", freeze=freeze) == ["OC1-XS"]
+    assert TOPK([ordinary], "recogniser", freeze) == ["OC1-XS"]
     with pytest.raises(ValueError, match="another_kind"):
-        ev.top_k([ordinary], 3, 50, "detector", freeze=freeze)
-    with pytest.raises(ValueError, match="not_on_the_frozen_manifest"):
-        ev.top_k([ordinary], 3, 50, "recogniser", freeze=baseline_for(FIXED)[0])
+        TOPK([ordinary], "detector", freeze)
+    with pytest.raises(ValueError, match="freeze_is_for_another_manifest"):
+        TOPK([ordinary], "recogniser", baseline_for(FIXED)[0], mf)
     with pytest.raises(ValueError, match="requires_the_baseline_freeze"):
-        ev.top_k([ordinary], 3, 50, "recogniser", freeze=None)
+        TOPK([ordinary], "recogniser", None, mf)
 
 
 def test_top_k_is_deterministic_and_excludes_failures():
-    freeze = baseline_for(FIXED)[0]
-    scores = [comp(FIXED, "PD2-S", True, 100, 0.9, 0.1, 0.8), comp(FIXED, "PD2-N", True, 100, 0.9, 0.1, 0.9),
-              comp(FIXED, "PD5-V5M", False, 100, 0.99, 0.0, 0.99), comp(FIXED, "PD2-M", True, 10, 1, 0, 1),
-              comp(FIXED, "PD5-V6S", True, 100, None, None, None),
-              comp(FIXED, "PD9-X", True, 100, 1.0, 0.0, 1.0, contract_fail=True)]
-    assert ev.top_k(scores, 3, 50, "detector", freeze=freeze) == ["PD2-N", "PD2-S", "PD5-V6S"]
-    ocr = [comp(FIXED, "OC2-B", True, 60, 0.8, 0.1, 0.2, kind="recogniser"),
-           comp(FIXED, "OC2-A", True, 60, 0.8, 0.1, None, kind="recogniser")]
-    assert ev.top_k(ocr, 2, 50, "recogniser", freeze=freeze) == ["OC2-B", "OC2-A"]
+    real = population(1).digest
+    freeze = baseline_for(real)[0]
+    scores = [comp(real, "PD2-S", True, 100, 0.9, 0.1, 0.8), comp(real, "PD2-N", True, 100, 0.9, 0.1, 0.9),
+              comp(real, "PD5-V5M", False, 100, 0.99, 0.0, 0.99), comp(real, "PD2-M", True, 10, 1, 0, 1),
+              comp(real, "PD5-V6S", True, 100, None, None, None),
+              comp(real, "PD9-X", True, 100, 1.0, 0.0, 1.0, contract_fail=True)]
+    assert TOPK(scores, "detector", freeze) == ["PD2-N", "PD2-S", "PD5-V6S"]
+    ocr = [comp(real, "OC2-B", True, 60, 0.8, 0.1, 0.2, kind="recogniser"),
+           comp(real, "OC2-A", True, 60, 0.8, 0.1, None, kind="recogniser")]
+    with pytest.raises(ValueError, match="duplicate_candidate"):  # review 6, P3-4
+        TOPK([ocr[0], ocr[0]], "recogniser", freeze)
+    assert TOPK(ocr, "recogniser", freeze) == ["OC2-B", "OC2-A"]
     mf = _crop_manifest([(((1, 1), (21, 1), (21, 11), (1, 11)),)])
     built = ev.detector_component(True, ev.evaluate_a(mf.m, mf.digest, detect_runs(mf, GOOD_BOX), detector=DET))
     assert (built.candidate_id, built.primary, built.kind, built.manifest_digest) == ("PD2-S", 1.0, "detector",
@@ -1169,3 +1192,76 @@ def test_required_clusters_is_max_of_floor_and_calibration():
     for bad in (0, -1, True, 60.0, None):
         with pytest.raises(ValueError, match="calibration_minimum_invalid"):
             ev.required_clusters(bad)
+
+
+# ---------------------------------------------------------------------------------------------- sixth cold review
+
+
+def test_manifest_refuses_alias_items():
+    """Review 6, P2-1 (probes): no item may alias another."""
+    t0, t1 = T("t0", "s0", "KA01AB1234"), T("t1", "s1", "KA02AB1234")
+    obs0 = t0.evidence[0].observation_id
+    square = (SQUARE,)
+    cases = {
+        "two_crops_on_one_evidence_image": dict(tracks=[t0], crops=[ev.ManifestCrop("c0", "t0", obs0, square),
+                                                                     ev.ManifestCrop("c1", "t0", obs0, square)]),
+        "mavi_track_shared_by_two_tracks": dict(tracks=[t0, dataclasses.replace(t1, mavi_track_uuid=t0.mavi_track_uuid,
+                                                                               evidence=t0.evidence)]),
+        "evidence_shared_by_two_tracks": dict(tracks=[t0, dataclasses.replace(t1, evidence=t0.evidence)]),
+        "two_c_plates_on_one_evidence_image": dict(tracks=[t0], plates=[
+            ev.ManifestPlate("p0", "t0", "KA01AB1234", None, obs0), ev.ManifestPlate("p1", "t0", "KA01AB1234", None, obs0)]),
+        "plate_text_differs_from_its_track_truth": dict(tracks=[t0], plates=[
+            ev.ManifestPlate("p0", "t0", "MH12ZZ9999", None, obs0)]),
+        "two_b_plates_on_one_image": dict(tracks=[t0, t1], plates=[
+            ev.ManifestPlate("p0", "t0", "KA01AB1234", plate_image(0)),
+            ev.ManifestPlate("p1", "t1", "KA02AB1234", dataclasses.replace(plate_image(0), observation_id=oid("x", 0)))]),
+    }
+    for code, parts in cases.items():
+        mf = build(parts["tracks"], parts.get("crops", ()), parts.get("plates", ()))
+        with pytest.raises(ValueError, match=code):
+            ev.verify_manifest(mf.m, mf.digest)
+
+
+def test_any_violation_in_the_composition_makes_c_a_contract_fail():
+    """Review 6, P3-1: a violation on a Track that holds no C plate still fails C (probe 6)."""
+    t0, t1 = T("t0", "s0", "KA01AB1234"), T("t1", "s1", "KA02AB1234")
+    mf = build([t0, t1], plates=[ev.ManifestPlate("p0", "t0", "KA01AB1234", None, t0.evidence[0].observation_id)])
+    bad = run(mf, "t1", recogniser=Outputs([R(("KA02AB1234", 1.5))]))
+    good = run(mf, "t0", ["KA01AB1234"])
+    assert bad.state == ev.CONTRACT_FAIL
+    assert ev.evaluate_c(mf.m, mf.digest, [good, bad], composition=(DET, REC)).outcome == ev.CONTRACT_FAIL
+    assert score(mf, [good, bad]).outcome == ev.CONTRACT_FAIL
+
+
+def test_c_minus_b_needs_sealed_matching_results():
+    mf = _plate_manifest(["KA01AB1234", "MH12AB0001"], b=True, c=True)
+    b = ev.evaluate_b(mf.m, mf.digest, read_runs(mf, {"p0": R(("KA01AB1234", 0.9)), "p1": R(("MH12AB0001", 0.9))}),
+                      recogniser=REC)
+    c = ev.evaluate_c(mf.m, mf.digest, runs_for(mf, {"t0": ["KA01AB1234"], "t1": [""]}), composition=(DET, REC))
+    assert ev.c_minus_b(c, b) == Fraction(-1, 2)
+    with pytest.raises(ValueError, match="not_sealed"):
+        ev.c_minus_b(dataclasses.replace(c, em=Fraction(1)), b)
+    other_rec = ev.evaluate_b(mf.m, mf.digest, read_runs(mf, {"p0": [], "p1": []}, rec=OC5), recogniser=OC5)
+    with pytest.raises(ValueError, match="not_comparable"):
+        ev.c_minus_b(c, other_rec)
+
+
+def test_top_k_protocol_values_and_identity_aliases_are_frozen():
+    mf = population(1)
+    config = mf.m.config
+    assert (config.top_k, config.top_k_support_floor) == (3, 50)  # read from the manifest, never the caller
+    freeze = baseline_for(mf.digest)[0]
+    scores = [comp(mf.digest, f"PD{i}-X", True, 100, 0.9 - i / 100, 0.1, 0.9) for i in range(5)]
+    assert TOPK(scores, "detector", freeze) == ["PD0-X", "PD1-X", "PD2-X"]
+    low = [comp(mf.digest, "PD2-S", True, 49, 0.9, 0.1, 0.9)]
+    assert TOPK(low, "detector", freeze) == []
+    with pytest.raises(ValueError, match="identity_under_two_ids"):
+        freeze_for(mf.digest, eligible_detectors=(("PD2-S", _h("PD2-S")), ("PD2-T", _h("PD2-S"))))
+    with pytest.raises(ValueError, match="identity_under_two_ids"):
+        freeze_for(mf.digest, eligible_detectors=(("PD2-S", _h("OC5-BEST")),))
+    for bad, code in ((dataclasses.replace(CONFIG, bootstrap_replicates=1000.0), "replicates_not_frozen_value"),
+                      (dataclasses.replace(CONFIG, top_k=0), "top_k_malformed"),
+                      (dataclasses.replace(CONFIG, top_k_support_floor=50.0), "top_k_malformed")):
+        other = build(mf.m.tracks, config=bad)
+        with pytest.raises(ValueError, match=code):
+            ev.verify_manifest(other.m, other.digest)

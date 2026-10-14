@@ -53,7 +53,12 @@ in-process caller can still call the private ``_seal``; this is disclosed (P3-5)
    integration prerequisite before the PR-2 freeze;
 3. the candidate under test (its callables and its asserted ``ComponentIdentity``), and Layer-A ``gates_passed`` plus
    the ``BaselineFreeze`` (mandated M3 integration follow-up);
-4. the N4 ``independent`` verdict.
+4. the N4 ``independent`` verdict;
+5. ``resolve_baseline``'s self-attested ``d_rows_read`` and ``resolved_at_utc`` (the time is only format-checked and
+   not before the freeze). Their binding to Git chronology and the committed pre-D seal is an M3-chronology integration
+   item.
+
+Seal forgery through the private ``_seal`` by an in-process caller is NOT prevented (disclosed, P3-5).
 """
 
 from __future__ import annotations
@@ -220,6 +225,9 @@ class TruthState(enum.Enum):
     NO_GT_VEHICLE = "NO_GT_VEHICLE"
 
 
+_STATE_NAMES = frozenset(re.sub(r"[^A-Z0-9]", "", s.value) for s in TruthState)
+
+
 @dataclass(frozen=True, slots=True)
 class Truth:
     """Typed GT truth. Only ``TruthState`` members are accepted (a misspelt state fails closed); TEXT carries the raw
@@ -236,6 +244,8 @@ class Truth:
                 raise ValueError("truth_text_required")
             if self.text.strip().startswith("<") and self.text.strip().endswith(">"):
                 raise ValueError("truth_text_looks_like_a_sentinel")  # a misspelt state never becomes text
+            if re.sub(r"[^A-Za-z0-9]", "", self.text).upper() in _STATE_NAMES:
+                raise ValueError("truth_text_looks_like_a_sentinel")  # "UNREADABLE", "no-gt-vehicle", …
         elif self.text is not None:
             raise ValueError("truth_text_only_for_text")
 
@@ -310,6 +320,8 @@ class ProtocolConfig:
     bootstrap_seed: int
     calibration_minimum_clusters: int
     detector_floors: tuple[tuple[str, float], ...]   # (detector candidate id, pinned floor), sorted
+    top_k: int = 3                                   # plan §4.1: K per sub-task
+    top_k_support_floor: int = SUPPORT_FLOOR         # owner N3/N4: minimum support to enter top-K
     bootstrap_replicates: int = BOOTSTRAP_REPLICATES
     percentile_rule: str = PERCENTILE_RULE
     mpid: str = "4/100"
@@ -320,6 +332,7 @@ class ProtocolConfig:
                 "bootstrapSeed": self.bootstrap_seed, "bootstrapReplicates": self.bootstrap_replicates,
                 "percentileRule": self.percentile_rule, "mpid": self.mpid,
                 "calibrationMinimumClusters": self.calibration_minimum_clusters,
+                "topK": self.top_k, "topKSupportFloor": self.top_k_support_floor,
                 "detectorFloors": [[c, repr(float(f))] for c, f in self.detector_floors]}
 
 
@@ -375,6 +388,11 @@ def _is_uuid(value: object) -> bool:
         return False
 
 
+def _unique_or_empty(values: list, code: str) -> None:
+    if len(values) != len(set(values)):
+        raise ValueError(code)
+
+
 def _unique(ids: list, code: str) -> None:
     if len(ids) != len(set(ids)) or not all(isinstance(i, str) and i for i in ids):
         raise ValueError(code)
@@ -412,6 +430,18 @@ def verify_manifest(manifest: EvaluationManifest, expected_manifest_digest: str)
         if t.truth.state is TruthState.NO_GT_VEHICLE and not t.evidence:
             raise ValueError("manifest_no_gt_vehicle_without_mavi_evidence")  # by definition a MAVI Track
         by_track[t.track_id] = t
+    # Review 6, P2-1: no alias items. One MAVI Track per GT Track, one owner per evidence image, one A crop per image,
+    # one C plate per (Track, image), one B plate per GT plate-crop image.
+    _unique_or_empty([t.mavi_track_uuid for t in tracks if t.mavi_track_uuid is not None],
+                     "manifest_mavi_track_shared_by_two_tracks")
+    _unique_or_empty([e.observation_id for t in tracks for e in t.evidence], "manifest_evidence_shared_by_two_tracks")
+    _unique_or_empty([c.observation_id for c in crops], "manifest_two_crops_on_one_evidence_image")
+    _unique_or_empty([(p.track_id, p.observation_id) for p in plates if p.observation_id is not None],
+                     "manifest_two_c_plates_on_one_evidence_image")
+    _unique_or_empty([p.plate_image.observation_id for p in plates if isinstance(p.plate_image, EvidenceImage)],
+                     "manifest_two_b_plates_on_one_image")
+    _unique_or_empty([p.plate_image.sha256 for p in plates if isinstance(p.plate_image, EvidenceImage)],
+                     "manifest_two_b_plates_on_one_image")
     for c in crops:
         track = by_track.get(c.track_id)
         if track is None or c.observation_id not in {e.observation_id for e in track.evidence}:
@@ -421,6 +451,8 @@ def verify_manifest(manifest: EvaluationManifest, expected_manifest_digest: str)
         track = by_track.get(p.track_id)
         if track is None or track.truth.state is not TruthState.TEXT or not (isinstance(p.text, str) and p.text.strip()):
             raise ValueError("manifest_plate_malformed")
+        if p.text != track.truth.text:
+            raise ValueError("manifest_plate_text_differs_from_its_track_truth")
         if p.plate_image is None and p.observation_id is None:
             raise ValueError("manifest_plate_in_no_layer")
         if p.plate_image is not None:
@@ -433,8 +465,11 @@ def verify_manifest(manifest: EvaluationManifest, expected_manifest_digest: str)
             c_plates[p.plate_id] = p
     if not isinstance(config, ProtocolConfig) or not isinstance(config.query, QueryParameters):
         raise ValueError("manifest_config_malformed")
-    if config.bootstrap_replicates != BOOTSTRAP_REPLICATES or isinstance(config.bootstrap_replicates, bool):
+    if not _integer(config.bootstrap_replicates) or config.bootstrap_replicates != BOOTSTRAP_REPLICATES:
         raise ValueError("manifest_config_replicates_not_frozen_value")
+    if not (_integer(config.top_k) and config.top_k >= 1 and _integer(config.top_k_support_floor)
+            and config.top_k_support_floor >= 0):
+        raise ValueError("manifest_config_top_k_malformed")
     if config.percentile_rule != PERCENTILE_RULE or config.mpid != "4/100":
         raise ValueError("manifest_config_rule_not_frozen")
     if not (_integer(config.bootstrap_seed) and _integer(config.calibration_minimum_clusters)
@@ -1016,7 +1051,12 @@ def evaluate_b(manifest: EvaluationManifest, expected_manifest_digest: str, runs
 
 
 def c_minus_b(c: ReadResult, b: ReadResult) -> Fraction | None:
-    """Diagnostic only: the detector-attributable EM loss (C − B) on the same plates."""
+    """Diagnostic only: the detector-attributable EM loss (C − B), from sealed C and B results of the same manifest and
+    recogniser."""
+    _require(_B, c, "c_minus_b_result_not_sealed")
+    _require(_B, b, "c_minus_b_result_not_sealed")
+    if (c.layer, b.layer) != ("C", "B") or c.manifest_digest != b.manifest_digest or c.recogniser != b.recogniser:
+        raise ValueError("c_minus_b_results_not_comparable")
     return None if c.em is None or b.em is None else c.em - b.em
 
 
@@ -1067,16 +1107,22 @@ def recogniser_component(independent: bool, result: ReadResult) -> ComponentScor
                                             _measurement_sha256(result)))
 
 
-def top_k(scores: Iterable[ComponentScore], k: int, minimum_support: int, kind: str, *,
-          freeze: "BaselineFreeze") -> list[str]:
-    """N4 tie-breaks over sealed scores of ``kind`` measured on the frozen manifest (``freeze.manifest_digest``). Missing
-    metrics sort last; contract-failed or non-independent components never enter; the benchmark-only component (by id
-    OR identity) is refused outright."""
+def top_k(scores: Iterable[ComponentScore], kind: str, *, freeze: "BaselineFreeze", manifest: EvaluationManifest,
+          expected_manifest_digest: str) -> list[str]:
+    """N4 tie-breaks over sealed scores of ``kind`` measured on the frozen manifest. K and the support floor are the
+    frozen ``ProtocolConfig`` values (review 6, P2-2). Missing metrics sort last; contract-failed or non-independent
+    components never enter; the benchmark-only component (by id OR identity) and duplicate candidates are refused."""
     if kind not in ("detector", "recogniser"):
         raise ValueError("top_k_kind")
     if not isinstance(freeze, BaselineFreeze):
         raise ValueError("top_k_requires_the_baseline_freeze")
+    v = verify_manifest(manifest, expected_manifest_digest)
+    if freeze.manifest_digest != v.digest:
+        raise ValueError("top_k_freeze_is_for_another_manifest")
+    k, minimum_support = v.manifest.config.top_k, v.manifest.config.top_k_support_floor
     scores = list(scores)
+    if len({s.candidate_id for s in scores}) != len(scores):
+        raise ValueError("top_k_duplicate_candidate")
     benchmark = freeze.benchmark
     for s in scores:
         _require(_COMPONENT, s, "top_k_score_not_from_ranking_path")
@@ -1352,6 +1398,13 @@ def evaluate_c(manifest: EvaluationManifest, expected_manifest_digest: str, runs
     (PR-3 selection). "Not read" arises only from the run (no accepted plate, or an abstained crop)."""
     v = verify_manifest(manifest, expected_manifest_digest)
     by_track = _track_runs(v, runs, composition)
+    layer = layer_digest(manifest, expected_manifest_digest, "C")
+    violations = tuple(f"{r.contract_violation}:{tid}" for tid, r in sorted(by_track.items())
+                       if r.state == CONTRACT_FAIL)
+    if violations:
+        # Review 6, P3-1: ANY violation in the composition's runs is CONTRACT_FAIL, not only on a C plate's Track.
+        return _seal(_B, ReadResult("C", CONTRACT_FAIL, violations, 0, 0, None, None, None, None, (), 0, v.digest,
+                                    layer, composition[1]))
     per_plate: dict[str, tuple[PlateRecord | None, str | None]] = {}
     for pid, plate in v.c_plates.items():
         run = by_track[plate.track_id]
@@ -1600,6 +1653,9 @@ class BaselineFreeze:
             raise ValueError("baseline_freeze_detectors_must_be_sorted_unique_nonempty")
         if self.benchmark_only_id in ids:
             raise ValueError("baseline_freeze_benchmark_only_component_cannot_be_a_detector_candidate")
+        identities = [h for _, h in self.eligible_detectors] + [self.benchmark_only_identity_sha256]
+        if len(set(identities)) != len(identities):
+            raise ValueError("baseline_freeze_identity_under_two_ids")
         hashes = [h for _, h in self.eligible_detectors] + [self.benchmark_only_identity_sha256,
                                                              self.layer_a_gates_sha256, self.ranking_rule_sha256,
                                                              self.manifest_digest]
