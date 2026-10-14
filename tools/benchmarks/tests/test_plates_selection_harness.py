@@ -84,26 +84,79 @@ def tuuid(tid):
     return str(uuid.uuid5(NS, f"track/{tid}"))
 
 
+def evidence_image(name):
+    """A distinct evidence image per observation (the manifest refuses two images with the same bytes)."""
+    seed = hashlib.sha256(name.encode()).digest()
+    content = _jpeg((64, 32), (seed[0], seed[1], seed[2]))
+    sha = hashlib.sha256(content).hexdigest()
+    IMAGES[sha] = content
+    return sha, len(content)
+
+
 def evidence(tid, n):
-    return tuple(ev.EvidenceImage(oid(tid, k), "near-view", k, SHA, len(JPEG)) for k in range(n))
+    out = []
+    for k in range(n):
+        sha, size = evidence_image(f"{tid}/{k}")
+        out.append(ev.EvidenceImage(oid(tid, k), "near-view", k, sha, size))
+    return tuple(out)
+
+
+def truth_of(text):
+    return ev.TEXT(text) if ev.normalised_truth(text) else ev.UNSUPPORTED_TEXT(text)
 
 
 def T(tid, site, truth, n=1):
     """A manifest Track with ``n`` evidence images (``n=0``: no MAVI Track/evidence)."""
-    truth = truth if isinstance(truth, ev.Truth) else ev.TEXT(truth)
+    truth = truth if isinstance(truth, ev.Truth) else truth_of(truth)
     return ev.ManifestTrack(tid, site, truth, tuuid(tid) if n else None, evidence(tid, n))
+
+
+AB, D = ev.Partition.AB_SELECTION, ev.Partition.PROTECTED_D
 
 
 @dataclasses.dataclass(frozen=True)
 class M:
     m: ev.EvaluationManifest
     digest: str          # the synthetic frozen expected digest (an independent input to every call)
+    twin: "M | None" = None
+
+    @property
+    def ab(self):
+        return self if self.m.partition is AB else self.twin
+
+    @property
+    def d(self):
+        return self if self.m.partition is D else self.twin
 
 
-def build(tracks, crops=(), plates=(), config=CONFIG, manifest_id="synthetic"):
-    manifest = ev.EvaluationManifest(manifest_id, tuple(tracks), tuple(crops), tuple(plates), config)
+def _register(manifest):
     result = M(manifest, ev.manifest_digest(manifest))
     _MANIFESTS[result.digest] = result
+    return result
+
+
+def _sites(tracks):
+    return {getattr(t, "site", None) for t in tracks} - {None}
+
+
+def build(tracks, crops=(), plates=(), config=CONFIG, manifest_id="synthetic", partition=None, twin_tracks=None,
+          plan=None):
+    """One partition's manifest plus a minimal twin of the other partition sharing one site-level plan. Fixtures put
+    A/B items in the A/B partition and everything else in the protected D partition."""
+    partition = partition or (AB if crops or plates else D)
+    other = D if partition is AB else AB
+    if twin_tracks is None:
+        twin_tracks = [T("twin-ab" if other is AB else "twin-d", "twin-ab-site" if other is AB else "twin-d-site",
+                         "KA99AB0001" if other is AB else "KA98AB0002")]
+    plan = plan or ev.PartitionPlan("plan", tuple(sorted([(s, partition) for s in _sites(tracks) if isinstance(s, str)]
+                                                         + [(s, other) for s in _sites(twin_tracks)],
+                                                         key=lambda x: x[0])))
+    twin = _register(ev.EvaluationManifest("twin", other, plan, tuple(twin_tracks), (), (), config))
+    me = _register(ev.EvaluationManifest(manifest_id, partition, plan, tuple(tracks), tuple(crops), tuple(plates),
+                                         config))
+    result = M(me.m, me.digest, twin)
+    _MANIFESTS[result.digest] = result
+    _MANIFESTS[twin.digest] = M(twin.m, twin.digest, result)
     return result
 
 
@@ -118,6 +171,7 @@ class Detector:
 class Recogniser:
     def __init__(self, texts):
         self.texts = list(texts)
+        self.initial = list(texts)
 
     def read(self, region, verified, box):
         text = self.texts.pop(0)
@@ -129,6 +183,7 @@ class Outputs:
 
     def __init__(self, outputs):
         self.outputs = list(outputs)
+        self.initial = list(outputs)
 
     def read(self, region, verified, box):
         return self.outputs.pop(0)
@@ -182,19 +237,36 @@ def comp(mf_digest, candidate_id, independent, support, primary, second, third, 
                                                      contract_fail, _h(candidate_id), kind, mf_digest, _h("m")))
 
 
-def freeze_for(mf_digest, **changes):
+RECOGNISERS = tuple((r, _h(r)) for r in ("OC1-XS", "OC2-A", "OC2-B"))
+
+
+def digests_of(key):
+    """(A/B manifest digest, D manifest digest, plan digest) for a fixture manifest digest, or synthetic values."""
+    mf = _MANIFESTS.get(key)
+    if mf is None:
+        return key, "b" * 64, "c" * 64
+    return mf.ab.digest, mf.d.digest, ev.partition_plan_digest(mf.m.partition_plan)
+
+
+def ab_digest(key):
+    return digests_of(key)[0]
+
+
+def freeze_for(key, **changes):
+    ab, d, plan = digests_of(key)
     fields = dict(eligible_detectors=(("PD1-X", _h("PD1-X")), ("PD2-N", _h("PD2-N")), ("PD2-S", _h("PD2-S"))),
                   benchmark_only_id="OC5-BEST", benchmark_only_identity_sha256=_h("OC5-BEST"),
                   layer_a_gates_sha256=_h("layer-a-gates"), frozen_at_utc="2026-10-01T00:00:00Z", event_id=EVENTS[0],
-                  composition_id=EVENTS[1], partner_event_id=EVENTS[2], manifest_digest=mf_digest)
+                  composition_id=EVENTS[1], partner_event_id=EVENTS[2], eligible_recognisers=RECOGNISERS,
+                  ab_manifest_digest=ab, d_manifest_digest=d, partition_plan_digest=plan)
     fields.update(changes)
     return ev.BaselineFreeze(**fields)
 
 
-def layer_a_for(mf_digest, passed=("PD2-N", "PD2-S"), metrics=None, identities=None):
+def layer_a_for(key, passed=("PD2-N", "PD2-S"), metrics=None, identities=None):
     metrics = metrics or {"PD1-X": (0.99, 0.0, 0.99), "PD2-N": (0.95, 0.10, 0.90), "PD2-S": (0.93, 0.05, 0.92)}
     identities = identities or {}
-    return [ev.LayerAResult(comp(mf_digest, d, True, 100, *metrics[d]), identities.get(d, _h(d)), d in passed)
+    return [ev.LayerAResult(comp(ab_digest(key), d, True, 100, *metrics[d]), identities.get(d, _h(d)), d in passed)
             for d in ("PD1-X", "PD2-N", "PD2-S")]
 
 
@@ -227,7 +299,7 @@ def with_d(base, d, **changes):
 
 def TOPK(scores, kind, freeze, mf=None):  # noqa: N802
     """top_k on the manifest the freeze belongs to (K and the support floor come from its frozen config)."""
-    mf = mf or _MANIFESTS[freeze.manifest_digest]
+    mf = mf or _MANIFESTS[freeze.ab_manifest_digest]
     return ev.top_k(scores, kind, freeze=freeze, manifest=mf.m, expected_manifest_digest=mf.digest)
 
 
@@ -323,7 +395,17 @@ def test_typed_truth_fails_closed():
         ev.TEXT(" ")
     with pytest.raises(ValueError, match="truth_text_only_for_text"):
         ev.Truth(ev.TruthState.NO_PLATE, "KA01")
-    assert ev.TEXT("KA01AB1234").supported_text == "KA01AB1234" and ev.TEXT("a@b").supported_text is None
+    assert ev.TEXT("KA01AB1234").supported_text == "KA01AB1234" and ev.UNSUPPORTED_TEXT("a@b").supported_text is None
+    for placeholder in ("UNREADBLE", "NOPLAT", "N/A", "NONE", "NULL", "UNKNOWN", "ILLEGIBLE", "nil", "AB"):
+        with pytest.raises(ValueError, match="placeholder_not_a_plate|looks_like_a_sentinel"):
+            ev.TEXT(placeholder)  # never silently becomes supported text
+    with pytest.raises(ValueError, match="does_not_normalise_use_unsupported_text"):
+        ev.TEXT("KA01AB12३४")
+    with pytest.raises(ValueError, match="normalises_use_text"):
+        ev.UNSUPPORTED_TEXT("KA01AB1234")
+    for state in (ev.TruthState.NO_PLATE, ev.TruthState.UNREADABLE, ev.TruthState.NO_GT_VEHICLE):
+        with pytest.raises(ValueError, match="truth_text_only_for_text"):
+            ev.Truth(state, "KA01AB1234")
 
 
 @pytest.mark.parametrize("mutate, code", [
@@ -332,9 +414,9 @@ def test_typed_truth_fails_closed():
      "no_gt_vehicle_without_mavi_evidence"),
     (lambda t: [dataclasses.replace(t[0], mavi_track_uuid=None)] + t[1:], "evidence_without_mavi_track"),
     (lambda t: [dataclasses.replace(t[0], evidence=())] + t[1:], "mavi_track_without_evidence"),
-    (lambda t: [dataclasses.replace(t[0], evidence=t[0].evidence * 2)] + t[1:], "evidence_ids_not_unique"),
+    (lambda t: [dataclasses.replace(t[0], evidence=t[0].evidence * 2)] + t[1:], "evidence_ids_not_unique|ranks"),
     (lambda t: [dataclasses.replace(t[0], evidence=(dataclasses.replace(t[0].evidence[0], observation_id="obs"),))]
-     + t[1:], "not_canonical_uuids"),
+     + t[1:], "evidence_malformed"),
     (lambda t: [dataclasses.replace(t[0], truth="KA01")] + t[1:], "track_malformed"),
 ])
 def test_manifest_structure_is_validated(mutate, code):
@@ -414,8 +496,9 @@ def test_evidence_set_attacks_cannot_produce_a_valid_run():
     mf = build([T("t0", "s0", "KA01AB1234", n=2), T("t1", "s1", "MH12AB0001")])
     good = [run(mf, "t0", ["KA01AB1234"] * 2), run(mf, "t1", ["MH12AB0001"])]
     base = mf.m.tracks[0]
-    variants = {"reduced": base.evidence[:1], "empty": (), "reordered": base.evidence[::-1],
-                "superset": base.evidence + evidence("extra", 1)}
+    reranked = lambda refs: tuple(dataclasses.replace(e, evidence_rank=k) for k, e in enumerate(refs))  # noqa: E731
+    variants = {"reduced": base.evidence[:1], "empty": (), "reordered": reranked(base.evidence[::-1]),
+                "superset": reranked(base.evidence + evidence("extra", 1))}
     for refs in variants.values():
         changed = dataclasses.replace(base, evidence=refs, mavi_track_uuid=base.mavi_track_uuid if refs else None)
         other = build([changed, mf.m.tracks[1]])
@@ -730,6 +813,15 @@ class _CrashOcr:
         raise MemoryError("ocr fault")
 
 
+def _fresh(recogniser):
+    """The parametrised recogniser fixtures are consumed by one run; rebuild an equivalent one."""
+    if isinstance(recogniser, Outputs):
+        return Outputs(list(recogniser.initial))
+    if isinstance(recogniser, Recogniser):
+        return Recogniser(list(recogniser.initial))
+    return recogniser
+
+
 @pytest.mark.parametrize("detector, recogniser, code", [
     (_OutOfBounds(), Recogniser(["KA01AB1234"]), "box_outside_crop"),
     (_NaNScore(), Recogniser(["KA01AB1234"]), "score_out_of_range"),
@@ -747,9 +839,10 @@ def test_any_output_contract_violation_is_a_hard_fail_in_d_and_c(detector, recog
     result = run(mf, "t0", detector=detector, recogniser=recogniser)
     assert result.state == ev.CONTRACT_FAIL and result.record is None and code in result.contract_violation
     assert f"obs={oid('t0', 0)}" in result.contract_violation
-    d = score(mf, [result])
-    assert (d.outcome, d.d_score) == (ev.CONTRACT_FAIL, None)
     assert ev.evaluate_c(mf.m, mf.digest, [result], composition=(DET, REC)).outcome == ev.CONTRACT_FAIL
+    d_mf = build([T("t0", "s0", "KA01AB1234")])
+    d = score(d_mf, [run(d_mf, "t0", detector=detector, recogniser=_fresh(recogniser))])
+    assert (d.outcome, d.d_score) == (ev.CONTRACT_FAIL, None)
 
 
 def test_product_abstains_where_the_bake_off_fails():
@@ -790,7 +883,7 @@ def test_gates_and_decisions_refuse_diagnostic_and_forged_scores():
         score(mf, [forged_floor] + ranked[1:])
     with pytest.raises(ValueError, match="not_from_ranking_path"):
         TOPK([ev.ComponentScore("OC2-A", True, 100, 0.9, 0.1, 0.1, False, _h("OC2-A"), "recogniser", mf.digest,
-                                 _h("m"))], "recogniser", freeze, mf)
+                                 _h("m"))], "recogniser", freeze)
 
 
 def test_silent_baseline_and_corpus_deficiency():
@@ -958,7 +1051,7 @@ def test_composition_identity_is_sealed_through_the_real_path():
 
 def test_benchmark_only_component_never_enters_top_k():
     mf = _plate_manifest([_plate_text(i) for i in range(60)])
-    freeze = baseline_for(mf.digest)[0]
+    freeze = freeze_for(mf.digest, eligible_recognisers=(("OC1-XS", _h("OC1-XS")),))
 
     def component(who):
         runs = read_runs(mf, {f"p{i}": R((_plate_text(i), 0.9)) for i in range(60)}, rec=who)
@@ -972,14 +1065,16 @@ def test_benchmark_only_component_never_enters_top_k():
     with pytest.raises(ValueError, match="another_kind"):
         TOPK([ordinary], "detector", freeze)
     with pytest.raises(ValueError, match="freeze_is_for_another_manifest"):
-        TOPK([ordinary], "recogniser", baseline_for(FIXED)[0], mf)
+        TOPK([ordinary], "recogniser", freeze_for(FIXED), mf)
     with pytest.raises(ValueError, match="requires_the_baseline_freeze"):
         TOPK([ordinary], "recogniser", None, mf)
 
 
 def test_top_k_is_deterministic_and_excludes_failures():
-    real = population(1).digest
-    freeze = baseline_for(real)[0]
+    real = ab_digest(population(1).digest)
+    detectors = ("PD2-M", "PD2-N", "PD2-S", "PD5-V5M", "PD5-V6S", "PD9-X")
+    freeze = freeze_for(real, eligible_detectors=tuple((d, _h(d)) for d in detectors),
+                        eligible_recognisers=tuple((r, _h(r)) for r in ("OC2-A", "OC2-B")))
     scores = [comp(real, "PD2-S", True, 100, 0.9, 0.1, 0.8), comp(real, "PD2-N", True, 100, 0.9, 0.1, 0.9),
               comp(real, "PD5-V5M", False, 100, 0.99, 0.0, 0.99), comp(real, "PD2-M", True, 10, 1, 0, 1),
               comp(real, "PD5-V6S", True, 100, None, None, None),
@@ -1230,7 +1325,6 @@ def test_any_violation_in_the_composition_makes_c_a_contract_fail():
     good = run(mf, "t0", ["KA01AB1234"])
     assert bad.state == ev.CONTRACT_FAIL
     assert ev.evaluate_c(mf.m, mf.digest, [good, bad], composition=(DET, REC)).outcome == ev.CONTRACT_FAIL
-    assert score(mf, [good, bad]).outcome == ev.CONTRACT_FAIL
 
 
 def test_c_minus_b_needs_sealed_matching_results():
@@ -1249,19 +1343,211 @@ def test_c_minus_b_needs_sealed_matching_results():
 def test_top_k_protocol_values_and_identity_aliases_are_frozen():
     mf = population(1)
     config = mf.m.config
-    assert (config.top_k, config.top_k_support_floor) == (3, 50)  # read from the manifest, never the caller
-    freeze = baseline_for(mf.digest)[0]
-    scores = [comp(mf.digest, f"PD{i}-X", True, 100, 0.9 - i / 100, 0.1, 0.9) for i in range(5)]
+    assert (config.top_k, config.top_k_support_floor) == (ev.TOP_K, ev.TOP_K_SUPPORT_FLOOR) == (3, 50)
+    ab = ab_digest(mf.digest)
+    ids = tuple(f"PD{i}-X" for i in range(5))
+    freeze = freeze_for(mf.digest, eligible_detectors=tuple((d, _h(d)) for d in ids))
+    scores = [comp(ab, f"PD{i}-X", True, 100, 0.9 - i / 100, 0.1, 0.9) for i in range(5)]
     assert TOPK(scores, "detector", freeze) == ["PD0-X", "PD1-X", "PD2-X"]
-    low = [comp(mf.digest, "PD2-S", True, 49, 0.9, 0.1, 0.9)]
-    assert TOPK(low, "detector", freeze) == []
+    low = [comp(ab, "PD2-S", True, 49, 0.9, 0.1, 0.9)]
+    assert TOPK(low, "detector", freeze_for(mf.digest, eligible_detectors=(("PD2-S", _h("PD2-S")),))) == []
+    for roster, label in ((scores[:4], "omission"), (scores + [comp(ab, "PD9-X", True, 100, 1, 0, 1)], "outsider"),
+                          ([], "empty")):
+        with pytest.raises(ValueError, match="roster_is_not_the_frozen_universe"):  # review 7, P2-2
+            TOPK(roster, "detector", freeze)
     with pytest.raises(ValueError, match="identity_under_two_ids"):
         freeze_for(mf.digest, eligible_detectors=(("PD2-S", _h("PD2-S")), ("PD2-T", _h("PD2-S"))))
     with pytest.raises(ValueError, match="identity_under_two_ids"):
         freeze_for(mf.digest, eligible_detectors=(("PD2-S", _h("OC5-BEST")),))
     for bad, code in ((dataclasses.replace(CONFIG, bootstrap_replicates=1000.0), "replicates_not_frozen_value"),
-                      (dataclasses.replace(CONFIG, top_k=0), "top_k_malformed"),
-                      (dataclasses.replace(CONFIG, top_k_support_floor=50.0), "top_k_malformed")):
+                      (dataclasses.replace(CONFIG, top_k=4), "top_k_not_frozen_value"),
+                      (dataclasses.replace(CONFIG, top_k_support_floor=50.0), "top_k_not_frozen_value")):
         other = build(mf.m.tracks, config=bad)
         with pytest.raises(ValueError, match=code):
             ev.verify_manifest(other.m, other.digest)
+
+
+# ---------------------------------------------------------------------------------------------- review 7
+
+
+POLY = (((1, 1), (20, 1), (20, 10), (1, 10)),)
+
+
+def _verify(mf):
+    return ev.verify_manifest(mf.m, mf.digest)
+
+
+def _ab_and_d():
+    """A/B partition (site ab-site) and protected D partition (site d-site) sharing one site-level plan."""
+    plan = ev.PartitionPlan("plan", (("ab-site", AB), ("d-site", D)))
+    ab = build([T("a0", "ab-site", "KA01AB1234")], [ev.ManifestCrop("c0", "a0", oid("a0", 0), POLY)], plan=plan,
+               twin_tracks=[T("d0", "d-site", "KA02AB1234")], manifest_id="ab")
+    return ab, ab.d
+
+
+def test_partitions_are_site_disjoint_and_projected_separately():
+    """Review 7, P1-1: A/B/C come only from the A/B partition, D only from the protected D partition."""
+    ab, d = _ab_and_d()
+    assert ab.m.partition is AB and d.m.partition is D and ab.m.partition_plan == d.m.partition_plan
+    _verify(ab), _verify(d)
+    # a site in both partitions
+    overlap = ev.PartitionPlan("plan", (("ab-site", AB), ("ab-site", D), ("d-site", D)))
+    with pytest.raises(ValueError, match="site_in_two_partitions"):
+        _verify(build([T("a0", "ab-site", "KA01AB1234")], [ev.ManifestCrop("c0", "a0", oid("a0", 0), POLY)],
+                      plan=overlap, twin_tracks=[T("d0", "d-site", "KA02AB1234")]))
+    for spelt in ("ab-site ", "AB-SITE"):  # one site under two spellings is still one site
+        plan = ev.PartitionPlan("plan", (("ab-site", AB), (spelt, D)))
+        with pytest.raises(ValueError, match="site_not_canonical"):
+            _verify(build([T("a0", "ab-site", "KA01AB1234")], [ev.ManifestCrop("c0", "a0", oid("a0", 0), POLY)],
+                          plan=plan, twin_tracks=[T("d0", spelt, "KA02AB1234")]))
+    # an A item from a D-partition Track: the Track cannot enter the A/B manifest, and without it the crop is orphaned
+    plan = ev.PartitionPlan("plan", (("ab-site", AB), ("d-site", D)))
+    with pytest.raises(ValueError, match="site_not_in_this_partition"):
+        _verify(build([T("a0", "ab-site", "KA01AB1234"), T("d0", "d-site", "KA02AB1234")],
+                      [ev.ManifestCrop("c0", "d0", oid("d0", 0), POLY)], plan=plan,
+                      twin_tracks=[T("d1", "d-site", "KA03AB1234")]))
+    with pytest.raises(ValueError, match="manifest_crop"):
+        _verify(build([T("a0", "ab-site", "KA01AB1234")], [ev.ManifestCrop("c0", "d0", oid("d0", 0), POLY)],
+                      plan=plan, twin_tracks=[T("d0", "d-site", "KA02AB1234")]))
+    # the D partition holds no A/B items
+    with pytest.raises(ValueError, match="d_partition_holds_a_b_items"):
+        _verify(build([T("d0", "d-site", "KA02AB1234")], [ev.ManifestCrop("c0", "d0", oid("d0", 0), POLY)],
+                      partition=D, plan=plan, twin_tracks=[T("a0", "ab-site", "KA01AB1234")]))
+    # A runs only from the A/B partition, D runs only from the D partition
+    with pytest.raises(ValueError, match="is_not_the_ab_selection_partition"):
+        ev.evaluate_a(d.m, d.digest, [], detector=DET)
+    with pytest.raises(ValueError, match="is_not_the_ab_selection_partition"):
+        ev.run_detection(d.m, d.digest, "c0", detector=GOOD_BOX, detector_identity=DET, images=images)
+    with pytest.raises(ValueError, match="is_not_the_protected_d_partition"):
+        score(ab, [run(ab, "a0", ["KA01AB1234"])])
+    with pytest.raises(ValueError, match="result_of_another_manifest"):  # a D run on an A/B Track
+        score(d, [run(ab, "a0", ["KA01AB1234"])])
+    assert score(d, [run(d, "d0", ["KA02AB1234"])]).d_score == 1
+
+
+def test_gate_and_layer_a_work_on_separate_partition_manifests():
+    """Review 7, P1-1: the freeze binds the A/B digest, the D digest and the plan; Layer-A resolution and top-K
+    need only the A/B manifest (no D truth is read), and the gate needs both scores on the D manifest."""
+    ab, d = _ab_and_d()
+    freeze = freeze_for(ab.digest)
+    assert (freeze.ab_manifest_digest, freeze.d_manifest_digest) == (ab.digest, d.digest)
+    layer_a = layer_a_for(ab.digest)
+    del _MANIFESTS[d.digest]  # Layer-A resolution and top-K run with no D manifest present
+    try:
+        resolution = ev.resolve_baseline(freeze, layer_a, d_rows_read=0, resolved_at_utc=WHEN)
+        assert resolution.pd_base_id == "PD2-N"
+        scores = [comp(ab.digest, r, True, 100, 0.9 - i / 10, 0.1, 0.9, kind="recogniser")
+                  for i, (r, _) in enumerate(RECOGNISERS)]
+        assert TOPK(scores, "recogniser", freeze, ab) == ["OC1-XS", "OC2-A", "OC2-B"]
+        with pytest.raises(ValueError, match="is_not_the_ab_selection_partition"):
+            ev.top_k(scores, "recogniser", freeze=freeze, manifest=d.m, expected_manifest_digest=d.digest)
+    finally:
+        _MANIFESTS[d.digest] = d
+    on_d = score(d, [run(d, "d0", ["KA02AB1234"])])
+    assert isinstance(ev.baseline_gate(C("PD2-S", "OC1-XS", on_d), C("PD2-N", "OC5-BEST", on_d), resolution,
+                                       freeze, layer_a), str)
+    with pytest.raises(ValueError, match="gate_scores_not_on_the_same_population"):  # D scores off the frozen D digest
+        resolve_d_freeze = freeze_for(ab.digest, d_manifest_digest="e" * 64)
+        ev.baseline_gate(C("PD2-S", "OC1-XS", on_d), C("PD2-N", "OC5-BEST", on_d),
+                         ev.resolve_baseline(resolve_d_freeze, layer_a, d_rows_read=0, resolved_at_utc=WHEN),
+                         resolve_d_freeze, layer_a)
+    with pytest.raises(ev.BaselineStop, match="layer_a_result_not_on_the_frozen_manifest"):
+        ev.resolve_baseline(freeze_for(ab.digest), layer_a_for("f" * 64), d_rows_read=0, resolved_at_utc=WHEN)
+
+
+def test_unsupported_text_is_typed_and_counted_wrong_for_precision():
+    """Owner decision (review 7): human truth that does not normalise is UNSUPPORTED_TEXT, kept with its raw text,
+    excluded from text-recall denominators, and every return against it is wrong for precision."""
+    u = ev.UNSUPPORTED_TEXT("KA01AB12३४")
+    assert u.state is ev.TruthState.UNSUPPORTED_TEXT and u.text == "KA01AB12३४" and u.supported_text is None
+    plain = build([T("p", "s1", "KA01AB1234")])
+    mixed = build([T("p", "s1", "KA01AB1234"), T("u", "s2", u)])
+    without = score(plain, runs_for(plain, {"p": ["KA01AB1234"]}))
+    with_u = score(mixed, runs_for(mixed, {"p": ["KA01AB1234"], "u": ["KA01AB1234"]}))
+    assert with_u.counts.exact_denominator == without.counts.exact_denominator  # recall denominators unchanged
+    assert with_u.counts.correct_returned == without.counts.correct_returned  # never a correct return
+    assert with_u.contains_precision < without.contains_precision
+    for bad in ("UNREADBLE", "NOPLAT", "N/A", "NONE", "NULL", "UNKNOWN", "ILLEGIBLE", "NOPLATE0", "NOGTVEHICLE1",
+                "UNREADABLE.", "[UNREADABLE]", "TEXT"):
+        with pytest.raises(ValueError, match="placeholder|sentinel|does_not_normalise"):
+            ev.TEXT(bad)
+    for state in ("TEXT", "NO PLATE", None):
+        with pytest.raises(ValueError, match="truth_state_not_typed"):
+            ev.Truth(state, "KA01AB1234")
+
+
+def test_evidence_and_plate_image_fields_are_validated():
+    """Review 7, P3-2: role, rank, size, UUID and SHA-256 on every evidence and B plate image."""
+    good = T("a", "s1", "KA01AB1234", 2)
+    for change in (dict(role=12345), dict(role="side-view"), dict(evidence_rank=-1), dict(evidence_rank=True),
+                   dict(size_bytes=0), dict(size_bytes=-1), dict(observation_id="obs"), dict(sha256="x" * 64)):
+        broken = dataclasses.replace(good, evidence=(dataclasses.replace(good.evidence[0], **change),
+                                                     good.evidence[1]))
+        with pytest.raises(ValueError, match="evidence_malformed"):
+            _verify(build([broken]))
+    with pytest.raises(ValueError, match="ranks_not_strictly_ordered"):
+        _verify(build([dataclasses.replace(good, evidence=good.evidence[::-1])]))
+    for change in (dict(size_bytes=-1), dict(observation_id="not-a-uuid"), dict(role=None)):
+        image = dataclasses.replace(plate_image(4), **change)
+        with pytest.raises(ValueError, match="plate_image_malformed"):
+            _verify(build([T("a", "s1", "KA01AB1234")], plates=[ev.ManifestPlate("p1", "a", "KA01AB1234", image)]))
+
+
+def test_evidence_bytes_cannot_alias_across_images():
+    """Review 7, P3-3: two images with the same bytes (SHA-256) are one image, never two items."""
+    a, b = T("a", "s1", "KA01AB1234"), T("b", "s2", "KA02AB1234")
+    b = dataclasses.replace(b, evidence=(dataclasses.replace(b.evidence[0], sha256=a.evidence[0].sha256,
+                                                             size_bytes=a.evidence[0].size_bytes),))
+    with pytest.raises(ValueError, match="evidence_bytes_shared_by_two_images"):
+        _verify(build([a, b]))
+    image = dataclasses.replace(plate_image(4), sha256=a.evidence[0].sha256)
+    with pytest.raises(ValueError, match="shared|alias|not_unique"):
+        _verify(build([a], plates=[ev.ManifestPlate("p1", "a", "KA01AB1234", image)]))
+
+
+def test_crop_geometry_agrees_with_truth_and_polygons_are_valid():
+    """Review 7, P3-1: no GT polygon on NO_PLATE / NO_GT_VEHICLE; every polygon is a valid finite region. A TEXT
+    crop may have no polygon (the plate is out of that frame)."""
+    for truth in (ev.NO_PLATE, ev.NO_GT_VEHICLE):
+        with pytest.raises(ValueError, match="polygon_contradicts_truth"):
+            _verify(build([T("a", "s1", truth)], [ev.ManifestCrop("c1", "a", oid("a", 0), POLY)]))
+    _verify(build([T("a", "s1", "KA01AB1234")], [ev.ManifestCrop("c1", "a", oid("a", 0), ())]))
+    for polygon in (((True, 1), (2, 1), (2, 2)), ((1, 1), (2, 1)), ((1, 1), (2, 2), (3, 3)), ((-1, 1), (5, 1), (5, 5)),
+                    (("1", 1), (5, 1), (5, 5))):
+        with pytest.raises(ValueError, match="polygon_malformed"):
+            _verify(build([T("a", "s1", "KA01AB1234")], [ev.ManifestCrop("c1", "a", oid("a", 0), (polygon,))]))
+    with pytest.raises(ValueError):
+        _verify(build([T("a", "s1", "KA01AB1234")],
+                      [ev.ManifestCrop("c1", "a", oid("a", 0), (((float("nan"), 1), (5, 1), (5, 5)),))]))
+
+
+def test_recogniser_universe_is_frozen_and_rosters_must_equal_it():
+    """Review 7, P2-2: detector and recogniser rosters equal the frozen universes exactly; OC5 is outside both."""
+    mf = _plate_manifest([_plate_text(i) for i in range(60)])
+    for recognisers in ((), (("OC2-B", _h("OC2-B")), ("OC2-A", _h("OC2-A"))), (("OC2-A", _h("OC2-A")),) * 2):
+        with pytest.raises(ValueError, match="recognisers_must_be_sorted_unique_nonempty"):
+            freeze_for(mf.digest, eligible_recognisers=recognisers)
+    with pytest.raises(ValueError, match="benchmark_only"):
+        freeze_for(mf.digest, eligible_recognisers=(("OC5-BEST", _h("OC5-BEST")),))
+    with pytest.raises(ValueError, match="identity|alias"):
+        freeze_for(mf.digest, eligible_recognisers=(("OC2-A", _h("PD1-X")),))
+    freeze = freeze_for(mf.digest)
+    full = [comp(mf.digest, r, True, 100, 0.9, 0.1, 0.9, kind="recogniser") for r, _ in RECOGNISERS]
+    assert len(TOPK(full, "recogniser", freeze)) == 3
+    for roster in (full[1:], full + [comp(mf.digest, "OC9-Z", True, 100, 1, 0, 1, kind="recogniser")], []):
+        with pytest.raises(ValueError, match="roster_is_not_the_frozen_universe"):
+            TOPK(roster, "recogniser", freeze)
+
+
+def test_comparison_is_sealed():
+    """Review 7, P3-5: a paired comparison is a sealed result; any edit breaks the seal."""
+    mf = population(3)
+    runs = runs_for(mf, outputs_of(3, lambda i: [_plate_text(i)]))
+    result = compare(mf, runs, runs)
+    assert ev._is_sealed(ev._CMP, result)
+    assert not ev._is_sealed(ev._CMP, dataclasses.replace(result, outcome="superior"))
+    other = freeze_for(mf.digest, d_manifest_digest="e" * 64)
+    layer_a = layer_a_for(mf.digest)
+    with pytest.raises(ValueError, match="freeze_is_for_another_manifest"):
+        compare(mf, runs, runs, freeze=other, layer_a_results=layer_a,
+                resolution=ev.resolve_baseline(other, layer_a, d_rows_read=0, resolved_at_utc=WHEN))

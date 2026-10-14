@@ -283,6 +283,7 @@ These are tooling corrections only. No frozen result, threshold or verdict chang
 
 **Scope and obligations (owner 2026-10-14).** #218 is accepted as the level-1 A–D / query harness only.
 - **Architecture:** one frozen evaluation manifest leads to execution envelopes, which lead to sealed results, which feed the metrics. Metrics never accept caller-assembled populations, evidence sets, item sets or run identities.
+- **Partitions (review 7):** separate, site-disjoint A/B-selection and protected-D manifests share one truth-free partition plan; the baseline freeze binds both digests and the plan digest. Truth uses the owner's `UNSUPPORTED_TEXT` state for non-normalising human text (decision record N8 and §4a).
 - **Mandated follow-up PR:** the M3 pre-D seal integration (committed baseline seal, Git chronology, D-manifest binding, and M3's committed Layer-A document with `layerAResultSha256`, from which Layer-A gate verdicts must come). It must merge before PR-2 cold review 1 and `PROTOCOL_FROZEN`.
 - **Integration prerequisite (corpus):** the committed corpus / MAVI-association evaluation manifest and its frozen digest. The harness implements the mechanism; the data does not exist yet.
 
