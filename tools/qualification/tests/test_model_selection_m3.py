@@ -923,7 +923,7 @@ def write_frozen_event(repo: Path, document, *, record_extra=""):
     return folder, lf_normalised_sha256(protocol)
 
 
-def build_repository(repo: Path, *, stopped=False, with_decision=True, cite_seal=True):
+def build_repository(repo: Path, *, stopped=False, with_decision=True, cite_seal=True, commit=True):
     document = m3_ledger()
     partner = partner_ledger()
     write_frozen_event(repo, partner)
@@ -937,11 +937,13 @@ def build_repository(repo: Path, *, stopped=False, with_decision=True, cite_seal
     record = folder / f"{EVENT}.md"
     if cite_seal:
         write(record, record.read_text() + bs.seal_citation(GATE, document_sha256(seal)) + "\n")
-    if with_decision:
-        # A decision holds D results: the seal must be committed first, in a strict ancestor (owner decision 2).
+    if commit or with_decision:
+        # The shared seal predicate requires full Git history (convergence review P1-C), and a decision holds D
+        # results, so the seal is committed first, in a strict ancestor (owner decision 2).
         git(repo, "init", "-q")
         git(repo, "add", "-A")
         git(repo, "commit", "-q", "-m", "freeze and seal")
+    if with_decision:
         proof = {GATE: {"seal": seal, "layerA": result, "partnerLedger": partner}}
         summary = m3_decision(document, proof, **({"state": "TECHNICAL_DECISION_RECORDED", "implementation": None}
                                                   if stopped else {}))
@@ -976,7 +978,7 @@ def test_repository_scan_refuses_uncited_noncanonical_or_orphan_seals(tmp_path):
     refused("baseline_seal_not_canonical", validate_repository, tmp_path / "b")
     document, _partner, seal, folder = build_repository(tmp_path / "c", with_decision=False)
     write(folder / f"{EVENT}{bs.SEAL_INFIX}GATE-STRAY.json", canonical_json(seal).decode())
-    refused("baseline_artefact_without_frozen_composition", validate_repository, tmp_path / "c")
+    refused("baseline_seal_not_recorded", validate_repository, tmp_path / "c")
     build_repository(tmp_path / "d", with_decision=False)
     partner_file = tmp_path / "d" / "docs" / "qualification" / "model-selection" / "plate-detector" / \
         f"{PARTNER_EVENT}-evidence-ledger-frozen.json"
@@ -1026,11 +1028,7 @@ def git(repo: Path, *args: str) -> str:
 
 
 def committed_repository(repo: Path, **kwargs):
-    built = build_repository(repo, with_decision=False, **kwargs)
-    git(repo, "init", "-q")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "freeze and seal")
-    return built
+    return build_repository(repo, with_decision=False, **kwargs)
 
 
 def test_harness_requires_the_exact_committed_resolved_seal(tmp_path):
@@ -1039,7 +1037,7 @@ def test_harness_requires_the_exact_committed_resolved_seal(tmp_path):
     assert binding.seal_sha256 == document_sha256(seal) and binding.partner_candidate_id == "PD-A"
     assert binding.seal_commit == git(tmp_path / "a", "rev-parse", "HEAD")
     write(bs.seal_path(tmp_path / "a", document, GATE), canonical_json(dict(seal, recordedBy="someone")).decode())
-    refused("baseline_seal_not_committed", bs.require_committed_baseline_seal, tmp_path / "a", EVENT,
+    refused("baseline_seal_not_recorded", bs.require_committed_baseline_seal, tmp_path / "a", EVENT,
             "vehicle-colour", GATE)
     committed_repository(tmp_path / "b", stopped=True)
     refused("baseline_seal_stopped_no_d", bs.require_committed_baseline_seal, tmp_path / "b", EVENT,
@@ -1068,10 +1066,10 @@ def test_d_manifest_bound_to_a_seal_refuses_a_later_reseal(tmp_path):
     write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "reseal")
-    refused("d_manifest_baseline_seal_mismatch", bs.verify_d_manifest_binding, manifest, repo, EVENT,
+    refused("baseline_artefact_rewritten_in_history", bs.verify_d_manifest_binding, manifest, repo, EVENT,
             "vehicle-colour")
     stale_commit = dict(manifest["baselineSeals"][0], sealSha256=document_sha256(reseal))
-    refused("d_manifest_baseline_seal_mismatch", bs.verify_d_manifest_binding, {"baselineSeals": [stale_commit]},
+    refused("baseline_artefact_rewritten_in_history", bs.verify_d_manifest_binding, {"baselineSeals": [stale_commit]},
             repo, EVENT, "vehicle-colour")
 
 
@@ -1234,8 +1232,8 @@ def test_cold_p1_1_git_history_makes_seals_add_only(tmp_path):
     git(repo2, "commit", "-q", "-am", "restore citation")
     refused("baseline_seal_citation_changed", validate_repository, repo2)
     plain_dir = tmp_path / "nogit"
-    build_repository(plain_dir, with_decision=False)
-    assert "git-history:absent" in validate_repository(plain_dir)
+    build_repository(plain_dir, with_decision=False, commit=False)
+    refused("baseline_seal_history_unavailable", validate_repository, plain_dir)  # fail closed (P1-C)
 
 
 def test_cold_p3_1_fabricated_stop_is_refused_when_the_inputs_exist(tmp_path):
@@ -1411,9 +1409,9 @@ def test_chronology_seal_and_d_in_the_same_commit_is_refused(tmp_path):
     together = git(repo, "rev-parse", "HEAD")
     manifest["baselineSeals"][0]["sealCommit"] = together
     write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", canonical_json(manifest).decode())
-    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo)
+    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)
     repo2 = tmp_path / "self"
-    document, partner, seal, folder = build_repository(repo2, with_decision=False)
+    document, partner, seal, folder = build_repository(repo2, with_decision=False, commit=False)
     git(repo2, "init", "-q")
     git(repo2, "add", "-A")
     git(repo2, "commit", "-q", "-m", "seal")
@@ -1445,9 +1443,9 @@ def test_chronology_modified_seal_and_second_hash_are_refused(tmp_path):
     write(bs.seal_path(repo, document, GATE), canonical_json(changed).decode())
     record = folder / f"{EVENT}.md"
     write(record, record.read_text().replace(document_sha256(seal), document_sha256(changed)))
-    refused("d_manifest_baseline_seal_mismatch", validate_repository, repo)  # D cites the first hash
+    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)  # D cites the first hash
     git(repo, "commit", "-q", "-am", "modify the seal")
-    refused("d_manifest_baseline_seal_mismatch", validate_repository, repo)
+    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)
     # a second D manifest citing the new hash: two hashes for one composition across D artefacts
     repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "d2")
     second = dict(manifest, manifestId="RUN-2",
@@ -1492,7 +1490,7 @@ def test_chronology_reseal_after_d_is_refused(tmp_path, swap):
         write(item, canonical_json(bound).decode())
     git(repo, "commit", "-q", "-am", "rebind D")
     # the rebound D manifests cite a seal commit newer than the commit that added them
-    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo)
+    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)
 
 
 def test_chronology_needs_full_history_for_an_event_with_d(tmp_path):
@@ -1581,7 +1579,7 @@ def test_renamed_composition_cannot_escape_the_gate_or_coexist_with_its_original
 
 def staged_repo(repo):
     """Commit C0: both events frozen, no Layer-A result and no seal yet. Returns the saved seal artefacts."""
-    document, partner, seal, folder = build_repository(repo, with_decision=False)
+    document, partner, seal, folder = build_repository(repo, with_decision=False, commit=False)
     seal_p, la_p, record = bs.seal_path(repo, document, GATE), bs.layer_a_path(repo, document, GATE), folder / f"{EVENT}.md"
     saved = (seal_p.read_bytes(), la_p.read_bytes(), record.read_bytes())
     citation = (bs.seal_citation(GATE, document_sha256(seal)) + NL).encode()
@@ -1760,3 +1758,176 @@ def test_history_d_manifest_added_inside_a_merge_is_found(tmp_path):
     git(repo2, "add", "-A")
     git(repo2, "commit", "-q", "-m", "merge adds a D manifest citing an unrelated commit")
     refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo2)
+
+
+
+# ------------------------------------------------------------------ convergence P1-C: one shared seal predicate
+
+
+def _attack_resolved(tmp_path):
+    return committed_repository(tmp_path / "ok")[0] and tmp_path / "ok"
+
+
+def _attack_stopped_to_resolved_in_place(tmp_path):
+    """The reviewer's probe: a committed STOPPED seal rewritten in place to RESOLVED and committed again."""
+    repo = tmp_path / "s2r"
+    document, partner, seal, folder = committed_repository(repo, stopped=True)
+    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
+    good = layer_a(document, partner)
+    resolved = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
+                                       layer_a=good, recorded_at=SEALED_AT, recorded_by="x")
+    write(bs.layer_a_path(repo, document, GATE), canonical_json(good).decode())
+    write(bs.seal_path(repo, document, GATE), canonical_json(resolved).decode())
+    record = folder / f"{EVENT}.md"
+    write(record, record.read_text().replace(document_sha256(seal), document_sha256(resolved)))
+    git(repo, "commit", "-q", "-am", "reseal in place")
+    return repo
+
+
+def _attack_shallow_clone(tmp_path):
+    repo = tmp_path / "deep"
+    committed_repository(repo)
+    git(repo, "commit", "-q", "--allow-empty", "-m", "later work")
+    shallow = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "-q", "--depth", "1", repo.as_uri(), str(shallow)], check=True,
+                   capture_output=True)
+    return shallow
+
+
+def _attack_no_git(tmp_path):
+    repo = tmp_path / "nogit"
+    build_repository(repo, with_decision=False, commit=False)
+    return repo
+
+
+def _attack_deleted_d_manifest(tmp_path):
+    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "deleted")
+    git(repo, "rm", "-q", str(path))
+    git(repo, "commit", "-q", "-m", "drop D manifest")
+    return repo
+
+
+def _attack_delete_and_recreate(tmp_path):
+    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "recreate")
+    seal_p = bs.seal_path(repo, document, GATE)
+    data = seal_p.read_bytes()
+    git(repo, "rm", "-q", str(seal_p))
+    git(repo, "commit", "-q", "-m", "delete seal")
+    seal_p.write_bytes(data)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "re-create")
+    return repo
+
+
+def _attack_rename_and_back(tmp_path):
+    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "rename")
+    seal_p = bs.seal_path(repo, document, GATE)
+    git(repo, "mv", str(seal_p), str(seal_p.with_name("tmp.json")))
+    git(repo, "commit", "-q", "-m", "rename away")
+    git(repo, "mv", str(seal_p.with_name("tmp.json")), str(seal_p))
+    git(repo, "commit", "-q", "-m", "rename back")
+    return repo
+
+
+def _attack_mode_change(tmp_path):
+    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "mode")
+    git(repo, "update-index", "--chmod=+x", bs.seal_path(repo, document, GATE).relative_to(repo).as_posix())
+    git(repo, "commit", "-q", "-m", "chmod")
+    return repo
+
+
+def _attack_citation_changed_and_reverted(tmp_path):
+    repo = tmp_path / "cite"
+    document, partner, seal, folder = committed_repository(repo)
+    record = folder / f"{EVENT}.md"
+    original = record.read_text()
+    write(record, original.replace(document_sha256(seal), "0" * 64))
+    git(repo, "commit", "-q", "-am", "bad citation")
+    write(record, original)
+    git(repo, "commit", "-q", "-am", "revert citation")
+    return repo
+
+
+def _attack_evil_merge_rewrite(tmp_path):
+    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "evil")
+    main = git(repo, "branch", "--show-current")
+    git(repo, "checkout", "-q", "-b", "side")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "side")
+    git(repo, "checkout", "-q", main)
+    git(repo, "commit", "-q", "--allow-empty", "-m", "main")
+    git(repo, "merge", "-q", "--no-ff", "--no-commit", "side")
+    changed = dict(seal, recordedBy="someone else")
+    write(bs.seal_path(repo, document, GATE), canonical_json(changed).decode())
+    record = folder / f"{EVENT}.md"
+    write(record, record.read_text().replace(document_sha256(seal), document_sha256(changed)))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "evil merge")
+    return repo
+
+
+def _attack_branch_reseal_merged(tmp_path):
+    """A PD-B reseal on a side branch merged over the PD-A seal (one path, two blobs)."""
+    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "branch")
+    main = git(repo, "branch", "--show-current")
+    git(repo, "checkout", "-q", "-b", "side", "HEAD~1")
+    forged = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
+    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
+    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
+                                     layer_a=forged, recorded_at=SEALED_AT, recorded_by="x")
+    write(bs.layer_a_path(repo, document, GATE), canonical_json(forged).decode())
+    write(bs.seal_path(repo, document, GATE), canonical_json(reseal).decode())
+    record = folder / f"{EVENT}.md"
+    write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
+    git(repo, "commit", "-q", "-am", "side reseal")
+    git(repo, "checkout", "-q", main)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid", "merge", "-q",
+                    "--no-ff", "--no-commit", "-X", "theirs", "side"], capture_output=True, check=False)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "merge side reseal")
+    return repo
+
+
+HISTORY_ATTACKS = {
+    "stopped-to-resolved-in-place": _attack_stopped_to_resolved_in_place,
+    "shallow-clone": _attack_shallow_clone,
+    "no-git": _attack_no_git,
+    "deleted-d-manifest": _attack_deleted_d_manifest,
+    "delete-and-recreate": _attack_delete_and_recreate,
+    "rename-and-back": _attack_rename_and_back,
+    "mode-change": _attack_mode_change,
+    "citation-changed-and-reverted": _attack_citation_changed_and_reverted,
+    "evil-merge-rewrite": _attack_evil_merge_rewrite,
+    "branch-reseal-merged": _attack_branch_reseal_merged,
+}
+
+
+def _verdicts(repo):
+    out = []
+    for check_call in (lambda: validate_repository(repo),
+                       lambda: bs.require_committed_baseline_seal(repo, EVENT, "vehicle-colour", GATE)):
+        try:
+            check_call()
+            out.append("accepted")
+        except CredibilityError as error:
+            out.append(str(error).split(":")[0])
+    return out
+
+
+@pytest.mark.parametrize("attack", sorted(HISTORY_ATTACKS))
+def test_pre_d_gate_and_repository_mode_agree_on_every_history_attack(tmp_path, attack):
+    """Convergence review P1-C: the gate runs the same predicate as repository verification, so both refuse."""
+    repository, gate = _verdicts(HISTORY_ATTACKS[attack](tmp_path))
+    assert repository != "accepted" and gate != "accepted", (attack, repository, gate)
+
+
+def test_pre_d_gate_and_repository_mode_agree_on_a_valid_seal(tmp_path):
+    repo = tmp_path / "ok"
+    committed_repository(repo)
+    assert _verdicts(repo) == ["accepted", "accepted"]
+
+
+def test_shared_predicate_is_the_only_seal_validity_path():
+    import inspect
+    for function in (bs.validate_repository_seals, bs.require_committed_baseline_seal):
+        assert "check_event_seal_validity(" in inspect.getsource(function), function.__name__
+    assert "require_committed_baseline_seal(" in inspect.getsource(bs.verify_d_manifest_binding)

@@ -537,29 +537,49 @@ def verify_event_seals(evidence: Mapping[str, Mapping], frozen: Mapping, protoco
     return verified
 
 
+def check_event_seal_validity(repo: Path, event: Path, frozen: Mapping, protocol_sha256: str) -> dict[str, dict]:
+    """THE seal-validity predicate (convergence review P1-C). Repository verification (``validate_repository_seals``),
+    the pre-D harness gate (``require_committed_baseline_seal``) and the D-manifest check (``verify_d_manifest_binding``)
+    all call this one function, so the gate can never accept what repository verification refuses.
+
+    For one event it requires, in order: canonical seal and Layer-A bytes (``load_baseline_evidence``); every present
+    seal re-derived field for field from its frozen inputs, with its status (``verify_event_seals``); a Layer-A result
+    without a seal consistent with the frozen rule; exactly one structured record citation per seal equal to its hash
+    (``check_record_citations``); and full Git history (refused, fail closed, when the clone is shallow or there is no
+    repository) audited over every reachable commit and parent edge (``check_seal_history``). Returns
+    ``{compositionId: {"sha256", "status", "seal"}}`` for the sealed compositions."""
+    evidence = load_baseline_evidence(repo, frozen)
+    verified = verify_event_seals(evidence, frozen, protocol_sha256)
+    for composition_id, item in sorted(evidence.items()):
+        if item["layerA"] is not None and item["partnerLedger"] is not None and composition_id not in verified:
+            check_layer_a_result(item["layerA"], frozen, composition_id, item["partnerLedger"])
+    check_record_citations(event)
+    state = git_history_state(repo)
+    if state != "full":
+        raise _fail("baseline_seal_history_unavailable", f"{event.name}:{state}")
+    check_seal_history(repo, [event.parent.relative_to(repo).as_posix()])
+    return verified
+
+
 def validate_repository_seals(repo: Path, root: Path, frozen_by_event: Mapping[Path, Mapping],
                               protocol_sha_by_event: Mapping[Path, str]) -> list[str]:
-    """Repository mode: every seal and Layer-A file belongs to a frozen composition (or is a superseded STOPPED seal),
-    is canonical and verifies against its frozen inputs; the event record cites each seal on exactly one structured
-    line carrying the seal file's hash; and, where full Git history is available, every seal and Layer-A file was
-    only ever added and every record citation never changed (``check_seal_history``). Returns the files checked."""
+    """Repository mode: ``check_event_seal_validity`` for every event that declares gate-only compositions or holds
+    an M3 artefact; every seal and Layer-A file belongs to a frozen composition (or is a superseded STOPPED seal); and
+    every committed D manifest is bound to the current seals and comes after them. Returns the files checked."""
     checked = []
     expected = set()
+    audited = False
     for event, frozen in sorted(frozen_by_event.items(), key=lambda item: str(item[0])):
-        if not frozen_compositions(frozen):
+        has_artefacts = any(event.parent.glob(f"{event.name}{infix}*.json") for infix in _ARTEFACT_INFIXES)
+        if not frozen_compositions(frozen) and not has_artefacts:
             continue
-        evidence = load_baseline_evidence(repo, frozen)
-        verified = verify_event_seals(evidence, frozen, protocol_sha_by_event[event])
+        check_event_seal_validity(repo, event, frozen, protocol_sha_by_event[event])
+        audited = True
         for composition_id in frozen_compositions(frozen):
             for path in (seal_path(repo, frozen, composition_id), layer_a_path(repo, frozen, composition_id)):
                 expected.add(path.resolve())
                 if path.is_file():
                     checked.append(path.relative_to(repo).as_posix())
-            if evidence[composition_id]["layerA"] is not None and evidence[composition_id]["partnerLedger"] is not None \
-                    and composition_id not in verified:
-                # A Layer-A result committed before its seal must already be consistent with the frozen rule.
-                check_layer_a_result(evidence[composition_id]["layerA"], frozen, composition_id,
-                                     evidence[composition_id]["partnerLedger"])
     for pattern in (f"*/msr-*{SEAL_INFIX}*.json", f"*/msr-*{LAYER_A_INFIX}*.json"):
         for path in sorted(root.glob(pattern)):
             if path.resolve() in expected:
@@ -576,23 +596,17 @@ def validate_repository_seals(repo: Path, root: Path, frozen_by_event: Mapping[P
                     checked.append(path.relative_to(repo).as_posix())
                     continue
             raise _fail("baseline_artefact_without_frozen_composition", path.relative_to(repo).as_posix())
-    for event in sorted(frozen_by_event, key=str):
-        check_record_citations(event)
     # Protected-D manifests committed beside the event (owner decision 2): each binds every frozen gate-only
     # composition by seal hash and seal commit, and needs full Git history to prove the seal came first.
-    manifests = sorted(root.glob(f"*/msr-*{D_MANIFEST_INFIX}*.json"))
-    for path in manifests:
+    for path in sorted(root.glob(f"*/msr-*{D_MANIFEST_INFIX}*.json")):
         event = path.parent / path.name.split(D_MANIFEST_INFIX)[0]
         frozen = frozen_by_event.get(event)
         if frozen is None or not frozen_compositions(frozen):
             raise _fail("d_manifest_without_frozen_composition", path.relative_to(repo).as_posix())
         check_d_manifest(repo, path, frozen)
         checked.append(path.relative_to(repo).as_posix())
-    m3_folders = [event.parent.relative_to(repo).as_posix() for event, frozen in frozen_by_event.items()
-                  if frozen_compositions(frozen)]
-    if m3_folders:
-        # every M3 event folder is audited, even when its seals have vanished from HEAD (final round, item 4)
-        checked.append(f"git-history:{check_seal_history(repo, m3_folders)}")
+    if audited:
+        checked.append("git-history:full")  # the shared predicate refuses anything less
     return checked
 
 
@@ -843,8 +857,10 @@ def _committed_bytes_sha(repo: Path, commit: str, path: Path) -> str:
 
 
 def require_committed_baseline_seal(repo: Path, event_id: str, capability_id: str, composition_id: str) -> SealBinding:
-    """Call before reading any protected D data. Refuses unless the exact seal file is committed, unmodified in the
-    working tree, cited by the event record, RESOLVED and re-derivable from the frozen inputs."""
+    """The pre-D harness gate. Call before reading any protected D data. It runs the shared seal-validity predicate
+    (``check_event_seal_validity``: the same check as repository verification, including full history and the
+    reachable-history audit) and then additionally requires this seal to exist, be RESOLVED, be committed and be
+    unmodified in the working tree. The returned commit is the (unsimplified) first-add commit of the seal bytes."""
     repo = Path(repo)
     folder = event_folder(repo, capability_id)
     frozen_file = folder / f"{event_id}{FROZEN_SUFFIX}"
@@ -854,28 +870,27 @@ def require_committed_baseline_seal(repo: Path, event_id: str, capability_id: st
     validate_ledger(frozen)
     if composition_id not in frozen_compositions(frozen):
         raise _fail("gate_only_composition_not_frozen", composition_id)
-    path = seal_path(repo, frozen, composition_id)
-    if not path.is_file():
-        raise _fail("baseline_seal_missing", path.name)
-    relative = path.relative_to(repo).as_posix()
-    _git(repo, "ls-files", "--error-unmatch", "--", relative)
-    if _git(repo, "status", "--porcelain", "--", relative).strip():
-        raise _fail("baseline_seal_not_committed", path.name)
-    commit = _git(repo, "log", "-n", "1", "--format=%H", "--", relative).decode().strip()
     from .credibility import PROTOCOL_SUFFIX, lf_normalised_sha256
     protocol = folder / f"{event_id}{PROTOCOL_SUFFIX}"
     if not protocol.is_file():
         raise _fail("protocol_missing", protocol.name)
-    evidence = load_baseline_evidence(repo, frozen)
-    verified = verify_event_seals({composition_id: evidence[composition_id]}, frozen, lf_normalised_sha256(protocol))
+    verified = check_event_seal_validity(repo, folder / event_id, frozen, lf_normalised_sha256(protocol))
+    path = seal_path(repo, frozen, composition_id)
+    if composition_id not in verified:
+        raise _fail("baseline_seal_missing", path.name)
     item = verified[composition_id]
-    check_record_citations(folder / event_id)
     if item["status"] != RESOLVED:
         raise _fail("baseline_seal_stopped_no_d", f"{path.name}:{item['seal']['stopReason']}")
-    if _committed_bytes_sha(repo, commit, path) != item["sha256"]:
+    relative = path.relative_to(repo).as_posix()
+    if not _git_ok(repo, "ls-files", "--error-unmatch", "--", relative) or \
+            _git(repo, "status", "--porcelain", "--", relative).strip():
+        raise _fail("baseline_seal_not_committed", path.name)
+    adds = artefact_history(repo, folder.relative_to(repo).as_posix())["adds"].get(relative, set())
+    commits = [c for c in sorted(adds) if _committed_bytes_sha(repo, c, path) == item["sha256"]]
+    if not commits:
         raise _fail("baseline_seal_not_committed", path.name)
     seal = item["seal"]
-    return SealBinding(composition_id, item["sha256"], commit, seal["partnerCandidateId"],
+    return SealBinding(composition_id, item["sha256"], commits[0], seal["partnerCandidateId"],
                        seal["partnerIdentitySha256"], seal["compositionSha256"])
 
 

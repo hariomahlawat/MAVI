@@ -250,8 +250,9 @@ after it, matched by whole-value equality in the declared field (`candidate-cred
 **Not machine-checked (review rules, M1 §9):**
 - that the Layer-A rank keys were computed by the frozen ranking rule from the Layer-A measurements. The validator
   checks the derivation from the keys; the harness that writes the Layer-A result is bound by the rule hash;
-- before any D artefact exists and without full Git history: that no seal, Layer-A file or record citation was
-  rewritten in place (with a D artefact, missing history is a refusal);
+- nothing: missing history is always a refusal, at the gate and in the repository check alike (one shared predicate,
+  `check_event_seal_validity`); accepted residuals R3 (force-pushed history rewrite) and R4 (spacing or paraphrase
+  licence obfuscation), and open item R1 (ordinary candidate sharing a benchmark-only host file) are in M1 §12;
 - that every protected D run committed its D manifest;
 - that the Layer-A result was committed before the seal and the seal before protected D data was read, beyond what the
   hash chain proves (rule 4a). The harness check (`require_committed_baseline_seal`) proves it at D time; a later
