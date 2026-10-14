@@ -917,4 +917,42 @@ describe('ProcessingPage', () => {
       expect(screen.queryByText(/Finalization failed/)).not.toBeInTheDocument();
     });
   });
+
+  describe('the layout hold is per video (§38; owner review 2026-10-14)', () => {
+  it('holds another video on the same route until its own video, status and camera answers have settled', async () => {
+    const otherVideo = '018f3f5a-2f70-7a2b-8a12-2d02f4c214aa';
+    const otherCamera = '018f3f5a-2f70-7a2b-8a12-2d02f4c214bb';
+    const first = { video: await vi.mocked(getVideo)(videoId), status: await vi.mocked(getProcessingStatus)(videoId), camera: await vi.mocked(getCamera)(cameraId) };
+    const pending: Record<string, (value: unknown) => void> = {};
+    const defer = <T,>(name: string) => new Promise<T>((done) => { pending[name] = done as (value: unknown) => void; });
+    vi.mocked(getVideo).mockImplementation((id: string) => (id === otherVideo ? defer('video') : Promise.resolve(first.video)));
+    vi.mocked(getProcessingStatus).mockImplementation((id: string) => (id === otherVideo ? defer('status') : Promise.resolve(first.status)));
+    vi.mocked(getCamera).mockImplementation((id: string) => (id === otherCamera ? defer('camera') : Promise.resolve(first.camera)));
+    const { router } = renderWithApp(<ProcessingPage />, {
+      route: `/processing/${videoId}`,
+      routePath: '/processing/:videoAssetId',
+      dataRouter: true,
+    });
+    expect(await screen.findByText('CAM-COLD · Cold Cache Camera')).toBeInTheDocument();
+
+    await act(async () => { await router.navigate(`/processing/${otherVideo}`); });
+    const held = () => {
+      expect(screen.getByText('Loading processing state…')).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Processing run' })).not.toBeInTheDocument();
+      expect(screen.queryByText('CAM-COLD · Cold Cache Camera')).not.toBeInTheDocument();
+    };
+    await screen.findByText('Loading processing state…');
+    held();
+
+    await act(async () => { pending.video({ ...first.video, id: otherVideo, cameraId: otherCamera, originalFileName: 'other.mp4' }); });
+    held();
+    await waitFor(() => expect(pending.camera).toBeDefined());
+    await act(async () => { pending.status(first.status); });
+    held();
+    await act(async () => { pending.camera({ ...first.camera, id: otherCamera, code: 'CAM-WARM', name: 'Warm Camera' }); });
+    expect(await screen.findByText('CAM-WARM · Warm Camera')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Processing run' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading processing state…')).not.toBeInTheDocument();
+  });
+});
 });

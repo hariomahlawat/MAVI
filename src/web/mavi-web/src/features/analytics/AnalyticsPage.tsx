@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   ANALYTICS_CAMERA_NOT_FOUND,
@@ -16,6 +16,7 @@ import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
 import { combineStates } from '../../shared/async/asyncState';
 import { fromQuery } from '../../shared/async/fromQuery';
+import { useLayoutHold } from '../../shared/async/layoutHold';
 import Panel from '../../shared/components/Panel';
 import { SHELL_QUERIES, useMediaQuery } from '../../shared/overlay/useMediaQuery';
 import StateRegion from '../../shared/async/StateRegion';
@@ -148,8 +149,6 @@ export default function AnalyticsPage() {
     ...(state.objectClass ? { objectClass: state.objectClass } : {}),
   };
 
-  /** Whether the Workbench has been drawn once (§38: see `settling` below). */
-  const drawn = useRef(false);
   const heatmap = useQuery({
     queryKey: queryKeys.cameraAnalyticsHeatmap(cameraId, serializeHeatmapQuery(heatmapRequest)),
     queryFn: ({ signal }) => getAnalyticsHeatmap(cameraId, heatmapRequest, signal),
@@ -198,16 +197,17 @@ export default function AnalyticsPage() {
     && active.error instanceof ApiError
     && active.error.code === ANALYTICS_CAMERA_NOT_FOUND;
 
-  // The Workbench is drawn once (§38): its window band and every figure state
-  // times in the display timezone, and its bands name the camera. Drawn before
-  // those answers, the bands re-wrap and the stage moves when they land. Until
-  // the camera and the configuration have settled (answered or failed) the
-  // page is one loading presentation; once drawn, a later refresh updates its
-  // regions in place. The scene keeps its own region in the stage (an
-  // unconfirmed answer says it is reading the scene, as designed).
-  const settling = Boolean(cameraId) && (camera.isPending || systemConfig.isPending);
-  if (!settling) drawn.current = true;
-  if (settling && !drawn.current) {
+  // The Workbench is drawn once per camera (§38, the shared layout hold): its
+  // window band and every figure state times in the display timezone, and its
+  // bands name the camera. Drawn before those answers, the bands re-wrap and
+  // the stage moves when they land. Until this camera's answer and the
+  // configuration have settled (answered or failed) the page is one loading
+  // presentation; once drawn, a later refresh updates its regions in place,
+  // and another camera on the same route is held again for its own answers.
+  // The scene keeps its own region in the stage (an unconfirmed answer says it
+  // is reading the scene, as designed).
+  const held = useLayoutHold(cameraId, cameraId ? [fromQuery(camera), fromQuery(systemConfig)] : []);
+  if (held) {
     return (
       <section className="page page--full page--workspace">
         <ContextBar

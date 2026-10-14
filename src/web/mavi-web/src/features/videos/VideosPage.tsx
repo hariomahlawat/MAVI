@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError } from '../../api/client';
@@ -7,7 +7,8 @@ import { getSystemConfig } from '../../api/system';
 import { isFinalizationFailure, isFinalizing, listVideos, queueProcessing } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
-import { hasFailure, holdUntilSettled } from '../../shared/async/asyncState';
+import { hasFailure } from '../../shared/async/asyncState';
+import { useHeldState } from '../../shared/async/layoutHold';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
@@ -102,10 +103,7 @@ export default function VideosPage() {
   // Only the first drawing waits (cold review P1): once drawn, a refetch that
   // adds a row, a queued row's new lookup or a widened filter updates the
   // table in place — the new row shows its own loading — and never blanks it.
-  const drawn = useRef(false);
-  const held = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending);
-  if (held.kind !== 'loading') drawn.current = true;
-  const ledgerState = drawn.current ? fromQuery(videos) : held;
+  const ledgerState = useHeldState('videos', fromQuery(videos), [fromQuery(cameras), fromQuery(systemConfig)]);
   const ledgerReady = ledgerState.kind !== 'loading';
 
   // One mutation serves every row, so which rows are being queued, and which

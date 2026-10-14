@@ -25,6 +25,7 @@ import {
 import { queryKeys } from '../../app/queryClient';
 import { analyticsReadinessText } from './analyticsReadiness';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
+import { useLayoutHold } from '../../shared/async/layoutHold';
 import { hasFailure } from '../../shared/async/asyncState';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
@@ -98,8 +99,6 @@ function safeFormatTimestamp(value: string | null | undefined, timeZoneId: strin
 export default function ProcessingPage() {
   const { videoAssetId = '' } = useParams();
   const validId = isGuid(videoAssetId);
-  /** Whether the Record has been drawn once (§38: see `settling` below). */
-  const drawn = useRef(false);
   const location = useLocation();
   const queryClient = useQueryClient();
 
@@ -189,6 +188,13 @@ export default function ProcessingPage() {
   const displayZone = systemConfig.data?.displayTimeZoneId;
   const zoneState = fromQuery(systemConfig);
   const zoneUnavailable = zoneState.kind === 'unavailable';
+  // The Record's layout hold (§38, the shared primitive; see below), per video:
+  // every supporting answer that applies to this video's Record.
+  const held = useLayoutHold(videoAssetId, [
+    fromQuery(video), fromQuery(processing), zoneState,
+    ...(isGuid(cameraId) ? [fromQuery(camera)] : []),
+    ...(runId !== '' ? [fromQuery(analytics)] : []),
+  ]);
 
   /** The Record's frame, so every terminal state keeps the surface's identity. */
   function frame(name: string, body: ReactNode) {
@@ -226,12 +232,11 @@ export default function ProcessingPage() {
   // Drawn as each answer lands, every arrival moves the panels below it; drawn
   // once every answer has settled (answered or failed), nothing moves. A
   // failed answer settles the hold and is said in its region, as before.
-  // Only the first drawing waits: once drawn, a later request (a recovered
-  // video naming its camera, a retried run) updates its own region in place.
-  const settling = video.isPending || processing.isPending || systemConfig.isPending
-    || (isGuid(cameraId) && camera.isPending) || (runId !== '' && analytics.isPending);
-  if (!settling) drawn.current = true;
-  if (settling && !drawn.current) {
+  // Only the first drawing of this video's Record waits: once drawn, a later
+  // request (a recovered video naming its camera, a retried run) updates its
+  // own region in place; another video on the same route is held again until
+  // its own answers have settled.
+  if (held) {
     return frame(videoLabel, (
       <StateRegion kind="page" state={{ kind: 'loading' }} label="processing state" loadingLabel="Loading processing state…">
         {() => null}

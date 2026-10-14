@@ -10,6 +10,7 @@ import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { describeError, fromInfiniteQuery, fromQuery } from '../../shared/async/fromQuery';
 import { hasFailure } from '../../shared/async/asyncState';
+import { useLayoutHold } from '../../shared/async/layoutHold';
 import StateRegion, { SupportingRequestNotice, type EmptySpec } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button from '../../shared/components/Button';
@@ -699,7 +700,10 @@ export default function VisualSearchPage() {
   // those answers, the chips and the rail re-wrap when they arrive and the
   // header and results beneath move. Until then the page is its one loading
   // presentation; a failed answer settles the hold and is said in its notice.
-  if (systemConfig.isPending || cameras.isPending || videos.isPending) {
+  // The shared layout hold (one identity: the workspace's supporting answers
+  // are the same for every search); once drawn, a refetch never blanks it.
+  const held = useLayoutHold('search', [fromQuery(systemConfig), fromQuery(cameras), fromQuery(videos)]);
+  if (held) {
     return (
       <section className="page page--full page--workspace">
         <ContextBar surface="search" status={<DisplayTimeZone timeZoneId={displayTimeZoneId} />} />
