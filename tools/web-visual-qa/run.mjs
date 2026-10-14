@@ -153,8 +153,10 @@ const completeSelection = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom 
 const fullSweep = completeSelection && !shard;
 const workers = longTaskLane ? 1 : positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
 // X3 determinism: the data-response order this run pins (server.mjs). The
-// gate runs `natural`; `forward` (MAVI_VQA_RESPONSE_ORDER=forward) paints every
-// intermediate layout of a load, in request order, and its results say so.
+// gate's blocking lane runs `forward` (MAVI_VQA_RESPONSE_ORDER=forward), which
+// paints every intermediate layout of a load in request order; the reverse
+// ordinary lane runs `reverse`. Unset means `natural`, for local runs only:
+// performance.mjs faults a run whose order is not the one it judges (forward).
 const responseOrder = process.env.MAVI_VQA_RESPONSE_ORDER || 'natural';
 if (!RESPONSE_ORDERS.includes(responseOrder)) fatal(`HARNESS ERROR: MAVI_VQA_RESPONSE_ORDER must be one of ${RESPONSE_ORDERS.join(', ')}, not "${responseOrder}"
 `);
@@ -940,7 +942,7 @@ const report = {
   // evidence of long tasks (performance.mjs refuses any other).
   longTaskLane,
   fullSweep,
-  // The data-response order the run pinned (server.mjs): `natural` is the gate's.
+  // The data-response order the run pinned (server.mjs): `forward` is the gate's.
   responseOrder,
   // A shard says which of how many it is and lists the whole plan beside its
   // own selection, so the aggregate can prove the plan ran exactly once.
