@@ -158,13 +158,14 @@ threshold change.
 | Videos, Processing queue | rows drawn with explicit-UTC timestamps and camera identifiers re-wrapped when the timezone and camera metadata landed | the ledger waits for both (`holdUntilSettled`), then is drawn once; per-row run lookups never hold it: a row whose lookup is out draws at once in its final geometry with unseen placeholders (§37.1; see owner ruling 3 below) |
 | Scene Editor | the reference strip's one-line loading row grew to the strip and moved the inspector | the stage waits for the video list |
 | Search | committed chips and rail re-wrapped for the timezone, camera and video names | the workspace waits for those answers |
-| Processing detail | the run panel, its analytics and the camera-named facts landed in turn | the Record is drawn once (first draw), in its own layout instance |
+| Processing detail | the run panel, its analytics and the camera-named facts landed in turn | the Record is drawn once per video (the shared layout hold), in its own layout instance |
 | Overview | Recent tracks' empty answer pulled the stacked panel up | the panel reserves the skeleton's 8 rows in every state |
 | Review | transport and rail re-wrapped for the timezone | evidence drawn once the timezone settles |
 | Camera analytics | window band and stage re-wrapped for the timezone (reverse lane) | Workbench drawn once camera and timezone settle; the scene keeps its designed region |
 
-Forward-order full ordinary sweep (local, CI font approximated): **49 → 0**
-cases over their limits (before → after); reverse: the five reverse-only
+During implementation (earlier heads of this branch; the final head's evidence
+is under *Final evidence* below), forward-order full ordinary sweep (local, CI
+font approximated): **49 → 0** cases over their limits (before → after); reverse: the five reverse-only
 cases of the review's first reverse sweep → **0** (the last,
 `analytics-enabled-empty-window@768x1024`, by the analytics fix).
 
@@ -172,48 +173,13 @@ cases of the review's first reverse sweep → **0** (the last,
 
 The rename re-rendered the whole stage. `SceneCanvas` is now memoised with a
 geometry-stable draft (names and note excluded) and stable props, so a rename
-renders no SVG, video or overlay. Traced at 3–4x CPU throttling, the rename
+renders no SVG, video or overlay. Traced during implementation (an earlier
+head) at 3–4x CPU throttling, the rename
 task's React script fell from ~65 ms to ~15–18 ms. Same bytes, 10 repetitions
 × 2 viewports: at 3x, cases with a long task **8/20 → 0/20**; at 4x both still
 exceed (median 70 → 67 ms at 1366, 65 → 60 ms at 1024): what remains is the
 first dirty frame's style, layout and paint (the Context Bar gains its note
 field, badges and actions).
-
-### Final evidence (identical bytes)
-
-Local, Windows host with the CI font injected (DejaVu Sans; a labelled
-approximation of the Linux runner), every run on one build of the final
-source:
-
-| Run | Order | Scope | CLS over limit | Long tasks | Harness faults |
-| --- | --- | --- | --- | --- | --- |
-| G4 (CI-like: full sweep, all lanes, + long-task lane, judged) | forward | 3800 cases | 0 | 0 of 413 | 1 (Chromium did not answer one evaluate within 30 s under 8 lanes; 0/270 on rerun) |
-| F4, F5 | forward | ordinary sweep | 0, 0 | — | 0 |
-| RV2 (4 reverse shards, judged `--ordinary-lane`) | reverse | ordinary sweep | 0 | — | 0 |
-
-Stability, G4 + F4 + F5 on identical bytes: 1836 case-families measured in
-all three; **0 classification changes**, 0 ever over a limit (135 vary in
-value, all well inside their limits, the largest 0.0001→0.0334 on a Tier C
-limit of 0.1756). Before the last ledger fix, three runs showed one flip
-(`processing-queue-row-degraded-wide-font@1366x768`: 0.0062, 0.0062,
-0.0103 / 0.0097); after it, processing-queue states 4x forward / 2x reverse
-and videos and shell states 3x / 2x varied in no value at all.
-
-Per-case before (forward, branch harness before the UI fixes) → after:
-`shell-menu-overlay@761x900` 0.1627 → 0; `overview-empty@768x1024` 0.1534 → 0;
-`search-filtered@768x1024` 0.2413 → 0; `processing-detail-analytics-stale@1024x768`
-0.2272 → 0; `scene-editor-inactive@1024x768` 0.0126 → 0;
-`scene-editor-narrow-band@768x900` 0.0199 → 0; `processing-queue@1024x768`
-0.0158 → 0; `videos-cameras-unavailable@1024x768` 0.0492 → 0.0381;
-`review-narrow-band@600x900` 0.0244 → 0.0138; reverse
-`analytics-enabled-empty-window@768x1024` 0.0348 → 0.0004. All 49 forward
-cases that were over → under.
-
-Other checks on the final source: keyboard journeys 18/18; frontend tests
-1574/1574; harness unit tests 352/352, end-to-end 110/110; `verify_repo` PASSED.
-
-The figures above predate the owner's rulings below; the verification of the
-final head follows them.
 
 ## Owner rulings after the cold review
 
@@ -243,15 +209,17 @@ final head follows them.
    Tests: a slow lookup does not block any other row; the slow row holds its
    placeholders. Not zero everywhere: where a row's final run adds a line its
    status cannot predict, a small deterministic shift remains
-   (`videos-dense@1024x768` 0.0073; every other such case ≤ 0.0032), the same in
-   every run and inside its limit.
+   (at the final head: `videos-dense@1024x768` 0.0092 and `@768x1024` 0.0088,
+   `videos-row-degraded@768x1024` 0.0088, against a limit of 0.0434; every
+   queue row case ≤ 0.0017), the same in every run and inside its limit.
 4. **Settle race.** The app registers its query client's activity (fetching,
    mutating) on the harness handle, only when the harness installed it.
    `settle()` treats any query still fetching or waiting out a retry's backoff
    (beyond the requests the server holds open on purpose) as unsettled, so CLS
    after the old `settledAt` is now inside the window. Proof: the
    `review-geometry-unavailable` live-region case and four other retry/failure
-   states, forward, all lanes, ×3: 270/270 ok, 0 verdict changes. Tests: a page
+   states, forward, all lanes, ×3, at the commit that made the fix (`a9663526`):
+   270/270 ok, 0 verdict changes; at the final head see *Final evidence*. Tests: a page
    in a 900 ms backoff with nothing in flight is not settled until its retry
    answers (fails without the fix); a held loading state still settles.
 5. **Review media.** Correction: the Review fixtures already declared the clip's
@@ -271,6 +239,57 @@ After **Process** on a Videos row, the button leaves with the row's new status
 and focus falls to the document body: a keyboard-accessibility defect that
 predates this change. It is left out of #216. No regression: the same probe
 (render Videos, Process a NotQueued row, wait for Queued, read
-`document.activeElement`) run unchanged on `main@4150f96b` and on this branch
+`document.activeElement`) run unchanged on `main@4150f96b` and on this branch (`3daab274`)
 gives `BODY` on both.
 
+## Owner direct code review of `991a4aa1`: corrections
+
+| Finding | Disposition |
+| --- | --- |
+| **P1** — the query-activity hook against UI spec §26 ("MUST NOT require production code to be altered") | Fixed (`45c4570c`). §26 amended narrowly (specification v2.2; ADR-012 Decision 14): a harness-only passive observability hook is permitted only when dormant in normal operation, payload-free (counts and flags), unable to alter rendering, query configuration or scheduling, and activated only by the harness preinstalling its handle. `registerHarnessObservability` (`app/harnessObservability.ts`) is exactly that: one read-only function returning a frozen `{fetching, mutating}`, registered only on a preinstalled `window.__vqa`. A contract test binds the four conditions (dormant without the handle, AppProviders included; counts only; defaults, query state, `queryFn` calls and cache listeners unchanged; same render count with and without the handle; no write call into the client). Not a test API. |
+| **P2** — page-local layout latches outlive a same-route identity change | Fixed (`95fde4c6`). One shared primitive (`shared/async/layoutHold.ts`: `useLayoutHold`, `useHeldState`) reads settledness from the normalised AsyncState boundary (`fromQuery`) and resets on the surface's identity. Analytics (per camera), Processing detail (per video), Search, Videos and the Processing queue use it; a guard test fails on any page-local latch. Same-route identity-change tests on Analytics and Processing hold the new record until its own answers settle (both fail on the previous code). |
+| **P2** — pinned-response scheduler state survives `resetSequences()` | Fixed (`bf9a0303`). `createResponseScheduler`: one generation per case; a reset cancels every timer of the generation, drops its queue and any burst being gathered (refusing their requests), and opens a fresh generation. Virtual-clock test: pending forward entries and a pending reverse burst (gathering, and released but unsent), reset at once, next case: order and timing equal a fresh server's, no old timer remains (3 of its 4 tests fail with the previous reset). |
+| **P2** — CI timeout envelope (sweep and reverse lane in one 45-minute job) | Fixed (`fb7d59f3`). The reverse lane is its own four-shard job, `performance-reverse` (20-minute step in a 45-minute envelope, same shard count as the sweep), in parallel with the sweep, whose job is back to its 25-minute step in 45 minutes. Neither lane's coverage changed. |
+| **CI** `python vision`: `test_the_quality_aggregate_accounts_for_every_lane` (`continue-on-error` in `quality-gate.yml`) | Fixed by the restructure (`fb7d59f3`): no `continue-on-error`; a reverse harness fault fails `performance-reverse`, which `quality` requires; `performance` runs `always() &&` its scope with its inputs not cancelled or skipped, and still fails closed on a missing shard, head or order. `test_every_sharded_job_runs_every_shard_index_exactly_once` registers the new sharded job; a new test binds the lane to the sweep's shard count, the judge's count, its order and `--keep`. |
+| **CI** `qualification shard 2`: `test_s1_evidence.py` (`assert 4 == 3` evidence uploads) | Fixed (`fb7d59f3`): the reverse shard upload is classified with the performance evidence it is (expiring, outside `qualification-evidence/`), so there are 3 performance uploads and the canonical evidence uploads stay 3. The expectation changed because the structure has one more performance evidence upload, not to silence the test. |
+
+Also in this round (`dfb1f873`): two settle-timing harness tests asserted an
+elapsed-time proxy measured from `settle()` that a loaded host breaks (the
+backoff and the transition begin while the page loads); they now assert the
+property on the page's clock (the confirming probe came after the retry
+answered / the transition ended). The retry test still fails with the
+query-activity check disabled.
+
+## Final evidence (code head `dfb1f873`)
+
+**Head relationship.** All evidence below was produced from the code head
+`dfb1f873aa1721d457e041d5c10cca3a7a42a758`, with a clean working tree. The
+commit that adds this section is documentation only (this file): it changes
+nothing the evidence measured, and a commit cannot name its own SHA. The sweeps
+ran on a measurement copy of that head's `src/web/mavi-web/src` and
+`tools/web-visual-qa`, identical to it except for the local CI-font emulation
+injected into `run.mjs` (production bundle `d241f7b04105d527`); their result
+files therefore carry the copy's own Git head, not `dfb1f873`.
+
+Local, Windows host, CI font approximated (DejaVu Sans injected, a labelled
+approximation of the Linux runner). With that emulation every case has a
+`typography.resolved-font` finding (the injected face is not the platform's):
+the emulation's artefact, excluded from the counts below. No other process ran
+beside these runs.
+
+| Run | Order | Scope | Cases (unreached) | CLS over limit | Long tasks | Harness faults | Other blocking findings |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| FV2: sweep + long-task lane, judged | forward | full sweep, all lanes; long-task lane | 3800 (0); 417 (0) | 0 of 1836 | 0 of 413 interactions with a long task (413 pass) | 0 | 0 |
+| RV5: 4 reverse shards, judged `--ordinary-lane --response-order reverse` | reverse | ordinary sweep | 1847 (0) | 0 of 1836 | — | 0 | 0 |
+| F8, F9 | forward | ordinary sweep | 1847 (0) each | 0, 0 | — | 0, 0 | 0, 0 |
+
+Stability, FV2 + F8 + F9 on identical bytes: 1836 case-families measured in
+all three; **0 classification changes**, 0 ever over a limit; 9 vary in value,
+all inside their limits (largest: `review-long-identity@2560x1440` 0.0065 /
+0.0017 / 0.0017 on 0.0085; the other eight move by ≤ 0.0005).
+
+Other checks at `dfb1f873`: frontend tests 1595/1595 (86 files); harness unit
+tests 359/359 three times; harness end-to-end 110/110; keyboard journeys 18/18;
+`src/vision/tests/test_runtime_metadata.py`,
+`tools/qualification/tests/test_s1_evidence.py` and
+`tools/ci/tests/test_quality_scope.py` 679/679; `verify_repo` PASSED.
