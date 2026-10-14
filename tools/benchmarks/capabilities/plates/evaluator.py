@@ -1,62 +1,64 @@
-"""Stage-4 model-selection evaluators A–D (plan §4.4), built on PR-3's merged plate rules.
+"""Stage-4 model-selection evaluators A–D (plan §4.4), built on PR-3's merged plate rules, behind ONE boundary:
 
-These are the evaluators plan §7 assigned to PR-1 and PR-1 omitted. This module repairs that (register: *Correction and
-repair record*). The owner decisions it encodes are written in
-`docs/qualification/stage4/plate-selection-decision-record-2026-10-14.md`. It reads **no** dataset by itself: every
-function takes in-memory ground truth and candidate outputs.
+    frozen evaluation manifest  →  execution envelope  →  sealed result  →  metric
 
-* **Product rules, not re-implementations.**
-  - Track outcomes come from ``mavi_vision.plates.pipeline`` (``analyse_crop``, ``summarise_track``): the 2/1/3 bounds, proposal ordering, detector floor, reading order, ``Read``/``Unreadable``, abstention reasons and the ``plate-track-text-rank0`` summary.
-  - Text is normalised only by the frozen ``mavi-plate-normalisation-v1``.
-  - Confidence is reading-level.
-  - B ranks readings with PR-3's public contract functions (``reading_rank_key``, ``raw_line_count``). A test proves the result equals PR-3's internal ``_plate``.
-* **Any output-contract violation is a hard FAIL** (owner ruling, item 11). This is the BAKE-OFF rule. The product treats some of these per crop (for example a non-strict reading order is an ``ocr_output_invalid`` abstention), and the bake-off does not.
-  - Harness validators wrap the candidate detector and recogniser. Any out-of-contract item, a raised exception, or over-bound output makes the run ``CONTRACT_FAIL`` across A, B, C and D. Out-of-contract items include:
-    - a box that is not a ``PlateBox``, not integer, degenerate or outside the crop;
-    - a score or confidence that is non-finite or outside [0, 1];
-    - invalid raw text;
-    - a non-strict reading order.
-  - The exact evidence is kept: the code, the observation, the item and the exception type.
-  - Nothing is scored through, truncated or treated as one bad Track.
-  - A runtime exception is a FAIL under N9. The one permitted rerun, for a proven infrastructure fault with identical bytes, is a procedural decision outside this module.
-* **Ranking provenance is sealed.** Ranking objects carry an HMAC seal under a per-process key. They are constructed only inside the ranking path: ``run_track``, ``ranking_plate_record`` / ``accepted_plate`` / ``not_read``, ``evaluate_detection``, ``evaluate_reading``, ``detector_component`` / ``recogniser_component`` and ``evaluate_tracks``.
-  - **What is enforced:** any field edit of a sealed object (including its parameters or its component identity) breaks the seal and is refused. A hand-built object has no valid seal and is refused.
-  - **What is not:** a caller with module access can still call the private ``_seal``. The seal protects against relabelling through the public API, not against a hostile in-process caller (P3-5, disclosed).
-* **Composition identity is sealed** (review P1-1). ``run_track`` binds the detector and recogniser ``ComponentIdentity`` (candidate id + identity SHA-256) into the sealed run. ``evaluate_tracks`` requires every run to carry the stated identities and seals them into the ``TrackScore``. ``CompositionScore`` has no labels of its own: its ids come from the sealed score. The baseline gate checks the baseline score's sealed identities against the resolution's M3 ``compositionSha256``, and the benchmark-only refusal reads sealed identities. The identity values themselves are asserted once, at ``run_track``, by the harness that loaded the pinned bytes.
-  - Diagnostics have distinct types (``DiagnosticPlate``, ``DiagnosticTrackScore``), which carry no seal. Every decision function refuses them: ``evaluate_reading``, ``top_k``, ``baseline_gate``, ``rankable_compositions``, the bootstrap and the comparison.
-* **Candidate silence scores zero** (owner item 1). On a valid closed population, a composition returning nothing has D terms 0. ``INSUFFICIENT_EVIDENCE`` is reserved for corpus deficiency.
-* **Baseline gate** (N2 revised, two-stage addendum): one hard gate against the sealed PD_BASE + OC5. Every consumer re-derives the resolution from the ``BaselineFreeze`` and the Layer-A results (``verify_resolution``).
-* **Superiority** (owner item 2): observed ΔD ≥ MPID, the paired hierarchical 95 % interval excludes zero, and clusters ≥ ``required_clusters``. Exact rationals, integer percentile indices.
-* **Query binding** (item 12): every D function regenerates the query set from its own truths, parameters and population, and checks it against the frozen generator-config and query-set SHA-256 arguments.
+These are the evaluators plan §7 assigned to PR-1 and PR-1 omitted (register: *Correction and repair record*). The owner
+decisions they encode are written in `docs/qualification/stage4/plate-selection-decision-record-2026-10-14.md`.
+**#218 is the level-1 A–D / query harness only.** The M3 pre-D seal integration is a MANDATED follow-up PR before PR-2
+cold review 1 and ``PROTOCOL_FROZEN``.
 
-**Population binding (owner decision 2026-10-14).** The population is the frozen, closed GT population, a
-``ClosedPopulation`` built by ``closed_population``.
-- **Candidate-independent digest:** the digest hashes only that population: the manifest SHA-256, then per Track its id, site, truth state (TEXT / NO_PLATE / UNREADABLE / NO_GT_VEHICLE), supported text, raw truth, and whether MAVI has a Track/evidence for it (``has_mavi_evidence``, a corpus fact). It never includes candidate output, score, contract outcome or run presence, so candidates with different outputs on the same population have the same digest.
-- **Explicit run state:** every candidate's items must cover exactly the population's Track ids, with the population's site and truth.
-  - Every Track with MAVI evidence must carry a sealed ``run_track`` run: a CONTRACT_FAIL run stays one, and cannot be replaced by ``NO_RUN`` or omitted.
-  - Every Track without MAVI evidence must carry the typed ``NO_RUN`` state.
-  - Deleting a Track, adding one, or swapping a run for ``NO_RUN`` is refused.
-- **Caller-provided until the frozen corpus manifest exists:** the ``ClosedPopulation`` itself, including ``has_mavi_evidence``. A caller who alters it changes the digest for every candidate, which then no longer matches the frozen manifest.
+**1. The manifest is the single root** (``EvaluationManifest``). It canonically defines, as candidate-independent
+corpus facts:
+- sites, and Track identity with typed truth (``Truth``/``TruthState``: TEXT, NO_PLATE, UNREADABLE, NO_GT_VEHICLE;
+  anything else fails closed);
+- each Track's MAVI Track id and its exact evidence images (``EvidenceImage``: observation id, role, rank, SHA-256,
+  size). ``has_mavi_evidence`` is DERIVED from them, never supplied;
+- the A items (``ManifestCrop``: an evidence image and its GT plate polygons) and the B/C items (``ManifestPlate``:
+  plate text, the GT plate-crop image for B, the evidence observation for C). Each is a frozen projection of the manifest;
+- the protocol configuration (``ProtocolConfig``): query parameters and seed, bootstrap seed, R, percentile rule,
+  MPID, calibration minimum and each candidate's pinned detector floor.
 
-#218 is accepted as the level-1 A–D / query harness only. It does NOT claim the M3 pre-D seal integration (review
-P1-2) is complete.
+``manifest_digest`` is computed from the canonical contents. Every entry point takes the manifest AND an independent
+expected digest (a frozen input), and recomputes and compares. A modified manifest arriving with a freshly recomputed
+hash is refused.
 
-**Caller-provided values (labelled, not proven here; the protocol and review bind them):**
-- the ``ComponentIdentity`` given to ``run_track`` (after that it is sealed and cannot be relabelled), to ``ranking_plate_record`` for B on GT crops, and to ``evaluate_reading`` / ``evaluate_detection``;
-- the query-set SHA-256 arguments: checked against the regenerated set, but their frozen values come from the protocol;
-- the bootstrap ``seed`` (a frozen protocol input; R is fixed at ``BOOTSTRAP_REPLICATES``);
-- the frozen calibration minimum given to the comparison (``required_clusters`` = max(60, it) is computed here);
-- the ``ClosedPopulation`` (sites, truths, ``has_mavi_evidence``): its digest binds every compared score; the frozen corpus manifest binds it later;
-- ``TrackItem.truth``: the adjudicated ground truth;
-- ``LayerAResult.gates_passed``: the Layer-A gate thresholds are not frozen yet, so the verdict cannot be derived here. ``verify_resolution`` re-derives the resolution from the Layer-A results it is GIVEN. A different, self-consistent set of results (for example flipped verdicts) gives a different, self-consistent resolution. Binding the Layer-A results is the M3 committed-seal integration (review P1-2);
-- the pinned detector floor passed to ``evaluate_detection`` / ``evaluate_tracks``. ``evaluate_tracks`` checks that every run used exactly that floor;
-- ``ComponentScore.independent``: the N4 exposure verdict;
-- ``resolve_baseline``'s ``d_rows_read``. The resolution time is format-checked and must not precede the freeze;
-- nothing in A: the ranking path accepts only sealed ``detection_item_from_run`` items. Hand-built items go to ``diagnostic_evaluate_detection``, which never seals.
+**2. Execution envelopes** (``run_track``, ``run_detection``, ``run_reading``) take the manifest and an item id, never
+evidence. The harness reads the exact manifest-prescribed images (verified by SHA-256 and size) through an image source,
+runs the guarded candidate on the ranking profile at the frozen floor, and returns a sealed result. Each result binds:
+- the manifest digest, the layer and the item/Track id;
+- the exact evidence used;
+- the candidate identity and the frozen parameters;
+- the terminal state: COMPLETED, or CONTRACT_FAIL with the exact evidence.
+
+A subset, superset, reordered, substituted or empty evidence set cannot be produced. A Track without evidence cannot be
+run, because NO_RUN is derived from the manifest. Candidate silence is a COMPLETED result with empty output.
+
+**3. Metrics** (``evaluate_a`` / ``evaluate_b`` / ``evaluate_c`` / ``evaluate_d``, ``paired_cluster_bootstrap``):
+- They accept only sealed results of the same manifest, and the result item ids must EQUAL the manifest projection
+  exactly: no missing, duplicate, extra, substituted or relabelled items.
+- Queries are generated inside from the manifest truths and the frozen query configuration.
+- R, the seed and the calibration minimum come from the manifest configuration. The comparison also re-verifies the
+  sealed baseline resolution, which binds the ``BaselineFreeze``, which binds the manifest digest.
+
+**Kept unchanged:** D-score (owner N8), silence = 0, CONTRACT_FAIL (any output-contract violation, bake-off rule),
+MPID 0.04 exact, the superiority rule, N3 rank-0, the single PD_BASE + OC5 gate with two-stage resolution
+(ambiguous → STOP), and the two-stage bootstrap with R = 1,000 and integer percentile indices.
+
+**Seals.** Results carry an HMAC seal under a per-process key. An edited or hand-built result is refused. An
+in-process caller can still call the private ``_seal``; this is disclosed (P3-5).
+
+**Caller-provided (complete list):**
+1. the frozen expected digests (manifest; and, within it, the configuration);
+2. the real corpus manifest content, until the committed corpus/MAVI-association manifest exists. That manifest is an
+   integration prerequisite before the PR-2 freeze;
+3. the candidate under test (its callables and its asserted ``ComponentIdentity``), and Layer-A ``gates_passed`` plus
+   the ``BaselineFreeze`` (mandated M3 integration follow-up);
+4. the N4 ``independent`` verdict.
 """
 
 from __future__ import annotations
 
+import enum
 import hashlib
 import hmac
 import json
@@ -64,13 +66,12 @@ import math
 import random
 import re
 import secrets
-from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, field, replace
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from uuid import UUID
 
 from mavi_vision.plates.contracts import (
-    CROP_ABSTAINED,
     CROP_SCORED,
     MAXIMUM_DETECTIONS_PER_CROP,
     MAXIMUM_PLATES_PER_CROP,
@@ -85,11 +86,18 @@ from mavi_vision.plates.contracts import (
     raw_line_count,
     reading_rank_key,
 )
-from mavi_vision.plates.inference import PlateBox, PlateDetector, PlateRecogniser, Reading, VerifiedCrop
+from mavi_vision.plates.inference import (
+    CropDecodeError,
+    PlateBox,
+    PlateDetector,
+    PlateRecogniser,
+    Reading,
+    VerifiedCrop,
+    decode_crop,
+)
 from mavi_vision.plates.normalisation import OK, normalise
 from mavi_vision.plates.parameters import PlateParameters
 from mavi_vision.plates.pipeline import (
-    CropRecord,
     OutputInvalid,
     PlateRecord,
     RankedReading,
@@ -99,7 +107,7 @@ from mavi_vision.plates.pipeline import (
 )
 
 from tools.benchmarks.capabilities.plates import queries as query_module
-from tools.benchmarks.capabilities.plates.queries import CONTAINS, EXACT, QuerySet, matches, queryable
+from tools.benchmarks.capabilities.plates.queries import CONTAINS, EXACT, QueryParameters, QuerySet, matches, queryable
 
 # Decision record: docs/qualification/stage4/plate-selection-decision-record-2026-10-14.md
 PLAN_COVERAGE_THRESHOLD = Fraction(95, 100)   # plan §4.4 A (plan-derived)
@@ -110,47 +118,36 @@ ABSOLUTE_MINIMUM_CLUSTERS = 60                # owner D7b / P-80: absolute floor
 CONSISTENT_WRONG_LIMIT = Fraction(2, 100)     # plan §4.5, owner N3
 SUPPORT_FLOOR = 50                            # owner N3; strata below it are INSUFFICIENT_EVIDENCE
 P14_TOLERANCE = Fraction(2, 100)              # owner N5
-ECE_BINS = 10                                 # proposed frozen value: equal-mass, item k of n in bin ⌊k·10/n⌋
+ECE_BINS = 10                                 # equal-mass: item k of n in bin ⌊k·10/n⌋
 CLUSTER_UNIT = "physical-capture-site"        # owner item 4 / C2
-BOOTSTRAP_REPLICATES = 1000                   # frozen R (matches the predeclared calibration, owner T)
+BOOTSTRAP_REPLICATES = 1000                   # frozen R (owner T)
+PERCENTILE_RULE = "floor(25(R-1)/1000), ceil(975(R-1)/1000)"
+MANIFEST_SCHEMA = "mavi-plate-selection-evaluation-manifest-v1"
 
 PASS, FAIL, INSUFFICIENT = "PASS", "FAIL", "INSUFFICIENT_EVIDENCE"
-MEASURED, CONTRACT_FAIL = "MEASURED", "CONTRACT_FAIL"
-NO_PLATE = "<no-plate>"            # real GT vehicle displaying no plate: truth = no text
-UNREADABLE = "<unreadable>"        # real GT vehicle, text not establishable by the frozen human rule
-NO_GT_VEHICLE = "<no-gt-vehicle>"  # MAVI Track matching no GT vehicle in the closed population: a false Track
+MEASURED, CONTRACT_FAIL, COMPLETED = "MEASURED", "CONTRACT_FAIL", "COMPLETED"
 
 _UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _CANDIDATE_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$")
 _EVENT_RE = re.compile(r"^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\d{4}-\d{2}$")
+_SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-@dataclass(frozen=True, slots=True)
-class ComponentIdentity:
-    """A candidate component as the ranking path saw it. ``identity_sha256`` is M3's ``identitySha256``: the canonical
-    SHA-256 of the candidate's ledger ``identity`` block. For the benchmark-only component it is M3's benchmark
-    component identity."""
-
-    candidate_id: str
-    identity_sha256: str
-
-    def __post_init__(self):
-        if not (isinstance(self.candidate_id, str) and _CANDIDATE_RE.match(self.candidate_id)):
-            raise ValueError("component_identity_id_malformed")
-        if not (isinstance(self.identity_sha256, str) and re.fullmatch(r"[0-9a-f]{64}", self.identity_sha256)):
-            raise ValueError("component_identity_sha256_malformed")
+def _is_sha256(value: object) -> bool:
+    return isinstance(value, str) and bool(_SHA_RE.match(value))
 
 
-def _identity(value: object, code: str) -> ComponentIdentity:
-    if not isinstance(value, ComponentIdentity):
-        raise ValueError(code)
-    return value
+def _canonical_sha256(payload: object) -> str:
+    """M3 ``credibility.document_sha256`` form: canonical JSON plus one LF."""
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False) + "\n"
+    return hashlib.sha256(text.encode("ascii")).hexdigest()
 
-# ---------------------------------------------------------------------------------------------- ranking seals
+
+# ---------------------------------------------------------------------------------------------- seals
 
 _SEAL_KEY = secrets.token_bytes(32)
-_RUN, _PLATE, _A, _B, _COMPONENT, _D = "run", "plate", "detection", "reading", "component", "d-score"
-_ITEM = "detection-item"
+_TRACK_RUN, _A_RUN, _B_RUN, _A, _B, _COMPONENT, _D = (
+    "track-run", "detection-run", "reading-run", "detection", "reading", "component", "d-score")
 
 
 def _mac(kind: str, obj) -> str:
@@ -159,7 +156,7 @@ def _mac(kind: str, obj) -> str:
 
 
 def _seal(kind: str, obj):
-    """Ranking-path constructor only. Tests use it to build fixtures; it is not an API."""
+    """Ranking-path constructor only. Tests use it to build metric fixtures; it is not an API."""
     return replace(obj, seal=_mac(kind, replace(obj, seal="")))
 
 
@@ -180,21 +177,8 @@ def _integer(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def ranking_parameters(detector_confidence_floor: float) -> PlateParameters:
-    """The only parameters the ranking path accepts: 2/1/3 bounds, OCR floor 0, the candidate's pinned detector floor."""
-    return PlateParameters(MAXIMUM_DETECTIONS_PER_CROP, MAXIMUM_PLATES_PER_CROP, MAXIMUM_READINGS_PER_PLATE,
-                           float(detector_confidence_floor), RANKING_OCR_CONFIDENCE_FLOOR, frozenset(), None)
-
-
-def is_ranking_profile(parameters: PlateParameters, detector_floor: float | None = None) -> bool:
-    """The ranking profile; with ``detector_floor``, also exactly the candidate's pinned detector floor."""
-    return (parameters.max_detections_per_crop == MAXIMUM_DETECTIONS_PER_CROP
-            and parameters.max_plates_per_crop == MAXIMUM_PLATES_PER_CROP
-            and parameters.max_readings_per_plate == MAXIMUM_READINGS_PER_PLATE
-            and parameters.ocr_confidence_floor == RANKING_OCR_CONFIDENCE_FLOOR
-            and not parameters.excluded_roles
-            and parameters.fixture_seed is None
-            and (detector_floor is None or parameters.detector_confidence_floor == float(detector_floor)))
+def _ratio(numerator: int, denominator: int) -> Fraction | None:
+    return Fraction(numerator, denominator) if denominator else None
 
 
 def normalised_truth(raw: str) -> str | None:
@@ -202,11 +186,294 @@ def normalised_truth(raw: str) -> str | None:
     return result.normalised if result.outcome == OK else None
 
 
-def _ratio(numerator: int, denominator: int) -> Fraction | None:
-    return Fraction(numerator, denominator) if denominator else None
+# ---------------------------------------------------------------------------------------------- identities
+
+
+@dataclass(frozen=True, slots=True)
+class ComponentIdentity:
+    """A candidate component. ``identity_sha256`` is M3's ``identitySha256`` (canonical SHA-256 of the ledger identity
+    block); for the benchmark-only component it is M3's benchmark component identity."""
+
+    candidate_id: str
+    identity_sha256: str
+
+    def __post_init__(self):
+        if not (isinstance(self.candidate_id, str) and _CANDIDATE_RE.match(self.candidate_id)):
+            raise ValueError("component_identity_id_malformed")
+        if not _is_sha256(self.identity_sha256):
+            raise ValueError("component_identity_sha256_malformed")
+
+
+def _identity(value: object, code: str) -> ComponentIdentity:
+    if not isinstance(value, ComponentIdentity):
+        raise ValueError(code)
+    return value
+
+
+# ---------------------------------------------------------------------------------------------- the manifest
+
+
+class TruthState(enum.Enum):
+    TEXT = "TEXT"
+    NO_PLATE = "NO_PLATE"
+    UNREADABLE = "UNREADABLE"
+    NO_GT_VEHICLE = "NO_GT_VEHICLE"
+
+
+@dataclass(frozen=True, slots=True)
+class Truth:
+    """Typed GT truth. Only ``TruthState`` members are accepted (a misspelt state fails closed); TEXT carries the raw
+    adjudicated text, the others carry none."""
+
+    state: TruthState
+    text: str | None = None
+
+    def __post_init__(self):
+        if not isinstance(self.state, TruthState):
+            raise ValueError("truth_state_not_typed")
+        if self.state is TruthState.TEXT:
+            if not (isinstance(self.text, str) and self.text.strip()):
+                raise ValueError("truth_text_required")
+            if self.text.strip().startswith("<") and self.text.strip().endswith(">"):
+                raise ValueError("truth_text_looks_like_a_sentinel")  # a misspelt state never becomes text
+        elif self.text is not None:
+            raise ValueError("truth_text_only_for_text")
+
+    @property
+    def supported_text(self) -> str | None:
+        return normalised_truth(self.text) if self.state is TruthState.TEXT else None
+
+
+def TEXT(text: str) -> Truth:  # noqa: N802 - a typed-truth constructor
+    return Truth(TruthState.TEXT, text)
+
+
+NO_PLATE, UNREADABLE, NO_GT_VEHICLE = (Truth(TruthState.NO_PLATE), Truth(TruthState.UNREADABLE),
+                                       Truth(TruthState.NO_GT_VEHICLE))
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceImage:
+    """One exact evidence image: observation id, lease role and rank, and its bytes' SHA-256 and size."""
+
+    observation_id: str
+    role: str
+    evidence_rank: int
+    sha256: str
+    size_bytes: int
+
+    def row(self) -> list:
+        return [self.observation_id, self.role, self.evidence_rank, self.sha256, self.size_bytes]
+
+
+@dataclass(frozen=True, slots=True)
+class ManifestTrack:
+    track_id: str
+    site: str                                   # physical capture site (cluster)
+    truth: Truth
+    mavi_track_uuid: str | None = None          # the MAVI Track (association), if any
+    evidence: tuple[EvidenceImage, ...] = ()    # its evidence images, in lease order
+
+    @property
+    def has_mavi_evidence(self) -> bool:
+        """DERIVED from the association: a MAVI Track with evidence exists for this GT vehicle."""
+        return bool(self.evidence)
+
+
+@dataclass(frozen=True, slots=True)
+class ManifestCrop:
+    """An A item: one evidence image of a Track, and its GT plate polygons."""
+
+    crop_id: str
+    track_id: str
+    observation_id: str
+    plates: tuple
+
+
+@dataclass(frozen=True, slots=True)
+class ManifestPlate:
+    """A B/C item: a GT plate's text. ``plate_image`` (the GT plate crop) makes it a B item; ``observation_id`` (the
+    evidence image it lies in) makes it a C item."""
+
+    plate_id: str
+    track_id: str
+    text: str
+    plate_image: EvidenceImage | None = None
+    observation_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProtocolConfig:
+    """The selection-protocol values, hashed into the manifest digest (owner invariant 8)."""
+
+    query: QueryParameters
+    bootstrap_seed: int
+    calibration_minimum_clusters: int
+    detector_floors: tuple[tuple[str, float], ...]   # (detector candidate id, pinned floor), sorted
+    bootstrap_replicates: int = BOOTSTRAP_REPLICATES
+    percentile_rule: str = PERCENTILE_RULE
+    mpid: str = "4/100"
+
+    def row(self) -> dict:
+        return {"query": {"interiorOffset": self.query.interior_offset,
+                          "negativesPerPlate": self.query.negatives_per_plate, "seed": self.query.seed},
+                "bootstrapSeed": self.bootstrap_seed, "bootstrapReplicates": self.bootstrap_replicates,
+                "percentileRule": self.percentile_rule, "mpid": self.mpid,
+                "calibrationMinimumClusters": self.calibration_minimum_clusters,
+                "detectorFloors": [[c, repr(float(f))] for c, f in self.detector_floors]}
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationManifest:
+    manifest_id: str
+    tracks: tuple[ManifestTrack, ...]
+    crops: tuple[ManifestCrop, ...]
+    plates: tuple[ManifestPlate, ...]
+    config: ProtocolConfig
+
+
+def _polygons(plates) -> list:
+    return [[[x, y] for x, y in polygon] for polygon in plates]
+
+
+def _truth_row(truth) -> list:
+    if isinstance(truth, Truth):
+        return [truth.state.value, truth.text]
+    return ["<untyped>", repr(truth)]  # refused by verify_manifest
+
+
+def _manifest_document(m: EvaluationManifest) -> dict:
+    return {"schema": MANIFEST_SCHEMA, "manifestId": m.manifest_id,
+            "tracks": [[t.track_id, t.site, *_truth_row(t.truth), t.mavi_track_uuid,
+                        [e.row() for e in t.evidence]] for t in m.tracks],
+            "crops": [[c.crop_id, c.track_id, c.observation_id, _polygons(c.plates)] for c in m.crops],
+            "plates": [[p.plate_id, p.track_id, p.text, None if p.plate_image is None else p.plate_image.row(),
+                        p.observation_id] for p in m.plates],
+            "config": m.config.row()}
+
+
+def manifest_digest(manifest: EvaluationManifest) -> str:
+    """The canonical identity of the manifest (structure is validated by ``verify_manifest``)."""
+    return _canonical_sha256(_manifest_document(manifest))
+
+
+@dataclass(frozen=True)
+class _Verified:
+    manifest: EvaluationManifest
+    digest: str
+    tracks: Mapping[str, ManifestTrack]
+    crops: Mapping[str, ManifestCrop]
+    b_plates: Mapping[str, ManifestPlate]
+    c_plates: Mapping[str, ManifestPlate]
+    floors: Mapping[str, float]
+
+
+def _is_uuid(value: object) -> bool:
+    try:
+        return isinstance(value, str) and str(UUID(value)) == value
+    except ValueError:
+        return False
+
+
+def _unique(ids: list, code: str) -> None:
+    if len(ids) != len(set(ids)) or not all(isinstance(i, str) and i for i in ids):
+        raise ValueError(code)
+
+
+def verify_manifest(manifest: EvaluationManifest, expected_manifest_digest: str) -> _Verified:
+    """Validate the manifest structure, recompute its digest from the canonical contents, and require it to equal the
+    INDEPENDENT frozen expected digest. Every execution envelope and metric calls this."""
+    if not isinstance(manifest, EvaluationManifest):
+        raise ValueError("manifest_type")
+    if not _is_sha256(expected_manifest_digest):
+        raise ValueError("manifest_expected_digest_malformed")
+    tracks, crops, plates, config = manifest.tracks, manifest.crops, manifest.plates, manifest.config
+    _unique([t.track_id for t in tracks], "manifest_track_ids_not_unique")
+    _unique([c.crop_id for c in crops], "manifest_crop_ids_not_unique")
+    _unique([p.plate_id for p in plates], "manifest_plate_ids_not_unique")
+    if not tracks:
+        raise ValueError("manifest_without_tracks")
+    by_track: dict[str, ManifestTrack] = {}
+    for t in tracks:
+        if not (isinstance(t, ManifestTrack) and isinstance(t.truth, Truth) and isinstance(t.site, str) and t.site):
+            raise ValueError("manifest_track_malformed")
+        observations = [e.observation_id for e in t.evidence]
+        if not all(isinstance(e, EvidenceImage) and _is_sha256(e.sha256) and _integer(e.size_bytes) and e.size_bytes > 0
+                   for e in t.evidence):
+            raise ValueError("manifest_evidence_malformed")
+        if observations:
+            _unique(observations, "manifest_evidence_ids_not_unique")
+        if not all(_is_uuid(i) for i in observations) or (t.mavi_track_uuid is not None and not _is_uuid(t.mavi_track_uuid)):
+            raise ValueError("manifest_ids_not_canonical_uuids")
+        if t.evidence and not (isinstance(t.mavi_track_uuid, str) and t.mavi_track_uuid):
+            raise ValueError("manifest_evidence_without_mavi_track")
+        if not t.evidence and t.mavi_track_uuid is not None:
+            raise ValueError("manifest_mavi_track_without_evidence")
+        if t.truth.state is TruthState.NO_GT_VEHICLE and not t.evidence:
+            raise ValueError("manifest_no_gt_vehicle_without_mavi_evidence")  # by definition a MAVI Track
+        by_track[t.track_id] = t
+    for c in crops:
+        track = by_track.get(c.track_id)
+        if track is None or c.observation_id not in {e.observation_id for e in track.evidence}:
+            raise ValueError("manifest_crop_not_an_evidence_image")
+    b_plates, c_plates = {}, {}
+    for p in plates:
+        track = by_track.get(p.track_id)
+        if track is None or track.truth.state is not TruthState.TEXT or not (isinstance(p.text, str) and p.text.strip()):
+            raise ValueError("manifest_plate_malformed")
+        if p.plate_image is None and p.observation_id is None:
+            raise ValueError("manifest_plate_in_no_layer")
+        if p.plate_image is not None:
+            if not (isinstance(p.plate_image, EvidenceImage) and _is_sha256(p.plate_image.sha256)):
+                raise ValueError("manifest_plate_image_malformed")
+            b_plates[p.plate_id] = p
+        if p.observation_id is not None:
+            if p.observation_id not in {e.observation_id for e in track.evidence}:
+                raise ValueError("manifest_plate_not_in_an_evidence_image")
+            c_plates[p.plate_id] = p
+    if not isinstance(config, ProtocolConfig) or not isinstance(config.query, QueryParameters):
+        raise ValueError("manifest_config_malformed")
+    if config.bootstrap_replicates != BOOTSTRAP_REPLICATES or isinstance(config.bootstrap_replicates, bool):
+        raise ValueError("manifest_config_replicates_not_frozen_value")
+    if config.percentile_rule != PERCENTILE_RULE or config.mpid != "4/100":
+        raise ValueError("manifest_config_rule_not_frozen")
+    if not (_integer(config.bootstrap_seed) and _integer(config.calibration_minimum_clusters)
+            and config.calibration_minimum_clusters >= 1):
+        raise ValueError("manifest_config_malformed")
+    floor_ids = [c for c, _ in config.detector_floors]
+    if floor_ids != sorted(set(floor_ids)) or not all(_probability(f) for _, f in config.detector_floors):
+        raise ValueError("manifest_config_detector_floors_malformed")
+    digest = manifest_digest(manifest)
+    if digest != expected_manifest_digest:
+        raise ValueError("manifest_not_the_frozen_manifest")  # a modified manifest with a recomputed hash fails here
+    return _Verified(manifest, digest, by_track, {c.crop_id: c for c in crops}, b_plates, c_plates,
+                     dict(config.detector_floors))
+
+
+def layer_digest(manifest: EvaluationManifest, expected_manifest_digest: str, layer: str) -> str:
+    """The digest of a layer's frozen projection of the manifest (A crops, B plates, C plates, D Tracks)."""
+    v = verify_manifest(manifest, expected_manifest_digest)
+    rows = {"A": sorted(v.crops), "B": sorted(v.b_plates), "C": sorted(v.c_plates), "D": sorted(v.tracks)}[layer]
+    return _canonical_sha256({"manifest": v.digest, "layer": layer, "items": rows})
 
 
 # ---------------------------------------------------------------------------------------------- output contract
+
+
+def ranking_parameters(detector_confidence_floor: float) -> PlateParameters:
+    """The ranking profile: 2/1/3 bounds, OCR floor 0, the candidate's pinned detector floor."""
+    return PlateParameters(MAXIMUM_DETECTIONS_PER_CROP, MAXIMUM_PLATES_PER_CROP, MAXIMUM_READINGS_PER_PLATE,
+                           float(detector_confidence_floor), RANKING_OCR_CONFIDENCE_FLOOR, frozenset(), None)
+
+
+def is_ranking_profile(parameters: PlateParameters, detector_floor: float | None = None) -> bool:
+    return (parameters.max_detections_per_crop == MAXIMUM_DETECTIONS_PER_CROP
+            and parameters.max_plates_per_crop == MAXIMUM_PLATES_PER_CROP
+            and parameters.max_readings_per_plate == MAXIMUM_READINGS_PER_PLATE
+            and parameters.ocr_confidence_floor == RANKING_OCR_CONFIDENCE_FLOOR
+            and not parameters.excluded_roles
+            and parameters.fixture_seed is None
+            and (detector_floor is None or parameters.detector_confidence_floor == float(detector_floor)))
 
 
 def detector_output_violation(boxes: object, width: int, height: int, bound: int) -> str | None:
@@ -300,74 +567,192 @@ class _CheckedRecogniser:
         return readings
 
 
-# ---------------------------------------------------------------------------------------------- running PR-3 rules
+# ---------------------------------------------------------------------------------------------- execution envelopes
+
+ImageSource = Callable[[EvidenceImage], bytes]
 
 
-@dataclass(frozen=True, slots=True)
-class EvidenceCrop:
-    observation_id: UUID
-    role: str
-    evidence_rank: int
-    sha256: str
-    content: bytes
+def _image_bytes(images: ImageSource, ref: EvidenceImage) -> bytes:
+    """The harness reads the manifest-prescribed image and verifies it. A mismatch is a corpus integrity failure (the
+    run is refused), never a candidate result."""
+    content = images(ref)
+    if not isinstance(content, (bytes, bytearray)) or len(content) != ref.size_bytes \
+            or hashlib.sha256(bytes(content)).hexdigest() != ref.sha256:
+        raise ValueError("corpus_image_integrity_failed")
+    return bytes(content)
+
+
+def _floor_for(v: _Verified, detector: ComponentIdentity) -> float:
+    if detector.candidate_id not in v.floors:
+        raise ValueError("detector_floor_not_frozen_in_manifest")
+    return float(v.floors[detector.candidate_id])
 
 
 @dataclass(frozen=True, slots=True)
 class TrackRun:
-    """A Track's PR-3 outcome under ``parameters``, or the exact contract violation (kept for audit, never scored).
-    Only ``run_track`` produces a sealed run."""
+    """The sealed D/C execution of one composition on one manifest Track's exact evidence."""
 
+    manifest_digest: str
+    track_id: str
+    mavi_track_uuid: str
+    evidence: tuple[EvidenceImage, ...]
+    detector: ComponentIdentity
+    recogniser: ComponentIdentity
+    parameters: PlateParameters
+    state: str                      # COMPLETED | CONTRACT_FAIL
     record: TrackRecord | None
     contract_violation: str | None
-    parameters: PlateParameters
-    detector: ComponentIdentity | None = None
-    recogniser: ComponentIdentity | None = None
     seal: str = ""
 
 
-def lease_observation(observation_id: UUID, role: str, evidence_rank: int, size_bytes: int, sha256: str
-                      ) -> LeaseObservation:
+def lease_observation(observation_id, role: str, evidence_rank: int, size_bytes: int, sha256: str) -> LeaseObservation:
     return LeaseObservation.model_validate({"observationId": observation_id, "role": role,
                                             "evidenceRank": evidence_rank, "sizeBytes": size_bytes, "sha256": sha256})
 
 
-def lease_track(track_id: UUID, observations: tuple[LeaseObservation, ...]) -> LeaseTrack:
-    return LeaseTrack.model_validate({"trackId": track_id, "objectClass": "vehicle", "observations": observations})
-
-
-def run_track(track_id: UUID, crops: Sequence[EvidenceCrop], detector: PlateDetector, recogniser: PlateRecogniser,
-              parameters: PlateParameters, *, detector_identity: ComponentIdentity,
-              recogniser_identity: ComponentIdentity) -> TrackRun:
-    """Run PR-3 on one Track with the guarded candidate components. The stated identities are sealed into the run."""
-    ids = (_identity(detector_identity, "run_detector_identity_required"),
-           _identity(recogniser_identity, "run_recogniser_identity_required"))
-    observations = tuple(lease_observation(c.observation_id, c.role, c.evidence_rank, len(c.content), c.sha256)
-                         for c in crops)
-    track = lease_track(track_id, observations)
+def run_track(manifest: EvaluationManifest, expected_manifest_digest: str, track_id: str, *, detector: PlateDetector,
+              recogniser: PlateRecogniser, detector_identity: ComponentIdentity,
+              recogniser_identity: ComponentIdentity, images: ImageSource) -> TrackRun:
+    """Run PR-3 with the guarded candidate on EXACTLY the manifest Track's evidence, at the frozen floor."""
+    v = verify_manifest(manifest, expected_manifest_digest)
+    det = _identity(detector_identity, "run_detector_identity_required")
+    rec = _identity(recogniser_identity, "run_recogniser_identity_required")
+    track = v.tracks.get(track_id)
+    if track is None:
+        raise ValueError("run_track_not_in_manifest")
+    if not track.has_mavi_evidence:
+        raise ValueError("run_track_has_no_mavi_evidence")  # NO_RUN is derived from the manifest, never executed
+    parameters = ranking_parameters(_floor_for(v, det))
+    contents = [_image_bytes(images, ref) for ref in track.evidence]
+    observations = tuple(lease_observation(UUID(e.observation_id), e.role, e.evidence_rank, e.size_bytes, e.sha256)
+                         for e in track.evidence)
+    lease = LeaseTrack.model_validate({"trackId": UUID(track.mavi_track_uuid), "objectClass": "vehicle",
+                                       "observations": observations})
     guard = _Guard()
     checked_detector = _CheckedDetector(detector, guard, parameters.max_detections_per_crop)
     checked_recogniser = _CheckedRecogniser(recogniser, guard, parameters.max_readings_per_plate)
+
+    def result(state, record, violation):
+        return _seal(_TRACK_RUN, TrackRun(v.digest, track_id, track.mavi_track_uuid, track.evidence, det, rec, parameters,
+                                          state, record, violation))
+
     records = []
-    for crop, observation in zip(crops, observations):
-        verified = VerifiedCrop(str(crop.observation_id), crop.role, crop.evidence_rank, crop.sha256, crop.content)
+    for ref, content, observation in zip(track.evidence, contents, observations):
+        verified = VerifiedCrop(ref.observation_id, ref.role, ref.evidence_rank, ref.sha256, content)
         try:
             record = analyse_crop(observation, verified, checked_detector, checked_recogniser, parameters)
         except OutputInvalid as exc:
-            return _seal(_RUN, TrackRun(None, guard.violation or str(exc), parameters, *ids))
+            return result(CONTRACT_FAIL, None, guard.violation or str(exc))
         if guard.violation is not None:
-            return _seal(_RUN, TrackRun(None, guard.violation, parameters, *ids))
+            return result(CONTRACT_FAIL, None, guard.violation)
         records.append(record)
     try:
-        summary = summarise_track(track, tuple(records))
+        summary = summarise_track(lease, tuple(records))
     except OutputInvalid as exc:
-        return _seal(_RUN, TrackRun(None, str(exc), parameters, *ids))
-    return _seal(_RUN, TrackRun(summary, None, parameters, *ids))
+        return result(CONTRACT_FAIL, None, str(exc))
+    return result(COMPLETED, summary, None)
 
 
-def _require_run(run: TrackRun, code: str) -> None:
-    if not isinstance(run, TrackRun):
-        raise ValueError(code)
-    _require(_RUN, run, code)
+@dataclass(frozen=True, slots=True)
+class DetectionRun:
+    """The sealed A execution of one detector on one manifest crop."""
+
+    manifest_digest: str
+    crop_id: str
+    image: EvidenceImage
+    detector: ComponentIdentity
+    detector_floor: float
+    state: str
+    proposals: tuple[tuple[int, int, int, int, float], ...]
+    crop_size: tuple[int, int] | None
+    contract_violation: str | None
+    seal: str = ""
+
+
+def run_detection(manifest: EvaluationManifest, expected_manifest_digest: str, crop_id: str, *,
+                  detector: PlateDetector, detector_identity: ComponentIdentity, images: ImageSource) -> DetectionRun:
+    """Run the guarded detector on EXACTLY the manifest crop's evidence image."""
+    v = verify_manifest(manifest, expected_manifest_digest)
+    det = _identity(detector_identity, "run_detector_identity_required")
+    crop = v.crops.get(crop_id)
+    if crop is None:
+        raise ValueError("run_crop_not_in_manifest")
+    ref = next(e for e in v.tracks[crop.track_id].evidence if e.observation_id == crop.observation_id)
+    floor = _floor_for(v, det)
+    content = _image_bytes(images, ref)
+    try:
+        image = decode_crop(content)
+    except CropDecodeError as exc:
+        raise ValueError("corpus_image_undecodable") from exc
+    width, height = image.size
+    verified = VerifiedCrop(ref.observation_id, ref.role, ref.evidence_rank, ref.sha256, content)
+
+    def result(state, proposals, violation):
+        return _seal(_A_RUN, DetectionRun(v.digest, crop_id, ref, det, floor, state, proposals, (width, height),
+                                          violation))
+
+    try:
+        boxes = detector.detect(image, verified)
+    except Exception as exc:  # noqa: BLE001
+        return result(CONTRACT_FAIL, (), f"plate_detector_runtime_error@obs={ref.observation_id}:"
+                                          f"{_exception_evidence(exc)}")
+    violation = detector_output_violation(boxes, width, height, MAXIMUM_DETECTIONS_PER_CROP)
+    if violation is not None:
+        return result(CONTRACT_FAIL, (), f"{violation}:obs={ref.observation_id}")
+    return result(COMPLETED, tuple((b.x, b.y, b.width, b.height, float(b.score)) for b in boxes), None)
+
+
+@dataclass(frozen=True, slots=True)
+class ReadRun:
+    """The sealed B execution of one recogniser on one manifest GT plate crop."""
+
+    manifest_digest: str
+    plate_id: str
+    image: EvidenceImage
+    recogniser: ComponentIdentity
+    state: str
+    plate: PlateRecord | None
+    contract_violation: str | None
+    seal: str = ""
+
+
+def _rank_plate(readings: Sequence[Reading], parameters: PlateParameters) -> PlateRecord:
+    """PR-3's ranking through its public contract (equal to ``pipeline._plate``, proven by test)."""
+    ordered = sorted(readings, key=lambda item: reading_rank_key(item.confidence, item.raw_text))
+    ranked = tuple(RankedReading(rank, item.raw_text, raw_line_count(item.raw_text), float(item.confidence))
+                   for rank, item in enumerate(ordered))
+    outcome = PLATE_READ if ranked and ranked[0].confidence >= parameters.ocr_confidence_floor else PLATE_UNREADABLE
+    return PlateRecord(0, outcome, ranked)
+
+
+def run_reading(manifest: EvaluationManifest, expected_manifest_digest: str, plate_id: str, *,
+                recogniser: PlateRecogniser, recogniser_identity: ComponentIdentity, images: ImageSource) -> ReadRun:
+    """Run the guarded recogniser on EXACTLY the manifest GT plate crop (whole image as the plate region)."""
+    v = verify_manifest(manifest, expected_manifest_digest)
+    rec = _identity(recogniser_identity, "run_recogniser_identity_required")
+    plate = v.b_plates.get(plate_id)
+    if plate is None:
+        raise ValueError("run_plate_not_in_manifest")
+    ref = plate.plate_image
+    content = _image_bytes(images, ref)
+    try:
+        image = decode_crop(content)
+    except CropDecodeError as exc:
+        raise ValueError("corpus_image_undecodable") from exc
+    verified = VerifiedCrop(ref.observation_id, ref.role, ref.evidence_rank, ref.sha256, content)
+
+    def result(state, record, violation):
+        return _seal(_B_RUN, ReadRun(v.digest, plate_id, ref, rec, state, record, violation))
+
+    try:
+        readings = recogniser.read(image, verified, PlateBox(0, 0, image.size[0], image.size[1], 1.0))
+    except Exception as exc:  # noqa: BLE001
+        return result(CONTRACT_FAIL, None, f"plate_recogniser_runtime_error@obs={ref.observation_id}:"
+                                           f"{_exception_evidence(exc)}")
+    violation = recogniser_output_violation(readings, MAXIMUM_READINGS_PER_PLATE)
+    if violation is not None:
+        return result(CONTRACT_FAIL, None, f"{violation}:obs={ref.observation_id}")
+    return result(COMPLETED, _rank_plate(list(readings), ranking_parameters(0.0)), None)
 
 
 def _refloor(record: TrackRecord, floor: float) -> TrackRecord:
@@ -382,7 +767,18 @@ def _refloor(record: TrackRecord, floor: float) -> TrackRecord:
             detections.append(replace(detection, plate=plate))
         crops.append(replace(crop, detections=tuple(detections)))
     observations = tuple(lease_observation(c.observation_id, c.role, c.evidence_rank, 1, "0" * 64) for c in crops)
-    return summarise_track(lease_track(record.track_id, observations), tuple(crops))
+    lease = LeaseTrack.model_validate({"trackId": record.track_id, "objectClass": "vehicle",
+                                       "observations": observations})
+    return summarise_track(lease, tuple(crops))
+
+
+def diagnostic_plate_record(readings, floor: float) -> PlateRecord | None:
+    """DIAGNOSTIC ONLY: readings ranked at a declared diagnostic OCR floor (an unsealed PlateRecord)."""
+    if floor not in DIAGNOSTIC_OCR_FLOORS:
+        raise ValueError("diagnostic_floor_not_declared")
+    if recogniser_output_violation(readings, MAXIMUM_READINGS_PER_PLATE) is not None:
+        return None
+    return _rank_plate(list(readings), replace(ranking_parameters(0.0), ocr_confidence_floor=floor))
 
 
 # ---------------------------------------------------------------------------------------------- A
@@ -407,8 +803,7 @@ def _clip(points: list, inside: Callable, cut: Callable) -> list:
 
 
 def coverage(polygon: Sequence[tuple[float, float]], box: tuple[float, float, float, float]) -> Fraction:
-    """Exact share of the GT polygon's area inside the box ``(x1, y1, x2, y2)`` (Sutherland–Hodgman over rationals;
-    every float coordinate is converted exactly, so a 95/100 share compares equal to the 0.95 threshold)."""
+    """Exact share of the GT polygon's area inside the box ``(x1, y1, x2, y2)`` (Sutherland–Hodgman over rationals)."""
     points = [(Fraction(x), Fraction(y)) for x, y in polygon]
     area = _polygon_area(points)
     if area <= 0:
@@ -437,39 +832,6 @@ def _iou(a: tuple[float, float, float, float], b: tuple[float, float, float, flo
 
 
 @dataclass(frozen=True, slots=True)
-class DetectionItem:
-    """One GT vehicle crop: GT plate polygons and the detector's proposals ``(x, y, w, h, score)`` as emitted.
-    ``crop_size`` enables the inside-the-crop check; ``contract_violation`` carries a failed run's evidence."""
-
-    crop_id: str
-    plates: tuple[tuple[tuple[float, float], ...], ...]
-    proposals: tuple[tuple[int, int, int, int, float], ...]
-    stratum: str | None = None
-    crop_size: tuple[int, int] | None = None   # required unless ``contract_violation`` is set (review P3-2)
-    contract_violation: str | None = None
-    detector: ComponentIdentity | None = None  # set by ``detection_item_from_run`` from the sealed run
-    seal: str = ""
-
-
-def detection_item_from_run(crop_id: str, plates, run: TrackRun, observation_id: UUID,
-                            stratum: str | None = None, *, detector_floor: float) -> DetectionItem:
-    """A from a sealed ranking-path run at the pinned detector floor: the crop's emitted proposals, or the run's
-    contract violation. The item is sealed; only sealed items reach the ranking path."""
-    _require_run(run, "a_run_not_from_ranking_path")
-    if not is_ranking_profile(run.parameters, detector_floor):
-        raise ValueError("a_run_not_on_ranking_profile_or_floor")
-    if run.contract_violation is not None or run.record is None:
-        return _seal(_ITEM, DetectionItem(crop_id, tuple(plates), (), stratum, None,
-                                          run.contract_violation or "run_without_record", run.detector))
-    crop = next((c for c in run.record.crops if c.observation_id == observation_id), None)
-    if crop is None:
-        raise ValueError("a_observation_not_in_run")
-    proposals = tuple((*d.box, d.score) for d in crop.detections) if crop.status in (CROP_SCORED, CROP_ABSTAINED) else ()
-    size = (crop.width, crop.height) if crop.width is not None and crop.height is not None else None
-    return _seal(_ITEM, DetectionItem(crop_id, tuple(plates), proposals, stratum, size, None, run.detector))
-
-
-@dataclass(frozen=True, slots=True)
 class DetectionResult:
     outcome: str                      # MEASURED | CONTRACT_FAIL
     contract_violations: tuple[str, ...]
@@ -479,77 +841,62 @@ class DetectionResult:
     false_plates_per_crop: Fraction | None
     ap50: float | None
     below_floor_proposals: int
-    per_stratum: dict = field(default_factory=dict)
-    detector: ComponentIdentity | None = None
+    manifest_digest: str
+    layer_digest: str
+    detector: ComponentIdentity
     seal: str = ""
 
 
-def _proposal_violation(item: DetectionItem) -> str | None:
-    if item.contract_violation is not None:
-        return item.contract_violation
-    if len(item.proposals) > MAXIMUM_DETECTIONS_PER_CROP:
-        return "plate_detector_output_exceeds_bound"
-    for index, p in enumerate(item.proposals):
-        if not (isinstance(p, tuple) and len(p) == 5):
-            return f"plate_detector_output_invalid@item={index}:not_a_proposal"
-        x, y, w, h, score = p
-        if not all(_integer(v) for v in (x, y, w, h)):
-            return f"plate_detector_output_invalid@item={index}:box_not_integer"
-        if not _probability(score):
-            return f"plate_detector_output_invalid@item={index}:score_out_of_range"
-        if x < 0 or y < 0 or w < 1 or h < 1:
-            return f"plate_detector_output_invalid@item={index}:box_degenerate"
-        if item.crop_size is not None and (x + w > item.crop_size[0] or y + h > item.crop_size[1]):
-            return f"plate_detector_output_invalid@item={index}:box_outside_crop"
-    return None
+def _require_complete(runs: Iterable, kind: str, id_of: Callable, expected_ids: Iterable[str], digest: str,
+                      code: str) -> dict:
+    """Owner invariant 5: sealed results of THIS manifest whose ids EQUAL the expected projection exactly."""
+    out: dict = {}
+    for run in runs:
+        _require(kind, run, f"{code}_result_not_sealed")
+        if run.manifest_digest != digest:
+            raise ValueError(f"{code}_result_of_another_manifest")
+        key = id_of(run)
+        if key in out:
+            raise ValueError(f"{code}_duplicate_result")
+        out[key] = run
+    if set(out) != set(expected_ids):
+        raise ValueError(f"{code}_results_do_not_equal_the_manifest_items")
+    return out
 
 
-def evaluate_detection(items: Iterable[DetectionItem], detector_floor: float, *,
-                       detector: ComponentIdentity) -> DetectionResult:
-    """A on the RANKING path: only sealed ``detection_item_from_run`` items of ``detector``. See ``_detection``."""
-    items = list(items)
-    detector = _identity(detector, "a_detector_identity_required")
-    for item in items:
-        if not _is_sealed(_ITEM, item):
-            raise ValueError("a_item_not_from_ranking_path")
-        if item.detector != detector:
-            raise ValueError("a_item_from_another_detector")
-    return _seal(_A, _detection(items, detector_floor, detector))
-
-
-def diagnostic_evaluate_detection(items: Iterable[DetectionItem], detector_floor: float) -> DetectionResult:
-    """DIAGNOSTIC / TEST ONLY: A on hand-built items. The result is never sealed, so no ranking function accepts it."""
-    return _detection(list(items), detector_floor, None)
-
-
-def _detection(items: list[DetectionItem], detector_floor: float, detector: ComponentIdentity | None) -> DetectionResult:
-    """A. Any detector output-contract violation is a FAIL for the evaluation (owner item 11), including more than
-    ``MAXIMUM_DETECTIONS_PER_CROP`` proposals, a non-finite score or a malformed box. Nothing is scored, truncated or
-    re-selected. Valid proposals below the pinned detector floor are not counted (PR-3 cannot accept them) and are
-    reported."""
-    for item in items:
-        if item.contract_violation is None and item.crop_size is None:
-            raise ValueError("a_item_without_crop_size")  # the outside-crop check can never be skipped
-    violations = tuple(f"{v}:{i.crop_id}" for i in items if (v := _proposal_violation(i)) is not None)
+def evaluate_a(manifest: EvaluationManifest, expected_manifest_digest: str, runs: Iterable[DetectionRun], *,
+               detector: ComponentIdentity) -> DetectionResult:
+    """A: recall at coverage ≥ 0.95 over EXACTLY the manifest crops. Any output-contract violation is a FAIL (nothing
+    scored, truncated or re-selected); valid proposals below the frozen floor are counted only as reported."""
+    v = verify_manifest(manifest, expected_manifest_digest)
+    det = _identity(detector, "a_detector_identity_required")
+    by_crop = _require_complete(runs, _A_RUN, lambda r: r.crop_id, v.crops, v.digest, "a")
+    for crop_id, run in by_crop.items():
+        crop = v.crops[crop_id]
+        if run.detector != det:
+            raise ValueError("a_result_from_another_detector")
+        ref = next(e for e in v.tracks[crop.track_id].evidence if e.observation_id == crop.observation_id)
+        if run.image != ref or run.detector_floor != _floor_for(v, det):
+            raise ValueError("a_result_not_the_manifest_execution")
+    layer = layer_digest(manifest, expected_manifest_digest, "A")
+    violations = tuple(f"{r.contract_violation}:{c}" for c, r in sorted(by_crop.items()) if r.state == CONTRACT_FAIL)
     if violations:
-        return DetectionResult(CONTRACT_FAIL, violations, 0, 0, None, None, None, 0, {}, detector)
+        return _seal(_A, DetectionResult(CONTRACT_FAIL, violations, 0, 0, None, None, None, 0, v.digest, layer, det))
+    floor = _floor_for(v, det)
     plates = covered = false = below = 0
-    strata: dict[str, list[int]] = {}
     scored: list[tuple[float, str, int, bool]] = []
-    for item in items:
-        kept = [p for p in item.proposals if p[4] >= detector_floor]
-        below += len(item.proposals) - len(kept)
+    for crop_id in sorted(by_crop):
+        run, crop = by_crop[crop_id], v.crops[crop_id]
+        polygons = [tuple((x, y) for x, y in p) for p in crop.plates]
+        kept = [p for p in run.proposals if p[4] >= floor]
+        below += len(run.proposals) - len(kept)
         boxes = [(x, y, x + w, y + h) for x, y, w, h, _ in kept]
-        hit = sum(1 for polygon in item.plates if any(coverage(polygon, b) >= PLAN_COVERAGE_THRESHOLD for b in boxes))
-        plates += len(item.plates)
+        hit = sum(1 for polygon in polygons if any(coverage(polygon, b) >= PLAN_COVERAGE_THRESHOLD for b in boxes))
+        plates += len(polygons)
         covered += hit
-        if item.stratum is not None:
-            bucket = strata.setdefault(item.stratum, [0, 0])
-            bucket[0] += len(item.plates)
-            bucket[1] += hit
-        false += sum(1 for b in boxes if not any(coverage(p, b) >= PLAN_COVERAGE_THRESHOLD for p in item.plates))
+        false += sum(1 for b in boxes if not any(coverage(p, b) >= PLAN_COVERAGE_THRESHOLD for p in polygons))
         gt_boxes = [(min(x for x, _ in p), min(y for _, y in p), max(x for x, _ in p), max(y for _, y in p))
-                    for p in item.plates]
+                    for p in polygons]
         taken: set[int] = set()
         for index in sorted(range(len(boxes)), key=lambda i: (-kept[i][4], i)):
             best, best_iou = None, 0.5
@@ -559,7 +906,7 @@ def _detection(items: list[DetectionItem], detector_floor: float, detector: Comp
                     best, best_iou = g, value
             if best is not None:
                 taken.add(best)
-            scored.append((kept[index][4], item.crop_id, index, best is not None))
+            scored.append((kept[index][4], crop_id, index, best is not None))
     ap = None
     if plates:
         scored.sort(key=lambda s: (-s[0], s[1], s[2]))
@@ -571,10 +918,8 @@ def _detection(items: list[DetectionItem], detector_floor: float, detector: Comp
         for i, (recall, _) in enumerate(points):
             ap += (recall - previous_recall) * max(p for _, p in points[i:])
             previous_recall = recall
-    per_stratum = {name: {"support": s, "recall": _ratio(c, s), "status": MEASURED if s >= SUPPORT_FLOOR else INSUFFICIENT}
-                   for name, (s, c) in sorted(strata.items())}
-    return DetectionResult(MEASURED, (), plates, covered, _ratio(covered, plates), _ratio(false, len(items)),
-                           ap, below, per_stratum, detector)
+    return _seal(_A, DetectionResult(MEASURED, (), plates, covered, _ratio(covered, plates),
+                                     _ratio(false, len(by_crop)), ap, below, v.digest, layer, det))
 
 
 # ---------------------------------------------------------------------------------------------- B and C
@@ -591,73 +936,8 @@ def cer(predicted: str, truth: str) -> float:
 
 
 @dataclass(frozen=True, slots=True)
-class RankingPlate:
-    """A PR-3 ``PlateRecord`` on the ranking profile (OCR floor 0), or the contract violation. Sealed by the ranking
-    path only (``ranking_plate_record``, ``accepted_plate``, ``not_read``)."""
-
-    plate: PlateRecord | None
-    contract_violation: str | None = None
-    recogniser: ComponentIdentity | None = None
-    seal: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class DiagnosticPlate:
-    """DIAGNOSTIC ONLY: a plate record at a diagnostic floor. Refused by every ranking path."""
-
-    plate: PlateRecord | None
-    floor: float
-    contract_violation: str | None = None
-
-
-def _rank_plate(readings: Sequence[Reading], parameters: PlateParameters) -> PlateRecord:
-    """PR-3's ranking through its public contract (equal to ``pipeline._plate``, proven by test)."""
-    ordered = sorted(readings, key=lambda item: reading_rank_key(item.confidence, item.raw_text))
-    ranked = tuple(RankedReading(rank, item.raw_text, raw_line_count(item.raw_text), float(item.confidence))
-                   for rank, item in enumerate(ordered))
-    outcome = PLATE_READ if ranked and ranked[0].confidence >= parameters.ocr_confidence_floor else PLATE_UNREADABLE
-    return PlateRecord(0, outcome, ranked)
-
-
-def _plate_record(readings, parameters: PlateParameters) -> tuple[PlateRecord | None, str | None]:
-    violation = recogniser_output_violation(readings, parameters.max_readings_per_plate)
-    if violation is not None:
-        return None, violation
-    return _rank_plate(list(readings), parameters), None
-
-
-def ranking_plate_record(readings, *, recogniser: ComponentIdentity) -> RankingPlate:
-    """B on GT plate crops, ranked as PR-3 does, at the ranking floor 0. Any contract violation is a FAIL."""
-    recogniser = _identity(recogniser, "b_recogniser_identity_required")
-    plate, violation = _plate_record(readings, ranking_parameters(0.0))
-    return _seal(_PLATE, RankingPlate(plate, violation, recogniser))
-
-
-def not_read() -> RankingPlate:
-    """A GT plate the composition did not read (no plate reached B/C): scored as not read."""
-    return _seal(_PLATE, RankingPlate(None))
-
-
-def diagnostic_plate_record(readings, floor: float) -> DiagnosticPlate:
-    if floor not in DIAGNOSTIC_OCR_FLOORS:
-        raise ValueError("diagnostic_floor_not_declared")
-    parameters = replace(ranking_parameters(0.0), ocr_confidence_floor=floor)
-    plate, violation = _plate_record(readings, parameters)
-    return DiagnosticPlate(plate, floor, violation)
-
-
-@dataclass(frozen=True, slots=True)
-class ReadItem:
-    """One GT plate (raw truth) and the composition's ranking-profile plate for it."""
-
-    plate_id: str
-    truth: str
-    result: RankingPlate
-    stratum: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class ReadResult:
+    layer: str                        # "B" | "C"
     outcome: str
     contract_violations: tuple[str, ...]
     plates: int
@@ -668,8 +948,9 @@ class ReadResult:
     top_k_hit: Fraction | None
     risk_coverage: tuple[tuple[float, float], ...]
     unsupported_truths: int
-    per_stratum: dict = field(default_factory=dict)
-    recogniser: ComponentIdentity | None = None
+    manifest_digest: str
+    layer_digest: str
+    recogniser: ComponentIdentity
     seal: str = ""
 
 
@@ -686,36 +967,26 @@ def _ece(ranked: Sequence[tuple[float, bool, str]]) -> float | None:
                for chunk in bins.values())
 
 
-def evaluate_reading(items: Iterable[ReadItem], *, recogniser: ComponentIdentity) -> ReadResult:
-    """B/C: EM of the rank-0 reading of a ``Read`` plate. Plate ids are unique, so the ECE order is total and input
-    order cannot matter (owner item 16)."""
-    recogniser = _identity(recogniser, "b_recogniser_identity_required")
-    items = list(items)
-    for item in items:
-        if not isinstance(item.result, RankingPlate) or not _is_sealed(_PLATE, item.result):
-            raise ValueError("reading_not_on_ranking_profile")
-        if item.result.recogniser is not None and item.result.recogniser != recogniser:
-            raise ValueError("reading_from_another_recogniser")
-    ids = [i.plate_id for i in items]
-    if len(ids) != len(set(ids)):
-        raise ValueError("reading_duplicate_plate_id")
-    violations = tuple(f"{i.result.contract_violation}:{i.plate_id}" for i in items if i.result.contract_violation)
+def _reading_result(layer: str, v: _Verified, layer_hash: str, recogniser: ComponentIdentity,
+                    per_plate: Mapping[str, tuple[PlateRecord | None, str | None]], texts: Mapping[str, str]) -> ReadResult:
+    violations = tuple(f"{violation}:{pid}" for pid, (_, violation) in sorted(per_plate.items()) if violation)
     if violations:
-        return _seal(_B, ReadResult(CONTRACT_FAIL, violations, 0, 0, None, None, None, None, (), 0, {}, recogniser))
-    rows: list[tuple[str, bool, float, float | None, bool, str | None]] = []
+        return _seal(_B, ReadResult(layer, CONTRACT_FAIL, violations, 0, 0, None, None, None, None, (), 0, v.digest,
+                                    layer_hash, recogniser))
+    rows: list[tuple[str, bool, float, float | None, bool]] = []
     unsupported = 0
-    for item in items:
-        truth = normalised_truth(item.truth) if item.truth else None
+    for pid in sorted(per_plate):
+        truth = normalised_truth(texts[pid])
         if truth is None:
             unsupported += 1
             continue
+        plate = per_plate[pid][0]
         predicted, confidence, any_rank = "", None, False
-        plate = item.result.plate
         if plate is not None and plate.outcome == PLATE_READ:
             confidence = plate.readings[0].confidence
             predicted = normalised_truth(plate.readings[0].raw_text) or ""
             any_rank = any(normalised_truth(r.raw_text) == truth for r in plate.readings)
-        rows.append((item.plate_id, predicted == truth, cer(predicted, truth), confidence, any_rank, item.stratum))
+        rows.append((pid, predicted == truth, cer(predicted, truth), confidence, any_rank))
     n = len(rows)
     exact = sum(r[1] for r in rows)
     ranked = sorted([(r[3], r[1], r[0]) for r in rows if r[3] is not None], key=lambda t: (-t[0], t[2]))
@@ -723,37 +994,30 @@ def evaluate_reading(items: Iterable[ReadItem], *, recogniser: ComponentIdentity
     for k, (_, e, _) in enumerate(ranked, 1):
         correct += e
         curve.append((k / n, 1 - correct / k))
-    strata: dict[str, list[int]] = {}
-    for row in rows:
-        if row[5] is not None:
-            bucket = strata.setdefault(row[5], [0, 0])
-            bucket[0] += 1
-            bucket[1] += row[1]
-    per_stratum = {name: {"support": s, "em": _ratio(c, s), "status": MEASURED if s >= SUPPORT_FLOOR else INSUFFICIENT}
-                   for name, (s, c) in sorted(strata.items())}
-    return _seal(_B, ReadResult(MEASURED, (), n, exact, _ratio(exact, n), sum(r[2] for r in rows) / n if n else None,
-                                _ece(ranked), _ratio(sum(r[4] for r in rows), n), tuple(curve), unsupported, per_stratum,
-                                recogniser))
+    return _seal(_B, ReadResult(layer, MEASURED, (), n, exact, _ratio(exact, n), sum(r[2] for r in rows) / n if n else None,
+                                _ece(ranked), _ratio(sum(r[4] for r in rows), n), tuple(curve), unsupported, v.digest,
+                                layer_hash, recogniser))
+
+
+def evaluate_b(manifest: EvaluationManifest, expected_manifest_digest: str, runs: Iterable[ReadRun], *,
+               recogniser: ComponentIdentity) -> ReadResult:
+    """B: EM of the rank-0 reading over EXACTLY the manifest's B plates (GT plate crops)."""
+    v = verify_manifest(manifest, expected_manifest_digest)
+    rec = _identity(recogniser, "b_recogniser_identity_required")
+    by_plate = _require_complete(runs, _B_RUN, lambda r: r.plate_id, v.b_plates, v.digest, "b")
+    for pid, run in by_plate.items():
+        if run.recogniser != rec:
+            raise ValueError("b_result_from_another_recogniser")
+        if run.image != v.b_plates[pid].plate_image:
+            raise ValueError("b_result_not_the_manifest_execution")
+    per_plate = {pid: (run.plate, run.contract_violation) for pid, run in by_plate.items()}
+    return _reading_result("B", v, layer_digest(manifest, expected_manifest_digest, "B"), rec, per_plate,
+                           {pid: v.b_plates[pid].text for pid in by_plate})
 
 
 def c_minus_b(c: ReadResult, b: ReadResult) -> Fraction | None:
     """Diagnostic only: the detector-attributable EM loss (C − B) on the same plates."""
     return None if c.em is None or b.em is None else c.em - b.em
-
-
-def accepted_plate(run: TrackRun, observation_id: UUID) -> RankingPlate:
-    """C: the composition's own accepted plate in a crop of a sealed ranking-profile run (PR-3 selection)."""
-    _require_run(run, "c_run_not_from_ranking_path")
-    if not is_ranking_profile(run.parameters):
-        raise ValueError("c_run_not_on_ranking_profile")
-    if run.contract_violation is not None or run.record is None:
-        return _seal(_PLATE, RankingPlate(None, run.contract_violation or "run_without_record", run.recogniser))
-    crop = next((c for c in run.record.crops if c.observation_id == observation_id), None)
-    if crop is None:
-        raise ValueError("c_observation_not_in_run")
-    if crop.status != CROP_SCORED:
-        return _seal(_PLATE, RankingPlate(None, None, run.recogniser))
-    return _seal(_PLATE, RankingPlate(next((plate for _, plate in crop.plates()), None), None, run.recogniser))
 
 
 # ---------------------------------------------------------------------------------------------- top-K (N4)
@@ -767,9 +1031,11 @@ class ComponentScore:
     primary: float | None          # A: recall at coverage; B: EM
     second: float | None           # A: false plates per crop (lower better); B: CER (lower better)
     third: float | None            # A: AP50 (higher better); B: ECE (lower better)
-    contract_fail: bool = False
-    identity_sha256: str = ""      # the sealed component identity the result was produced under
-    kind: str = ""                 # "detector" | "recogniser", sealed
+    contract_fail: bool
+    identity_sha256: str
+    kind: str                      # "detector" | "recogniser"
+    manifest_digest: str
+    measurement_sha256: str        # canonical hash of the sealed A/B result it was built from
     seal: str = ""
 
 
@@ -777,29 +1043,35 @@ def _float(value) -> float | None:
     return None if value is None else float(value)
 
 
+def _measurement_sha256(result) -> str:
+    return _canonical_sha256({"result": repr(replace(result, seal=""))})
+
+
 def detector_component(independent: bool, result: DetectionResult) -> ComponentScore:
-    """The candidate id and identity come from the sealed result, never from a caller label (review P3-1)."""
     _require(_A, result, "component_detection_result_not_from_ranking_path")
     who = result.detector
     return _seal(_COMPONENT, ComponentScore(who.candidate_id, bool(independent), result.plates, _float(result.recall),
                                             _float(result.false_plates_per_crop), result.ap50,
-                                            result.outcome == CONTRACT_FAIL, who.identity_sha256, "detector"))
+                                            result.outcome == CONTRACT_FAIL, who.identity_sha256, "detector",
+                                            result.manifest_digest, _measurement_sha256(result)))
 
 
 def recogniser_component(independent: bool, result: ReadResult) -> ComponentScore:
     _require(_B, result, "component_read_result_not_from_ranking_path")
+    if result.layer != "B":
+        raise ValueError("component_read_result_not_layer_b")
     who = result.recogniser
     return _seal(_COMPONENT, ComponentScore(who.candidate_id, bool(independent), result.plates, _float(result.em),
                                             result.cer, result.ece, result.outcome == CONTRACT_FAIL,
-                                            who.identity_sha256, "recogniser"))
+                                            who.identity_sha256, "recogniser", result.manifest_digest,
+                                            _measurement_sha256(result)))
 
 
 def top_k(scores: Iterable[ComponentScore], k: int, minimum_support: int, kind: str, *,
           freeze: "BaselineFreeze") -> list[str]:
-    """N4 tie-breaks. Missing metrics sort last; contract-failed or non-independent components never enter.
-
-    Every score must come from the ranking path and be of ``kind``. A score carrying the frozen benchmark-only
-    component (OC5), by id OR identity SHA-256, is refused outright (review 4, P2-2)."""
+    """N4 tie-breaks over sealed scores of ``kind`` measured on the frozen manifest (``freeze.manifest_digest``). Missing
+    metrics sort last; contract-failed or non-independent components never enter; the benchmark-only component (by id
+    OR identity) is refused outright."""
     if kind not in ("detector", "recogniser"):
         raise ValueError("top_k_kind")
     if not isinstance(freeze, BaselineFreeze):
@@ -812,6 +1084,8 @@ def top_k(scores: Iterable[ComponentScore], k: int, minimum_support: int, kind: 
             raise ValueError("top_k_score_of_another_kind")
         if s.candidate_id == benchmark.candidate_id or s.identity_sha256 == benchmark.identity_sha256:
             raise ValueError("benchmark_only_component_cannot_enter_top_k")
+        if s.manifest_digest != freeze.manifest_digest:
+            raise ValueError("top_k_score_not_on_the_frozen_manifest")
 
     def high(value):
         return (value is None, -(value or 0))
@@ -828,78 +1102,6 @@ def top_k(scores: Iterable[ComponentScore], k: int, minimum_support: int, kind: 
 
 
 # ---------------------------------------------------------------------------------------------- D (N8, N3)
-
-
-class _NoRun:
-    """The typed run state of a Track with no MAVI Track/evidence (``PopulationTrack.has_mavi_evidence`` False)."""
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "NO_RUN"
-
-
-NO_RUN = _NoRun()
-_POP = "population"
-
-
-@dataclass(frozen=True, slots=True)
-class PopulationTrack:
-    """One Track of the frozen closed GT population: candidate-independent identity fields only."""
-
-    track_id: str
-    cluster: str                 # physical capture site
-    truth: str                   # raw GT text, NO_PLATE, UNREADABLE or NO_GT_VEHICLE
-    has_mavi_evidence: bool      # corpus fact: MAVI has a Track with evidence for this GT vehicle
-
-
-@dataclass(frozen=True, slots=True)
-class ClosedPopulation:
-    tracks: tuple[PopulationTrack, ...]   # sorted by track id
-    population_manifest_sha256: str
-    digest: str
-    seal: str = ""
-
-
-def _truth_state(truth: str) -> tuple[str, str | None]:
-    if truth in (NO_PLATE, UNREADABLE, NO_GT_VEHICLE):
-        return {NO_PLATE: "NO_PLATE", UNREADABLE: "UNREADABLE", NO_GT_VEHICLE: "NO_GT_VEHICLE"}[truth], None
-    return "TEXT", normalised_truth(truth)
-
-
-def closed_population(tracks: Iterable[PopulationTrack], population_manifest_sha256: str) -> ClosedPopulation:
-    """Build the frozen closed population and its candidate-independent digest."""
-    if not _is_sha256(population_manifest_sha256):
-        raise ValueError("population_manifest_sha256_malformed")
-    tracks = sorted(tracks, key=lambda pt: pt.track_id)
-    ids = [pt.track_id for pt in tracks]
-    if not ids or len(ids) != len(set(ids)):
-        raise ValueError("population_empty_or_duplicate_track")
-    for pt in tracks:
-        if not isinstance(pt, PopulationTrack):
-            raise ValueError("population_track_type")
-        if not (isinstance(pt.track_id, str) and pt.track_id and isinstance(pt.cluster, str) and pt.cluster):
-            raise ValueError("population_track_identity_missing")
-        if not isinstance(pt.truth, str) or not pt.truth.strip():
-            raise ValueError("d_truth_empty_or_missing")
-        if not isinstance(pt.has_mavi_evidence, bool):
-            raise ValueError("population_evidence_flag_not_bool")
-    rows = [[pt.track_id, pt.cluster, *_truth_state(pt.truth), pt.truth, pt.has_mavi_evidence] for pt in tracks]
-    digest = _canonical_sha256({"manifest": population_manifest_sha256, "population": rows})
-    return _seal(_POP, ClosedPopulation(tuple(tracks), population_manifest_sha256, digest))
-
-
-@dataclass(frozen=True, slots=True)
-class TrackItem:
-    """One candidate's state on one Track of the closed population (one physical capture site = ``cluster``).
-
-    ``run`` is a sealed ``run_track`` result (possibly CONTRACT_FAIL) for a Track with MAVI evidence, or the typed
-    ``NO_RUN`` for a Track without. ``cluster`` and ``truth`` must equal the population's."""
-
-    track_id: str
-    cluster: str
-    truth: str
-    run: "TrackRun | _NoRun"
 
 
 @dataclass(frozen=True, slots=True)
@@ -923,7 +1125,7 @@ class TrackCounts:
 
 @dataclass(frozen=True, slots=True)
 class TrackScore:
-    """A ranking-path D result. Sealed only by ``evaluate_tracks``, and bound to its population and query set."""
+    """A ranking-path D result, sealed only by ``evaluate_d`` and bound to its manifest and query set."""
 
     outcome: str                    # MEASURED | CONTRACT_FAIL
     d_status: str                   # MEASURED | INSUFFICIENT_EVIDENCE (corpus deficiency only) | CONTRACT_FAIL
@@ -936,22 +1138,19 @@ class TrackScore:
     consistent_wrong_status: str
     consistent_wrong_conditional_rate: Fraction | None
     conflicting_rate: Fraction | None
-    no_text_rate: Fraction | None   # analysed Tracks with no Track text / analysed Tracks
+    no_text_rate: Fraction | None
     contract_violations: tuple[str, ...]
-    accounting: dict                # every Track counted: text, unsupported, unqueryable, no-plate, unreadable, no-gt
-    population_manifest_sha256: str = ""
-    generator_config_sha256: str = ""
+    accounting: dict
+    manifest_digest: str = ""
     query_set_sha256: str = ""
     detector: ComponentIdentity | None = None
     recogniser: ComponentIdentity | None = None
-    population_digest: str = ""     # canonical digest of the scored population (review 4, P1-1)
     seal: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class DiagnosticTrackScore:
-    """DIAGNOSTIC ONLY (D6): D at a declared diagnostic OCR floor. A distinct, unsealed type that every gate,
-    comparison and ranking function refuses."""
+    """DIAGNOSTIC ONLY (D6): D at a declared diagnostic OCR floor. A distinct, unsealed type every decision refuses."""
 
     floor: float
     values: TrackScore
@@ -966,80 +1165,54 @@ class _Prepared:
     run: TrackRun | None
 
 
-def _require_population(population: object) -> ClosedPopulation:
-    if not isinstance(population, ClosedPopulation) or not _is_sealed(_POP, population):
-        raise ValueError("d_population_not_from_closed_population")
-    return population
+def queries_for(manifest: EvaluationManifest, expected_manifest_digest: str) -> QuerySet:
+    """The D query set, generated from the manifest truths and the frozen query configuration only."""
+    v = verify_manifest(manifest, expected_manifest_digest)
+    truths = [t.truth.text for t in v.manifest.tracks if t.truth.state is TruthState.TEXT and t.truth.supported_text]
+    return query_module.generate(truths, v.manifest.config.query, v.digest)
 
 
-def _verify_queries(queries: QuerySet, population_manifest_sha256: str, generator_config_sha256: str,
-                    query_set_sha256: str) -> None:
-    """Item 12: the query set is regenerated from its own truths and parameters, and must equal itself and the frozen
-    SHA-256 arguments. A self-declared hash is never trusted."""
-    if queries.population_manifest_sha256 != population_manifest_sha256:
-        raise ValueError("d_queries_bound_to_another_population")
-    query_module.verify(queries)
-    if queries.generator_config_sha256 != generator_config_sha256:
-        raise ValueError("d_queries_generator_config_not_frozen")
-    if queries.query_set_sha256 != query_set_sha256:
-        raise ValueError("d_query_set_not_frozen")
+def _track_runs(v: _Verified, runs: Iterable[TrackRun], composition: tuple[ComponentIdentity, ComponentIdentity]
+                ) -> dict[str, TrackRun]:
+    """Owner invariants 3–5: exactly one sealed run per evidence Track, of this composition, on exactly its evidence;
+    none for a Track without evidence (NO_RUN is derived)."""
+    detector, recogniser = (_identity(composition[0], "d_detector_identity_required"),
+                            _identity(composition[1], "d_recogniser_identity_required"))
+    expected = [tid for tid, t in v.tracks.items() if t.has_mavi_evidence]
+    by_track = _require_complete(runs, _TRACK_RUN, lambda r: r.track_id, expected, v.digest, "d")
+    floor = _floor_for(v, detector)
+    for tid, run in by_track.items():
+        track = v.tracks[tid]
+        if (run.detector, run.recogniser) != (detector, recogniser):
+            raise ValueError("d_run_identity_is_not_the_composition")
+        if run.mavi_track_uuid != track.mavi_track_uuid or run.evidence != track.evidence:
+            raise ValueError("d_run_is_not_the_manifest_execution")
+        if not is_ranking_profile(run.parameters, floor):
+            raise ValueError("d_run_not_on_ranking_profile")
+    return by_track
 
 
-def _prepare(items: Sequence[TrackItem], population: ClosedPopulation, queries: QuerySet, detector_floor: float,
-             detector: ComponentIdentity, recogniser: ComponentIdentity) -> tuple[list[_Prepared], dict]:
-    """Items must cover EXACTLY the population's Tracks, with an explicit run state for each; returned in population
-    order. A Track with MAVI evidence needs a sealed run (never ``NO_RUN``); one without needs ``NO_RUN``."""
-    population = _require_population(population)
-    _identity(detector, "d_detector_identity_required")
-    _identity(recogniser, "d_recogniser_identity_required")
-    by_id: dict[str, TrackItem] = {}
-    for item in items:
-        if not isinstance(item, TrackItem):
-            raise ValueError("d_item_type")
-        if item.track_id in by_id:
-            raise ValueError("d_population_duplicate_track")
-        by_id[item.track_id] = item
-    if set(by_id) != {pt.track_id for pt in population.tracks}:
-        raise ValueError("d_items_do_not_cover_the_closed_population")  # a Track can be neither dropped nor added
+def _prepare(v: _Verified, by_track: Mapping[str, TrackRun]) -> tuple[list[_Prepared], dict]:
     prepared = []
     accounting = {"text": 0, "unsupported": 0, "unqueryable": 0, "no-plate": 0, "unreadable": 0, "no-gt-vehicle": 0}
-    for pt in population.tracks:
-        item = by_id[pt.track_id]
-        if (item.cluster, item.truth) != (pt.cluster, pt.truth):
-            raise ValueError("d_item_does_not_match_the_population")
-        if pt.has_mavi_evidence:
-            if item.run is NO_RUN or item.run is None:
-                raise ValueError("d_evidence_track_without_a_sealed_run")  # a failed run cannot become NO_RUN
-        elif item.run is not NO_RUN:
-            raise ValueError("d_no_evidence_track_must_be_no_run")
-        run = None if item.run is NO_RUN else item.run
-        item = replace(item, run=run)
-        if item.run is not None:
-            _require_run(item.run, "d_run_not_from_ranking_path")
-            if not is_ranking_profile(item.run.parameters):
-                raise ValueError("d_run_not_on_ranking_profile")
-            if not is_ranking_profile(item.run.parameters, detector_floor):
-                raise ValueError("d_run_not_at_the_pinned_detector_floor")
-            if (item.run.detector, item.run.recogniser) != (detector, recogniser):
-                raise ValueError("d_run_identity_is_not_the_composition")
-        if item.truth in (NO_PLATE, NO_GT_VEHICLE, UNREADABLE):
-            kind = {NO_PLATE: "no-plate", NO_GT_VEHICLE: "no-gt-vehicle", UNREADABLE: "unreadable"}[item.truth]
+    for tid in sorted(v.tracks):
+        track = v.tracks[tid]
+        run = by_track.get(tid)
+        state = track.truth.state
+        if state is not TruthState.TEXT:
+            kind = {TruthState.NO_PLATE: "no-plate", TruthState.NO_GT_VEHICLE: "no-gt-vehicle",
+                    TruthState.UNREADABLE: "unreadable"}[state]
             accounting[kind] += 1
-            prepared.append(_Prepared(item.track_id, item.cluster, kind, None, item.run))
+            prepared.append(_Prepared(tid, track.site, kind, None, run))
             continue
-        truth = normalised_truth(item.truth)
+        truth = track.truth.supported_text
         if truth is None:
             accounting["unsupported"] += 1
-            prepared.append(_Prepared(item.track_id, item.cluster, "unsupported", None, item.run))
+            prepared.append(_Prepared(tid, track.site, "unsupported", None, run))
             continue
         accounting["text"] += 1
         accounting["unqueryable"] += not queryable(truth)
-        prepared.append(_Prepared(item.track_id, item.cluster, "plate", truth, item.run))
-    supported = {p.truth for p in prepared if p.kind == "plate"}
-    if set(queries.truths) != supported:
-        raise ValueError("d_queries_not_bound_to_population")
-    if not any(p.run is not None for p in prepared):
-        raise ValueError("d_population_without_any_run")  # the composition identity must come from a sealed run
+        prepared.append(_Prepared(tid, track.site, "plate", truth, run))
     return prepared, accounting
 
 
@@ -1050,9 +1223,7 @@ def _texts(run: TrackRun | None) -> tuple[str, ...]:
 
 
 def _rank0_sources(run: TrackRun | None) -> list[tuple[UUID, str]]:
-    """N3 (owner decision 2026-10-14): one entry per Read plate observation, holding its RANK-0 reading normalised by
-    v1. Lower ranks never trigger or rescue N3. A plate with no Read result, or a rank-0 that does not normalise,
-    gives no support. Runs reach here only contract-valid; a violating run is CONTRACT_FAIL before N3."""
+    """N3 (owner 2026-10-14): one entry per Read plate observation, holding its RANK-0 reading normalised by v1."""
     if run is None or run.record is None or run.contract_violation is not None:
         return []
     out = []
@@ -1086,8 +1257,6 @@ def _counts(p: _Prepared, queries: QuerySet) -> TrackCounts:
         returned += found
         correct += relevant and found
     if p.kind == "plate":
-        # N3: eligible with valid rank-0 texts from ≥ 2 distinct observations; consistent-wrong iff ALL of them are
-        # one text and it is not the truth (so no rank-0 equals the truth). No subset of observations is chosen.
         readings = _rank0_sources(p.run)
         if len({source for source, _ in readings}) >= 2:
             multi = 1
@@ -1123,64 +1292,77 @@ def _contains_queries(queries: QuerySet) -> int:
 def _score(prepared: Sequence[_Prepared], queries: QuerySet, accounting: dict) -> TrackScore:
     violations = tuple(f"{p.run.contract_violation}:{p.track_id}" for p in prepared
                        if p.run is not None and p.run.contract_violation is not None)
+    if violations:
+        # Nothing is published as if computed: every term and rate is None, as in A and B.
+        return TrackScore(CONTRACT_FAIL, CONTRACT_FAIL, None, None, None, None, TrackCounts(), None, FAIL, None, None,
+                          None, violations, dict(accounting))
     total = TrackCounts()
     for p in prepared:
         total = total + _counts(p, queries)
     plate_bearing = sum(1 for p in prepared if p.kind == "plate")
     rate = _ratio(total.consistent_wrong, plate_bearing)
-    if violations:
-        cw_status = FAIL
-    elif plate_bearing < SUPPORT_FLOOR:
+    if plate_bearing < SUPPORT_FLOOR:
         cw_status = INSUFFICIENT
     else:
         cw_status = PASS if rate <= CONSISTENT_WRONG_LIMIT else FAIL
-    if violations:
-        # Review 4, P2-1: nothing is published as if computed; every term and rate is None, as in A and B.
-        return TrackScore(CONTRACT_FAIL, CONTRACT_FAIL, None, None, None, None, TrackCounts(), None, FAIL, None, None,
-                          None, violations, dict(accounting))
     exact, recall, precision = _d_terms(total, _contains_queries(queries))
     d = _d_score(total, _contains_queries(queries))
-    d_status = MEASURED if d is not None else INSUFFICIENT
-    return TrackScore(MEASURED, d_status, exact, recall, precision, d, total, rate,
+    return TrackScore(MEASURED, MEASURED if d is not None else INSUFFICIENT, exact, recall, precision, d, total, rate,
                       cw_status, _ratio(total.consistent_wrong, total.multi_source),
                       _ratio(total.conflicting, total.analysed), _ratio(total.no_text, total.analysed), violations,
                       dict(accounting))
 
 
-def evaluate_tracks(items: Sequence[TrackItem], queries: QuerySet, *, population: ClosedPopulation,
-                    generator_config_sha256: str, query_set_sha256: str, detector_floor: float,
-                    detector: ComponentIdentity, recogniser: ComponentIdentity) -> TrackScore:
-    """D on the ranking profile only, at the candidate's pinned detector floor, on the frozen query set and the closed
-    population, for exactly the composition whose sealed runs these are. Any contract violation is CONTRACT_FAIL."""
-    population = _require_population(population)
-    _verify_queries(queries, population.population_manifest_sha256, generator_config_sha256, query_set_sha256)
-    prepared, accounting = _prepare(items, population, queries, detector_floor, detector, recogniser)
-    score = replace(_score(prepared, queries, accounting),
-                    population_manifest_sha256=population.population_manifest_sha256,
-                    generator_config_sha256=generator_config_sha256, query_set_sha256=query_set_sha256,
-                    detector=detector, recogniser=recogniser, population_digest=population.digest)
+def evaluate_d(manifest: EvaluationManifest, expected_manifest_digest: str, runs: Iterable[TrackRun], *,
+               composition: tuple[ComponentIdentity, ComponentIdentity]) -> TrackScore:
+    """D (owner N8) over EXACTLY the manifest population, for the composition whose sealed runs these are. Any contract
+    violation is CONTRACT_FAIL; candidate silence scores 0."""
+    v = verify_manifest(manifest, expected_manifest_digest)
+    by_track = _track_runs(v, runs, composition)
+    queries = queries_for(manifest, expected_manifest_digest)
+    prepared, accounting = _prepare(v, by_track)
+    score = replace(_score(prepared, queries, accounting), manifest_digest=v.digest,
+                    query_set_sha256=queries.query_set_sha256, detector=composition[0], recogniser=composition[1])
     return _seal(_D, score)
 
 
-def diagnostic_evaluate_at_floor(items: Sequence[TrackItem], queries: QuerySet, floor: float, *,
-                                 population: ClosedPopulation, generator_config_sha256: str,
-                                 query_set_sha256: str, detector_floor: float, detector: ComponentIdentity,
-                                 recogniser: ComponentIdentity) -> DiagnosticTrackScore:
-    """DIAGNOSTIC ONLY (D6): D as PR-3 would publish it at another OCR floor. The result is a ``DiagnosticTrackScore``,
-    which no gate, comparison or ranking function accepts."""
+def diagnostic_evaluate_d_at_floor(manifest: EvaluationManifest, expected_manifest_digest: str,
+                                   runs: Iterable[TrackRun], floor: float, *,
+                                   composition: tuple[ComponentIdentity, ComponentIdentity]) -> DiagnosticTrackScore:
+    """DIAGNOSTIC ONLY (D6): D as PR-3 would publish it at another OCR floor (a ``DiagnosticTrackScore``)."""
     if floor not in DIAGNOSTIC_OCR_FLOORS:
         raise ValueError("diagnostic_floor_not_declared")
-    population = _require_population(population)
-    _verify_queries(queries, population.population_manifest_sha256, generator_config_sha256, query_set_sha256)
-    prepared, accounting = _prepare(items, population, queries, detector_floor, detector, recogniser)
+    v = verify_manifest(manifest, expected_manifest_digest)
+    by_track = _track_runs(v, runs, composition)
+    queries = queries_for(manifest, expected_manifest_digest)
+    prepared, accounting = _prepare(v, by_track)
     refloored = []
     for p in prepared:
         run = p.run
         if run is not None and run.record is not None:
-            run = TrackRun(_refloor(run.record, floor), None, replace(run.parameters, ocr_confidence_floor=floor))
+            run = replace(run, record=_refloor(run.record, floor), seal="")
         refloored.append(replace(p, run=run))
     score = _score(refloored, queries, accounting)
     return DiagnosticTrackScore(floor, replace(score, accounting={**score.accounting, "diagnosticFloor": floor}))
+
+
+def evaluate_c(manifest: EvaluationManifest, expected_manifest_digest: str, runs: Iterable[TrackRun], *,
+               composition: tuple[ComponentIdentity, ComponentIdentity]) -> ReadResult:
+    """C: EM of the composition's own accepted plate for EXACTLY the manifest's C plates, derived from its sealed D runs
+    (PR-3 selection). "Not read" arises only from the run (no accepted plate, or an abstained crop)."""
+    v = verify_manifest(manifest, expected_manifest_digest)
+    by_track = _track_runs(v, runs, composition)
+    per_plate: dict[str, tuple[PlateRecord | None, str | None]] = {}
+    for pid, plate in v.c_plates.items():
+        run = by_track[plate.track_id]
+        if run.contract_violation is not None or run.record is None:
+            per_plate[pid] = (None, run.contract_violation or "run_without_record")
+            continue
+        crop = next(c for c in run.record.crops if str(c.observation_id) == plate.observation_id)
+        accepted = next((p for _, p in crop.plates()), None) if crop.status == CROP_SCORED else None
+        per_plate[pid] = (accepted, None)
+    return _reading_result("C", v, layer_digest(manifest, expected_manifest_digest, "C"), composition[1], per_plate,
+                           {pid: v.c_plates[pid].text for pid in per_plate})
 
 
 def _require_d(score: object, code: str) -> TrackScore:
@@ -1204,6 +1386,7 @@ class Comparison:
     insufficient_replicates: int
     cluster_signs: dict
     per_cluster: dict
+    manifest_digest: str
 
 
 def _frozen_mpid(mpid: object) -> Fraction:
@@ -1213,16 +1396,16 @@ def _frozen_mpid(mpid: object) -> Fraction:
 
 
 def percentile_indices(replicates: int) -> tuple[int, int]:
-    """⌊0.025·(R−1)⌋ and ⌈0.975·(R−1)⌉ in integer arithmetic (no float rounding)."""
+    """⌊0.025·(R−1)⌋ and ⌈0.975·(R−1)⌉ in integer arithmetic (``PERCENTILE_RULE``)."""
     return (25 * (replicates - 1)) // 1000, -((-975 * (replicates - 1)) // 1000)
 
 
-def _pairing(items_a: Sequence[TrackItem], items_b: Sequence[TrackItem]) -> None:
-    """Both candidates cover the same Track ids with the same site and truth (run states are each candidate's own,
-    and are checked against the population in ``_prepare``)."""
-    key = lambda i: (i.track_id, i.truth, i.cluster)  # noqa: E731
-    if sorted(key(i) for i in items_a) != sorted(key(i) for i in items_b):
-        raise ValueError("paired_population_mismatch")
+def required_clusters(calibration_minimum: int) -> int:
+    """Owner D7b / P-80: max(60, the frozen candidate-blind calibration minimum)."""
+    if not (isinstance(calibration_minimum, int) and not isinstance(calibration_minimum, bool)
+            and calibration_minimum >= 1):
+        raise ValueError("calibration_minimum_invalid")
+    return max(ABSOLUTE_MINIMUM_CLUSTERS, calibration_minimum)
 
 
 def _draws(rng: random.Random, members: dict[str, list[int]], names: list[str]) -> list[int]:
@@ -1233,21 +1416,20 @@ def _draws(rng: random.Random, members: dict[str, list[int]], names: list[str]) 
     return picked
 
 
-def _bootstrap_replicates(items_a, items_b, queries, *, replicates: int, seed: int, population: ClosedPopulation,
-                          generator_config_sha256: str, query_set_sha256: str, detector_floor_a: float,
-                          detector_floor_b: float, composition_a: tuple[ComponentIdentity, ComponentIdentity],
-                          composition_b: tuple[ComponentIdentity, ComponentIdentity],
+def _bootstrap_replicates(manifest: EvaluationManifest, expected_manifest_digest: str, runs_a, runs_b, *,
+                          composition_a, composition_b, replicates: int | None = None, seed: int | None = None,
                           slow: bool = False) -> list[Fraction | None]:
-    """PRIVATE. Exact ΔD per replicate (sites with replacement, then Tracks within each drawn site). ``slow=True``
-    re-evaluates every resampled population from the Tracks; the fast path sums precomputed per-Track counts. Tests
-    prove the two are identical. A contract-violating run is refused, never resampled as silence (review P2-3)."""
-    if not (isinstance(replicates, int) and not isinstance(replicates, bool) and replicates >= 1):
+    """PRIVATE. Exact ΔD per replicate (sites with replacement, then Tracks within each drawn site). R and the seed
+    default to the frozen configuration (tests may pass small values to prove fast = slow). A contract-violating run is
+    refused, never resampled as silence."""
+    v = verify_manifest(manifest, expected_manifest_digest)
+    replicates = v.manifest.config.bootstrap_replicates if replicates is None else replicates
+    seed = v.manifest.config.bootstrap_seed if seed is None else seed
+    if not (_integer(replicates) and replicates >= 1):
         raise ValueError("bootstrap_replicates_invalid")
-    _pairing(items_a, items_b)
-    population = _require_population(population)
-    _verify_queries(queries, population.population_manifest_sha256, generator_config_sha256, query_set_sha256)
-    pa, _ = _prepare(items_a, population, queries, detector_floor_a, *composition_a)
-    pb, _ = _prepare(items_b, population, queries, detector_floor_b, *composition_b)
+    queries = queries_for(manifest, expected_manifest_digest)
+    pa, _ = _prepare(v, _track_runs(v, runs_a, composition_a))
+    pb, _ = _prepare(v, _track_runs(v, runs_b, composition_b))
     if any(p.run is not None and p.run.contract_violation is not None for p in (*pa, *pb)):
         raise ValueError("bootstrap_refuses_a_contract_violating_run")
     members: dict[str, list[int]] = {}
@@ -1274,62 +1456,40 @@ def _bootstrap_replicates(items_a, items_b, queries, *, replicates: int, seed: i
     return out
 
 
-def required_clusters(calibration_minimum: int) -> int:
-    """Owner D7b / P-80: ``required_clusters`` = max(60, the frozen candidate-blind calibration minimum). The minimum
-    is a frozen protocol input. Under owner rule T it is currently PENDING (the calibration STOPPED), so no value is
-    encoded here."""
-    if not (isinstance(calibration_minimum, int) and not isinstance(calibration_minimum, bool)
-            and calibration_minimum >= 1):
-        raise ValueError("calibration_minimum_invalid")
-    return max(ABSOLUTE_MINIMUM_CLUSTERS, calibration_minimum)
-
-
-def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[TrackItem], queries: QuerySet, *,
-                             calibration_minimum_clusters: int, population: ClosedPopulation,
-                             generator_config_sha256: str, query_set_sha256: str, detector_floor_a: float,
-                             detector_floor_b: float, composition_a: tuple[ComponentIdentity, ComponentIdentity],
+def paired_cluster_bootstrap(manifest: EvaluationManifest, expected_manifest_digest: str, runs_a, runs_b, *,
+                             composition_a: tuple[ComponentIdentity, ComponentIdentity],
                              composition_b: tuple[ComponentIdentity, ComponentIdentity], freeze: "BaselineFreeze",
-                             replicates: int = BOOTSTRAP_REPLICATES, cluster_unit: str = CLUSTER_UNIT,
+                             resolution: "BaselineResolution", layer_a_results: Sequence["LayerAResult"],
                              mpid: Fraction = MPID) -> Comparison:
-    """The frozen superiority rule (owner item 2): ``superior`` iff
-    - observed ΔD ≥ MPID (exact);
-    - the paired hierarchical 95 % percentile interval excludes zero in A's favour (lower bound > 0, exact);
-    - clusters ≥ ``required_clusters`` = max(60, the frozen calibration minimum).
-
-    R is fixed at ``BOOTSTRAP_REPLICATES``; any other value is refused. The seed is ``freeze.bootstrap_seed`` (frozen).
-    Both compositions must be ordinary (a benchmark-only component, by sealed identity, is refused) and scored on the
-    same population (equal digests)."""
+    """The frozen superiority rule (owner item 2): ``superior`` iff observed ΔD ≥ MPID (exact), the paired hierarchical
+    95 % percentile interval excludes zero in A's favour, and clusters ≥ max(60, the frozen calibration minimum).
+    R, the seed and the calibration minimum come from the manifest configuration; the comparison re-verifies the
+    resolution, which binds the freeze, which binds the manifest digest."""
     mpid = _frozen_mpid(mpid)
-    if cluster_unit != CLUSTER_UNIT:
-        raise ValueError("cluster_unit_must_be_physical_capture_site")
-    needed = required_clusters(calibration_minimum_clusters)
-    if replicates != BOOTSTRAP_REPLICATES or isinstance(replicates, bool):
-        raise ValueError("bootstrap_replicates_must_be_the_frozen_value")
-    seed = freeze.bootstrap_seed
-    _pairing(items_a, items_b)
-    binding = dict(population=population, generator_config_sha256=generator_config_sha256,
-                   query_set_sha256=query_set_sha256)
-    a = evaluate_tracks(items_a, queries, detector_floor=detector_floor_a, detector=composition_a[0],
-                        recogniser=composition_a[1], **binding)
-    b = evaluate_tracks(items_b, queries, detector_floor=detector_floor_b, detector=composition_b[0],
-                        recogniser=composition_b[1], **binding)
+    v = verify_manifest(manifest, expected_manifest_digest)
+    verify_resolution(freeze, resolution, layer_a_results)
+    if freeze.manifest_digest != v.digest:
+        raise ValueError("comparison_freeze_is_for_another_manifest")
+    config = v.manifest.config
+    needed = required_clusters(config.calibration_minimum_clusters)
+    a = evaluate_d(manifest, expected_manifest_digest, runs_a, composition=composition_a)
+    b = evaluate_d(manifest, expected_manifest_digest, runs_b, composition=composition_b)
     _refuse_benchmark_only(a, freeze)
     _refuse_benchmark_only(b, freeze)
-    if a.population_digest != b.population_digest:
-        raise ValueError("comparison_populations_differ")
-    clusters = sorted({pt.cluster for pt in population.tracks})
+    clusters = sorted({t.site for t in v.manifest.tracks})
     per_cluster, signs = {}, {"a": 0, "b": 0, "tie": 0, "insufficient": 0}
 
     def result(outcome, difference=None, lower=None, upper=None, insufficient=0):
-        return Comparison(outcome, difference, lower, upper, len(clusters), needed, cluster_unit,
-                          insufficient, signs, per_cluster)
+        return Comparison(outcome, difference, lower, upper, len(clusters), needed, CLUSTER_UNIT, insufficient, signs,
+                          per_cluster, v.digest)
 
     if a.outcome == CONTRACT_FAIL or b.outcome == CONTRACT_FAIL:
         return result("contract-fail")
     if a.d_score is None or b.d_score is None:
         return result("insufficient-evidence")
-    pa, _ = _prepare(items_a, population, queries, detector_floor_a, *composition_a)
-    pb, _ = _prepare(items_b, population, queries, detector_floor_b, *composition_b)
+    queries = queries_for(manifest, expected_manifest_digest)
+    pa, _ = _prepare(v, _track_runs(v, runs_a, composition_a))
+    pb, _ = _prepare(v, _track_runs(v, runs_b, composition_b))
     n_contains = _contains_queries(queries)
     for name in clusters:
         ca, cb = TrackCounts(), TrackCounts()
@@ -1343,10 +1503,9 @@ def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[Tra
     observed = a.d_score - b.d_score
     if len(clusters) < needed:
         return result("insufficient-clusters", observed)
-    values = _bootstrap_replicates(items_a, items_b, queries, replicates=replicates, seed=seed,
-                                   detector_floor_a=detector_floor_a, detector_floor_b=detector_floor_b,
-                                   composition_a=composition_a, composition_b=composition_b, **binding)
-    insufficient = sum(v is None for v in values)
+    values = _bootstrap_replicates(manifest, expected_manifest_digest, runs_a, runs_b, composition_a=composition_a,
+                                   composition_b=composition_b)
+    insufficient = sum(v_ is None for v_ in values)
     if insufficient:
         return result("insufficient-evidence", observed, insufficient=insufficient)
     values.sort()
@@ -1358,8 +1517,7 @@ def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[Tra
 
 @dataclass(frozen=True, slots=True)
 class CompositionScore:
-    """A composition's ranking-path D score. It has NO labels of its own: the detector and recogniser are the sealed
-    identities inside ``score`` (review P1-1)."""
+    """A composition's ranking-path D score; its ids are the sealed identities inside ``score``."""
 
     score: TrackScore
 
@@ -1382,19 +1540,11 @@ class CompositionScore:
 
 # ------------------------------------------------------------------ baseline resolution (N2 revised + addendum 2026-10-14)
 #
-# Stage 1 (at PROTOCOL_FROZEN) freezes a ``BaselineFreeze``:
-# - the eligible detector universe with exact identity hashes (M3 ``identitySha256``);
-# - the complete OC5 benchmark-only identity (M3 benchmark component identity);
-# - the OCR event, the gate-only composition id and the partner (detector) event, which M3's ``compositionSha256``
-#   binds;
-# - the Layer-A gate set hash, the freeze time and the detector ranking/tie-break rule (``DETECTOR_RANKING_RULE``);
-# - the fact that PD_BASE + OC5 is the single hard D baseline gating every ordinary D composition.
-#
-# Stage 2 (after Layer A, before any protected D data is read) derives PD_BASE mechanically with
-# ``resolve_baseline``. Every consumer re-derives it from the freeze and the Layer-A results (``verify_resolution``),
-# so a re-sealed record that does not follow from the GIVEN Layer-A results is refused (the Layer-A results
-# themselves, including gates_passed, are caller-provided until the M3 committed-seal integration). The committed pre-D seal artefact (M3 ``baseline_seal``) is review
-# finding P1-2, held for the owner's sequencing decision; ``composition_sha256`` here equals M3's.
+# Stage 1 (at PROTOCOL_FROZEN) freezes a ``BaselineFreeze``: the eligible detector universe with exact identities, the
+# OC5 benchmark-only identity, the events and gate-only composition id that M3's ``compositionSha256`` binds, the
+# Layer-A gate set hash, the freeze time, the frozen evaluation manifest digest, and the ranking rule (ambiguity
+# STOPS). Stage 2 derives PD_BASE mechanically (``resolve_baseline``) from Layer-A results measured on that manifest.
+# The committed pre-D seal (M3 ``baseline_seal``) and Git chronology are the MANDATED #218↔M3 integration PR.
 
 DETECTOR_RANKING_RULE = ("mavi-plate-detector-rank-v2: Layer-A gate pass required; recall at coverage desc; "
                          "false plates per crop asc; AP50 desc; missing metric sorts last; equal rank keys among the "
@@ -1402,36 +1552,22 @@ DETECTOR_RANKING_RULE = ("mavi-plate-detector-rank-v2: Layer-A gate pass require
 DETECTOR_RANKING_RULE_SHA256 = hashlib.sha256(DETECTOR_RANKING_RULE.encode("utf-8")).hexdigest()
 D_NOT_STARTED = "D_NOT_STARTED"
 BASELINE_RULE = "PD_BASE+OC5 is the single hard D baseline and gates every ordinary D composition"
+LAYER_A_ARTEFACT_SCHEMA = "mavi-plate-harness-layer-a-result-v1"
 
 
 class BaselineStop(Exception):
     """The D event stops. There is no baseline and no D ranking. The reason is ``args[0]``."""
 
 
-def _is_sha256(value: object) -> bool:
-    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
-
-
-def _canonical_sha256(payload: dict) -> str:
-    text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha256(text.encode("ascii")).hexdigest()
-
-
-def _m3_document_sha256(document: dict) -> str:
-    """M3 ``credibility.document_sha256``: canonical JSON plus one LF."""
-    text = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False) + "\n"
-    return hashlib.sha256(text.encode("ascii")).hexdigest()
-
-
 def m3_composition_sha256(event_id: str, composition_id: str, benchmark: ComponentIdentity, partner_event_id: str,
                           partner: ComponentIdentity) -> str:
     """Exactly M3 ``baseline_seal.composition_sha256`` (msr/m1-plate-domain-and-baseline-role @ f24dcf5e)."""
-    return _m3_document_sha256({"role": "gate-only-baseline-composition", "eventId": event_id,
-                                "compositionId": composition_id,
-                                "benchmarkComponent": {"candidateId": benchmark.candidate_id,
-                                                       "identitySha256": benchmark.identity_sha256},
-                                "partner": {"eventId": partner_event_id, "candidateId": partner.candidate_id,
-                                            "identitySha256": partner.identity_sha256}})
+    return _canonical_sha256({"role": "gate-only-baseline-composition", "eventId": event_id,
+                              "compositionId": composition_id,
+                              "benchmarkComponent": {"candidateId": benchmark.candidate_id,
+                                                     "identitySha256": benchmark.identity_sha256},
+                              "partner": {"eventId": partner_event_id, "candidateId": partner.candidate_id,
+                                          "identitySha256": partner.identity_sha256}})
 
 
 def _detector_key(s: ComponentScore):
@@ -1448,14 +1584,14 @@ def _detector_key(s: ComponentScore):
 class BaselineFreeze:
     """Stage 1, frozen in the protocol at PROTOCOL_FROZEN."""
     eligible_detectors: tuple[tuple[str, str], ...]   # (detector id, M3 identitySha256), sorted, unique
-    benchmark_only_id: str                             # OC5: the benchmark-only (reference-only) component
-    benchmark_only_identity_sha256: str                # M3 benchmark component identity
+    benchmark_only_id: str
+    benchmark_only_identity_sha256: str
     layer_a_gates_sha256: str
-    frozen_at_utc: str                                 # YYYY-MM-DDThh:mm:ssZ
-    event_id: str                                      # the event whose ledger holds OC5 (msr-ocr-…)
-    composition_id: str                                # the gate-only composition id frozen in that ledger
-    partner_event_id: str                              # the detector event (msr-plate-detector-…)
-    bootstrap_seed: int                                # the frozen bootstrap seed (protocol)
+    frozen_at_utc: str
+    event_id: str
+    composition_id: str
+    partner_event_id: str
+    manifest_digest: str                               # the frozen evaluation manifest (owner invariant 8)
     ranking_rule_sha256: str = DETECTOR_RANKING_RULE_SHA256
 
     def __post_init__(self):
@@ -1465,7 +1601,8 @@ class BaselineFreeze:
         if self.benchmark_only_id in ids:
             raise ValueError("baseline_freeze_benchmark_only_component_cannot_be_a_detector_candidate")
         hashes = [h for _, h in self.eligible_detectors] + [self.benchmark_only_identity_sha256,
-                                                             self.layer_a_gates_sha256, self.ranking_rule_sha256]
+                                                             self.layer_a_gates_sha256, self.ranking_rule_sha256,
+                                                             self.manifest_digest]
         if not all(_is_sha256(h) for h in hashes):
             raise ValueError("baseline_freeze_hash_malformed")
         if self.ranking_rule_sha256 != DETECTOR_RANKING_RULE_SHA256:
@@ -1476,8 +1613,6 @@ class BaselineFreeze:
             raise ValueError("baseline_freeze_event_id_malformed")
         if not (isinstance(self.composition_id, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,63}", self.composition_id)):
             raise ValueError("baseline_freeze_composition_id_malformed")
-        if not (isinstance(self.bootstrap_seed, int) and not isinstance(self.bootstrap_seed, bool)):
-            raise ValueError("baseline_freeze_bootstrap_seed_invalid")
 
     @property
     def benchmark(self) -> ComponentIdentity:
@@ -1487,19 +1622,16 @@ class BaselineFreeze:
         return _canonical_sha256({"eligibleDetectors": [list(d) for d in self.eligible_detectors],
                                   "benchmarkOnlyId": self.benchmark_only_id,
                                   "benchmarkOnlyIdentitySha256": self.benchmark_only_identity_sha256,
-                                  "layerAGatesSha256": self.layer_a_gates_sha256,
-                                  "frozenAtUtc": self.frozen_at_utc,
+                                  "layerAGatesSha256": self.layer_a_gates_sha256, "frozenAtUtc": self.frozen_at_utc,
                                   "eventId": self.event_id, "compositionId": self.composition_id,
-                                  "partnerEventId": self.partner_event_id,
-                                  "bootstrapSeed": self.bootstrap_seed,
-                                  "rankingRuleSha256": self.ranking_rule_sha256,
-                                  "baselineRule": BASELINE_RULE})
+                                  "partnerEventId": self.partner_event_id, "manifestDigest": self.manifest_digest,
+                                  "rankingRuleSha256": self.ranking_rule_sha256, "baselineRule": BASELINE_RULE})
 
 
 @dataclass(frozen=True, slots=True)
 class LayerAResult:
-    """One eligible detector's Layer-A result on the A/B partition. ``score`` must come from the ranking path
-    (``detector_component``), which fixes its candidate id and identity; ``gates_passed`` is caller-provided."""
+    """One eligible detector's Layer-A result: its sealed A component score (on the frozen manifest) and the frozen
+    gates' verdict (``gates_passed``, caller-provided until the M3 integration)."""
     score: ComponentScore
     identity_sha256: str
     gates_passed: bool
@@ -1529,20 +1661,29 @@ class BaselineResolution:
                 "dState": self.d_state}
 
 
-def layer_a_result_sha256(results: Sequence[LayerAResult]) -> str:
-    rows = [{"id": r.score.candidate_id, "identity": r.identity_sha256, "gatesPassed": r.gates_passed,
-             "contractFail": r.score.contract_fail, "support": r.score.support,
-             "metrics": [None if v is None else repr(v) for v in (r.score.primary, r.score.second, r.score.third)]}
-            for r in sorted(results, key=lambda r: r.score.candidate_id)]
-    return _canonical_sha256({"layerA": rows})
+def layer_a_result_document(freeze: BaselineFreeze, results: Sequence[LayerAResult]) -> dict:
+    """The canonical Layer-A result artefact #218 emits (owner invariant 9), derived from the frozen manifest.
+
+    Its per-partner rows use M3's ``layer_a_result_document`` keys (candidateId, identitySha256, gates, rankKey,
+    measurementSha256) and ``evidenceSha256`` = the manifest digest. The event-level M3 fields (eventId, compositionId,
+    partner frozen-ledger hash, gate ids) and the per-gate dictionary are reconciled in the mandated #218↔M3
+    integration PR: until then ``gates`` holds the single frozen Layer-A verdict, and the hash differs from M3's."""
+    rows = [{"candidateId": r.score.candidate_id, "identitySha256": r.identity_sha256,
+             "gates": {"layer-a": "passed" if r.gates_passed else "failed"},
+             "rankKey": [None if v is None else repr(v) for v in (r.score.primary, r.score.second, r.score.third)],
+             "measurementSha256": r.score.measurement_sha256} for r in results]
+    return {"schema": LAYER_A_ARTEFACT_SCHEMA, "layerAGatesSha256": freeze.layer_a_gates_sha256,
+            "partnerRankingRuleSha256": freeze.ranking_rule_sha256, "partnerEventId": freeze.partner_event_id,
+            "results": sorted(rows, key=lambda r: r["candidateId"]), "evidenceSha256": freeze.manifest_digest}
+
+
+def layer_a_result_sha256(freeze: BaselineFreeze, results: Sequence[LayerAResult]) -> str:
+    return _canonical_sha256(layer_a_result_document(freeze, results))
 
 
 def resolve_baseline(freeze: BaselineFreeze, results: Sequence[LayerAResult], *, d_rows_read: int,
                      resolved_at_utc: str) -> BaselineResolution:
-    """Stage 2. Derive PD_BASE mechanically from the frozen rule. It raises ``BaselineStop`` and never chooses.
-
-    ``d_rows_read`` is caller-asserted (the event harness counts protected-D reads); ``resolved_at_utc`` must be a UTC
-    instant not before the freeze."""
+    """Stage 2. Derive PD_BASE mechanically from the frozen rule. It raises ``BaselineStop`` and never chooses."""
     if d_rows_read != 0:
         raise BaselineStop("baseline_resolution_after_d_data_read")
     if not (isinstance(resolved_at_utc, str) and _UTC_RE.match(resolved_at_utc)):
@@ -1554,13 +1695,14 @@ def resolve_baseline(freeze: BaselineFreeze, results: Sequence[LayerAResult], *,
     if len(seen) != len(set(seen)):
         raise BaselineStop("layer_a_result_ambiguous_duplicate_detector")
     if set(seen) != set(eligible):
-        # a detector outside the frozen universe, or a frozen detector missing from Layer A
         raise BaselineStop("layer_a_result_inconsistent_with_frozen_detector_universe")
     for r in results:
         if not _is_sealed(_COMPONENT, r.score):
             raise BaselineStop(f"layer_a_result_not_from_ranking_path:{r.score.candidate_id}")
         if r.score.kind != "detector":
             raise BaselineStop(f"layer_a_result_not_a_detector_result:{r.score.candidate_id}")
+        if r.score.manifest_digest != freeze.manifest_digest:
+            raise BaselineStop(f"layer_a_result_not_on_the_frozen_manifest:{r.score.candidate_id}")
         if r.identity_sha256 != eligible[r.score.candidate_id] or r.score.identity_sha256 != r.identity_sha256:
             raise BaselineStop(f"layer_a_identity_mismatch:{r.score.candidate_id}")
         if r.gates_passed and r.score.contract_fail:
@@ -1580,7 +1722,7 @@ def resolve_baseline(freeze: BaselineFreeze, results: Sequence[LayerAResult], *,
         freeze_sha256=freeze.freeze_sha256(), pd_base_id=pd_base, pd_base_identity_sha256=eligible[pd_base],
         benchmark_only_id=freeze.benchmark_only_id,
         benchmark_only_identity_sha256=freeze.benchmark_only_identity_sha256,
-        layer_a_result_sha256=layer_a_result_sha256(results), ranking_rule_sha256=freeze.ranking_rule_sha256,
+        layer_a_result_sha256=layer_a_result_sha256(freeze, results), ranking_rule_sha256=freeze.ranking_rule_sha256,
         composition_sha256=composition, resolved_at_utc=resolved_at_utc, d_state=D_NOT_STARTED, record_sha256="")
     return replace(unsealed, record_sha256=_canonical_sha256(unsealed.payload()))
 
@@ -1601,23 +1743,16 @@ def verify_resolution(freeze: BaselineFreeze, resolution: BaselineResolution, re
 
 
 def assert_resolution_unchanged(sealed: BaselineResolution, current: BaselineResolution) -> None:
-    """The sealed record is final. A later record with any different field stops the event."""
     if sealed != current:
         raise BaselineStop("baseline_resolution_changed_after_seal")
 
 
 def _refuse_benchmark_only(score: TrackScore, freeze: BaselineFreeze) -> None:
-    """By SEALED identity: a composition containing the benchmark-only component (id or identity) is refused."""
     score = _require_d(score, "composition_score_not_a_ranking_d_score")
     benchmark = freeze.benchmark
     for who in (score.detector, score.recogniser):
         if who.candidate_id == benchmark.candidate_id or who.identity_sha256 == benchmark.identity_sha256:
             raise ValueError("benchmark_only_component_cannot_be_ranked")
-
-
-def _binding(score: TrackScore) -> tuple:
-    return (score.population_manifest_sha256, score.population_digest, score.generator_config_sha256,
-            score.query_set_sha256)
 
 
 def _composition_of(score: TrackScore, freeze: BaselineFreeze) -> str:
@@ -1627,18 +1762,10 @@ def _composition_of(score: TrackScore, freeze: BaselineFreeze) -> str:
 
 def baseline_gate(composition: CompositionScore, baseline: CompositionScore, resolution: BaselineResolution,
                   freeze: BaselineFreeze, layer_a_results: Sequence[LayerAResult], mpid: Fraction = MPID) -> str:
-    """N2 (revised): ONE hard gate against the sealed baseline composition PD_BASE + OC5.
-
-    Rules:
-    - The resolution is re-derived from ``freeze`` and ``layer_a_results`` (a re-sealed record that does not follow from the given results stops the event; the results themselves are caller-provided until the M3 seal integration).
-    - The baseline score's SEALED identities must give exactly the resolution's M3 ``compositionSha256``.
-    - Both scores must be ranking-path D results on the same population and frozen query set; diagnostics are refused.
-    - Every ordinary composition, whatever its detector, must satisfy observed D − D(PD_BASE + OC5) ≥ MPID (exact).
-    - A composition contract violation is FAIL.
-    - A baseline that broke the contract, or cannot be evaluated, stops the event (``BaselineStop``); it is never replaced.
-    - A silent baseline is a valid measurement that scores 0.
-    - A corpus-deficient composition D is INSUFFICIENT_EVIDENCE.
-    """
+    """N2 (revised): ONE hard gate against the sealed baseline composition PD_BASE + OC5: observed
+    D − D(PD_BASE + OC5) ≥ MPID (exact). A composition contract violation is FAIL; a baseline contract failure or a
+    non-evaluable baseline stops the event; a silent baseline scores 0; a corpus-deficient composition is
+    INSUFFICIENT_EVIDENCE. Both scores must be on the freeze's manifest."""
     mpid = _frozen_mpid(mpid)
     verify_resolution(freeze, resolution, layer_a_results)
     base = _require_d(baseline.score, "gate_baseline_score_not_a_ranking_d_score")
@@ -1646,7 +1773,8 @@ def baseline_gate(composition: CompositionScore, baseline: CompositionScore, res
     if base.recogniser != freeze.benchmark or _composition_of(base, freeze) != resolution.composition_sha256:
         raise ValueError("baseline_is_not_the_sealed_pd_base_composition")
     _refuse_benchmark_only(candidate, freeze)
-    if _binding(candidate) != _binding(base):
+    if not (candidate.manifest_digest == base.manifest_digest == freeze.manifest_digest
+            and candidate.query_set_sha256 == base.query_set_sha256):
         raise ValueError("gate_scores_not_on_the_same_population_and_query_set")
     if base.outcome == CONTRACT_FAIL:
         raise BaselineStop("baseline_contract_violation")
@@ -1662,9 +1790,7 @@ def baseline_gate(composition: CompositionScore, baseline: CompositionScore, res
 def rankable_compositions(compositions: Iterable[CompositionScore], baseline: CompositionScore,
                           resolution: BaselineResolution, freeze: BaselineFreeze,
                           layer_a_results: Sequence[LayerAResult]) -> list[CompositionScore]:
-    """The ordinary D compositions that may enter ranking, the frontier or implementation: exactly those that PASS
-    the single baseline gate (so never CONTRACT_FAIL or INSUFFICIENT_EVIDENCE). A composition containing the
-    benchmark-only component (by sealed identity), including the gate-only baseline composition, is refused outright."""
+    """Exactly the ordinary compositions that PASS the single baseline gate; the benchmark-only component is refused."""
     out = []
     for composition in compositions:
         _refuse_benchmark_only(composition.score, freeze)
@@ -1675,15 +1801,12 @@ def rankable_compositions(compositions: Iterable[CompositionScore], baseline: Co
 
 def diagnostic_ocr_uplift(composition: CompositionScore, matched_baseline: CompositionScore,
                           freeze: BaselineFreeze) -> Fraction | None:
-    """DIAGNOSTIC ONLY (N2 revised): OCR uplift at a fixed detector, D(PDx + OCy) − D(PDx + OC5).
-
-    It never passes or fails a composition, never enters top-K or the ranking, and never changes the baseline or MPID.
-    The matching is by sealed identity."""
+    """DIAGNOSTIC ONLY (N2 revised): D(PDx + OCy) − D(PDx + OC5) at a fixed detector, on the same manifest."""
     a = _require_d(composition.score, "diagnostic_uplift_score_not_a_ranking_d_score")
     b = _require_d(matched_baseline.score, "diagnostic_uplift_score_not_a_ranking_d_score")
     if b.detector != a.detector or b.recogniser != freeze.benchmark:
         raise ValueError("diagnostic_baseline_not_detector_matched")
-    if _binding(a) != _binding(b):
+    if (a.manifest_digest, a.query_set_sha256) != (b.manifest_digest, b.query_set_sha256):
         raise ValueError("diagnostic_scores_not_on_the_same_population_and_query_set")
     if CONTRACT_FAIL in (a.outcome, b.outcome) or a.d_score is None or b.d_score is None:
         return None

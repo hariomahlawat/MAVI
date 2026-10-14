@@ -36,7 +36,7 @@ It does not change PR-3/PR-4 product semantics or the frozen plate normalisation
 | C4 | 2026-10-14 | Two independent primary annotators, blind to candidate outputs, PR-1 instrument OCR outputs and PD1 labels. Third-person adjudication for text/outcome disagreements. Independent QA of geometry and Track association. Organisational, data-controller and privacy approval before capture. Controlled, non-public data under an explicit retention/access/audit policy |
 | Outcomes (item 8) | 2026-10-14 | `TEXT`; `NO_PLATE` (truth = no text); `UNREADABLE` (text not establishable by the frozen human rule: excluded from known-truth scoring terms, its prevalence and returned pairs are counted); `NO_GT_VEHICLE` (a MAVI Track with no GT vehicle: a false Track, never conflated with `NO_PLATE`) |
 | Unsupported truth (item 10) | 2026-10-14 | Kept in the closed population and counted. Excluded only from text-recall denominators. Any pair it returns is incorrect, so it cannot improve precision |
-| Query binding (item 12) | 2026-10-14 | A query set records the population/partition manifest SHA-256, the generator-configuration SHA-256 and the query-set SHA-256. The evaluator refuses a query set bound to another population |
+| Query binding (item 12) | 2026-10-14 | A query set records the population/partition manifest SHA-256, the generator-configuration SHA-256 and the query-set SHA-256. D queries are generated inside the evaluator from the frozen manifest (truths and query configuration), bound to the manifest digest; no caller query set is accepted (§4a) |
 | De-duplication (item 13) | 2026-10-14 | Each unique (match mode, normalised literal) is scored once. Originating classes are kept as provenance |
 | Query lengths (item 18) | 2026-10-14 | Prefix 4; suffix = the **terminal four digits** (of the final digit run); interior 5. These are fixed constants, never fabricated: an absent class is recorded |
 | Bootstrap (item 17) | 2026-10-14 | The fast path resamples precomputed per-Track counts. It is mathematically identical to re-evaluation, proven by test under the same seed |
@@ -65,58 +65,48 @@ It does not change PR-3/PR-4 product semantics or the frozen plate normalisation
 - **Bootstrap:** percentile 95 % interval at indices ⌊0.025·(R−1)⌋ and ⌈0.975·(R−1)⌉ of the sorted exact replicates.
 - **§8.1 coverage tolerance:** the minimum site count at which the zero-difference coverage is ≥ 0.93 (PR-2 protocol §7.1).
 
-## 4a. Provenance, binding and caller-provided values (reviews of 2026-10-14)
+## 4a. The evaluation boundary (owner convergence instruction, 2026-10-14)
 
-- **Ranking provenance:** ranking-path objects carry a per-process HMAC seal, set only inside the ranking path. These are runs, B/C plates, A/B results, component scores and D scores. Diagnostics are distinct, unsealed types (`DiagnosticPlate`, `DiagnosticTrackScore`).
-  - **Enforced:** any field edit of a sealed object breaks the seal, including its parameters, its component identity and its D value. Such an object, or a hand-built one, is refused by `evaluate_reading`, `top_k`, `resolve_baseline`, `baseline_gate`, `rankable_compositions`, `diagnostic_ocr_uplift` and the comparison.
-  - **Not enforced (disclosed, P3-5):** an in-process caller can call the private `_seal`. The seal stops relabelling through the public API, not a hostile caller inside the process.
-- **Composition identity (review P1-1):**
-  - `run_track` seals the detector and recogniser `ComponentIdentity` (candidate id + M3 `identitySha256`) into the run.
-  - `evaluate_tracks` requires every run to be of the stated composition, and seals both identities into the `TrackScore`.
-  - `CompositionScore` has no labels of its own.
-  - The baseline gate checks the baseline score's sealed identities against the resolution's `compositionSha256`. This is exactly M3's formula (`baseline_seal.composition_sha256`, test vector pinned).
-  - The benchmark-only refusal reads sealed ids and identities, in `rankable_compositions`, `baseline_gate` and the comparison.
-  - Components take their id from the sealed A/B result. A Layer-A result's score identity must equal its frozen identity.
-- **Bootstrap (P2-1, P2-3):** R is fixed at 1,000 and any other value is refused. The replicate function is private and refuses a contract-violating run.
-- **`required_clusters` (P2-2):** computed inside as max(60, the frozen calibration minimum). That minimum is a frozen input that is **pending**, because owner rule T currently STOPS (no count in band). No value is encoded.
-- **A (P3-2):** a `DetectionItem` without `crop_size` is refused unless it carries a contract violation.
-- **Query binding:** every D function regenerates the query set and requires the frozen generator-config and query-set SHA-256 as arguments.
-- **Score binding:** D scores carry their population and query-set hashes, and the gate refuses mixed ones.
-- **Resolution:** every consumer re-derives it from the freeze and the Layer-A results it is GIVEN (`verify_resolution`).
-  - A re-sealed record that does not follow from those results is refused.
-  - A different but self-consistent set of Layer-A results (for example flipped `gates_passed`) gives a different, self-consistent resolution. Layer-A provenance is bound only by the M3 committed-seal integration (P1-2).
-  - Layer-A scores must be sealed detector-kind results.
-- **Population (owner decision 2026-10-14; supersedes the review-4 "run present" digest):**
-  - **Candidate-independent digest:** the D population is the frozen closed GT population (`closed_population`). Its digest hashes only that population: the manifest SHA-256, then per Track its id, site, truth state (TEXT / NO_PLATE / UNREADABLE / NO_GT_VEHICLE), supported text, raw truth, and `has_mavi_evidence` (a corpus fact). No candidate output, score, contract outcome or run presence enters it, so candidates with different outputs on the same population share one digest.
-  - **Paired over the same Track ids, with explicit run states.** Every candidate must cover exactly the population's Track ids, with the population's site and truth:
-    - an evidence-bearing Track must carry a sealed `run_track` run, so a CONTRACT_FAIL run cannot be replaced by `NO_RUN` or omitted;
-    - a Track without evidence must carry the typed `NO_RUN`;
-    - dropping or adding a Track is refused.
-  - **Where it is checked:** the gate, the comparison and `diagnostic_ocr_uplift` require equal digests.
-  - **Caller-provided until the frozen corpus manifest exists:** the `ClosedPopulation` itself, including `has_mavi_evidence`. Altering it changes the digest for every candidate.
-- **Scope of #218:** it is accepted as the level-1 A–D / query harness only. It does **not** claim that the M3 pre-D seal integration (P1-2) is complete.
-- **CONTRACT_FAIL D (P2-1):** every D term and rate is None, and the counts are empty, as in A and B.
-- **Top-K (P2-2):** `top_k` takes the `BaselineFreeze` and refuses the benchmark-only component by id OR identity. Every component score carries a sealed kind (detector/recogniser); `top_k` and `resolve_baseline` refuse the wrong kind.
-- **A (P2-3c):** the ranking path accepts only sealed `detection_item_from_run` items (profile and floor checked). Hand-built items go to `diagnostic_evaluate_detection`, which never seals.
-- **Bootstrap seed:** frozen in the `BaselineFreeze` (`bootstrap_seed`); there is no caller seed.
-- **M3 integration obligations (deferred with P1-2, not implemented):**
-  - the harness `layer_a_result_sha256` hashes a different document from M3's `layerAResultSha256`. The integration must emit and verify M3's committed Layer-A document (per-gate PASSED/FAILED, rankKey, measurementSha256, evidenceSha256; canonical JSON + LF);
-  - `gates_passed` must then come from it.
-- **Caller-provided (labelled; bound by protocol and review):**
-  - the `ComponentIdentity` asserted at `run_track`, at `ranking_plate_record` (B on GT crops) and at `evaluate_reading` / `evaluate_detection`;
-  - the Track cluster (site) and truth;
-  - Layer-A `gates_passed`;
-  - the frozen values of the query-set SHA arguments and the calibration minimum (the bootstrap seed is in the freeze);
-  - the pinned detector floor (each run is checked against it);
-  - the N4 `independent` verdict;
-  - `d_rows_read` at resolution (the time is format-checked and not before the freeze).
-- **Held for the owner (review P1-2):** the committed pre-D seal artefact (M3 `baseline_seal`, `require_committed_baseline_seal`, D-manifest binding) is not integrated. The owner has not yet decided whether it goes into #218 or a follow-up PR before the PR-2 freeze. Today's identity binding uses M3's `identitySha256` and `compositionSha256`, so the integration is additive.
-- **B ranking** uses PR-3's public contract; a test proves equality with PR-3's internal `_plate`.
+**Scope.** #218 is the level-1 A–D / query harness only. The M3 pre-D seal integration (committed baseline seal, Git
+chronology, D-manifest binding, and M3's committed Layer-A document) is a **MANDATED follow-up PR** that must merge
+before PR-2 cold review 1 and `PROTOCOL_FROZEN`.
+
+**One boundary into every metric:** frozen evaluation manifest → execution envelope → sealed result → metric. Selection
+metrics never trust caller-assembled populations, evidence sets, item sets or run identities.
+
+1. **Manifest** (`EvaluationManifest`, `manifest_digest`, `verify_manifest`). The single canonical root for:
+   - sites; Track identity with typed truth (`TruthState`: TEXT, NO_PLATE, UNREADABLE, NO_GT_VEHICLE). A misspelt or untyped state fails closed and never becomes text;
+   - each Track's MAVI Track id and exact evidence images (id, role, rank, SHA-256, size). `has_mavi_evidence` is derived from these. NO_GT_VEHICLE requires evidence;
+   - the A crops and the B/C plates, which are frozen projections of the manifest (each with a layer digest);
+   - the protocol configuration (`ProtocolConfig`): query parameters and seed, bootstrap seed, R = 1,000, the percentile rule, MPID, the calibration minimum, and each candidate's pinned detector floor.
+
+   Every call recomputes the digest from the canonical contents and compares it with an **independent expected digest**. A modified manifest with a recomputed hash is a different corpus, and the frozen manifest's results are refused against it.
+2. **Execution envelopes** (`run_track`, `run_detection`, `run_reading`). They take the manifest and an item id, never evidence.
+   - The harness reads the exact prescribed images (verified by SHA-256 and size) and runs the guarded candidate on the ranking profile at the frozen floor.
+   - It seals the result to: the manifest digest, the layer and item/Track id, the exact evidence, the candidate identity, the parameters, and the terminal state (COMPLETED or CONTRACT_FAIL, with evidence).
+   - A Track without evidence cannot be run: NO_RUN is derived from the manifest.
+   - Candidate silence is a COMPLETED result with empty output (score 0). A contract violation stays CONTRACT_FAIL.
+3. **Metrics** (`evaluate_a/b/c/d`, `paired_cluster_bootstrap`, `top_k`, `resolve_baseline`, `baseline_gate`):
+   - They accept only sealed results of the same manifest, whose item ids EQUAL the expected projection exactly: no missing, duplicate, extra, substituted or relabelled items.
+   - D queries are generated from the manifest.
+   - R, the seed and the calibration minimum come from the configuration inside the manifest. The comparison re-verifies the sealed resolution; the `BaselineFreeze` binds the manifest digest.
+   - Layer-A component scores carry the manifest digest and are refused on another manifest.
+   - There is no public free-standing item type (`TrackItem`, `DetectionItem`, `ReadItem`, `not_read` are gone).
+4. **Layer-A artefact** (`layer_a_result_document`, `layer_a_result_sha256`). It is canonical JSON + LF, derived from the frozen manifest (`evidenceSha256` = the manifest digest), with M3's per-partner keys (candidateId, identitySha256, gates, rankKey, measurementSha256).
+   - **Remaining reconciliation (integration PR):** M3's event-level fields (eventId, compositionId, partner frozen-ledger hash, gate ids) and the per-gate dictionary. Until then the hash differs from M3's `layerAResultSha256`.
+5. **Unchanged semantics:** D-score (N8), silence = 0, CONTRACT_FAIL, MPID 0.04 exact, the superiority rule, N3 rank-0, the single PD_BASE + OC5 gate with two-stage resolution (ambiguous → STOP), and the two-stage bootstrap with R = 1,000 and the integer percentile rule.
+6. **Seals:** an HMAC under a per-process key. An edited or hand-built result is refused. An in-process caller can still call the private `_seal` (disclosed, P3-5).
+
+**Remaining caller-provided values (complete):**
+1. the frozen expected digests (the manifest digest; the configuration is inside it);
+2. the real corpus manifest content, until the committed corpus / MAVI-association manifest exists. That manifest is an **integration prerequisite before the PR-2 freeze**;
+3. the candidate under test (its callables and its asserted `ComponentIdentity`), the `BaselineFreeze` and Layer-A `gates_passed` (thresholds not yet frozen; mandated M3 integration);
+4. the N4 `independent` verdict.
 
 ## 5. Still-open values (required parameters; fixed in the PR-2 protocol before freeze)
 
 - Query interior offset, negatives per plate, query seed.
-- The bootstrap seed value (to be frozen in the `BaselineFreeze`; R is fixed at 1,000).
+- The bootstrap seed and query seed values (frozen in the manifest's `ProtocolConfig`; R is fixed at 1,000).
 - `required_clusters`, from the §8.1 calibration on the declared site structure.
 - The population/partition manifest SHA-256 (exists only after the corpus is captured, labelled and partitioned).
 - The Stage-1 baseline freeze: the eligible detector identities, the OC5 identity and the Layer-A gate-set hash.
