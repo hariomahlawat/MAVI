@@ -282,10 +282,10 @@ These are tooling corrections only. No frozen result, threshold or verdict chang
 **Gate.** This repair must merge before the PR-2 events reach `PROTOCOL_FROZEN` (plan §4.2 item 2). It is level 1 evidence (harness implemented and tested).
 
 **Scope and obligations (owner 2026-10-14).** #218 is accepted as the level-1 A–D / query harness only.
-- **Architecture:** one frozen evaluation manifest leads to execution envelopes, which lead to sealed results, which feed the metrics. Metrics never accept caller-assembled populations, evidence sets, item sets or run identities.
-- **Partitions (review 7):** separate, site-disjoint A/B-selection and protected-D manifests share one truth-free partition plan; the baseline freeze binds both digests and the plan digest. Truth uses the owner's `UNSUPPORTED_TEXT` state for non-normalising human text (decision record N8 and §4a).
+- **Architecture (owner instruction, 2026-10-14):** canonical bytes → identity verification against a committed freeze record → strict parse → harness-owned immutable state → A/B/C/D. Metrics read only harness records, never caller objects, configuration or expected digests. A/B selection and protected D are verified together as one paired bundle; the selection stage never reads the D truth (decision record §4a).
+- **Truth:** `TEXT` needs v1 AND the owner's corpus-level letter-and-digit rule; other non-reserved human text is retained as `UNSUPPORTED_TEXT` (decision record N8 and item 10).
 - **Mandated follow-up PR:** the M3 pre-D seal integration (committed baseline seal, Git chronology, D-manifest binding, and M3's committed Layer-A document with `layerAResultSha256`, from which Layer-A gate verdicts must come). It must merge before PR-2 cold review 1 and `PROTOCOL_FROZEN`.
-- **Integration prerequisite (corpus):** the committed corpus / MAVI-association evaluation manifest and its frozen digest. The harness implements the mechanism; the data does not exist yet.
+- **Integration prerequisite (corpus):** the committed freeze record (`config/benchmarks/plates/selection-freeze-v1.json`) and the four canonical corpus documents it names. The harness implements the mechanism; the data does not exist yet.
 
 ## Reproduction and repeatability
 

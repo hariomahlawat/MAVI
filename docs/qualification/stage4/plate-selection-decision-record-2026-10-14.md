@@ -27,7 +27,7 @@ It does not change PR-3/PR-4 product semantics or the frozen plate normalisation
 | N5 | 2026-10-13 | P14 tolerance: \|D(PR-2) − D(PR-6 product path)\| ≤ 0.02, with identical semantics and no hard-gate reversal |
 | N6 | 2026-10-13 | Profiles: `plates-dev-windows-x86_64-cpu-v1` (required), `plates-dev-linux-x86_64-cpu-v1` (required reproducibility/CI), `plates-dev-windows-x86_64-cuda-sm75-4gb-v1` (informational) |
 | N7 | 2026-10-13 | Fine-tuning trigger 0.85 (Indian one-line full-plate EM) preserved, and recorded NOT_MEASURED while support is < 50 |
-| N8 | 2026-10-13 | D only on a **fully labelled, closed** population. **Exact recall:** supported, queryable GT plate-bearing Tracks. **Contains recall:** deterministic positive Track–query pairs. **Contains precision:** all returned Track–query pairs. **Truth semantics (owner, 2026-10-14):** `TEXT` requires human truth that normalises under v1; human truth that does not normalise is `UNSUPPORTED_TEXT` (raw text and Track kept, excluded only from the text-recall denominators, every return against it incorrect for precision); `NO_PLATE`, `UNREADABLE` and `NO_GT_VEHICLE` carry no text; an unknown or misspelt state fails closed |
+| N8 | 2026-10-13 | D only on a **fully labelled, closed** population. **Exact recall:** supported, queryable GT plate-bearing Tracks. **Contains recall:** deterministic positive Track–query pairs. **Contains precision:** all returned Track–query pairs. **Truth semantics (owner, 2026-10-14):** `TEXT` = human truth that normalises under v1 (unchanged) AND whose normalised text has at least one `[A-Z]` and one `[0-9]`. Any other non-reserved human text is **retained** as `UNSUPPORTED_TEXT`, never refused (raw text and Track kept; excluded only from the positive-recall denominators; every emitted prediction against it has correctness 0 for precision, ECE, risk–coverage and every other prediction-conditioned metric, and is never dropped from them). `NO_PLATE`, `UNREADABLE` and `NO_GT_VEHICLE` carry no text. An unknown or misspelt **state** fails closed. **Reserved syntax** supplied as text is malformed input and refused: a truth-state name (case, whitespace, `_`, `-` ignored) or `<`…/…`>` control syntax; there is no placeholder-word blacklist. The typed state is authoritative after parsing: no metric re-normalises raw truth |
 | N9 | 2026-10-13 | No result-driven stopping. One rerun only, for a proven infrastructure/harness failure with identical bytes and configuration. Contract, offline, determinism, persistent runtime and resource failures are FAIL. If fewer than two non-baseline candidates remain evaluable per capability, the event returns to PLANNED |
 | Contract (items 8/11) | 2026-10-14 | **Any** candidate output-contract violation is a **hard CONTRACT_FAIL** for the evaluation run, across A, B, C and D. Harness validators wrap the candidate detector and recogniser (`detector_output_violation`, `recogniser_output_violation`). Covered:<br>- more than 2 proposals; a box that is not a `PlateBox`, not integer, degenerate or outside the crop; a non-finite or out-of-range score;<br>- more than 3 readings; an item that is not a `Reading`; invalid raw text; a confidence outside [0, 1]; a non-strict rank order;<br>- a detector or recogniser exception.<br>The exact evidence is kept (code, observation, item, exception type), and nothing is scored through it, truncated or treated as one bad Track. A runtime exception is a FAIL under N9. The one permitted rerun, for a proven infrastructure fault with identical bytes and configuration, is a recorded procedural decision.<br>**Product vs bake-off (no conflict):** PR-3's product keeps its own rule. For example, a duplicate or non-strict reading sequence is a per-crop `ocr_output_invalid` abstention, and the rest of the run publishes. The harness leaves that product behaviour unchanged (tested). The bake-off separately judges the candidate, and any output outside the contract fails it. The two answer different questions (service availability vs candidate conformance), and a candidate that fails here never reaches the product path, so P14 is unaffected |
 | Cluster unit (item 4, C2) | 2026-10-14 | One independent top-level cluster = **one physical capture site**. Sequences, windows, Tracks, repeated visits and clips from a site are nested, not independent. Several cameras at one site are one cluster. A camera moved to a genuinely distinct site may be reused there |
@@ -35,8 +35,9 @@ It does not change PR-3/PR-4 product semantics or the frozen plate normalisation
 | C3 | 2026-10-14 | Per site, before annotation or candidate execution: one fixed ROI, one **30-minute** contiguous primary window, and the predeclared schedule rule that chooses it. No choice by traffic, readability, candidate or OCR behaviour. Every qualifying vehicle crossing the ROI in the window is in the closed population. **No small-box exclusion** |
 | C4 | 2026-10-14 | Two independent primary annotators, blind to candidate outputs, PR-1 instrument OCR outputs and PD1 labels. Third-person adjudication for text/outcome disagreements. Independent QA of geometry and Track association. Organisational, data-controller and privacy approval before capture. Controlled, non-public data under an explicit retention/access/audit policy |
 | Outcomes (item 8) | 2026-10-14 | `TEXT`; `NO_PLATE` (truth = no text); `UNREADABLE` (text not establishable by the frozen human rule: excluded from known-truth scoring terms, its prevalence and returned pairs are counted); `NO_GT_VEHICLE` (a MAVI Track with no GT vehicle: a false Track, never conflated with `NO_PLATE`); `UNSUPPORTED_TEXT` (item 10) |
-| Unsupported truth (item 10) | 2026-10-14 | The typed state `UNSUPPORTED_TEXT` (review 7): human text that does not normalise under v1. Kept in the closed population with its raw text and counted. Excluded only from text-recall denominators. Any pair it returns is incorrect, so it cannot improve precision. Normalising text is refused as `UNSUPPORTED_TEXT` and non-normalising text is refused as `TEXT` |
-| Query binding (item 12) | 2026-10-14 | A query set records the population/partition manifest SHA-256, the generator-configuration SHA-256 and the query-set SHA-256. D queries are generated inside the evaluator from the frozen manifest (truths and query configuration), bound to the manifest digest; no caller query set is accepted (§4a) |
+| Unsupported truth (item 10) | 2026-10-14 | The typed state `UNSUPPORTED_TEXT`: human text outside v1 OR outside the letter-and-digit rule. Kept in the closed population with its raw text and counted. Excluded only from positive-recall denominators (D exact/contains recall; B/C EM, CER and top-k hit). Any prediction against it is wrong: D precision, and B/C ECE and risk–coverage (whose coverage denominator is every plate). The harness DERIVES it from document state `TEXT`; the documents cannot write it |
+| Letter-and-digit rule | 2026-10-14 | **ACCEPTED (owner).** A Stage-4 **corpus-level** eligibility rule for `TEXT`: the v1-normalised text must contain at least one `[A-Z]` and one `[0-9]`. It is **not part of Normalisation v1**, which is unchanged (`6e505158…bf935`); it only decides `TEXT` vs `UNSUPPORTED_TEXT` |
+| Query binding (item 12) | 2026-10-14 | A query set records the population/partition manifest SHA-256, the generator-configuration SHA-256 and the query-set SHA-256. D queries are generated inside the evaluator from the verified bundle (typed TEXT truths and the committed record's query configuration), bound to the protected-D partition digest; no caller query set is accepted (§4a) |
 | De-duplication (item 13) | 2026-10-14 | Each unique (match mode, normalised literal) is scored once. Originating classes are kept as provenance |
 | Query lengths (item 18) | 2026-10-14 | Prefix 4; suffix = the **terminal four digits** (of the final digit run); interior 5. These are fixed constants, never fabricated: an absent class is recorded |
 | Bootstrap (item 17) | 2026-10-14 | The fast path resamples precomputed per-Track counts. It is mathematically identical to re-evaluation, proven by test under the same seed |
@@ -65,68 +66,120 @@ It does not change PR-3/PR-4 product semantics or the frozen plate normalisation
 - **Bootstrap:** percentile 95 % interval at indices ⌊0.025·(R−1)⌋ and ⌈0.975·(R−1)⌉ of the sorted exact replicates.
 - **§8.1 coverage tolerance:** the minimum site count at which the zero-difference coverage is ≥ 0.93 (PR-2 protocol §7.1).
 
-## 4a. The evaluation boundary (owner convergence instruction, 2026-10-14)
+## 4a. The trust boundary (owner instruction, 2026-10-14; supersedes the review-6/7 manifest boundary)
 
 **Scope.** #218 is the level-1 A–D / query harness only. The M3 pre-D seal integration (committed baseline seal, Git
-chronology, D-manifest binding, and M3's committed Layer-A document) is a **MANDATED follow-up PR** that must merge
-before PR-2 cold review 1 and `PROTOCOL_FROZEN`.
+chronology and M3's committed Layer-A document) is a **MANDATED follow-up PR** that must merge before PR-2 cold review 1
+and `PROTOCOL_FROZEN`.
 
-**One boundary into every metric:** frozen evaluation manifest → execution envelope → sealed result → metric. Selection
-metrics never trust caller-assembled populations, evidence sets, item sets or run identities.
+**Governing invariant (owner, verbatim).** "For fixed frozen canonical protocol/corpus bytes and fixed candidate
+outputs, no caller-controlled object, subclass, property, method, iterable, parser ambiguity, configuration value,
+ordering, seed, partition representation, or mutable state may alter population membership, eligibility, evidence,
+partition assignment, candidate eligibility, or any A/B/C/D result."
 
-1. **Manifest** (`EvaluationManifest`, `manifest_digest`, `verify_manifest`). The single canonical root for:
-   - its partition (`AB_SELECTION` or `PROTECTED_D`) and the shared, truth-free `PartitionPlan` (site → partition), hashed into the manifest;
-   - sites; Track identity with typed truth (`TruthState`: TEXT, UNSUPPORTED_TEXT, NO_PLATE, UNREADABLE, NO_GT_VEHICLE). A misspelt or untyped state fails closed and never becomes text;
-   - each Track's MAVI Track id and exact evidence images (id, role, rank, SHA-256, size). `has_mavi_evidence` is derived from these. NO_GT_VEHICLE requires evidence;
-   - the A crops and the B/C plates, which are frozen projections of the manifest (each with a layer digest);
-   - the protocol configuration (`ProtocolConfig`): query parameters and seed, bootstrap seed, R = 1,000, the percentile rule, MPID, the calibration minimum, and each candidate's pinned detector floor.
+**Why the manifest boundary was replaced.** The review-6/7 boundary hashed caller-supplied Python objects through
+their own methods and properties (`row()`, `supported_text`). An `isinstance`-passing subclass could keep the digest
+while changing D, the seeds, the evidence bytes or the partition (convergence review at `e62b947c`, probes `cold218g`).
+Patching each exploit would leave the class of attack open, so the boundary was re-architected.
 
-   Every call recomputes the digest from the canonical contents and compares it with an **independent expected digest**. A modified manifest with a recomputed hash is a different corpus, and the frozen manifest's results are refused against it.
-2. **Execution envelopes** (`run_track`, `run_detection`, `run_reading`). They take the manifest and an item id, never evidence.
-   - The harness reads the exact prescribed images (verified by SHA-256 and size) and runs the guarded candidate on the ranking profile at the frozen floor.
-   - It seals the result to: the manifest digest, the layer and item/Track id, the exact evidence, the candidate identity, the parameters, and the terminal state (COMPLETED or CONTRACT_FAIL, with evidence).
-   - A Track without evidence cannot be run: NO_RUN is derived from the manifest.
-   - Candidate silence is a COMPLETED result with empty output (score 0). A contract violation stays CONTRACT_FAIL.
-3. **Metrics** (`evaluate_a/b/c/d`, `paired_cluster_bootstrap`, `top_k`, `resolve_baseline`, `baseline_gate`):
-   - They accept only sealed results of the same manifest, whose item ids EQUAL the expected projection exactly: no missing, duplicate, extra, substituted or relabelled items.
-   - D queries are generated from the manifest.
-   - R, the seed and the calibration minimum come from the configuration inside the manifest. The comparison re-verifies the sealed resolution; the `BaselineFreeze` binds the A/B manifest digest, the D manifest digest and the partition-plan digest, each verified independently.
-   - Layer-A component scores carry the manifest digest and are refused on another manifest.
-   - There is no public free-standing item type (`TrackItem`, `DetectionItem`, `ReadItem`, `not_read` are gone).
-4. **Layer-A artefact** (`layer_a_result_document`, `layer_a_result_sha256`). It is canonical JSON + LF, derived from the frozen manifest (`evidenceSha256` = the manifest digest), with M3's per-partner keys (candidateId, identitySha256, gates, rankKey, measurementSha256).
-   - **Remaining reconciliation (integration PR):** M3's event-level fields (eventId, compositionId, partner frozen-ledger hash, gate ids) and the per-gate dictionary. Until then the hash differs from M3's `layerAResultSha256`.
-5. **Unchanged semantics:** D-score (N8), silence = 0, CONTRACT_FAIL, MPID 0.04 exact, the superiority rule, N3 rank-0, the single PD_BASE + OC5 gate with two-stage resolution (ambiguous → STOP), and the two-stage bootstrap with R = 1,000 and the integer percentile rule.
-6. **Seals:** an HMAC under a per-process key. An edited or hand-built result is refused. An in-process caller can still call the private `_seal` (disclosed, P3-5).
+**One boundary:** canonical bytes → identity verification → strict parse → harness-owned immutable state → A/B/C/D.
+
+1. **Independent identity: a committed freeze record** (`selection_bundle.FREEZE_RECORD_PATH` =
+   `config/benchmarks/plates/selection-freeze-v1.json`, a fixed repository path).
+   - The loader reads the record itself. It must be tracked by Git and its working-tree bytes must equal the HEAD blob
+     (Git's own blob identity), so an uncommitted edit is never the record.
+   - The record binds every score-affecting value:
+     - the protocol: query parameters and seed, bootstrap seed, R = 1,000, the percentile rule, MPID 4/100, the
+       calibration minimum, K = 3, the support floor 50, and one pinned floor per rostered detector;
+     - the rosters: the detector and recogniser universes with identity SHA-256s, OC5 benchmark-only (excluded from
+       both, no identity under two ids), the ranking rule, the Layer-A gate set, the events and the freeze time;
+     - the site-level partition plan;
+     - the SHA-256 of each of the four corpus documents (A/B index, A/B truth, D index, D truth).
+   - The pinned values are also code constants; any other value is refused.
+   - **Choice and trade-off.** A committed file is reproducible and reviewable in Git history. It needs no new
+     service or dependency: Git is already a repository prerequisite. The caller cannot pass the content and the digest
+     that blesses it side by side. The cost is that `repo_root` is a loader argument, which tests need. In production it
+     defaults to the harness's own repository, and every result carries the record SHA-256 and the HEAD commit.
+2. **Strict parsing.** A document must match its frozen SHA-256 byte for byte. It is then parsed strictly:
+   - ASCII only;
+   - duplicate keys refused (`object_pairs_hook`), NaN/Infinity refused;
+   - the canonical re-serialisation must reproduce the exact bytes. The canonical form is sorted keys, `,`/`:`
+     separators, `\uXXXX` escapes, the shortest round-trip float, and one final LF. So whitespace, key order, number
+     forms, escapes, a BOM and CRLF each have no second representation;
+   - every object has exactly its schema keys with exact primitive types (`bool` is not an `int`);
+   - every array is in canonical order.
+3. **Harness-owned state.**
+   - Verified primitives become private immutable objects in a private registry. A `Bundle` is a handle: only its
+     `bundle_id` string is read.
+   - Truth is typed once (`classify_truth`). `TruthState` is authoritative afterwards: B/C/D never re-normalise raw
+     truth.
+   - **The paired bundle (R2).** The A/B and protected-D partitions are verified together under one plan:
+     - sites are mutually exclusive, with case and whitespace aliases refused;
+     - Track ids, MAVI uuids, observation ids and content SHA-256s (evidence and B plate images) are unique across
+       both partitions.
+   - **Stages.**
+     - `load_selection_bundle` reads the D *index* (truth-free) for these checks, but never the D truth.
+     - `load_protected_d_bundle` also reads the D truth. Loading it ends Stage 2: `resolve_baseline` then refuses
+       for that record in the process.
+4. **Execution envelopes** (`run_track`, `run_detection`, `run_reading`) take a bundle and an item id, never evidence.
+   - The identity must be a roster entry by id AND identity SHA-256 (R3).
+   - The image source must return exact `bytes` matching the frozen SHA-256 and size.
+   - The candidate's outputs must be exact types (list/tuple, `PlateBox`, `Reading`, `str`); anything else is a
+     CONTRACT_FAIL.
+   - A protected-D Track runs only from the protected-D bundle.
+5. **Results are harness records**, not sealed caller objects.
+   - Each run and result is recorded in a private registry. The caller receives a deep copy carrying `result_id`.
+   - Metrics and decisions read only that id string and use the registry's own record. So edits, subclasses,
+     properties, `object.__setattr__` and mutable fields on a copy are inert, and an unregistered object is refused.
+   - Every run/score/result iterable is materialised once at entry (R1).
+   - Item ids must equal the bundle projection exactly.
+   - Compositions must be in the frozen rosters (R3).
+   - A/B/C use only the A/B partition and D only the protected-D partition.
+6. **Unchanged semantics:**
+   - D-score (N8, with the `UNSUPPORTED_TEXT` clarification above) and silence = 0;
+   - CONTRACT_FAIL;
+   - MPID 0.04 exact and the superiority rule;
+   - N3 rank-0;
+   - the single PD_BASE + OC5 gate with two-stage resolution (ambiguous → STOP);
+   - the two-stage bootstrap with R = 1,000 and percentile indices (24, 975);
+   - queries.
+
+   R, the seed, MPID, K, the support floor and the calibration minimum are no longer parameters anywhere.
 
 **Remaining caller-provided values (complete):**
-1. the frozen expected digests (the manifest digest; the configuration is inside it);
-2. the real corpus manifest content, until the committed corpus / MAVI-association manifest exists. That manifest is an **integration prerequisite before the PR-2 freeze**;
-3. the candidate under test (its callables and its asserted `ComponentIdentity`), the `BaselineFreeze` and Layer-A `gates_passed` (thresholds not yet frozen; mandated M3 integration);
-4. the N4 `independent` verdict;
-5. `resolve_baseline`'s self-attested `d_rows_read` and `resolved_at_utc` (the time is only format-checked and not before the freeze). Binding them to Git chronology and the committed pre-D seal is an **M3-chronology integration item**.
+1. the candidate under test: its callables (so its outputs) and its asserted identity, which must equal a roster entry;
+2. the image byte source (verified by SHA-256 and size);
+3. the corpus directory (verified against the committed record);
+4. the N4 `independent` verdict and Layer-A `gates_passed` (mandated M3 integration);
+5. `resolve_baseline`'s self-attested `d_rows_read` and `resolved_at_utc`. Binding them to Git chronology and the
+   committed pre-D seal is an M3-chronology integration item; the in-process D-truth-loaded check is an extra guard;
+6. `repo_root`, for tests only (default: the harness repository).
 
-**Disclosed limit (P3-5):** an in-process caller can still forge a seal through the private `_seal`. The seal stops relabelling through the public API only.
+The real committed record and corpus documents are an **integration prerequisite before the PR-2 freeze**. The record
+path does not exist yet, and the loader refuses (`freeze_record_absent`).
 
-**Review 6 additions:**
-- **No alias items:** the manifest refuses a MAVI Track shared by two GT Tracks, an evidence image owned twice, two A crops on one image, two C plates on one (Track, image), and two B plates on one image (by id or SHA-256). A plate's text must equal its Track's TEXT truth.
-- **Frozen top-K values:** K (3) and the top-K support floor (50) are frozen in `ProtocolConfig` and read from the verified manifest. `top_k` refuses duplicate candidates, and `BaselineFreeze` refuses one identity under two ids.
-- **C failure:** C is CONTRACT_FAIL when ANY run of the composition violates the contract.
-- **Truth names:** TEXT whose letters spell a truth-state name (any case, any separators) is refused.
-- **`c_minus_b`:** requires a sealed C and B pair on the same manifest and recogniser.
-- **Config types:** a non-integer R (for example 1000.0) is refused.
+**Disclosed limit.** Code running in the same interpreter can still write the private registries (`_register`,
+`_BUNDLES`). The boundary protects reproducibility through the supported API, not against in-process code.
 
-**Review 7 additions:**
-- **Site-disjoint partitions (P1-1):** each manifest belongs to one partition and embeds the shared `PartitionPlan`. Verification refuses a site in two partitions (also under another spelling: whitespace or case), a Track whose site is not in the manifest's partition, and A/B items in the D manifest. A, B and C (`run_detection`, `run_reading`, `evaluate_a/b/c`, `top_k`) accept only the A/B manifest; D (`evaluate_d`, the diagnostic floor, `paired_cluster_bootstrap`) only the D manifest. Layer-A resolution and top-K need no D manifest, so `d_rows_read = 0` is checkable; the gate requires both scores on the frozen D digest.
-- **Truth (owner):** `UNSUPPORTED_TEXT` as in N8 / item 10. `TEXT` additionally refuses placeholders and sentinels: text bracketed or prefixed by a truth-state name (`NOPLATE0`, `[UNREADABLE]`) and text without at least one letter and one digit (`UNREADBLE`, `N/A`, `NONE`, `NULL`, `UNKNOWN`, `ILLEGIBLE`). **The letter-and-digit rule is a harness proposal awaiting owner confirmation.**
-- **Roster (P2-2):** the freeze carries the recogniser universe (`eligible_recognisers`, sorted, unique, non-empty, OC5 excluded). A top-K roster must equal the frozen detector or recogniser universe exactly: an empty roster, an omission or an outsider is refused.
-- **P3:** no GT polygon on a `NO_PLATE` / `NO_GT_VEHICLE` crop (a `TEXT` crop may have none); every polygon has ≥ 3 finite, non-negative, non-boolean points and positive area. Evidence and B plate images have a canonical UUID, a known role, an integer rank ≥ 0 (strictly ordered per Track), a SHA-256 and a positive size. Two images with the same SHA-256 are refused anywhere in the manifest. K = 3 and the support floor = 50 are pinned constants (`TOP_K`, `TOP_K_SUPPORT_FLOOR`). `Comparison` is a sealed result.
+**Layer-A artefact** (`layer_a_result_document`): canonical JSON + LF with M3's per-partner keys and
+`evidenceSha256` = the A/B partition digest. M3's event-level fields and per-gate dictionary are reconciled in the
+integration PR.
+
+**History (superseded by the boundary above; kept for traceability).** Review 6 added alias-item refusals, frozen
+top-K values, C any-violation and `c_minus_b` pairing. Review 7 added site-disjoint partitions, `UNSUPPORTED_TEXT`, the
+recogniser universe and P3 validations. All are retained as checks on the verified documents (tests in
+`test_plates_selection_harness.py` and `test_plates_selection_boundary.py`). The review-7 "letter-and-digit refusal"
+became a classification rule (above). The review-7 placeholder refusals (`NOPLATE0`, `[UNREADABLE]`) are withdrawn:
+reserved syntax is defined narrowly.
 
 ## 5. Still-open values (required parameters; fixed in the PR-2 protocol before freeze)
 
 - Query interior offset, negatives per plate, query seed.
-- The bootstrap seed and query seed values (frozen in the manifest's `ProtocolConfig`; R is fixed at 1,000).
+- The bootstrap seed and query seed values (frozen in the committed freeze record; R is fixed at 1,000).
 - `required_clusters`, from the §8.1 calibration on the declared site structure.
-- The population/partition manifest SHA-256 (exists only after the corpus is captured, labelled and partitioned).
-- The Stage-1 baseline freeze: the eligible detector identities, the OC5 identity and the Layer-A gate-set hash.
+- The committed freeze record and the four corpus document SHA-256s (exist only after the corpus is captured,
+  labelled and partitioned).
+- The Stage-1 baseline freeze (in the record's roster): the eligible detector and recogniser identities, the OC5
+  identity and the Layer-A gate-set hash.
 
 **Not a frozen value:** the PD_BASE identity. It is a Stage-2 derived value, sealed after Layer A and before D (§1, N2 resolution).
