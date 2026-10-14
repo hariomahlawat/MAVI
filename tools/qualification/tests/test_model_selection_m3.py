@@ -69,7 +69,7 @@ def partners():
 
 def stage1(**changes):
     rule = {"compositionId": GATE, "partnerEventId": PARTNER_EVENT, "eligiblePartners": partners(),
-            "partnerRankingRuleSha256": sha("rule"), "layerAGatesSha256": sha("gates"),
+            "excludedPartners": [], "partnerRankingRuleSha256": sha("rule"), "layerAGatesSha256": sha("gates"),
             "layerAGateIds": list(GATE_IDS), "derivationRule": bs.DERIVATION_RULE, "gateScope": bs.GATE_SCOPE_ALL}
     rule.update(changes)
     return rule
@@ -81,9 +81,10 @@ def block():
         "protocolSection": "protocol section 2.4",
         "configurationSha256": sha("bob-configuration"),
         "adapterSha256": sha("bob-adapter"),
-        "hostManifests": {"dev-profile": [{"path": "bin/tool.exe", "sha256": sha("exe"), "size": 10},
-                                          {"path": "lib/core.dll", "sha256": sha("dll"), "size": 20},
-                                          {"path": "share/model.bin", "sha256": sha("weights-bob"), "size": 30}]},
+        "hostManifests": {"dev-profile": [
+            {"path": "bin/tool.exe", "kind": "executable", "sha256": sha("exe"), "size": 10},
+            {"path": "lib/core.dll", "kind": "runtime-library", "sha256": sha("dll"), "size": 20},
+            {"path": "share/model.bin", "kind": "data", "sha256": sha("weights-bob"), "size": 30}]},
         "evaluationPermissions": [
             {"artefactKind": "executable", "sha256s": [sha("exe")], "decidedBy": "synthetic-owner",
              "decidedOn": RECORDED, "primarySourceSha256": sha("terms-page")},
@@ -166,8 +167,9 @@ def m3_block(document, proof, **changes):
     digest = document_sha256(seal)
     resolved = seal["status"] == bs.RESOLVED
     result = {
-        "baselineSeals": [{"compositionId": GATE, "sealSha256": digest, "status": seal["status"]}],
-        "dExecutionStartedAt": D_STARTED if resolved else None,
+        "baselineSeals": [{"compositionId": GATE, "sealSha256": digest, "status": seal["status"],
+                           "sealCommit": "c" * 40}],
+        "dExecutionStartedAt": D_STARTED if resolved else seal.get("protectedDAccessedAt"),
         "incumbent": None,
         "topK": ["VC-EMG", "VC-EST"],
         "componentFinalists": ["VC-EST"],
@@ -379,7 +381,13 @@ def test_evaluation_permission_is_bound_per_exact_artefact():
         (lambda b: b.update(evaluationPermissions=[]), "benchmark_baseline_permission_required"),
         (lambda b: b["evaluationPermissions"].pop(1), "benchmark_baseline_permission_required"),
         (lambda b: b["evaluationPermissions"].pop(0), "benchmark_baseline_permission_required"),
-        (lambda b: b["evaluationPermissions"].pop(2), "benchmark_baseline_permission_not_bound"),
+        (lambda b: b["evaluationPermissions"].pop(2), "benchmark_baseline_permission_required"),
+        # cold review P3-6: a data file cannot be filed under the executable permission, nor retyped in the manifest
+        (lambda b: b["evaluationPermissions"][0].update(sha256s=sorted([sha("exe"), sha("weights-bob")])),
+         "benchmark_baseline_permission_not_bound"),
+        (lambda b: b["hostManifests"]["dev-profile"][2].update(kind="executable"), "benchmark_baseline_permission_not_bound"),
+        (lambda b: b["hostManifests"]["dev-profile"][2].update(kind="script"), "value_not_allowed"),
+        (lambda b: b["hostManifests"]["dev-profile"][2].pop("kind"), "missing_field"),
         (lambda b: b["evaluationPermissions"].append(copy.deepcopy(b["evaluationPermissions"][0])),
          "benchmark_baseline_permission_kind_duplicate"),
         (lambda b: b["evaluationPermissions"][0].update(sha256s=sorted([sha("exe"), sha("dll")])) or
@@ -388,7 +396,7 @@ def test_evaluation_permission_is_bound_per_exact_artefact():
          "benchmark_baseline_permission_not_bound"),
         (lambda b: b["evaluationPermissions"][0].update(sha256s=[]), "benchmark_baseline_permission_not_sorted_unique"),
         (lambda b: b["evaluationPermissions"][0].update(artefactKind="everything"), "value_not_allowed"),
-        (lambda b: b["hostManifests"]["dev-profile"].insert(0, {"path": "a/unpermitted.dll", "sha256": sha("new"),
+        (lambda b: b["hostManifests"]["dev-profile"].insert(0, {"path": "a/unpermitted.dll", "kind": "runtime-library", "sha256": sha("new"),
                                                                  "size": 1}), "benchmark_baseline_permission_not_bound"),
     ):
         entry = bob()
@@ -406,10 +414,18 @@ def test_same_event_partner_universe_must_be_the_shortlisted_identities():
         entry = bob()
         entry["benchmarkBaseline"]["compositions"][0].update(partnerEventId=EVENT, eligiblePartners=[partner])
         refused(code, validate_ledger, m3_ledger(baseline(), established(), reference(), entry))
+    b0 = {"candidateId": "VC-B0", "identitySha256": document_sha256({"repository": "MAVI", "revision": "UNKNOWN"}),
+          "reason": "the deterministic baseline is not a detector"}
     entry = bob()
     entry["benchmarkBaseline"]["compositions"][0].update(
-        partnerEventId=EVENT, eligiblePartners=[{"candidateId": "VC-EST", "identitySha256": identity_of("est")}])
+        partnerEventId=EVENT, eligiblePartners=[{"candidateId": "VC-EST", "identitySha256": identity_of("est")}],
+        excludedPartners=[b0])
     validate_ledger(m3_ledger(baseline(), established(), entry))
+    # cold review P3-4: a silent subset of the shortlist is refused; the exclusion needs a recorded reason
+    entry["benchmarkBaseline"]["compositions"][0]["excludedPartners"] = []
+    refused("baseline_partner_universe_not_the_shortlist", validate_ledger, m3_ledger(baseline(), established(), entry))
+    entry["benchmarkBaseline"]["compositions"][0]["excludedPartners"] = [dict(b0, reason=" ")]
+    refused("text_required", validate_ledger, m3_ledger(baseline(), established(), entry))
 
 
 # ------------------------------------------------------------------ immutability after freeze
@@ -622,7 +638,8 @@ def test_every_failed_prerequisite_stops_without_a_baseline(partner, result, acc
         result_doc["results"][0]["identitySha256"] = sha("PD-A retrained")
     seal = bs.derive_baseline_seal(document, GATE, protocol_sha256=PROTOCOL, partner_ledger=partner_doc,
                                    layer_a=result_doc, recorded_at=SEALED_AT, recorded_by="synthetic-harness",
-                                   protected_d_rows_read=accessed)
+                                   protected_d_rows_read=accessed,
+                                   protected_d_accessed_at="2026-07-01T09:00:00Z" if accessed else None)
     assert seal["status"] == "STOPPED" and seal["stopReason"] == reason
     assert seal["protectedDState"] == ("ACCESSED" if accessed else "NOT_STARTED")
     bs.verify_baseline_seal(seal, frozen=document, protocol_sha256=PROTOCOL, partner_ledger=partner_doc,
@@ -923,7 +940,7 @@ def build_repository(repo: Path, *, stopped=False, with_decision=True, cite_seal
     write(bs.seal_path(repo, document, GATE), canonical_json(seal).decode())
     record = folder / f"{EVENT}.md"
     if cite_seal:
-        write(record, record.read_text() + f"Baseline seal SHA-256: {document_sha256(seal)}\n")
+        write(record, record.read_text() + bs.seal_citation(GATE, document_sha256(seal)) + "\n")
     if with_decision:
         proof = {GATE: {"seal": seal, "layerA": result, "partnerLedger": partner}}
         summary = m3_decision(document, proof, **({"state": "TECHNICAL_DECISION_RECORDED", "implementation": None}
@@ -969,6 +986,9 @@ def test_repository_scan_refuses_uncited_noncanonical_or_orphan_seals(tmp_path):
 def test_repository_scan_refuses_a_decision_without_seal(tmp_path):
     document, _partner, seal, folder = build_repository(tmp_path)
     bs.seal_path(tmp_path, document, GATE).unlink()
+    refused("baseline_seal_cited_without_file", validate_repository, tmp_path)
+    record = folder / f"{EVENT}.md"
+    write(record, record.read_text().replace(bs.seal_citation(GATE, document_sha256(seal)) + "\n", ""))
     refused("gate_only_composition_unresolved", validate_repository, tmp_path)
 
 
@@ -984,7 +1004,11 @@ def test_repository_scan_refuses_a_reseal_after_d(tmp_path):
     write(bs.seal_path(tmp_path, document, GATE), canonical_json(reseal).decode())
     refused("baseline_seal_not_recorded", validate_repository, tmp_path)
     record = folder / f"{EVENT}.md"
-    write(record, record.read_text() + f"Baseline seal SHA-256: {document_sha256(reseal)}\n")
+    write(record, record.read_text() + bs.seal_citation(GATE, document_sha256(reseal)) + "\n")
+    refused("baseline_seal_cited_twice", validate_repository, tmp_path)
+    write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
+    refused("baseline_seal_cited_twice", validate_repository, tmp_path)
+    write(record, record.read_text().replace(bs.seal_citation(GATE, document_sha256(reseal)) + "\n", "", 1))
     refused("decision_baseline_seal_mismatch", validate_repository, tmp_path)
 
 
@@ -1038,7 +1062,7 @@ def test_d_manifest_bound_to_a_seal_refuses_a_later_reseal(tmp_path):
     write(bs.layer_a_path(repo, document, GATE), canonical_json(forged).decode())
     write(bs.seal_path(repo, document, GATE), canonical_json(reseal).decode())
     record = folder / f"{EVENT}.md"
-    write(record, record.read_text() + f"Baseline seal SHA-256: {document_sha256(reseal)}\n")
+    write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "reseal")
     refused("d_manifest_baseline_seal_mismatch", bs.verify_d_manifest_binding, manifest, repo, EVENT,
@@ -1075,15 +1099,17 @@ def test_published_schemas_accept_derived_seals_and_layer_a_results():
 
 
 def test_a_stop_survives_later_inputs_and_a_protocol_revision(tmp_path):
-    """A STOPPED seal is immutable history: a partner frozen later does not invalidate it, and after a protocol
-    revision with a new composition id it stays as a superseded record. A superseded RESOLVED seal is refused."""
+    """A STOPPED seal is immutable history after a protocol revision with a new composition id. While its frozen
+    composition is current, a stop that claims an input was absent is refused once that input is supplied (cold
+    review P3-1). A superseded RESOLVED seal is refused."""
     document = m3_ledger()
     missing = bs.derive_baseline_seal(document, GATE, protocol_sha256=PROTOCOL, partner_ledger=None, layer_a=None,
                                       recorded_at=SEALED_AT, recorded_by="synthetic-harness")
     assert missing["stopReason"] == "partner-event-missing"
     proof = evidence(document)
-    bs.verify_baseline_seal(missing, frozen=document, protocol_sha256=PROTOCOL,
-                            partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
+    bs.verify_baseline_seal(missing, frozen=document, protocol_sha256=PROTOCOL, partner_ledger=None, layer_a=None)
+    refused("baseline_stop_reason_contradicted", bs.verify_baseline_seal, missing, frozen=document,
+            protocol_sha256=PROTOCOL, partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
 
     repo = tmp_path / "revised"
     old, _partner, stopped_seal, folder = build_repository(repo, stopped=True, with_decision=False)
@@ -1096,7 +1122,7 @@ def test_a_stop_survives_later_inputs_and_a_protocol_revision(tmp_path):
     write_frozen_event(repo, revised, record_extra=history)
     validate_repository(repo)
     write(record, record.read_text().replace(document_sha256(stopped_seal), "0" * 64))
-    refused("baseline_artefact_without_frozen_composition", validate_repository, repo)
+    refused("baseline_seal_not_recorded", validate_repository, repo)
 
     repo = tmp_path / "resolved"
     old, _partner, resolved_seal, folder = build_repository(repo, with_decision=False)

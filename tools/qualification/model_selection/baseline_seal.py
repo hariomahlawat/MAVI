@@ -30,6 +30,7 @@ Standard library only; ``require_committed_baseline_seal`` and ``verify_d_manife
 from __future__ import annotations
 
 import math
+import re
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -38,6 +39,7 @@ from pathlib import Path
 
 from .credibility import (
     BENCHMARK_BASELINE,
+    IMMUTABLE_REVISION_RE,
     CANDIDATE_ID_RE,
     EVENT_ID_RE,
     FROZEN_SUFFIX,
@@ -87,7 +89,23 @@ _COMMON = ("schema", "status", "eventId", "capabilityId", "compositionId", "benc
            "eligibleUniverseSha256", "layerAGatesSha256", "partnerRankingRuleSha256", "gateScope", "partnerEventId",
            "partnerFrozenLedgerSha256", "layerAResultSha256", "protectedDState", "recordedAt", "recordedBy")
 RESOLVED_FIELDS = (*_COMMON, "partnerCandidateId", "partnerIdentitySha256", "compositionSha256")
-STOPPED_FIELDS = (*_COMMON, "stopReason", "stopDetail", "stopEvidenceSha256s")
+STOPPED_FIELDS = (*_COMMON, "stopReason", "stopDetail", "stopEvidenceSha256s", "protectedDAccessedAt")
+# The event record cites each seal on one structured line (cold review P1-1). Exactly one line per composition, and
+# its hash must be the seal file's: a second line, or a changed seal under an old line, is refused.
+SEAL_CITATION_RE = re.compile(r"^Baseline seal (?P<id>[A-Za-z][A-Za-z0-9-]{0,63}) SHA-256: (?P<sha>[0-9a-f]{64}) *$",
+                              re.MULTILINE)
+
+
+def seal_citation(composition_id: str, digest: str) -> str:
+    """The exact record line that cites a committed seal."""
+    return f"Baseline seal {composition_id} SHA-256: {digest}"
+
+
+def record_seal_citations(text: str) -> dict[str, list[str]]:
+    cited: dict[str, list[str]] = {}
+    for match in SEAL_CITATION_RE.finditer(text.replace("\r\n", "\n")):
+        cited.setdefault(match["id"], []).append(match["sha"])
+    return cited
 
 
 # ------------------------------------------------------------------ identities
@@ -99,6 +117,17 @@ def benchmark_component_identity_sha256(entry: Mapping) -> str:
     return document_sha256({"candidateId": entry["candidateId"], "identity": entry["identity"],
                             "configurationSha256": block["configurationSha256"],
                             "adapterSha256": block["adapterSha256"], "hostManifests": block["hostManifests"]})
+
+
+def benchmark_file_hashes(entry: Mapping) -> set[str]:
+    """Every file hash of a benchmark-only component: pinned identity files and every host-manifest file."""
+    files = {item["sha256"] for item in entry["identity"]["files"]}
+    files |= {item["sha256"] for listed in entry["benchmarkBaseline"]["hostManifests"].values() for item in listed}
+    return files
+
+
+def candidate_file_hashes(entry: Mapping) -> set[str]:
+    return {item["sha256"] for item in entry["identity"].get("files") or ()}
 
 
 def candidate_identity_sha256(entry: Mapping) -> str:
@@ -138,8 +167,9 @@ def partner_capability(event_id: str) -> str:
 
 def check_stage1_rule(composition: Mapping, entry: Mapping, where: str) -> None:
     """Structural checks of one frozen Stage-1 rule (called from the ledger check)."""
-    _keys(composition, ("compositionId", "partnerEventId", "eligiblePartners", "partnerRankingRuleSha256",
-                        "layerAGatesSha256", "layerAGateIds", "derivationRule", "gateScope"), where)
+    _keys(composition, ("compositionId", "partnerEventId", "eligiblePartners", "excludedPartners",
+                        "partnerRankingRuleSha256", "layerAGatesSha256", "layerAGateIds", "derivationRule",
+                        "gateScope"), where)
     _match(composition["compositionId"], LOCAL_ID_RE, f"{where}.compositionId")
     _match(composition["partnerEventId"], EVENT_ID_RE, f"{where}.partnerEventId")
     _match(composition["partnerRankingRuleSha256"], SHA256_RE, f"{where}.partnerRankingRuleSha256")
@@ -161,18 +191,39 @@ def check_stage1_rule(composition: Mapping, entry: Mapping, where: str) -> None:
         raise _fail("eligible_partners_not_sorted_unique", f"{where}.eligiblePartners")
     if entry["candidateId"] in partner_ids:
         raise _fail("benchmark_baseline_cannot_be_its_own_partner", f"{where}.eligiblePartners")
+    # Cold review P3-4: every shortlisted candidate of the partner event that is not eligible is listed here with the
+    # recorded reason, so the frozen universe is the partner shortlist exactly, never a silent subset.
+    excluded_ids = []
+    for index, partner in enumerate(_list(composition["excludedPartners"], f"{where}.excludedPartners")):
+        at = f"{where}.excludedPartners[{index}]"
+        _keys(partner, ("candidateId", "identitySha256", "reason"), at)
+        excluded_ids.append(_match(partner["candidateId"], CANDIDATE_ID_RE, f"{at}.candidateId"))
+        _match(partner["identitySha256"], SHA256_RE, f"{at}.identitySha256")
+        _text(partner["reason"], f"{at}.reason")
+    if excluded_ids != sorted(set(excluded_ids)) or set(excluded_ids) & set(partner_ids):
+        raise _fail("excluded_partners_not_sorted_unique_disjoint", f"{where}.excludedPartners")
 
 
-def check_partner_universe(composition: Mapping, partner_ledger: Mapping, where: str) -> None:
-    """The frozen universe reconciles with the partner event: each partner is shortlisted there with that identity."""
+def check_partner_universe(composition: Mapping, partner_ledger: Mapping, where: str, benchmark_entry: Mapping) -> None:
+    """The frozen universe reconciles with the partner event: each eligible or excluded partner is shortlisted there
+    with that identity, together they are exactly its shortlist, and no eligible partner shares a file with the
+    benchmark-only component (its bytes re-listed under another identity, cold review P3-3)."""
     if partner_ledger["eventId"] != composition["partnerEventId"]:
         raise _fail("baseline_partner_event_mismatch", where)
     entries = {e["candidateId"]: e for e in partner_ledger["candidates"]}
-    for partner in composition["eligiblePartners"]:
+    listed = [*composition["eligiblePartners"], *composition["excludedPartners"]]
+    for partner in listed:
         entry = entries.get(partner["candidateId"])
-        if entry is None or entry["disposition"]["status"] != SHORTLISTED \
-                or candidate_identity_sha256(entry) != partner["identitySha256"]:
+        if (entry is None or entry["disposition"]["status"] != SHORTLISTED
+                or candidate_identity_sha256(entry) != partner["identitySha256"]):
             raise _fail("baseline_partner_not_in_partner_shortlist", f"{where}.{partner['candidateId']}")
+    shortlist = {c for c, e in entries.items() if e["disposition"]["status"] == SHORTLISTED}
+    if {p["candidateId"] for p in listed} != shortlist:
+        raise _fail("baseline_partner_universe_not_the_shortlist", where)
+    forbidden = benchmark_file_hashes(benchmark_entry)
+    for partner in composition["eligiblePartners"]:
+        if candidate_file_hashes(entries[partner["candidateId"]]) & forbidden:
+            raise _fail("benchmark_baseline_bytes_as_partner", f"{where}.{partner['candidateId']}")
 
 
 # ------------------------------------------------------------------ Layer A
@@ -292,7 +343,8 @@ _STOP_FOR_CODE = {
 
 def derive_baseline_seal(frozen: Mapping, composition_id: str, *, protocol_sha256: str,
                          partner_ledger: Mapping | None, layer_a: Mapping | None, recorded_at: str,
-                         recorded_by: str, protected_d_rows_read: int = 0) -> dict:
+                         recorded_by: str, protected_d_rows_read: int = 0,
+                         protected_d_accessed_at: str | None = None) -> dict:
     """Stage 2, deterministically: the RESOLVED seal, or the STOPPED seal with its exact reason. Never chooses."""
     validate_ledger(frozen)
     if composition_id not in frozen_compositions(frozen):
@@ -304,18 +356,21 @@ def derive_baseline_seal(frozen: Mapping, composition_id: str, *, protocol_sha25
         evidence = sorted({h for h in (seal["frozenLedgerSha256"], seal["partnerFrozenLedgerSha256"],
                                        seal["layerAResultSha256"]) if h is not None})
         seal.update(stopReason=reason, stopDetail=detail, stopEvidenceSha256s=evidence,
-                    protectedDState=D_ACCESSED if accessed else D_NOT_STARTED)
+                    protectedDState=D_ACCESSED if accessed else D_NOT_STARTED,
+                    protectedDAccessedAt=protected_d_accessed_at if accessed else None)
         return seal
 
     if protected_d_rows_read != 0:
+        # Cold review P3-2: a stop for protected-D access records when D was accessed.
+        _instant(protected_d_accessed_at, "protectedDAccessedAt")
         return stopped("protected-d-accessed", f"{protected_d_rows_read} protected D rows read before resolution",
                        accessed=True)
-    rule = frozen_compositions(frozen)[composition_id][1]
+    benchmark_entry, rule = frozen_compositions(frozen)[composition_id]
     try:
         if partner_ledger is None:
             raise _fail("baseline_partner_event_missing", rule["partnerEventId"])
         validate_ledger(partner_ledger)
-        check_partner_universe(rule, partner_ledger, "partner")
+        check_partner_universe(rule, partner_ledger, "partner", benchmark_entry)
         if layer_a is None:
             return stopped("prerequisite-failed", "no Layer-A result")
         partner = check_layer_a_result(layer_a, frozen, composition_id, partner_ledger)
@@ -370,10 +425,17 @@ def verify_baseline_seal(seal: object, *, frozen: Mapping, protocol_sha256: str,
         accessed = seal["stopReason"] == "protected-d-accessed"
         if seal["protectedDState"] != (D_ACCESSED if accessed else D_NOT_STARTED):
             raise _fail("baseline_seal_d_state_contradicted", f"{where}.protectedDState")
-        # A partner or Layer-A artefact absent at verification is not invented: the recorded hash stands. One that was
-        # absent when the stop was recorded (null) may exist now; a recorded hash must match the artefact supplied.
+        if accessed:
+            if _instant(seal["protectedDAccessedAt"], f"{where}.protectedDAccessedAt") > recorded:
+                raise _fail("baseline_seal_d_state_contradicted", f"{where}.protectedDAccessedAt")
+        elif seal["protectedDAccessedAt"] is not None:
+            raise _fail("baseline_seal_d_state_contradicted", f"{where}.protectedDAccessedAt")
+        # Cold review P3-1: a stop may not claim an input was absent while it is supplied, and a recorded hash must
+        # match the supplied artefact. Only an artefact absent now leaves its recorded hash unchecked.
         for field, supplied in (("partnerFrozenLedgerSha256", partner_ledger), ("layerAResultSha256", layer_a)):
-            if supplied is None or seal[field] is None:
+            if supplied is not None and seal[field] is None:
+                raise _fail("baseline_stop_reason_contradicted", f"{where}.{field}")
+            if supplied is None:
                 expected[field] = seal[field]
                 if seal[field] is not None:
                     _match(seal[field], SHA256_RE, f"{where}.{field}")
@@ -381,15 +443,12 @@ def verify_baseline_seal(seal: object, *, frozen: Mapping, protocol_sha256: str,
         for field in _COMMON:
             if seal[field] != expected[field]:
                 raise _fail("baseline_seal_differs_from_frozen_inputs", f"{where}.{field}")
-        recorded_inputs = seal["partnerFrozenLedgerSha256"] is not None and seal["layerAResultSha256"] is not None
-        if partner_ledger is not None and layer_a is not None and recorded_inputs and not accessed:
-            try:
-                derived = derive_baseline_seal(frozen, seal["compositionId"], protocol_sha256=protocol_sha256,
-                                               partner_ledger=partner_ledger, layer_a=layer_a,
-                                               recorded_at=seal["recordedAt"], recorded_by=seal["recordedBy"])
-            except CredibilityError:
-                derived = None
-            if derived is not None and derived["status"] == RESOLVED:
+        if partner_ledger is not None and layer_a is not None and not accessed:
+            # With both inputs supplied the stop must be exactly the one the frozen rule derives from them.
+            derived = derive_baseline_seal(frozen, seal["compositionId"], protocol_sha256=protocol_sha256,
+                                           partner_ledger=partner_ledger, layer_a=layer_a,
+                                           recorded_at=seal["recordedAt"], recorded_by=seal["recordedBy"])
+            if derived["status"] == RESOLVED or derived["stopReason"] != seal["stopReason"]:
                 raise _fail("baseline_stop_reason_contradicted", f"{where}.stopReason")
         return seal_sha256(seal)
     if seal["protectedDState"] != D_NOT_STARTED:
@@ -458,8 +517,8 @@ def verify_event_seals(evidence: Mapping[str, Mapping], frozen: Mapping, protoco
         partner = item.get("partnerLedger")
         if partner is not None:
             validate_ledger(partner)
-            check_partner_universe(declared[composition_id][1], partner,
-                                   f"partner.{composition_id}")
+            check_partner_universe(declared[composition_id][1], partner, f"partner.{composition_id}",
+                                   declared[composition_id][0])
         if item.get("seal") is None:
             continue
         digest = verify_baseline_seal(item["seal"], frozen=frozen, protocol_sha256=protocol_sha256,
@@ -470,8 +529,10 @@ def verify_event_seals(evidence: Mapping[str, Mapping], frozen: Mapping, protoco
 
 def validate_repository_seals(repo: Path, root: Path, frozen_by_event: Mapping[Path, Mapping],
                               protocol_sha_by_event: Mapping[Path, str]) -> list[str]:
-    """Repository mode: every seal and Layer-A file belongs to a frozen composition, is canonical, verifies against
-    its frozen inputs and is cited by the event record. Returns the files checked."""
+    """Repository mode: every seal and Layer-A file belongs to a frozen composition (or is a superseded STOPPED seal),
+    is canonical and verifies against its frozen inputs; the event record cites each seal on exactly one structured
+    line carrying the seal file's hash; and, where full Git history is available, every seal and Layer-A file was
+    only ever added and every record citation never changed (``check_seal_history``). Returns the files checked."""
     checked = []
     expected = set()
     for event, frozen in sorted(frozen_by_event.items(), key=lambda item: str(item[0])):
@@ -479,15 +540,11 @@ def validate_repository_seals(repo: Path, root: Path, frozen_by_event: Mapping[P
             continue
         evidence = load_baseline_evidence(repo, frozen)
         verified = verify_event_seals(evidence, frozen, protocol_sha_by_event[event])
-        record = event.parent / f"{event.name}.md"
-        record_text = record.read_text(encoding="utf-8") if record.is_file() else ""
         for composition_id in frozen_compositions(frozen):
             for path in (seal_path(repo, frozen, composition_id), layer_a_path(repo, frozen, composition_id)):
                 expected.add(path.resolve())
                 if path.is_file():
                     checked.append(path.relative_to(repo).as_posix())
-            if composition_id in verified and verified[composition_id]["sha256"] not in record_text:
-                raise _fail("baseline_seal_not_recorded", seal_path(repo, frozen, composition_id).name)
             if evidence[composition_id]["layerA"] is not None and evidence[composition_id]["partnerLedger"] is not None \
                     and composition_id not in verified:
                 # A Layer-A result committed before its seal must already be consistent with the frozen rule.
@@ -509,13 +566,102 @@ def validate_repository_seals(repo: Path, root: Path, frozen_by_event: Mapping[P
                     checked.append(path.relative_to(repo).as_posix())
                     continue
             raise _fail("baseline_artefact_without_frozen_composition", path.relative_to(repo).as_posix())
+    for event in sorted(frozen_by_event, key=str):
+        check_record_citations(event)
+    if any(SEAL_INFIX in path or LAYER_A_INFIX in path for path in checked):
+        checked.append(f"git-history:{check_seal_history(repo, root)}")
     return checked
+
+
+def _event_seal_files(event: Path) -> dict[str, Path]:
+    prefix = f"{event.name}{SEAL_INFIX}"
+    return {path.name[len(prefix):-len(".json")]: path for path in event.parent.glob(f"{prefix}*.json")}
+
+
+def check_record_citations(event: Path) -> None:
+    """Cold review P1-1: the record cites each seal of the event on exactly one structured line
+    (``seal_citation``) whose hash is the seal file's, and cites no seal that does not exist. A seal replaced in
+    place therefore needs its citation line edited, which ``check_seal_history`` refuses where Git history exists."""
+    record = event.parent / f"{event.name}.md"
+    cited = record_seal_citations(record.read_text(encoding="utf-8") if record.is_file() else "")
+    seals = _event_seal_files(event)
+    for composition_id, path in sorted(seals.items()):
+        hashes = cited.get(composition_id, [])
+        if len(hashes) > 1:
+            raise _fail("baseline_seal_cited_twice", path.name)
+        if hashes != [document_sha256(read_canonical(path, "baseline_seal_not_canonical"))]:
+            raise _fail("baseline_seal_not_recorded", path.name)
+    for composition_id in sorted(set(cited) - set(seals)):
+        raise _fail("baseline_seal_cited_without_file", f"{event.name}:{composition_id}")
+
+
+def git_history_state(repo: Path) -> str:
+    """``full`` when ``repo`` is the top of a Git work tree with complete history, else ``shallow`` or ``absent``."""
+    try:
+        top = _git(repo, "rev-parse", "--show-toplevel").decode().strip()
+    except CredibilityError:
+        return "absent"
+    if Path(top).resolve() != Path(repo).resolve():
+        return "absent"
+    if _git(repo, "rev-parse", "--is-shallow-repository").decode().strip() == "true":
+        return "shallow"
+    return "full"
+
+
+def check_seal_history(repo: Path, root: Path) -> str:
+    """Seal and Layer-A files are add-only and record citations never change (cold review P1-1).
+
+    With full history: no commit may modify, delete, rename or retype a seal or Layer-A file, a tracked one may not
+    be modified in the working tree, and every version of each event record in history must cite each composition
+    with the same single hash it cites now (or not yet at all). Without history (no Git, a shallow clone) the check
+    cannot run; it returns ``shallow`` or ``absent`` and the add-only property is a reviewer item (M1 §9)."""
+    state = git_history_state(repo)
+    if state != "full":
+        return state
+    paths = sorted({*root.glob(f"*/msr-*{SEAL_INFIX}*.json"), *root.glob(f"*/msr-*{LAYER_A_INFIX}*.json")})
+    for path in paths:
+        relative = path.relative_to(repo).as_posix()
+        log = _git(repo, "log", "--format=", "--name-status", "--no-renames", "--", relative).decode().split()
+        if any(token in ("M", "D", "T") for token in log[0::2]):
+            raise _fail("baseline_artefact_rewritten_in_history", relative)
+        status = _git(repo, "status", "--porcelain", "--", relative).decode()
+        if status and not status.startswith("??") and not status.startswith("A "):
+            raise _fail("baseline_artefact_rewritten_in_history", relative)
+    for record in sorted({path.parent / (path.name.split(SEAL_INFIX)[0] + ".md")
+                          for path in paths if SEAL_INFIX in path.name}):
+        if not record.is_file():
+            continue
+        relative = record.relative_to(repo).as_posix()
+        now = record_seal_citations(record.read_text(encoding="utf-8"))
+        for commit in _git(repo, "log", "--format=%H", "--", relative).decode().split():
+            try:
+                text = _git(repo, "show", f"{commit}:{relative}").decode("utf-8")
+            except CredibilityError:
+                continue  # the record did not exist at that commit
+            for composition_id, hashes in record_seal_citations(text).items():
+                if now.get(composition_id) != hashes:
+                    raise _fail("baseline_seal_citation_changed", f"{relative}:{composition_id}")
+    return state
+
+
+def check_decision_seal_commits(repo: Path, decision: Mapping, frozen: Mapping) -> str:
+    """Cold review P3-5: where Git history is available, each decision ``baselineSeals[].sealCommit`` must hold
+    exactly the cited seal bytes. Without history the commit is format-checked only (reviewer item)."""
+    state = git_history_state(repo)
+    if state != "full":
+        return state
+    for row in decision["benchmarkOnlyBaselines"]["baselineSeals"]:
+        path = seal_path(Path(repo), frozen, row["compositionId"])
+        if _committed_bytes_sha(Path(repo), row["sealCommit"], path) != row["sealSha256"]:
+            raise _fail("decision_baseline_seal_commit_mismatch", row["compositionId"])
+    return state
 
 
 def _superseded_stop(path: Path, frozen_by_event: Mapping[Path, Mapping]) -> bool:
     """A STOPPED seal of a composition that a later protocol revision replaced (with a new composition id) is kept as
-    immutable history: it permits nothing, so it is accepted when it is canonical, STOPPED, belongs to this event and
-    is still cited by the event record. A RESOLVED seal is never accepted without its frozen composition."""
+    immutable history: it permits nothing, so it is accepted when it is canonical, STOPPED and belongs to this event.
+    Its record citation is checked like every other (``check_record_citations``). A RESOLVED seal is never accepted
+    without its frozen composition, and a superseded composition id is never reused."""
     event_id = path.name.split(SEAL_INFIX)[0]
     event = path.parent / event_id
     if event not in frozen_by_event:
@@ -525,10 +671,7 @@ def _superseded_stop(path: Path, frozen_by_event: Mapping[Path, Mapping]) -> boo
     if seal.get("status") != STOPPED or seal.get("eventId") != event_id or path.name != named:
         return False
     _keys(seal, STOPPED_FIELDS, path.name)
-    if seal["compositionId"] in frozen_compositions(frozen_by_event[event]):
-        return False
-    record = path.parent / f"{event_id}.md"
-    return record.is_file() and seal_sha256(seal) in record.read_text(encoding="utf-8")
+    return seal["compositionId"] not in frozen_compositions(frozen_by_event[event])
 
 
 # ------------------------------------------------------------------ harness API
@@ -585,9 +728,7 @@ def require_committed_baseline_seal(repo: Path, event_id: str, capability_id: st
     evidence = load_baseline_evidence(repo, frozen)
     verified = verify_event_seals({composition_id: evidence[composition_id]}, frozen, lf_normalised_sha256(protocol))
     item = verified[composition_id]
-    record = folder / f"{event_id}.md"
-    if not record.is_file() or item["sha256"] not in record.read_text(encoding="utf-8"):
-        raise _fail("baseline_seal_not_recorded", path.name)
+    check_record_citations(folder / event_id)
     if item["status"] != RESOLVED:
         raise _fail("baseline_seal_stopped_no_d", f"{path.name}:{item['seal']['stopReason']}")
     if _committed_bytes_sha(repo, commit, path) != item["sha256"]:
@@ -668,7 +809,8 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
     cited: dict[str, dict] = {}
     for index, row in enumerate(_list(block["baselineSeals"], f"{where}.baselineSeals")):
         at = f"{where}.baselineSeals[{index}]"
-        _keys(row, ("compositionId", "sealSha256", "status"), at)
+        _keys(row, ("compositionId", "sealSha256", "status", "sealCommit"), at)
+        _match(row["sealCommit"], IMMUTABLE_REVISION_RE, f"{at}.sealCommit")  # verified against Git in repository mode
         if row["compositionId"] in cited:
             raise _fail("gate_only_composition_resolved_twice", at)
         if row["compositionId"] not in gate_ids:
@@ -689,7 +831,13 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
             raise _fail("benchmark_baseline_row_seal_mismatch", f"decision.evaluated.{candidate_id}")
 
     started = block["dExecutionStartedAt"]
-    if stopped:
+    accessed = sorted(verified[c]["seal"]["protectedDAccessedAt"] for c in gate_ids
+                      if verified[c]["status"] == STOPPED and verified[c]["seal"]["protectedDState"] == D_ACCESSED)
+    if accessed:
+        # Cold review P3-2: protected D was accessed before resolution; the decision records that access, never "no D".
+        if started != accessed[0]:
+            raise _fail("baseline_d_access_not_recorded", f"{where}.dExecutionStartedAt")
+    elif stopped:
         if started is not None:
             raise _fail("baseline_stopped_d_started", f"{where}.dExecutionStartedAt")
     elif gate_ids:
@@ -719,6 +867,7 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
     partner_ledgers = {rule["partnerEventId"]: (evidence.get(c) or {}).get("partnerLedger")
                        for c, (_entry, rule) in declared.items()}
     forbidden_identities = {candidate_identity_sha256(entries[b]) for b in benchmark}
+    forbidden_files = set().union(*(benchmark_file_hashes(entries[b]) for b in benchmark))
     passing: dict[str, float] = {}
     composition_ids: set[str] = set()
     for index, composition in enumerate(_list(block["compositionCandidates"], f"{where}.compositionCandidates")):
@@ -759,6 +908,9 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
                 raise _fail("composition_component_event_not_declared", cat)
             if component["identitySha256"] != candidate_identity_sha256(own):
                 raise _fail("composition_component_identity_mismatch", cat)
+            if candidate_file_hashes(own) & forbidden_files:
+                # cold review P3-3: the benchmark-only bytes re-listed under another identity
+                raise _fail("benchmark_baseline_in_composition_candidate", cat)
         if len(keys) < 2 or keys != sorted(set(keys)):
             raise _fail("composition_components_invalid", f"{at}.components")
         gates = composition["gates"]

@@ -92,6 +92,7 @@ DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED = (
 )
 BENCHMARK_BASELINE = "BENCHMARK_BASELINE"  # M3: measured only to define frozen gates; never ranked
 PERMISSION_ARTEFACT_KINDS = ("executable", "runtime-libraries", "model-data")  # M3 per-artefact evaluation permission
+MANIFEST_FILE_KINDS = ("executable", "runtime-library", "data")  # M3 host-manifest file kinds
 DISPOSITIONS = (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED, BENCHMARK_BASELINE)
 REASONS_BY_DISPOSITION = {
     DISCOVERED: (),
@@ -1010,16 +1011,19 @@ def _check_benchmark_baseline(entry: dict, computed: str, confidence: str, where
         paths = []
         for index, item in enumerate(files):
             fat = f"{at}.hostManifests.{profile}[{index}]"
-            _keys(item, ("path", "sha256", "size"), fat)
+            _keys(item, ("path", "kind", "sha256", "size"), fat)
             paths.append(_text(item["path"], f"{fat}.path"))
+            _enum(item["kind"], MANIFEST_FILE_KINDS, f"{fat}.kind")
             _match(item["sha256"], SHA256_RE, f"{fat}.sha256")
             if isinstance(item["size"], bool) or not isinstance(item["size"], int) or item["size"] <= 0:
                 raise _fail("number_required", f"{fat}.size")
         if paths != sorted(set(paths)):
             raise _fail("benchmark_baseline_manifest_not_sorted_unique", f"{at}.hostManifests.{profile}")
     # Evaluation permission is bound per exact artefact (M3 rule 2, review P3): one decision for the executables, one
-    # for the runtime libraries/dependencies (when the host manifests hold any) and one for the model/trained data,
-    # whose hashes together cover exactly the pinned identity files and every host-manifest file.
+    # for the runtime libraries/dependencies (when the host manifests hold any) and one for the model/trained data.
+    # Each host-manifest file declares its kind by path, and each permission covers exactly the files of its kind:
+    # `executable` = every executable file, `runtime-libraries` = every runtime-library file, `model-data` = the pinned
+    # identity files plus every data file. A data file can therefore not be filed under the executable permission.
     permissions = _list(block["evaluationPermissions"], f"{at}.evaluationPermissions")
     kinds: dict[str, set[str]] = {}
     for index, item in enumerate(permissions):
@@ -1037,13 +1041,16 @@ def _check_benchmark_baseline(entry: dict, computed: str, confidence: str, where
         _text(item["decidedBy"], f"{pat}.decidedBy")
         _date(item["decidedOn"], f"{pat}.decidedOn")
         _match(item["primarySourceSha256"], SHA256_RE, f"{pat}.primarySourceSha256")
-    model_data = set(_pinned_files(entry["identity"]))
-    host_files = {item["sha256"] for files in manifests.values() for item in files} - model_data
+    by_kind = {kind: {item["sha256"] for files in manifests.values() for item in files if item["kind"] == kind}
+               for kind in MANIFEST_FILE_KINDS}
+    expected = {"executable": by_kind["executable"], "runtime-libraries": by_kind["runtime-library"],
+                "model-data": set(_pinned_files(entry["identity"])) | by_kind["data"]}
     for kind in ("executable", "model-data"):
         if kind not in kinds:
             raise _fail("benchmark_baseline_permission_required", f"{at}.evaluationPermissions.{kind}")
-    executable, libraries = kinds["executable"], kinds.get("runtime-libraries", set())
-    if kinds["model-data"] != model_data or executable & libraries or executable | libraries != host_files:
+    if "runtime-libraries" not in kinds and expected["runtime-libraries"]:
+        raise _fail("benchmark_baseline_permission_required", f"{at}.evaluationPermissions.runtime-libraries")
+    if any(kinds.get(kind, set()) != hashes for kind, hashes in expected.items()):
         raise _fail("benchmark_baseline_permission_not_bound", f"{at}.evaluationPermissions")
     from .baseline_seal import check_stage1_rule
     ids = set()
@@ -1053,6 +1060,9 @@ def _check_benchmark_baseline(entry: dict, computed: str, confidence: str, where
         if composition["compositionId"] in ids:
             raise _fail("duplicate_composition_id", cat)
         ids.add(composition["compositionId"])
+    if not ids:
+        # M3 rule 1: a benchmark-only component is admitted only to define a frozen gate (cold review P3-6)
+        raise _fail("benchmark_baseline_without_gate", f"{at}.compositions")
 
 
 def _benchmark_baselines(ledger: Mapping) -> set[str]:
@@ -1135,7 +1145,7 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
     from .baseline_seal import check_partner_universe, frozen_compositions
     for composition_id, (_entry, rule) in sorted(frozen_compositions(ledger).items()):
         if rule["partnerEventId"] == ledger["eventId"]:
-            check_partner_universe(rule, ledger, f"ledger.compositions.{composition_id}")
+            check_partner_universe(rule, ledger, f"ledger.compositions.{composition_id}", _entry)
     return summary
 
 
@@ -1588,6 +1598,9 @@ def validate_repository(repo: Path) -> list[str]:
         if lf_normalised_sha256(path) not in record_text or lf_normalised_sha256(snapshot_path) not in record_text:
             raise _fail("decision_hash_not_recorded_in_record", relative(path))
         validate_decision(decision, snapshot, frozen_ledgers[event], repo=repo)
+        from .baseline_seal import check_decision_seal_commits, frozen_compositions
+        if frozen_compositions(frozen_ledgers[event]):
+            check_decision_seal_commits(repo, decision, frozen_ledgers[event])
         # After the decision the working ledger only grows, and nothing is dated before it.
         validate_evolution(snapshot, ledgers[event], since=date.fromisoformat(decision["decidedOn"]))
         checked.append(relative(snapshot_path))
