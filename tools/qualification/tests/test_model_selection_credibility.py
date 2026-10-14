@@ -1511,3 +1511,9 @@ def test_exemptions_are_fixed_by_the_freeze():
     added["candidates"][0]["candidateName"] = "Synthetic-est"
     with pytest.raises(CredibilityError):
         validate_evolution(unfrozen_clean, added)
+
+
+
+@pytest.mark.parametrize("value", ["the l1cense plate", "".join(map(U, (0x29f, 0x26a, 0x1d04, 0x1d07, 0x274))) + "se"])
+def test_digit_and_small_capital_look_alikes_are_refused(value):
+    assert _in_scan(value)

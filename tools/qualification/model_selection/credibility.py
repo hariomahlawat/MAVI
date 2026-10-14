@@ -409,6 +409,7 @@ def _check_identifier_exemptions(ledger: Mapping) -> None:
 # then folded to a Latin skeleton (`_CONFUSABLES`: Cyrillic, Greek and Armenian letters drawn like Latin ones) and
 # refused if it contains "licen". No single non-Latin script holds look-alikes of all of l, i, c, e and n, so a word
 # written wholly in one of those scripts never folds to "licen"; the skeleton refuses only mixed-script spellings.
+# Latin small capitals and the digit one written for "i" are folded too (obfuscations, not words).
 # Paraphrases ("may be redistributed under the terms ...") and confusables outside the table remain reviewer
 # obligations (candidate-credibility.md §9).
 _LICENCE_STEM = "licen"
@@ -420,6 +421,8 @@ _CONFUSABLES = str.maketrans({
     "\u051d": "w", "\u0269": "i", "\u0131": "i", "\u03bf": "o", "\u03b9": "i", "\u03bd": "v", "\u03b1": "a",
     "\u0251": "a", "\u217c": "l", "\u01c0": "l",
     "\u0578": "n", "\u057c": "n", "\u0585": "o",  # Armenian vo, ra, oh
+    "\u029f": "l", "\u026a": "i", "\u1d04": "c", "\u1d07": "e", "\u0274": "n",  # small capitals
+    "1": "i",  # the digit one written for i ("l1cense"); detection only
 })
 
 
