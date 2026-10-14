@@ -43,7 +43,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from mavi_vision.plates.normalisation import OK, normalise
 
@@ -111,6 +111,7 @@ class QuerySet:
     population_manifest_sha256: str
     generator_config_sha256: str
     query_set_sha256: str
+    parameters: QueryParameters
 
 
 def _sha(document: object) -> str:
@@ -212,7 +213,18 @@ def generate(truth_texts: Iterable[str], parameters: QueryParameters, population
               "negativesPerPlate": p.negatives_per_plate, "seed": p.seed}
     body = {"truths": list(ordered), "queries": [[x.query_class, x.text, x.match, list(x.sources)] for x in queries]}
     return QuerySet(queries, metric, ordered, tuple(rejected), skipped, population_manifest_sha256, _sha(config),
-                    _sha({"population": population_manifest_sha256, "config": _sha(config), **body}))
+                    _sha({"population": population_manifest_sha256, "config": _sha(config), **body}), p)
+
+
+def verify(query_set: QuerySet) -> None:
+    """Recompute a query set from its own truths, parameters and population (owner item 12). Every content field and
+    both SHA-256 values must equal the regeneration; a self-declared hash is never trusted. ``rejected_truths``
+    depends on the raw input only and is not regenerated."""
+    if not isinstance(query_set.parameters, QueryParameters):
+        raise ValueError("query_set_parameters_missing")
+    again = generate(query_set.truths, query_set.parameters, query_set.population_manifest_sha256)
+    if replace(again, rejected_truths=query_set.rejected_truths) != query_set:
+        raise ValueError("query_set_contents_do_not_match_their_hashes")
 
 
 def matches(match: str, query_text: str, text: str) -> bool:
