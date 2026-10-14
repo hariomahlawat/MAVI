@@ -569,8 +569,9 @@ describe('geometry held across states and platform faces (§38; X3)', () => {
     expect(/\.scene-toolbar__readonly \{([^}]*)\}/.exec(featuresCss)?.[1]).toMatch(/min-height:\s*calc\(var\(--control-h\) \+ 2 \* var\(--stroke-hair\)\)/);
   });
 
-  it('holds the Queue\'s folded values\' width only at Tier B, never in a Tier C item that wraps them', () => {
+  it('gives the Queue\'s folded values the Tier C item\'s second line, so a held row keeps its reserve and its height', () => {
     const tierC = /@media \(width < 768px\) \{([^]*?)\n\}/.exec(featuresCss.slice(featuresCss.indexOf('.queue-reserve {')))?.[1] ?? '';
-    expect(tierC).toMatch(/\.ledger-folded \.queue-reserve \{ display: none; \}/);
+    expect(tierC).toMatch(/\.table--fold-processing-queue \.ledger-folded \{ flex-basis: 100%; \}/);
+    expect(tierC).not.toMatch(/\.queue-reserve \{ display: none; \}/);
   });
 });
