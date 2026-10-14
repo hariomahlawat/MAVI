@@ -101,7 +101,7 @@ There is one ledger per Model Selection Event: `docs/qualification/model-selecti
   - it refuses every unknown field **[checked]**.
 
   No ledger can claim that a candidate passed a MAVI bake-off;
-- has **no licence field** **[checked]**. Licence wording is refused in every ledger text field too, except the reason and revisit trigger of an `evaluation-permission` disposition **[checked]**. The vehicle-plate domain term is not licence wording: the exact phrases "license plate", "license-plate", "licence plate" and "licence-plate" (any case, optional plural) are ignored by this check, and nothing else is **[checked]**. The licence axis lives in the MSR record §7 and the decision summary (§8);
+- has **no licence field** **[checked]**. Licence wording is refused in every ledger text field too, except the reason and revisit trigger of an `evaluation-permission` disposition **[checked]**. The vehicle-plate domain term is not licence wording: the exact phrases "license plate", "license-plate", "licence plate" and "licence-plate" (any case, optional plural) are ignored by this check when "license/licence" is the noun modifier of "plate", and nothing else is **[checked]**. The check first normalises the text (NFKC, case folding, combining marks and invisible format characters such as zero-width spaces and soft hyphens removed, Unicode dash and space forms folded). A phrase preceded by a licensing prefix ("sub", "re", "cross", "un", "co", "non", …) or by a word that makes "license" a verb ("to", "may", "not", "we", "and", …), with or without a hyphen or space, is not exempt, so "sub-license plates" or "you may license plate weights" stay refused. What remains is folded through a small table of Cyrillic and Greek letters drawn like Latin ones before "licen" is searched. Authors who need the domain term after such a word write "number plate" or "registration plate". The licence axis lives in the MSR record §7 and the decision summary (§8);
 - contains no weights, imagery or credentials. Sources are citations or URLs;
 - uses no future date (today in UTC plus one day), and records no evidence before it was retrieved **[checked]**. Before freeze the dates themselves are attested by the recorder and checked in Git review (§9); after freeze, everything added must be dated on or after the freeze (§7) **[checked]**.
 
@@ -175,18 +175,23 @@ A candidate is its bytes, not its name (MSR method §5).
 
 ### 4.4 Benchmark-only baselines (M3, proposed)
 
+Normative text: `proposals/m3-benchmark-only-baseline.md`; seal and decision-block validator: `tools/qualification/model_selection/baseline_seal.py`.
+
 **New rules [checked]:**
 - `BENCHMARK_BASELINE` is allowed only for computed class `reference-only`, only in a ledger with `methodRevision: msr-v1-m3`, and never for an S2c capability. It needs reason class `technical` and provenance High with every file pinned.
 - The entry carries `benchmarkBaseline`:
   - `purpose` and `protocolSection`;
   - `configurationSha256` (invocation/configuration) and `adapterSha256` (adapter/preprocessing);
-  - `hostManifests`, `{profileId: [{path, sha256, size}]}`, covering every executable, runtime library and data file on each host profile;
-  - `evaluationPermissions`, with each artefact's decision-maker, date and primary-source hash;
-  - `compositions`: each gate-only baseline composition's frozen Stage-1 rule. That is its partner event, its finite `eligiblePartners` (candidate id + exact identity hash), the partner ranking/tie-break hash, the gate-set hash and the derivation rule.
+  - `hostManifests`, `{profileId: [{path, sha256, size}]}`, covering every executable, runtime library and data file. Its profile keys must equal the decision's `targetProfiles` exactly (§8);
+  - `evaluationPermissions`, bound per exact artefact: `[{artefactKind: executable | runtime-libraries | model-data, sha256s, decidedBy, decidedOn, primarySourceSha256}]`, one decision per kind. `executable` and `model-data` are required. The `model-data` hashes equal the pinned identity files; the `executable` and `runtime-libraries` hashes are disjoint and together equal every other host-manifest file. A single vague permission is refused;
+  - `compositions`: each gate-only baseline composition's frozen Stage-1 rule: `compositionId`, `partnerEventId`, finite `eligiblePartners` (candidate id + exact identity hash, the canonical SHA-256 of the partner's ledger `identity` block), `partnerRankingRuleSha256`, `layerAGatesSha256`, `layerAGateIds`, `derivationRule` (enumerated: `highest-ranked-partner-passing-every-layer-a-gate`) and `gateScope` (enumerated: `all-ordinary-compositions`).
+- Every partner in a same-event universe must be a shortlisted candidate of that ledger with that identity. Every partner in another event's universe must be a shortlisted candidate of that event's frozen ledger with that identity (a subset of its shortlist; no other candidate can be injected); the partner event must exist, which the seal verification and the repository check prove (§8).
 - After freeze, the set of benchmark-only baselines, and every field of each, is fixed (§7).
 
+**Prohibited roles [checked, §8].** A benchmark-only component, and any gate-only composition containing it, is never: shortlisted; a candidate; a top-K entry; a component finalist; an ordinary composition candidate or a component of one; ranked (as a candidate or a composition); on a frontier or non-dominated set; the technical winner; the strongest evaluated technical candidate or composition, highest task-quality, strongest reported or strongest cleared candidate; the incumbent; the implementation candidate or one of its components; the subject of `BASELINE_SELECTED`.
+
 **Restated, not new:**
-- MAVI measurements never enter the ledger and never change a class (I4).
+- MAVI measurements never enter the ledger and never change a class (I4), so a benchmark-only component gets no credibility promotion from MAVI measurements.
 - A `reference-only` candidate is never `SHORTLISTED`.
 
 ## 5. Person and vehicle stay separate
@@ -255,6 +260,7 @@ The repository check refuses a protocol without a frozen ledger, a frozen ledger
 - every frozen candidate, evidence item, claim, history entry, caveat and popularity signal is kept unchanged. An evidence item may only gain `retracted`;
 - every evidence item, retraction, history entry, popularity signal and new candidate added is dated on or after `frozenOn`, so nothing added after the freeze can be backdated before it;
 - the shortlist is fixed. For every shortlisted candidate, everything except its append-only evidence, history, caveats and popularity signals and its recomputed classification is fixed as well, including its claims.
+- **M3 (new):** the set of benchmark-only baselines is fixed, and so is every field of each (identity, manifests, configuration, adapter, permissions, disposition, Stage-1 rules) except its append-only lists and recomputed classification. The Stage-2 Layer-A result and baseline seal are separate committed files (§8). They are verified against the frozen copy, never edited once written, and once a D manifest, the decision summary or the record cites a seal hash, a changed seal is refused.
 
 A changed shortlist needs a numbered protocol revision, which voids the results it could bias (MSR method §3.1), freezes a new copy and records the new protocol hash in the record. Before freezing, ledger edits are ordinary reviewed Git changes. A commit that rewrites the frozen copy, the protocol and the record together can be seen only in Git review. The reviewer treats any change to those files as a protocol revision (§9). `python tools/qualification/model_selection_check.py evolution <old> <new>` checks two versions on request.
 
@@ -281,20 +287,24 @@ For non-S2c events these rules are checked in the **decision summary** (`mavi-mo
 - the evaluated set equals the **frozen** shortlist plus the frozen benchmark-only baselines (M3), and the working ledger's shortlist has not changed since. A strong candidate with an inconvenient licence cannot be dropped, before or after freezing;
 - **M3, benchmark-only baseline rows** (new rules):
   - `technicalGates: "n/a"`, `comparativeScore: null`, `taskQualityScore: null`;
-  - `hostManifestSha256s` equal to the ledger manifests' canonical hashes, and the evaluated bytes equal the pinned identity;
+  - `hostManifestSha256s` equal to the ledger manifests' canonical hashes, whose profiles equal `targetProfiles` exactly, and the evaluated bytes equal the pinned identity;
+  - `baselineSealSha256s`: the hash of the committed seal of each of its gate-only compositions;
   - no licence status, because they are never implemented;
-  - excluded from every derivation;
+  - excluded from every derivation, ranked domain and outcome domain;
   - never named by `strongestReported`, `highestTaskQualityEvaluated`, `strongestEvaluatedTechnical`, `strongestClearedPerProfile` or `implementation.components`;
-  - when no ranked row passes the gates, the outcome is `NO_QUALIFIABLE_CANDIDATE`;
-- **M3, gate-only baseline compositions** (new rules): each frozen composition has exactly one `gateOnlyBaselineResolutions` record. It names:
-  - a partner from the frozen `eligiblePartners` with the frozen identity hash;
-  - the frozen ranking-rule hash;
-  - the Layer-A result hash;
-  - `resolvedAt` on or after the freeze and strictly before `dExecutionStartedAt`;
-  - a `recordSha256` over the rest of the record.
-
-  The partner's ordering is re-derived from the frozen rule by the event harness, not by this validator. A composition id never collides with a candidate id, so it cannot enter a ranked, derived or implementation field;
-- **M3, `rankedSets`** (new, optional): top-K cuts, finalists and frontiers, when recorded, may hold only ranked evaluated candidates. A benchmark-only baseline or a composition id is refused;
+- **M3, outcome invariance** (new rule): the outcome is checked by the unchanged M1 rules on the decision with every benchmark-only row and gate-only composition removed. Adding or removing an otherwise identical benchmark-only baseline never changes the verdict. M3 adds no outcome rule;
+- **M3, the committed baseline seal** (new rules, `baseline_seal.py`). Each frozen gate-only composition has a committed Layer-A result (`<event-id>-layer-a-<compositionId>.json`) and a committed seal (`<event-id>-baseline-seal-<compositionId>.json`), both canonical JSON:
+  - the Layer-A result covers exactly the frozen universe with the frozen identities, gate ids, gate-set hash and ranking-rule hash; each partner has a result for every gate and a rank key (lexicographic, lower ranks higher; the frozen rule hash says how it is computed). The partner event's frozen ledger must exist and its hash is bound;
+  - a RESOLVED seal must equal, field for field, the seal re-derived from the frozen ledger, the protocol hash, the partner event's frozen ledger and the Layer-A result: PD_BASE is the unique lowest rank key among partners passing every gate. Every identity it binds is listed in README §14.3. It holds no self-hash;
+  - when the derivation cannot produce a baseline (no passing partner, missing or inconsistent partner event or universe, identity mismatch, a rank tie, resolution after protected D access, any other failed prerequisite), the seal is STOPPED with an enumerated reason and evidence hashes. It names no partner and no composition. Its reason must not be contradicted by the inputs supplied;
+  - the repository check requires each seal and Layer-A file to belong to a frozen composition, to be canonical, to verify, and the event record to carry the seal's SHA-256. A STOPPED seal with no decision is a valid repository state. After a protocol revision, which must give the re-frozen gate-only composition a new composition id, the earlier STOPPED seal (and the Layer-A result it cites) stays as immutable history while the record still cites it; a RESOLVED seal is never kept without its frozen composition;
+- **M3, the mandatory decision block `benchmarkOnlyBaselines`** (new rules). Every field is required when the frozen ledger holds a benchmark-only baseline, so no exclusion depends on an optional field:
+  - `baselineSeals`: each frozen composition's committed seal hash and status, exactly once;
+  - `dExecutionStartedAt`: one event-level D start, strictly after every seal's `recordedAt` and no later than `decidedOn`; `null` when any seal is STOPPED;
+  - `incumbent`, `topK`, `componentFinalists`: ranked evaluated candidates only;
+  - `compositionCandidates`: every ordinary composition with its exact components (from this event's ranked rows, or the partner event's frozen shortlist, by identity hash), its result against every gate-only composition (`gates`, the gate scope being all ordinary compositions), its D result hash and the seal hashes it was measured against. A composition failing a hard gate cannot pass its technical gates. A benchmark-only component, its identity or a gate-only composition id is refused. With a STOPPED seal there are none;
+  - `rankedCompositions`: exactly the passing compositions in non-increasing score order; `strongestEvaluatedComposition` derived from them; `frontier`: passing compositions or candidates only;
+  - a benchmark-only component or a gate-only composition id in any of these is refused;
 - each evaluated artefact set equals the ledger identity:
   - a checkpoint: exactly its weight hashes;
   - a method: its backbone hashes plus at least one declared MAVI-trained artefact with its training-manifest hash, and nothing undeclared;
@@ -311,15 +321,16 @@ Before `PROTOCOL_FROZEN`, the independent reviewer named in the event's frozen p
 - **Attested facts.** The venue and "established group" bases; author, affiliated and independent group assignments (affiliation cannot be proven by a validator); publisher claims; evidence dates.
 - **Candidate kind.** A released checkpoint used end to end is a `checkpoint` candidate, not a `method`. The decision summary requires a method to have MAVI-trained artefacts.
 - **MAVI-produced evidence.** No evidence item reports a MAVI measurement under another name. The validator's denylist (§2) catches only the obvious forms.
-- **Free text.** Licence reasoning appears only under an `evaluation-permission` reason. The validator refuses the word "licence" elsewhere, but not a paraphrase. It ignores only the whole-word vehicle-plate domain phrases ("license plate", "license-plate", "licence plate", "licence-plate", optional plural). The reviewer checks every text containing such a phrase for adjoining licence wording or paraphrase that the exception could mask, and checks for obfuscated spellings (zero-width or soft-hyphen characters, homoglyphs, full-width letters), which the validator does not normalise.
+- **Free text.** Licence reasoning appears only under an `evaluation-permission` reason. The validator refuses the word "licence" elsewhere, but not a paraphrase. It ignores only the whole-word vehicle-plate domain phrases ("license plate", "license-plate", "licence plate", "licence-plate", optional plural) used as a noun, after normalising zero-width and soft-hyphen characters, full-width letters, accents and Unicode dashes and spaces (§4). The reviewer checks every text containing such a phrase for adjoining licence wording or paraphrase that the exception could mask. Homoglyphs are folded only for a small table of Cyrillic and Greek letters; other confusables (other scripts, mathematical alphanumerics not covered by NFKC, look-alike digits) remain a reviewer obligation.
 - **MAVI-trained artefacts.** Each training-manifest hash in the decision summary resolves to a retained MAVI training manifest in the S2c.3 evaluation harness's evidence store. The validator checks its form, not its content.
 - **Frozen files.** Any change to a frozen ledger, a protocol, a decision snapshot, a decision summary or their hashes in the record is reviewed as a protocol revision or a decision revision. The decision file changes as the event state advances, so the reviewer compares each version's snapshot hash with the previous one.
 - **Discovery coverage.** Discovery covered the survey's sources plus a dated re-survey, and no candidate was left out because it was inconvenient. An unlisted strong candidate is a review finding.
 - **Freeze record.** The frozen protocol records the frozen ledger's SHA-256 (template `selection-protocol.md` §2).
-- **Benchmark-only baselines (M3).** Decision v1 holds top-K cuts, finalists and frontiers only if `rankedSets` records them, and holds ranked compositions not at all. So the reviewer confirms:
-  - no benchmark-only component or gate-only composition appears in any of them;
-  - each gate-only resolution was re-derived from the frozen Layer-A artefact by the event harness under the frozen rule, with no owner choice;
-  - the host manifests cover every executable and runtime library actually loaded.
+- **Benchmark-only baselines (M3).** The exclusions, the seal and the hard-gate mapping are machine-checked (§8). The reviewer confirms what remains:
+  - the Layer-A rank keys were computed from the Layer-A measurements by the frozen ranking rule (the validator checks the derivation from the keys, not the keys from the measurements);
+  - the event harness called `require_committed_baseline_seal` before reading protected D data, and every D manifest records the seal hash and commit (`verify_d_manifest_binding`); the Git history shows the Layer-A result and seal committed before the D run;
+  - the host manifests cover every executable and runtime library actually loaded;
+  - a coordinated rewrite of the Layer-A result, the seal, the record, the decision and the D manifests in one commit is treated as a protocol revision.
 
 ## 10. 500-camera standing requirement
 
@@ -349,8 +360,9 @@ Nothing in this revision, and no ledger, claims 500-camera qualification.
 | I10 | A name cannot keep its entry while its bytes change | identity hash and pinned-hash history; no weight bytes shared except an identical method backbone |
 | I11 | Person and vehicle evidence cannot be conflated | fixed event scopes; claim and technical-evidence sub-task and object-class checks |
 | I12 | No S2c.2a artefact claims a MAVI bake-off result | pre-evaluation dispositions only; strict fields; no MAVI evidence; no ledger or decision summary exists in S2c.2a |
-| I13 (M3) | A benchmark-only baseline cannot affect any derived output, outcome or credibility | validator: unscored rows, derivation exclusion, derived-output refusal, outcome rule; I4 |
-| I14 (M3) | A gate-only baseline composition comes only from its frozen finite universe, under its frozen rule, sealed before D, and never enters ranking, the frontier or implementation | validator: frozen composition rule, resolution record, id-collision refusal; harness re-derivation; reviewer (§9) |
+| I13 (M3) | A benchmark-only baseline cannot affect any derived output, ranked set, outcome or credibility | validator: unscored rows, exclusion from every domain, mandatory decision block, derived-output refusal; outcome invariance (the M1 outcome with every benchmark-only entity removed); I4 |
+| I14 (M3) | A gate-only baseline composition comes only from its frozen finite universe, under its frozen rule, and never enters ranking, the frontier or implementation | validator: frozen Stage-1 rule, partner-universe reconciliation, Layer-A reconciliation and re-derivation, id-collision and composition-candidate refusal; reviewer (§9) |
+| I15 (M3) | The baseline is fixed before protected D data is read and cannot be changed afterwards | committed canonical seal cited by the record; seal hash in every D manifest, the benchmark-only row and every composition's D result; `require_committed_baseline_seal` and `verify_d_manifest_binding` in the harness; a STOPPED seal permits no D |
 
 ## 12. Loopholes considered
 
@@ -377,6 +389,11 @@ Nothing in this revision, and no ledger, claims 500-camera qualification.
 | Park an evidence-supported `established` candidate as reference-only for "credibility" | refused: a credibility reason must match the computed class |
 | Hide a demotion by deleting evidence | before freeze a Git-reviewed deletion; after freeze refused (append-only); the last history entry must match the recomputed class |
 | Count stars or downloads, or one group posting three reproductions | popularity signals are never read; producer groups count once |
+| (M3) Reseal the gate-only baseline to another partner after D and recompute the seal's hash | refused: the seal must equal the re-derivation from the committed Layer-A result; the record, the decision block, the benchmark-only row, every composition's D result and every D manifest still carry the earlier hash |
+| (M3) Inject a non-partner or unshortlisted detector as the baseline partner or as a composition component | refused: the partner universe and every component reconcile with the partner event's frozen shortlist by identity hash |
+| (M3) Leave the benchmark-only baseline out of the decision's ranked sets so its exclusion goes unchecked | refused: the M3 decision block is mandatory and every ranked set is checked |
+| (M3) Use a benchmark-only baseline to steer the outcome | the outcome is the ordinary M1 outcome with every benchmark-only entity removed; tests prove invariance |
+| (M3) Hide licensing wording behind "sub-license plates", zero-width characters or full-width letters | refused: the text is normalised and the plate phrase is exempt only as a noun (§4) |
 
 Residual human trust (P3): these are reviewer obligations (§9), not machine checks.
 - group independence and affiliation, including undeclared sibling groups;
@@ -385,7 +402,8 @@ Residual human trust (P3): these are reviewer obligations (§9), not machine che
 - whether an item typed "independent" really measured something itself;
 - relabelled sub-tasks on independent evidence;
 - disguised MAVI results;
-- paraphrased licence reasoning, including licence wording next to an exempt plate-domain phrase, and obfuscated spellings of "licence";
+- paraphrased licence reasoning, including licence wording next to an exempt plate-domain phrase, and confusable spellings of "licence" outside the folded Cyrillic/Greek table;
+- (M3) Layer-A rank keys computed by the frozen rule, the harness's pre-D seal check, and coordinated rewrites of the Layer-A result, seal, record, decision and D manifests;
 - training-manifest resolution;
 - the checkpoint/method kind;
 - a fabricated history prefix on superseded inputs before freeze (it can never support implementation);

@@ -50,6 +50,8 @@ Assessments 1 and 2 together form the **technical ranking**. Licence terms never
 
 **The one carve-out: evaluation permission.** Whether MAVI may lawfully *run* a candidate on its data is a human legal precondition to measurement, not a ranking input. It is recorded with decision-maker, date and primary source. A candidate that may not be evaluated becomes `REFERENCE_ONLY`: its reported evidence stays in the record at full strength and is marked "not reproduced by MAVI". It is never `NOT_SHORTLISTED` on that ground. (Under revision M1 an `excluded-discovery`, whose origin cannot be identified, is `NOT_SHORTLISTED` on credibility grounds whatever its evaluation permission.) Where the method is usable but the released checkpoint is not, the method trained on MAVI-permitted data represents it.
 
+Under revision M3 (§14.3), a `BENCHMARK_BASELINE` component is measured only because the frozen protocol needs it as a comparison gate. Its evaluation permission is the same precondition, recorded **per exact artefact** (executables, runtime libraries/dependencies, model/trained data, each by SHA-256) in its ledger entry. Permission to run it never makes it a candidate: it is never shortlisted, ranked or implemented, so the licence axis and the technical ranking are untouched by it.
+
 Assessment 3 is applied afterwards to decide which ranked candidates are **cleared for a declared deployment profile**. A technically superior candidate stays in the record at its rank, marked with its constraint, even when it is not cleared for any declared profile.
 
 ### 2.1 The declared MAVI deployment profile (owner constraint)
@@ -91,8 +93,8 @@ PLANNED → PROTOCOL_FROZEN → EVALUATING → TECHNICAL_DECISION_RECORDED → Q
 | State | Entry condition |
 |---|---|
 | `PLANNED` | task definition, capability id, baseline, incumbent (or "none") and discovery sources recorded; candidates `DISCOVERED` |
-| `PROTOCOL_FROZEN` | protocol file committed and hashed **before any candidate sees MAVI evaluation data**. The protocol holds: shortlist with exact checkpoint identities, partitions, metrics, gates, comparative weights and scoring rule, the minimum practically important difference (MPID), strata, host class, and report format |
-| `EVALUATING` | harness runs under the frozen protocol; results retained by hash |
+| `PROTOCOL_FROZEN` | protocol file committed and hashed **before any candidate sees MAVI evaluation data**. The protocol holds: shortlist with exact checkpoint identities, partitions, metrics, gates, comparative weights and scoring rule, the minimum practically important difference (MPID), strata, host class, and report format. Under M3 it also names each benchmark-only baseline with its exact identity (pinned files, per-profile host manifests, configuration, adapter, per-artefact permissions) and, for each gate-only baseline composition, its Stage-1 rule: partner event, finite eligible partner universe with identity hashes, Layer-A gate ids and gate-set hash, ranking/tie-break rule hash, derivation rule and gate scope (§14.3) |
+| `EVALUATING` | harness runs under the frozen protocol; results retained by hash. Under M3, Stage 2 happens inside this state: the Layer-A result and the baseline seal (`RESOLVED` or `STOPPED`) are committed and cited by the record **before any protected D data is read**, and every D manifest carries the seal hash. A `STOPPED` seal permits no D execution; the governing event protocol then decides the state (for Stage-4 PR-2, N9: back to `PLANNED` for owner action) |
 | `TECHNICAL_DECISION_RECORDED` | gates evaluated, measurements tabulated, technical ranking computed by the frozen rule; strongest reported, highest task-quality and strongest evaluated technical candidates named (§9) |
 | `QUALIFICATION_PENDING` | licence/deployment qualification per target profile recorded or awaited; strongest candidate cleared for each target profile named; implementation candidate chosen by the owner |
 | `CLOSED` | one of the outcomes below is recorded; record hashed |
@@ -100,8 +102,10 @@ PLANNED → PROTOCOL_FROZEN → EVALUATING → TECHNICAL_DECISION_RECORDED → Q
 A `CLOSED` event has exactly one **outcome**:
 - `SELECTED_FOR_PACKAGING`: an implementation candidate goes on to become a Model Pack.
 - `INCUMBENT_RETAINED`: no challenger justified replacement.
-- `BASELINE_SELECTED`: no learned candidate beat the deterministic baseline, and the baseline is packaged. A benchmark-only baseline (M3) can never produce `BASELINE_SELECTED`; with no ranked candidate past the gates the outcome is `NO_QUALIFIABLE_CANDIDATE`.
+- `BASELINE_SELECTED`: no learned candidate beat the deterministic baseline, and the baseline is packaged. The baseline is the ordinary, packageable (`mavi-owned`) one, never an M3 benchmark-only baseline.
 - `NO_QUALIFIABLE_CANDIDATE`: the capability or attribute stays disabled.
+
+Under M3 (§14.3), the outcome is derived exactly as though every benchmark-only baseline and every gate-only baseline composition were absent: they are removed from every candidate, ranked and outcome domain first, and these rules then apply unchanged. Adding or removing a benchmark-only baseline can never change the outcome. M3 adds no outcome rule; in particular, a missing implementation-eligible candidate does not by itself make the outcome `NO_QUALIFIABLE_CANDIDATE`.
 
 `CLOSED` does not mean qualified. Qualification of the resulting pack is decided by its qualification record and reported back through an addendum.
 
@@ -176,13 +180,19 @@ Every serious candidate records, where available, the fields below. Unknown mean
 
 Some capabilities are served by one Model Pack that composes components solving different sub-tasks. `person-attributes`, for example, covers clothing colour (T-PC) and carried objects/headwear (T-PO). Winners of separate sub-tasks do not automatically make a good pack: a shared backbone, memory, load time and failure domain all change. The event therefore runs a fixed sequence:
 
-1. **Sub-task evaluation.** Each sub-task's candidates are evaluated and ranked on their own (§8), producing per-sub-task **component finalists**. These are the candidates that pass the per-component gates for at least one attribute of the sub-task, capped at the protocol's `K` best by the sub-task ranking. A packageable baseline may be one of them. Budget and scale gates are judged per composition (step 3). A small `K`, for example 3, keeps the search bounded.
+1. **Sub-task evaluation.** Each sub-task's candidates are evaluated and ranked on their own (§8), producing per-sub-task **component finalists**. These are the candidates that pass the per-component gates for at least one attribute of the sub-task, capped at the protocol's `K` best by the sub-task ranking. A packageable (`mavi-owned`) baseline may be one of them; an M3 benchmark-only baseline never is (it is never ranked, never in top-K and never a finalist). Budget and scale gates are judged per composition (step 3). A small `K`, for example 3, keeps the search bounded.
 2. **Composition generation, by a rule frozen in the protocol.** The composition candidates are:
    - the tuple of the sub-task winners;
    - every tuple of finalists that **share a backbone** (one tower serving both sub-tasks with separate heads), which is evaluated as its own candidate because its heads are trained on the shared features;
    - the protocol's cap on further tuples from the finalist product, ordered by the sum of sub-task ranks.
 
-   Non-packageable baselines never enter a ranked tuple. A gate-only baseline composition (M3, §14.3) is measured only as the frozen comparison for the compositions its protocol names. It is never a composition candidate, frontier member, finalist or ranked row. Each composition is written as an exact tuple (`<T-PC component>`, `<T-PO component>`, optional shared backbone or region component), each element with its exact identity (§5). No composition may be proposed after results are seen.
+   Non-packageable baselines never enter a ranked tuple. Under M3 (§14.3):
+   - a benchmark-only baseline component is never a component of a composition candidate;
+   - a gate-only baseline composition (one benchmark-only component plus its mechanically resolved partner) is not generated by this step. It is fixed by its frozen Stage-1 rule and committed seal, and is measured only as the frozen hard-gate comparison for the ordinary compositions its gate scope names;
+   - it is never a composition candidate, ranked composition, finalist, frontier or non-dominated member, technical winner, strongest evaluated candidate, incumbent or implementation composition, and it can never produce `BASELINE_SELECTED`;
+   - every ordinary composition records its result against each sealed gate-only baseline composition and the seal hash, and a composition that fails that hard gate cannot pass its technical gates.
+
+   Each composition is written as an exact tuple (`<T-PC component>`, `<T-PO component>`, optional shared backbone or region component), each element with its exact identity (§5). No composition may be proposed after results are seen.
 3. **Composition evaluation**, on the same partitions and hosts. Each composition records:
    - combined per-attribute quality, with each sub-task's primary metrics taken from its components;
    - end-to-end CPU latency per crop and per Track, and aggregate throughput;
@@ -345,7 +355,7 @@ For non-S2c events, a record at `TECHNICAL_DECISION_RECORDED` or later states ea
 | Deltas | quality and resource deltas between each pair of the fields above that differ: highest task-quality vs strongest evaluated technical, which shows when accuracy lost on cost or scale; strongest evaluated technical vs strongest cleared; strongest cleared vs implementation |
 | Projected system-scale footprint | per finalist or composition (§7.1) |
 | Evidence, risks, qualification status | evidence by hash; unresolved risks and assumptions; qualification status |
-| Benchmark-only baselines (M3) | each benchmark-only component and each sealed gate-only baseline composition, reported separately under "benchmark-only baseline — not a selectable candidate". They never appear in any field above |
+| Benchmark-only baselines (M3) | each benchmark-only component and each gate-only baseline composition with its seal hash and status (`RESOLVED` or `STOPPED`), reported separately under "benchmark-only baseline — not a selectable candidate". They never appear in any field above, and they gain no credibility from MAVI measurements |
 
 Once they exist, the identities follow, recorded when created and by reference:
 - Model Pack id;
@@ -389,7 +399,7 @@ Imagery and private derived data stay in the access-controlled evidence store (A
 
 ## 11. Immutability, errata and addenda
 
-A closed record and a frozen protocol are never edited. Later information goes to `<event-id>-addenda.md`. The file opens with the closed record's SHA-256, followed by dated, numbered entries of one of four kinds:
+A closed record and a frozen protocol are never edited. Neither is an M3 Layer-A result or baseline seal once committed (§14.3): once a D manifest, a decision summary or the record cites a seal hash, a changed seal is refused. Later information goes to `<event-id>-addenda.md`. The file opens with the closed record's SHA-256, followed by dated, numbered entries of one of four kinds:
 - **Erratum:** a factual correction to the closed record, stating what was wrong, the corrected fact, whether the decision would change, and who recorded it. If the decision would change, a new event is opened.
 - **Licence/deployment determination:** a later human determination for a named profile (for example a Production deployment's end-use determination for an L-B pack), with its decision-maker, date and primary source. It does not re-rank anything.
 - **Qualification outcome:** the resulting pack's qualification record id and hash, and per-profile results.
@@ -443,14 +453,13 @@ Revisions are additive and numbered, and never silently rewrite an earlier rule.
 | Revision | Slice | Content | Status |
 |---|---|---|---|
 | **M1** Candidate credibility and admissibility | S2c.2a | `candidate-credibility.md`. It adds: credibility classes computed from an External Evidence Ledger; laundering-resistant tracing of reported figures to their origin; a shortlist rule requiring pinned, original-source provenance; an implementation rule requiring `established` with a recorded promotion; and a checked decision summary (`<event-id>-decision.json`) that derives the §9 outputs. Validator: `tools/qualification/model_selection_check.py` | **governing — PR #118 merged** |
+| **M3** Benchmark-only baseline component and derived gate-only composition | Stage-4 PR-2 | `proposals/m3-benchmark-only-baseline.md`; `candidate-credibility.md` §3, §4, §4.4, §7, §8, §9, §11; validators `credibility.py` (`BENCHMARK_BASELINE`, `msr-v1-m3`) and `baseline_seal.py` (Layer-A result, baseline seal, decision block, harness API) | **proposed — governing only when merged after independent review and exact-head CI** |
 
 *M1 trade-off:*
 - **Cost:** every serious candidate needs a ledger entry and a reviewer check of its independent evidence. A genuinely strong but newly published model cannot be implemented until independent evidence exists.
 - **Gain:** no model reaches a Model Pack on self-reported or copied numbers, and every inclusion and exclusion can be reconstructed.
 - **What changes:** M1 adds a precondition to the owner's implementation choice (§4): an implementation candidate must now also be `established`. It also adds a shortlist precondition and three event files: the ledger, its frozen copy and the decision summary. The technical ranking, the licence axis, the outcomes and the qualification-record link are unchanged.
 - **What does not change:** no ADR, contract, schema of any existing record, or gate set. ADR-014's Model Selection Records note governs the method, including its revisions. The note's decision list (three separate assessments, exact bytes, reported versus measured evidence) is what M1 strengthens.
-
-| **M3** Benchmark-only baseline component and derived gate-only composition | Stage-4 PR-2 | `proposals/m3-benchmark-only-baseline.md`; `candidate-credibility.md` §3, §4, §8, §9, §11; validator `credibility.py` (`BENCHMARK_BASELINE`, `msr-v1-m3`) | **proposed — governing only when merged after independent review and exact-head CI** |
 
 See §14.3 for M3.
 
@@ -485,6 +494,18 @@ After this implementation and one independent post-implementation review, the S2
 The `BENCHMARK_BASELINE` disposition applies only to a third-party candidate whose computed M1 class is `reference-only`, in an `msr-v1-m3` ledger and decision summary v1. Decision v2 (M2/S2c) is unchanged and refuses it. M3 separates two things:
 
 - the **benchmark-only component** (for example a Tesseract baseline). Its exact identity, per-host byte manifests, configuration and evaluation permissions are fully pinned before `PROTOCOL_FROZEN`;
-- the **derived gate-only baseline composition**. Its finite partner universe (exact identities), deterministic derivation rule, ranking/tie-break hash and gate-set hash are frozen before any scoring. The exact composition is then resolved mechanically after the frozen pre-gate layer and sealed before any protected data is read. This is not a late candidate addition, and it permits no owner choice.
+- the **derived gate-only baseline composition**. Its partner event, finite partner universe (exact identities), Layer-A gate ids and gate-set hash, ranking/tie-break hash, enumerated derivation rule and enumerated gate scope are frozen before any scoring (Stage 1). The exact composition is then resolved mechanically after the frozen pre-gate layer (Stage 2). This is not a late candidate addition, and it permits no owner choice.
+
+**The committed pre-D seal.** Stage 2 commits two canonical-JSON files beside the event's MSR files, and the event record cites the seal's SHA-256, before any protected D data is read:
+- `<event-id>-layer-a-<compositionId>.json` (`mavi-model-selection-layer-a-result-v1`): each eligible partner's identity, Layer-A gate results and rank key;
+- `<event-id>-baseline-seal-<compositionId>.json` (`mavi-model-selection-baseline-seal-v1`), status `RESOLVED` or `STOPPED`. A RESOLVED seal binds the freeze identity (protocol and frozen-ledger hashes), the eligible-universe, Stage-1 rule, Layer-A gate-set and ranking-rule hashes, the benchmark component's exact identity hash, the partner event and its frozen-ledger hash, the Layer-A result hash, the resolved partner and its identity hash, the derived composition hash, the gate scope and `protectedDState: NOT_STARTED`. It is valid only if it is exactly what the frozen rule re-derives from those inputs. A STOPPED seal records the stop reason and evidence hashes, names no partner, permits no D execution and leaves the event state and outcome to the governing protocol and the ordinary M1 rules.
+
+The seal's identity is its canonical SHA-256; it holds no self-hash. Ordering is proven by hashes, not timestamps: every protected D manifest and result, the decision summary's mandatory `benchmarkOnlyBaselines` block and the benchmark-only row carry the seal hash, so a re-seal after D is refused wherever the earlier hash was recorded.
+
+**Harness obligation** (for the event harness, for example the Stage-4 plate harness). In `tools/qualification/model_selection/baseline_seal.py`:
+1. after Layer A, build the Layer-A result (`layer_a_result_document`) and the seal (`derive_baseline_seal`), commit both and cite the seal hash in the event record;
+2. before reading any protected D data, call `require_committed_baseline_seal(repo, event_id, capability_id, composition_id)` for every frozen gate-only composition. It refuses unless the seal file is committed, unmodified, cited by the record, `RESOLVED` and re-derivable from the frozen inputs, and returns the seal SHA-256 and the Git commit holding those bytes;
+3. record `baselineSeals: [{compositionId, sealSha256, sealCommit}]` in every protected D manifest and result, and check each with `verify_d_manifest_binding` before scoring;
+4. on a STOPPED seal, run no D.
 
 *M3 trade-off:* the owner's wording is in `proposals/m3-benchmark-only-baseline.md` §5.

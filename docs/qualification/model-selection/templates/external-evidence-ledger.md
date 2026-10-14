@@ -61,11 +61,15 @@ Field rules:
 - A `mavi-baseline` identity is `{"repository": "MAVI", "revision": "<commit | UNKNOWN>"}` with no evidence and no claims.
 - **M3 only** (`methodRevision: msr-v1-m3`, computed class `reference-only`, reason class `technical`): a `BENCHMARK_BASELINE` entry carries
   `"benchmarkBaseline": {"purpose": "…", "protocolSection": "…", "configurationSha256": "…", "adapterSha256": "…",
-  "hostManifests": {"<profile-id>": [{"path": "…", "sha256": "…", "size": 1}]},
-  "evaluationPermissions": [{"artefact": "…", "decidedBy": "…", "decidedOn": "YYYY-MM-DD", "primarySourceSha256": "…"}],
-  "compositions": [{"compositionId": "…", "partnerEventId": "msr-…", "eligiblePartners": [{"candidateId": "…", "identitySha256": "…"}],
-  "partnerRankingRuleSha256": "…", "layerAGatesSha256": "…", "derivationRule": "…"}]}`
-  (`../candidate-credibility.md` §4.4). No other entry may carry it.
+  "hostManifests": {"<target-profile-id>": [{"path": "…", "sha256": "…", "size": 1}]},
+  "evaluationPermissions": [{"artefactKind": "executable | runtime-libraries | model-data", "sha256s": ["<sorted exact hashes>"],
+  "decidedBy": "…", "decidedOn": "YYYY-MM-DD", "primarySourceSha256": "…"}],
+  "compositions": [{"compositionId": "…", "partnerEventId": "msr-…", "eligiblePartners": [{"candidateId": "…", "identitySha256": "<canonical SHA-256 of the partner's identity block>"}],
+  "partnerRankingRuleSha256": "…", "layerAGatesSha256": "…", "layerAGateIds": ["<sorted gate ids>"],
+  "derivationRule": "highest-ranked-partner-passing-every-layer-a-gate", "gateScope": "all-ordinary-compositions"}]}`
+  (`../candidate-credibility.md` §4.4). No other entry may carry it. `hostManifests` has one key per decision target
+  profile. One permission per artefact kind: `model-data` covers exactly the pinned identity files; `executable` and
+  `runtime-libraries` together cover exactly every other host-manifest file.
 - `derivation` is required when the publisher is `recognised-framework-maintainer`: `{"fromRepository", "fromRevision", "fromSha256", "conversionDocumentedBy": "<evidenceId>"}`.
 - `integrityConflict` is null or `{"at": "YYYY-MM-DD", "reason": "…"}`, for example retrieved bytes that differ from the published hash. From its date the candidate is `excluded-discovery`.
 - An `emerging` candidate is normally `REFERENCE_ONLY` with reason class `credibility`. Shortlisting it needs `emergingShortlistBasis` and a `reviewedBy` different from `decidedBy`.
@@ -103,7 +107,7 @@ Type rules:
 - **independent technical types** also carry `subTask` and `objectClass`, which must be the candidate's and the ledger's.
 - **producers:** an `author` group is in `authors.groups`, an `author-affiliated` group in `authors.affiliatedGroups`; `independent` is in neither.
 - **dates:** `retrievedOn` ≤ `recordedAt`; no future date.
-- **licence:** no key or text anywhere mentions a licence, except the reason and revisit trigger of an `evaluation-permission` disposition. The plate domain term ("license plate", "license-plate", "licence plate", "licence-plate", any case, optional plural) is not licence wording.
+- **licence:** no key or text anywhere mentions a licence, except the reason and revisit trigger of an `evaluation-permission` disposition. The plate domain term ("license plate", "license-plate", "licence plate", "licence-plate", any case, optional plural, after Unicode normalisation) is not licence wording when it is a noun; after a licensing prefix ("sub", "re", "cross", "un", …) or a verb context ("to", "may", "we", "and", …) it is (`../candidate-credibility.md` §4).
 - **MAVI:** no reserved `mavi` group, MAVI path, MSR event file or `evidence-store:` source, and no item text naming MAVI.
 - **independent-benchmark:** scope is `method`.
 - **exact-checkpoint scope:** needs `reproducedArtefact`, as `{"sha256s": [...]}` equal to **all** pinned weight hashes, or as `{"repository", "revision"}` equal to the identity.
@@ -161,8 +165,60 @@ Rules:
 
 The validator checks `candidate-credibility.md` §8:
 - the ledger and frozen-ledger hashes, and (repository check) the protocol hash;
-- the evaluated set equals the frozen shortlist;
+- the evaluated set equals the frozen shortlist (plus, under M3, the frozen benchmark-only baselines);
 - the evaluated bytes equal the ledger identity plus declared MAVI-trained artefacts (a method needs at least one; a checkpoint none);
 - the derived "strongest" outputs;
 - implementation eligibility;
-- under M3, the benchmark-only baseline rules, plus one `gateOnlyBaselineResolutions` record per frozen composition: `{"compositionId", "benchmarkBaselineId", "partnerCandidateId", "partnerIdentitySha256", "partnerRankingRuleSha256", "layerAResultSha256", "resolvedAt": "YYYY-MM-DDThh:mm:ssZ", "dExecutionStartedAt": "…", "recordSha256"}`, and optional `"rankedSets": {"<set-name>": ["<ranked candidateId>"]}` (`../candidate-credibility.md` §8).
+- under M3, the benchmark-only baseline rules and the mandatory block below (`../candidate-credibility.md` §8);
+- the outcome, by the unchanged M1 rules with every benchmark-only entity removed.
+
+**M3 only.** A benchmark-only row also carries `"baselineSealSha256s": {"<compositionId>": "<seal SHA-256>"}`, and the
+decision carries the mandatory block:
+
+```json
+"benchmarkOnlyBaselines": {
+  "baselineSeals": [{"compositionId": "…", "sealSha256": "<canonical SHA-256 of the committed seal>", "status": "RESOLVED | STOPPED"}],
+  "dExecutionStartedAt": "YYYY-MM-DDThh:mm:ssZ | null (null when any seal is STOPPED)",
+  "incumbent": "<ranked candidateId> | null",
+  "topK": ["<ranked candidateId>"], "componentFinalists": ["<ranked candidateId>"],
+  "compositionCandidates": [{"compositionId": "…",
+                             "components": [{"eventId": "msr-…", "candidateId": "…", "identitySha256": "…"}],
+                             "gates": {"<gate-only compositionId>": "passed | failed"},
+                             "technicalGates": "passed | failed", "comparativeScore": 0.0,
+                             "dResultSha256": "…", "baselineSealSha256s": {"<gate-only compositionId>": "<seal SHA-256>"}}],
+  "rankedCompositions": ["<passing compositionId, non-increasing score>"],
+  "frontier": ["<passing compositionId or candidateId>"],
+  "strongestEvaluatedComposition": "<compositionId> | null"}
+```
+
+## Layer-A result and baseline seal (M3 only)
+
+Committed canonical JSON beside the event's MSR files, before any protected D data is read; the event record cites the
+seal's SHA-256. Build and verify them with `tools/qualification/model_selection/baseline_seal.py`
+(`layer_a_result_document`, `derive_baseline_seal`, `verify_baseline_seal`). Shape contracts:
+`tools/qualification/model_selection/schemas/mavi-model-selection-layer-a-result-v1.schema.json` and
+`…/mavi-model-selection-baseline-seal-v1.schema.json`.
+
+```json
+{"schema": "mavi-model-selection-layer-a-result-v1", "eventId": "…", "compositionId": "…",
+ "partnerEventId": "msr-…", "partnerFrozenLedgerSha256": "…", "layerAGatesSha256": "…", "layerAGateIds": ["…"],
+ "partnerRankingRuleSha256": "…", "evidenceSha256": "<raw Layer-A evidence>",
+ "results": [{"candidateId": "…", "identitySha256": "…", "gates": {"<gate id>": "passed | failed"},
+              "rankKey": ["<booleans, numbers or strings; lexicographic, lower ranks higher>"], "measurementSha256": "…"}]}
+```
+
+```json
+{"schema": "mavi-model-selection-baseline-seal-v1", "status": "RESOLVED",
+ "eventId": "…", "capabilityId": "…", "compositionId": "…", "benchmarkBaselineId": "…",
+ "benchmarkComponentIdentitySha256": "…", "protocolSha256": "…", "frozenLedgerSha256": "…", "stage1RuleSha256": "…",
+ "eligibleUniverseSha256": "…", "layerAGatesSha256": "…", "partnerRankingRuleSha256": "…",
+ "gateScope": "all-ordinary-compositions", "partnerEventId": "…", "partnerFrozenLedgerSha256": "…",
+ "layerAResultSha256": "…", "partnerCandidateId": "…", "partnerIdentitySha256": "…", "compositionSha256": "…",
+ "protectedDState": "NOT_STARTED", "recordedAt": "YYYY-MM-DDThh:mm:ssZ", "recordedBy": "…"}
+```
+
+A STOPPED seal has the same common fields (`partnerFrozenLedgerSha256` and `layerAResultSha256` may be `null`),
+`"status": "STOPPED"`, `"stopReason"` (one of `no-partner-passed-layer-a`, `partner-event-missing`,
+`partner-event-inconsistent`, `partner-universe-inconsistent`, `identity-mismatch`, `resolution-ambiguous`,
+`protected-d-accessed`, `prerequisite-failed`), `"stopDetail"` and `"stopEvidenceSha256s"`, and no partner or composition
+field.
