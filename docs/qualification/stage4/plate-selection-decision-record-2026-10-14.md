@@ -65,23 +65,34 @@ It does not change PR-3/PR-4 product semantics or the frozen plate normalisation
 - **Bootstrap:** percentile 95 % interval at indices ⌊0.025·(R−1)⌋ and ⌈0.975·(R−1)⌉ of the sorted exact replicates.
 - **§8.1 coverage tolerance:** the minimum site count at which the zero-difference coverage is ≥ 0.93 (PR-2 protocol §7.1).
 
-## 4a. Provenance, binding and caller-provided values (review 2026-10-14)
+## 4a. Provenance, binding and caller-provided values (reviews of 2026-10-14)
 
-- **Ranking provenance:** ranking-path objects carry a per-process HMAC seal set only inside the ranking path. These are runs, B/C plates, A/B results, component scores and D scores.
-  - Diagnostics are distinct, unsealed types (`DiagnosticPlate`, `DiagnosticTrackScore`).
-  - Every decision function refuses an unsealed, edited or relabelled object: `evaluate_reading`, `top_k`, `resolve_baseline`, `baseline_gate`, `rankable_compositions`, the bootstrap and the comparison.
-- **Query binding:** every D function regenerates the query set from its truths, parameters and population, and requires the frozen generator-config and query-set SHA-256 as arguments.
-- **Score binding:** D scores carry their population and query-set hashes, and the baseline gate refuses scores from different ones.
-- **Resolution:** every consumer re-derives the baseline resolution from the freeze and the Layer-A results (`verify_resolution`).
-- **Caller-provided (labelled, bound by protocol and review):**
-  - Track cluster (site) and truth;
-  - Layer-A `gates_passed` and identity hashes;
-  - `required_clusters` (checked ≥ 60);
-  - the pinned detector floor (`evaluate_tracks` checks every run used exactly it);
+- **Ranking provenance:** ranking-path objects carry a per-process HMAC seal, set only inside the ranking path. These are runs, B/C plates, A/B results, component scores and D scores. Diagnostics are distinct, unsealed types (`DiagnosticPlate`, `DiagnosticTrackScore`).
+  - **Enforced:** any field edit of a sealed object breaks the seal, including its parameters, its component identity and its D value. Such an object, or a hand-built one, is refused by `evaluate_reading`, `top_k`, `resolve_baseline`, `baseline_gate`, `rankable_compositions`, `diagnostic_ocr_uplift` and the comparison.
+  - **Not enforced (disclosed, P3-5):** an in-process caller can call the private `_seal`. The seal stops relabelling through the public API, not a hostile caller inside the process.
+- **Composition identity (review P1-1):**
+  - `run_track` seals the detector and recogniser `ComponentIdentity` (candidate id + M3 `identitySha256`) into the run.
+  - `evaluate_tracks` requires every run to be of the stated composition, and seals both identities into the `TrackScore`.
+  - `CompositionScore` has no labels of its own.
+  - The baseline gate checks the baseline score's sealed identities against the resolution's `compositionSha256`. This is exactly M3's formula (`baseline_seal.composition_sha256`, test vector pinned).
+  - The benchmark-only refusal reads sealed ids and identities, in `rankable_compositions`, `baseline_gate` and the comparison.
+  - Components take their id from the sealed A/B result. A Layer-A result's score identity must equal its frozen identity.
+- **Bootstrap (P2-1, P2-3):** R is fixed at 1,000 and any other value is refused. The replicate function is private and refuses a contract-violating run.
+- **`required_clusters` (P2-2):** computed inside as max(60, the frozen calibration minimum). That minimum is a frozen input that is **pending**, because owner rule T currently STOPS (no count in band). No value is encoded.
+- **A (P3-2):** a `DetectionItem` without `crop_size` is refused unless it carries a contract violation.
+- **Query binding:** every D function regenerates the query set and requires the frozen generator-config and query-set SHA-256 as arguments.
+- **Score binding:** D scores carry their population and query-set hashes, and the gate refuses mixed ones.
+- **Resolution:** every consumer re-derives it from the freeze and the Layer-A results (`verify_resolution`).
+- **Caller-provided (labelled; bound by protocol and review):**
+  - the `ComponentIdentity` asserted at `run_track`, at `ranking_plate_record` (B on GT crops) and at `evaluate_reading` / `evaluate_detection`;
+  - the Track cluster (site) and truth;
+  - Layer-A `gates_passed`;
+  - the frozen values of the query-set SHA arguments, the bootstrap seed and the calibration minimum;
+  - the pinned detector floor (each run is checked against it);
   - the N4 `independent` verdict;
-  - `d_rows_read` at resolution (the resolution time is format-checked and must not precede the freeze);
-  - hand-built `DetectionItem`s (use `detection_item_from_run`).
-- **B ranking** uses PR-3's public contract (`reading_rank_key`, `raw_line_count`, `PlateRecord`, `RankedReading`). A test proves equality with PR-3's internal `_plate`. A public PR-3 ranking function would remove that coupling; it is reported, not added from this branch.
+  - `d_rows_read` at resolution (the time is format-checked and not before the freeze).
+- **Held for the owner (review P1-2):** the committed pre-D seal artefact (M3 `baseline_seal`, `require_committed_baseline_seal`, D-manifest binding) is not integrated. The owner has not yet decided whether it goes into #218 or a follow-up PR before the PR-2 freeze. Today's identity binding uses M3's `identitySha256` and `compositionSha256`, so the integration is additive.
+- **B ranking** uses PR-3's public contract; a test proves equality with PR-3's internal `_plate`.
 
 ## 5. Still-open values (required parameters; fixed in the PR-2 protocol before freeze)
 
