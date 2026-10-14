@@ -86,7 +86,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
-          fetch-depth: 1
+          # Full history: verify_repo proves from Git that M3 baseline seals are add-only and committed
+          # strictly before every protected-D artefact citing them; it refuses such an event on a shallow clone.
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify exact checked-out source head
         run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"

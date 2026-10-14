@@ -1243,7 +1243,7 @@ def test_module_imports_no_network_library():
 
 @pytest.mark.parametrize("field, value", [
     ("name", "Licence Plate recogniser (CCT)"),
-    ("caveat", "Trained on LICENSE PLATE crops from 65 regions"),
+    ("caveat", "Trained on the LICENSE PLATE crops of 65 regions"),
     ("summary", "Author README: licence-plate detector validation table"),
     ("caveat", "Licence-plate crops only"),
     ("caveat", "the license plates of 65 regions"),
@@ -1428,6 +1428,11 @@ REVIEW_PLATE_TEXT = [
 # Benign phrasings the fail-closed allowlist refuses. Listed for the owner's ruling (conjunction and "to" contexts,
 # hyphenated plate-domain modifiers, dataset names); the author writes "number plate" or "plate" instead.
 DOCUMENTED_FALSE_POSITIVES = [
+    # owner decision 2026-10-14: no conjunction, preposition or verb before the phrase is exempt
+    "detects license plates in images", "reads licence-plate text", "on license plates.",
+    "Trained on LICENSE PLATE crops from 65 regions", "vehicle and license plate crops",
+    "applied to license plate recognition", "crops of license plates", "for license plate recognition",
+    "with license plates", "in license plate images", "license plate, licence plate", "vehicles license plates",
     "CCPD license plate dataset", "multi-line license plates", "dual-row licence plates", "double-line license plate",
     "non-standard license plates", "under-exposed license plates", "self-driving license plate dataset",
     "over-exposed license plates", "pre-processed license plates", "re-identification license plate",
@@ -1440,7 +1445,16 @@ DOCUMENTED_FALSE_POSITIVES = [
 ]
 
 
-@pytest.mark.parametrize("value", REVIEW_MUST_REFUSE + ["lice" + U(0x578) + "se", "lic" + U(0x435) + "nse"])
+OWNER_AMBIGUOUS_CONTEXTS = [
+    "build and license plate models", "permission to license plate weights", "buy or license plate software",
+    "terms for license plate use", "copy, modify, license plate weights", "copy; license plate weights",
+    "rights with license plate weights", "in license plate models we grant", "no license plate weights may be sold",
+    "vendors license plate weights", "cars license plate", "they detect license plate weights and license them",
+]
+
+
+@pytest.mark.parametrize("value", REVIEW_MUST_REFUSE + OWNER_AMBIGUOUS_CONTEXTS +
+                         ["lice" + U(0x578) + "se", "lic" + U(0x435) + "nse"])
 def test_cold_review_licensing_forms_are_refused(value):
     entry = established()
     entry["caveats"] = [value]
@@ -1466,3 +1480,26 @@ def test_licence_keys_never_take_the_exemption():
         document = ledger(established())
         document["candidates"][0][key] = 1
         refused("licence_field_in_ledger", validate_ledger, document)
+
+
+@pytest.mark.parametrize("word", ["a", "an", "the", "each", "every", "any", "per", "vehicle's", "vehicles'", "car's",
+                                  "cars'", "vehicle", "car", "indian", "front", "rear", "number", "detected",
+                                  "cropped", "visible", "unreadable", "recognised", "recognized", "ocr", "anpr",
+                                  "alpr", "lpr"])
+def test_every_allowlisted_word_exempts_only_the_noun_phrase(word):
+    from model_selection.credibility import _NOUN_CONTEXT, has_licence_wording
+    assert word in _NOUN_CONTEXT
+    assert not has_licence_wording(f"{word} license plate crops")
+    # the allowlisted word never exempts licensing wording around or inside the phrase
+    for value in (f"{word} license plate weights licensed under MIT", f"{word} sub-license plate",
+                  f"{word} licence", f"{word}-license plate"):
+        assert has_licence_wording(value), value
+
+
+def test_allowlist_is_exactly_the_documented_set():
+    from model_selection.credibility import _NOUN_CONTEXT
+    assert _NOUN_CONTEXT == {"a", "an", "the", "each", "every", "any", "per", "vehicle's", "vehicles'", "car's",
+                             "cars'", "vehicle", "car", "indian", "front", "rear", "number", "detected", "cropped",
+                             "visible", "unreadable", "recognised", "recognized", "ocr", "anpr", "alpr", "lpr"}
+    for absent in ("and", "or", "to", "for", "with", "of", "on", "in", "from", "no", "vehicles", "cars"):
+        assert absent not in _NOUN_CONTEXT

@@ -942,14 +942,21 @@ def build_repository(repo: Path, *, stopped=False, with_decision=True, cite_seal
     if cite_seal:
         write(record, record.read_text() + bs.seal_citation(GATE, document_sha256(seal)) + "\n")
     if with_decision:
+        # A decision holds D results: the seal must be committed first, in a strict ancestor (owner decision 2).
+        git(repo, "init", "-q")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "freeze and seal")
         proof = {GATE: {"seal": seal, "layerA": result, "partnerLedger": partner}}
         summary = m3_decision(document, proof, **({"state": "TECHNICAL_DECISION_RECORDED", "implementation": None}
                                                   if stopped else {}))
         summary["protocolSha256"] = protocol_sha
+        summary["benchmarkOnlyBaselines"]["baselineSeals"][0]["sealCommit"] = git(repo, "rev-parse", "HEAD")
         decision_path = write(folder / f"{EVENT}-decision.json", json.dumps(summary))
         snapshot_path = write(folder / f"{EVENT}-evidence-ledger-decided.json", json.dumps(document))
         write(record, record.read_text() + f"Decision SHA-256: {lf_normalised_sha256(decision_path)}\n"
               f"Snapshot SHA-256: {lf_normalised_sha256(snapshot_path)}\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "decision")
     return document, partner, seal, folder
 
 
@@ -1009,7 +1016,7 @@ def test_repository_scan_refuses_a_reseal_after_d(tmp_path):
     write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
     refused("baseline_seal_cited_twice", validate_repository, tmp_path)
     write(record, record.read_text().replace(bs.seal_citation(GATE, document_sha256(reseal)) + "\n", "", 1))
-    refused("decision_baseline_seal_mismatch", validate_repository, tmp_path)
+    refused("baseline_artefact_rewritten_in_history", validate_repository, tmp_path)
 
 
 # ------------------------------------------------------------------ harness API (git)
@@ -1330,7 +1337,7 @@ def test_cold_p3_5_decision_seal_commit_is_bound_where_git_history_exists(tmp_pa
     summary["benchmarkOnlyBaselines"]["baselineSeals"][0]["sealCommit"] = "0" * 40
     write(decision_path, json.dumps(summary))
     write(record, record.read_text() + f"Decision SHA-256: {lf_normalised_sha256(decision_path)}" + NL)
-    refused("decision_baseline_seal_commit_mismatch", validate_repository, repo)
+    refused("d_artefact_seal_commit_mismatch", validate_repository, repo)
     refused("malformed", check, dict(summary, benchmarkOnlyBaselines=dict(
         summary["benchmarkOnlyBaselines"], baselineSeals=[dict(summary["benchmarkOnlyBaselines"]["baselineSeals"][0],
                                                                 sealCommit="HEAD")])), document, proof)
@@ -1341,3 +1348,138 @@ def test_cold_p3_6_bob_without_a_gate_is_refused():
     entry = bob()
     entry["benchmarkBaseline"]["compositions"] = []
     refused("benchmark_baseline_without_gate", validate_ledger, m3_ledger(entry))
+
+
+
+# ------------------------------------------------------------------ owner decision 2: seal chronology (real git)
+
+
+def seal_then_d(tmp_path, name="d1"):
+    """A committed seal, then a protected-D manifest bound to it in a later commit."""
+    repo = tmp_path / name
+    document, partner, seal, folder = committed_repository(repo)
+    binding = bs.require_committed_baseline_seal(repo, EVENT, "vehicle-colour", GATE)
+    manifest = bs.d_manifest_document(document, "RUN-1", sha("d-result"), [binding])
+    path = folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json"
+    write(path, canonical_json(manifest).decode())
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "protected D run 1")
+    return repo, document, partner, seal, folder, manifest, path
+
+
+def test_chronology_seal_strictly_before_d_is_accepted(tmp_path):
+    repo, *_ = seal_then_d(tmp_path)
+    checked = validate_repository(repo)
+    assert any(bs.D_MANIFEST_INFIX in item for item in checked) and "git-history:full" in checked
+
+
+def test_chronology_seal_and_d_in_the_same_commit_is_refused(tmp_path):
+    """The seal and its first protected-D manifest first appear in one commit: not proof that the seal came first."""
+    repo = tmp_path / "same"
+    document, partner, seal, folder = committed_repository(repo)
+    sealed = git(repo, "rev-parse", "HEAD")
+    manifest = {"schema": bs.D_MANIFEST_SCHEMA, "eventId": EVENT, "manifestId": "RUN-1", "resultSha256": sha("d"),
+                "baselineSeals": [{"compositionId": GATE, "sealSha256": document_sha256(seal), "sealCommit": sealed}]}
+    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", canonical_json(manifest).decode())
+    validate_repository(repo)  # not yet committed: the seal commit is in HEAD's history
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "--amend", "-m", "seal and D manifest in one commit")
+    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo)
+    # citing the very commit that added both is refused too (the manifest had to be rewritten to name it)
+    together = git(repo, "rev-parse", "HEAD")
+    manifest["baselineSeals"][0]["sealCommit"] = together
+    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", canonical_json(manifest).decode())
+    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo)
+    repo2 = tmp_path / "self"
+    document, partner, seal, folder = build_repository(repo2, with_decision=False)
+    git(repo2, "init", "-q")
+    git(repo2, "add", "-A")
+    git(repo2, "commit", "-q", "-m", "seal")
+    manifest["baselineSeals"][0]["sealCommit"] = git(repo2, "rev-parse", "HEAD")
+    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", canonical_json(manifest).decode())
+    git(repo2, "add", "-A")
+    git(repo2, "commit", "-q", "--amend", "--no-edit")
+    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo2)
+
+
+def test_chronology_non_ancestor_seal_commit_is_refused(tmp_path):
+    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path)
+    # a side branch holding the same seal bytes: it contains the seal but is not an ancestor of the manifest
+    git(repo, "checkout", "-q", "-b", "side", "HEAD~1")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "side commit")
+    side = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "-")
+    other = dict(manifest, manifestId="RUN-2",
+                 baselineSeals=[dict(manifest["baselineSeals"][0], sealCommit=side)])
+    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-2.json", canonical_json(other).decode())
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "protected D run 2")
+    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo)
+
+
+def test_chronology_modified_seal_and_second_hash_are_refused(tmp_path):
+    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path)
+    changed = dict(seal, recordedBy="someone else")
+    write(bs.seal_path(repo, document, GATE), canonical_json(changed).decode())
+    record = folder / f"{EVENT}.md"
+    write(record, record.read_text().replace(document_sha256(seal), document_sha256(changed)))
+    refused("d_manifest_baseline_seal_mismatch", validate_repository, repo)  # D cites the first hash
+    git(repo, "commit", "-q", "-am", "modify the seal")
+    refused("d_manifest_baseline_seal_mismatch", validate_repository, repo)
+    # a second D manifest citing the new hash: two hashes for one composition across D artefacts
+    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "d2")
+    second = dict(manifest, manifestId="RUN-2",
+                  baselineSeals=[dict(manifest["baselineSeals"][0], sealSha256=sha("another seal"))])
+    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-2.json", canonical_json(second).decode())
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "second hash")
+    refused("d_manifest_baseline_seal_mismatch", validate_repository, repo)
+
+
+@pytest.mark.parametrize("swap", ["stopped-to-resolved", "pd-a-to-pd-b"])
+def test_chronology_reseal_after_d_is_refused(tmp_path, swap):
+    repo = tmp_path / swap
+    if swap == "stopped-to-resolved":
+        document, partner, seal, folder = committed_repository(repo, stopped=True)
+        manifest = {"schema": bs.D_MANIFEST_SCHEMA, "eventId": EVENT, "manifestId": "RUN-1",
+                    "resultSha256": sha("d"), "baselineSeals": [{"compositionId": GATE,
+                                                                 "sealSha256": document_sha256(seal),
+                                                                 "sealCommit": git(repo, "rev-parse", "HEAD")}]}
+        write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", canonical_json(manifest).decode())
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "D under a stop")
+        refused("baseline_stopped_no_d_result", validate_repository, repo)
+        new_layer = layer_a(document, partner)
+    else:
+        repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, swap)
+        validate_repository(repo)
+        new_layer = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
+    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
+    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
+                                     layer_a=new_layer, recorded_at="2026-07-03T10:00:00Z", recorded_by="later")
+    assert reseal["status"] == "RESOLVED"
+    write(bs.layer_a_path(repo, document, GATE), canonical_json(new_layer).decode())
+    write(bs.seal_path(repo, document, GATE), canonical_json(reseal).decode())
+    record = folder / f"{EVENT}.md"
+    write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
+    git(repo, "commit", "-q", "-am", "reseal")
+    reseal_commit = git(repo, "rev-parse", "HEAD")
+    for item in folder.glob(f"{EVENT}{bs.D_MANIFEST_INFIX}*.json"):
+        bound = json.loads(item.read_text())
+        bound["baselineSeals"][0].update(sealSha256=document_sha256(reseal), sealCommit=reseal_commit)
+        write(item, canonical_json(bound).decode())
+    git(repo, "commit", "-q", "-am", "rebind D")
+    # the rebound D manifests cite a seal commit newer than the commit that added them
+    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo)
+
+
+def test_chronology_needs_full_history_for_an_event_with_d(tmp_path):
+    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path)
+    shallow = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "-q", "--depth", "1", repo.as_uri(), str(shallow)], check=True,
+                   capture_output=True)
+    refused("baseline_seal_history_unavailable", validate_repository, shallow)
+    copy_dir = tmp_path / "nogit"
+    import shutil
+    shutil.copytree(repo, copy_dir, ignore=shutil.ignore_patterns(".git"))
+    refused("baseline_seal_history_unavailable", validate_repository, copy_dir)

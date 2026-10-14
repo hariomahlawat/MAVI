@@ -83,6 +83,8 @@ STOP_REASONS = (
 )
 SEAL_INFIX = "-baseline-seal-"
 LAYER_A_INFIX = "-layer-a-"
+D_MANIFEST_INFIX = "-d-manifest-"
+D_MANIFEST_SCHEMA = "mavi-model-selection-d-manifest-v1"
 
 _COMMON = ("schema", "status", "eventId", "capabilityId", "compositionId", "benchmarkBaselineId",
            "benchmarkComponentIdentitySha256", "protocolSha256", "frozenLedgerSha256", "stage1RuleSha256",
@@ -570,9 +572,96 @@ def validate_repository_seals(repo: Path, root: Path, frozen_by_event: Mapping[P
             raise _fail("baseline_artefact_without_frozen_composition", path.relative_to(repo).as_posix())
     for event in sorted(frozen_by_event, key=str):
         check_record_citations(event)
+    # Protected-D manifests committed beside the event (owner decision 2): each binds every frozen gate-only
+    # composition by seal hash and seal commit, and needs full Git history to prove the seal came first.
+    manifests = sorted(root.glob(f"*/msr-*{D_MANIFEST_INFIX}*.json"))
+    for path in manifests:
+        event = path.parent / path.name.split(D_MANIFEST_INFIX)[0]
+        frozen = frozen_by_event.get(event)
+        if frozen is None or not frozen_compositions(frozen):
+            raise _fail("d_manifest_without_frozen_composition", path.relative_to(repo).as_posix())
+        check_d_manifest(repo, path, frozen)
+        checked.append(path.relative_to(repo).as_posix())
     if any(SEAL_INFIX in path or LAYER_A_INFIX in path for path in checked):
         checked.append(f"git-history:{check_seal_history(repo, root)}")
     return checked
+
+
+def d_manifest_document(frozen: Mapping, manifest_id: str, result_sha256: str,
+                        bindings: Sequence["SealBinding"]) -> dict:
+    """The canonical protected-D manifest binding a harness commits as ``<event-id>-d-manifest-<manifestId>.json``
+    in a commit AFTER the one holding the seal: the D result hash and, per frozen gate-only composition, the seal
+    SHA-256 and the seal commit returned by ``require_committed_baseline_seal``."""
+    return {"schema": D_MANIFEST_SCHEMA, "eventId": frozen["eventId"], "manifestId": manifest_id,
+            "resultSha256": result_sha256,
+            "baselineSeals": [{"compositionId": b.composition_id, "sealSha256": b.seal_sha256,
+                               "sealCommit": b.seal_commit} for b in sorted(bindings, key=lambda b: b.composition_id)]}
+
+
+def check_d_manifest(repo: Path, path: Path, frozen: Mapping) -> None:
+    """A committed protected-D manifest: canonical, for this event, citing the current RESOLVED seal of every frozen
+    gate-only composition, with a seal commit that holds those exact bytes and is a strict ancestor of the commit
+    that added the manifest (``check_d_chronology``)."""
+    document = read_canonical(path, "d_manifest_not_canonical")
+    where = path.name
+    _keys(document, ("schema", "eventId", "manifestId", "resultSha256", "baselineSeals"), where)
+    if document["schema"] != D_MANIFEST_SCHEMA:
+        raise _fail("schema_unsupported", f"{where}.schema")
+    if document["eventId"] != frozen["eventId"] or path.name != f"{frozen['eventId']}{D_MANIFEST_INFIX}" \
+            f"{_match(document['manifestId'], LOCAL_ID_RE, where + '.manifestId')}.json":
+        raise _fail("d_manifest_location_mismatch", where)
+    _match(document["resultSha256"], SHA256_RE, f"{where}.resultSha256")
+    rows = _list(document["baselineSeals"], f"{where}.baselineSeals")
+    cited = {}
+    for index, row in enumerate(rows):
+        _keys(row, ("compositionId", "sealSha256", "sealCommit"), f"{where}.baselineSeals[{index}]")
+        _match(row["sealCommit"], IMMUTABLE_REVISION_RE, f"{where}.baselineSeals[{index}].sealCommit")
+        cited[row["compositionId"]] = row
+    if sorted(cited) != sorted(frozen_compositions(frozen)) or len(cited) != len(rows):
+        raise _fail("d_manifest_baseline_seal_mismatch", f"{where}.baselineSeals")
+    for composition_id, row in sorted(cited.items()):
+        seal_file = seal_path(repo, frozen, composition_id)
+        if not seal_file.is_file():
+            raise _fail("d_manifest_baseline_seal_mismatch", f"{where}.{composition_id}")
+        seal = read_canonical(seal_file, "baseline_seal_not_canonical")
+        if row["sealSha256"] != document_sha256(seal):
+            raise _fail("d_manifest_baseline_seal_mismatch", f"{where}.{composition_id}")
+        if seal["status"] != RESOLVED:
+            raise _fail("baseline_stopped_no_d_result", f"{where}.{composition_id}")
+    check_d_chronology(repo, path, rows, frozen)
+
+
+def _git_ok(repo: Path, *args: str) -> bool:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, check=False).returncode == 0
+
+
+def check_d_chronology(repo: Path, artefact: Path, rows: Sequence[Mapping], frozen: Mapping) -> None:
+    """Owner decision 2: for a protected-D artefact (a D manifest or the decision summary), each cited seal commit
+    must hold exactly the cited seal bytes and be a STRICT ancestor of the commit that first added the artefact. A
+    seal first appearing in the same commit as the D artefact is not proof that it came first. An artefact not yet
+    committed needs the seal commit in the history of HEAD, so its own commit will follow it. Without full Git history
+    the chronology cannot be proven and the artefact is refused."""
+    state = git_history_state(repo)
+    relative = artefact.relative_to(repo).as_posix()
+    if state != "full":
+        raise _fail("baseline_seal_history_unavailable", f"{relative}:{state}")
+    added = _git(repo, "log", "--diff-filter=A", "--no-renames", "--format=%H", "--", relative).decode().split()
+    first = added[-1] if added else None
+    for row in rows:
+        seal_file = seal_path(Path(repo), frozen, row["compositionId"])
+        try:
+            committed = _committed_bytes_sha(Path(repo), row["sealCommit"], seal_file)
+        except CredibilityError:
+            committed = None  # no such commit, or the seal is not in it
+        if committed != row["sealSha256"]:
+            raise _fail("d_artefact_seal_commit_mismatch", f"{relative}:{row['compositionId']}")
+        if first is None:
+            ancestral = _git_ok(repo, "merge-base", "--is-ancestor", row["sealCommit"], "HEAD")
+        else:
+            ancestral = row["sealCommit"] != first and _git_ok(repo, "merge-base", "--is-ancestor", row["sealCommit"],
+                                                                 first)
+        if not ancestral:
+            raise _fail("d_artefact_seal_commit_not_ancestral", f"{relative}:{row['compositionId']}")
 
 
 def _event_seal_files(event: Path) -> dict[str, Path]:
@@ -620,7 +709,8 @@ def check_seal_history(repo: Path, root: Path) -> str:
     state = git_history_state(repo)
     if state != "full":
         return state
-    paths = sorted({*root.glob(f"*/msr-*{SEAL_INFIX}*.json"), *root.glob(f"*/msr-*{LAYER_A_INFIX}*.json")})
+    paths = sorted({*root.glob(f"*/msr-*{SEAL_INFIX}*.json"), *root.glob(f"*/msr-*{LAYER_A_INFIX}*.json"),
+                    *root.glob(f"*/msr-*{D_MANIFEST_INFIX}*.json")})
     for path in paths:
         relative = path.relative_to(repo).as_posix()
         log = _git(repo, "log", "--format=", "--name-status", "--no-renames", "--", relative).decode().split()
@@ -646,21 +736,11 @@ def check_seal_history(repo: Path, root: Path) -> str:
     return state
 
 
-def check_decision_seal_commits(repo: Path, decision: Mapping, frozen: Mapping) -> str:
-    """Cold review P3-5: where Git history is available, each decision ``baselineSeals[].sealCommit`` must hold
-    exactly the cited seal bytes. Without history the commit is format-checked only (reviewer item)."""
-    state = git_history_state(repo)
-    if state != "full":
-        return state
-    for row in decision["benchmarkOnlyBaselines"]["baselineSeals"]:
-        path = seal_path(Path(repo), frozen, row["compositionId"])
-        try:
-            committed = _committed_bytes_sha(Path(repo), row["sealCommit"], path)
-        except CredibilityError:
-            committed = None  # no such commit, or the seal is not in it
-        if committed != row["sealSha256"]:
-            raise _fail("decision_baseline_seal_commit_mismatch", row["compositionId"])
-    return state
+def check_decision_seal_commits(repo: Path, decision: Mapping, frozen: Mapping, decision_path: Path) -> None:
+    """The decision summary holds D results, so its ``baselineSeals`` rows obey the same chronology as a D manifest:
+    each ``sealCommit`` holds the cited seal bytes and is a strict ancestor of the commit that first added the
+    decision file. Without full Git history the decision is refused (owner decision 2)."""
+    check_d_chronology(Path(repo), decision_path, decision["benchmarkOnlyBaselines"]["baselineSeals"], frozen)
 
 
 def _superseded_stop(path: Path, frozen_by_event: Mapping[Path, Mapping]) -> bool:

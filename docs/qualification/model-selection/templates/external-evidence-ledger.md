@@ -61,15 +61,17 @@ Field rules:
 - A `mavi-baseline` identity is `{"repository": "MAVI", "revision": "<commit | UNKNOWN>"}` with no evidence and no claims.
 - **M3 only** (`methodRevision: msr-v1-m3`, computed class `reference-only`, reason class `technical`): a `BENCHMARK_BASELINE` entry carries
   `"benchmarkBaseline": {"purpose": "…", "protocolSection": "…", "configurationSha256": "…", "adapterSha256": "…",
-  "hostManifests": {"<target-profile-id>": [{"path": "…", "sha256": "…", "size": 1}]},
+  "hostManifests": {"<target-profile-id>": [{"path": "…", "kind": "executable | runtime-library | data", "sha256": "…", "size": 1}]},
   "evaluationPermissions": [{"artefactKind": "executable | runtime-libraries | model-data", "sha256s": ["<sorted exact hashes>"],
   "decidedBy": "…", "decidedOn": "YYYY-MM-DD", "primarySourceSha256": "…"}],
   "compositions": [{"compositionId": "…", "partnerEventId": "msr-…", "eligiblePartners": [{"candidateId": "…", "identitySha256": "<canonical SHA-256 of the partner's identity block>"}],
+  "excludedPartners": [{"candidateId": "…", "identitySha256": "…", "reason": "…"}],
   "partnerRankingRuleSha256": "…", "layerAGatesSha256": "…", "layerAGateIds": ["<sorted gate ids>"],
   "derivationRule": "highest-ranked-partner-passing-every-layer-a-gate", "gateScope": "all-ordinary-compositions"}]}`
   (`../candidate-credibility.md` §4.4). No other entry may carry it. `hostManifests` has one key per decision target
-  profile. One permission per artefact kind: `model-data` covers exactly the pinned identity files; `executable` and
-  `runtime-libraries` together cover exactly every other host-manifest file.
+  profile. One permission per artefact kind, covering exactly the manifest files of that kind (`model-data`: the pinned
+  identity files plus every `data` file). `eligiblePartners` and `excludedPartners` together are exactly the partner
+  event's shortlist. At least one composition is required.
 - `derivation` is required when the publisher is `recognised-framework-maintainer`: `{"fromRepository", "fromRevision", "fromSha256", "conversionDocumentedBy": "<evidenceId>"}`.
 - `integrityConflict` is null or `{"at": "YYYY-MM-DD", "reason": "…"}`, for example retrieved bytes that differ from the published hash. From its date the candidate is `excluded-discovery`.
 - An `emerging` candidate is normally `REFERENCE_ONLY` with reason class `credibility`. Shortlisting it needs `emergingShortlistBasis` and a `reviewedBy` different from `decidedBy`.
@@ -177,8 +179,9 @@ decision carries the mandatory block:
 
 ```json
 "benchmarkOnlyBaselines": {
-  "baselineSeals": [{"compositionId": "…", "sealSha256": "<canonical SHA-256 of the committed seal>", "status": "RESOLVED | STOPPED"}],
-  "dExecutionStartedAt": "YYYY-MM-DDThh:mm:ssZ | null (null when any seal is STOPPED)",
+  "baselineSeals": [{"compositionId": "…", "sealSha256": "<canonical SHA-256 of the committed seal>", "status": "RESOLVED | STOPPED",
+                     "sealCommit": "<Git commit holding the seal bytes>"}],
+  "dExecutionStartedAt": "YYYY-MM-DDThh:mm:ssZ | the protectedDAccessedAt of an access stop | null (other STOPPED)",
   "incumbent": "<ranked candidateId> | null",
   "topK": ["<ranked candidateId>"], "componentFinalists": ["<ranked candidateId>"],
   "compositionCandidates": [{"compositionId": "…",
@@ -193,8 +196,8 @@ decision carries the mandatory block:
 
 ## Layer-A result and baseline seal (M3 only)
 
-Committed canonical JSON beside the event's MSR files, before any protected D data is read; the event record cites the
-seal's SHA-256. Build and verify them with `tools/qualification/model_selection/baseline_seal.py`
+Committed canonical JSON beside the event's MSR files, before any protected D data is read, and never modified
+afterwards; the event record cites each seal on exactly one line `Baseline seal <compositionId> SHA-256: <hash>`. Build and verify them with `tools/qualification/model_selection/baseline_seal.py`
 (`layer_a_result_document`, `derive_baseline_seal`, `verify_baseline_seal`). Shape contracts:
 `tools/qualification/model_selection/schemas/mavi-model-selection-layer-a-result-v1.schema.json` and
 `…/mavi-model-selection-baseline-seal-v1.schema.json`.
@@ -218,7 +221,7 @@ seal's SHA-256. Build and verify them with `tools/qualification/model_selection/
 ```
 
 A STOPPED seal has the same common fields (`partnerFrozenLedgerSha256` and `layerAResultSha256` may be `null`),
-`"status": "STOPPED"`, `"stopReason"` (one of `no-partner-passed-layer-a`, `partner-event-missing`,
+`"status": "STOPPED"`, `"protectedDAccessedAt"` (an instant for a `protected-d-accessed` stop, else `null`), `"stopReason"` (one of `no-partner-passed-layer-a`, `partner-event-missing`,
 `partner-event-inconsistent`, `partner-universe-inconsistent`, `identity-mismatch`, `resolution-ambiguous`,
 `protected-d-accessed`, `prerequisite-failed`), `"stopDetail"` and `"stopEvidenceSha256s"`, and no partner or composition
 field.

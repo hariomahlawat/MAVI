@@ -55,13 +55,14 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
 2. **NEW: immutable component identity before freeze** (owner item 2). The ledger entry carries:
    - provenance High with every file pinned at an immutable revision: model/trained-data SHA-256;
    - `hostManifests`: one per declared target profile, listing every executable/native binary, runtime library and
-     data file, with SHA-256 and size;
+     data file, each with its declared `kind`, SHA-256 and size;
    - `configurationSha256` (invocation/configuration);
    - `adapterSha256` (adapter/preprocessing);
    - `evaluationPermissions`, bound **per exact artefact** (review P3): one decision for the executables, one for the
      runtime libraries/dependencies (when there are any) and one for the model/trained data. Each lists the exact
-     SHA-256 values it covers, with decision-maker, date and primary-source hash. Together they cover exactly the
-     pinned identity files and every host-manifest file. A single vague "all" permission is refused.
+     SHA-256 values it covers, with decision-maker, date and primary-source hash, and covers exactly the manifest
+     files of its kind (model data: the pinned identity files plus every `data` file). A single vague "all"
+     permission is refused, and so is a data file filed as an executable.
 3. **NEW: no selection role.** A BOB, and any gate-only composition containing it, is never:
    - shortlisted (it keeps its `BENCHMARK_BASELINE` disposition);
    - a candidate, a top-K entry, a component finalist, an ordinary composition candidate or a component of one;
@@ -82,7 +83,12 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
      - the partner ranking/tie-break rule hash;
      - the derivation rule, as an enumerated machine rule: `highest-ranked-partner-passing-every-layer-a-gate`;
      - the gate scope, as an enumerated machine rule: `all-ordinary-compositions` (every ordinary composition of the
-       event is gated by the resolved baseline).
+       event is gated by the resolved baseline);
+     - `excludedPartners`: every other shortlisted candidate of the partner event, with identity and recorded reason,
+       so the universe is the partner shortlist exactly (cold review P3-4).
+
+     A benchmark-only component needs at least one such composition. No eligible partner and no composition
+     component may share a file hash with the benchmark-only component.
    - **Stage 2, after the pre-gate layer and strictly before any protected D data is read:** the partner is resolved
      mechanically from the committed Layer-A result and written as the committed baseline seal (rule 4a).
    - **No choice:** no owner discretion, substitution or late addition. A partner from another event must be
@@ -102,7 +108,10 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
    - It holds **no self-hash**. Its identity is its canonical SHA-256. It is valid only if it equals, field for field,
      what the frozen rule re-derives from the frozen ledger, the protocol hash, the partner event's frozen ledger and
      the committed Layer-A result. Re-sealing to another partner therefore needs a different Layer-A result.
-   - **Ordering is proven by hashes, not by timestamps.** The event record carries the seal hash. Every protected D
+   - **Ordering is proven by hashes, not by timestamps.** The event record cites the seal on exactly one structured
+     line, `Baseline seal <compositionId> SHA-256: <hash>`, equal to the file. With full Git history, seal and
+     Layer-A files are add-only and record citations never change (machine-checked); without it (shallow clone)
+     that is a reviewer item. Every protected D
      manifest and result, the BOB's decision row and every ordinary composition's D result carry it, so none of them
      can exist before the seal. Once any of them exists, a changed seal no longer matches what it recorded and is
      refused. That makes the resolution immutable once D has started.
@@ -137,6 +146,9 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
      event or universe; identities that do not reconcile; an ambiguous (tied) derivation; resolution after protected
      D access; any other failed frozen prerequisite.
    - A STOPPED seal records the exact stop reason (an enumerated code), a detail text and the evidence hashes. It
+     cannot record an input as absent while that input is supplied or committed, and with both inputs its reason must
+     be the derived one. A protected-D-access stop records `protectedDAccessedAt`, and the decision records that D
+     access as its D start. It
      names no partner and no composition, so it cannot name a replacement baseline. It permits no D execution, holds
      no ranked D result, and is immutable once written. A later protocol revision re-freezes the gate-only
      composition under a new composition id; the STOPPED seal stays as history, cited by the record.
@@ -208,7 +220,8 @@ credibility requirements for candidate selection or implementation.
 | Layer-A result | `layer_a_result_not_for_this_composition`, `layer_a_partner_outside_frozen_universe`, `layer_a_identity_mismatch`, `layer_a_gates_mismatch`, `layer_a_rank_key_malformed`, `layer_a_rank_ambiguous`, `layer_a_result_inconsistent_with_frozen_universe`, `baseline_ranking_rule_mismatch` |
 | seal (RESOLVED) | `baseline_seal_differs_from_frozen_inputs`, `baseline_seal_partner_not_derived`, `baseline_seal_not_derivable`, `baseline_seal_d_state_contradicted`, `baseline_resolved_before_freeze` |
 | seal (STOPPED) | `baseline_stop_evidence_required`, `baseline_stop_reason_contradicted`; no partner field (`unknown_field`) |
-| repository mode | `baseline_seal_not_canonical`, `layer_a_result_not_canonical`, `baseline_seal_not_recorded`, `baseline_artefact_without_frozen_composition` |
+| repository mode | `baseline_seal_not_canonical`, `layer_a_result_not_canonical`, `baseline_seal_not_recorded`, `baseline_seal_cited_twice`, `baseline_seal_cited_without_file`, `baseline_artefact_without_frozen_composition`; with full Git history `baseline_artefact_rewritten_in_history`, `baseline_seal_citation_changed`, `decision_baseline_seal_commit_mismatch` |
+| cold-review additions | `baseline_stop_reason_contradicted` (absent-input stop), `baseline_d_access_not_recorded`, `baseline_partner_universe_not_the_shortlist`, `excluded_partners_not_sorted_unique_disjoint`, `benchmark_baseline_bytes_as_partner`, `benchmark_baseline_without_gate`; BOB bytes as a component: `benchmark_baseline_in_composition_candidate` |
 | harness API | `baseline_seal_missing`, `baseline_seal_not_committed`, `baseline_seal_stopped_no_d`, `d_manifest_baseline_seal_mismatch`, `baseline_seal_git_unavailable` |
 | evaluated set = shortlist + BOBs | `evaluated_set_differs_from_shortlist` |
 | unscored BOB rows on the pinned bytes | `benchmark_baseline_row_scored`, `benchmark_baseline_host_manifest_mismatch`, `benchmark_baseline_host_profiles_differ_from_target_profiles`, `benchmark_baseline_row_seal_mismatch`, `evaluated_artefact_differs_from_ledger`, `host_manifests_only_for_benchmark_baseline` |
@@ -220,15 +233,19 @@ credibility requirements for candidate selection or implementation.
 | outcome | none: the ordinary M1 outcome rules, with every BOB removed (rule 5) |
 | decision v2 | `m3_v2_unsupported` |
 
-**Licence-phrase detection (M1 validator amendment, owner decision 9).** The plate-domain phrase exemption now runs on
-NFKC/case-folded text with combining marks and invisible format characters removed and Unicode dashes and spaces
-folded. It exempts the phrase only when "license/licence" is the noun modifier of "plate": a preceding licensing prefix
-(`sub`, `re`, `cross`, `un`, `co`, `non`, ...) or verb context (`to`, `may`, `not`, `we`, `and`, ...) keeps it refused.
-The remainder is folded through a small Cyrillic/Greek confusable table before "licen" is searched.
+**Licence-phrase detection (M1 validator amendment, owner decision 9, cold review P1-2).** The plate-domain phrase
+exemption runs on NFKC/case-folded text with combining marks and invisible format characters removed, Unicode dashes
+folded and whitespace runs folded. It is fail-closed: the phrase is exempt only after the start of the text, a
+phrase-opening punctuation mark, a clause end, or a word from a small closed allowlist of determiners, prepositions and
+plate-domain modifiers (`candidate-credibility.md` §4). Any other word, and any hyphen before "license", keeps it
+refused. The remainder is folded through a small Cyrillic/Greek/Armenian confusable table before "licen" is searched.
+The benign phrasings this refuses are listed for the owner (`DOCUMENTED_FALSE_POSITIVES`).
 
 **Not machine-checked (review rules, M1 §9):**
 - that the Layer-A rank keys were computed by the frozen ranking rule from the Layer-A measurements. The validator
   checks the derivation from the keys; the harness that writes the Layer-A result is bound by the rule hash;
+- without full Git history (shallow clone, CI): that no seal, Layer-A file or record citation was rewritten in place,
+  and that a decision `sealCommit` holds the seal bytes;
 - that the Layer-A result was committed before the seal and the seal before protected D data was read, beyond what the
   hash chain proves (rule 4a). The harness check (`require_committed_baseline_seal`) proves it at D time; a later
   coordinated rewrite of the Layer-A result, the seal, the record, the decision and every D manifest is a Git-review

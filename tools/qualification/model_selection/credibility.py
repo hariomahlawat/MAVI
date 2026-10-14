@@ -324,9 +324,10 @@ def _reject_licence_keys(value: object, where: str) -> None:
 #      "plate", decided FAIL-CLOSED by what precedes it (`_plate_phrase_is_noun`). It is exempt only after:
 #        - the start of the text;
 #        - punctuation other than a hyphen that starts a new phrase (preceded by a space or the start, as in
-#          '"license plate"', "ALPR / license plate"), or a clause end (,;:.!? or a quote) followed by a space;
+#          '"license plate"', "ALPR / license plate"), or a sentence end (.!?: or a quote) followed by a space;
 #        - a word in `_NOUN_CONTEXT`, a small closed set of determiners, prepositions and plate-domain modifiers
-#          after which "license" can only be a noun modifier ("the", "vehicle", "indian", "number", "detected", ...).
+#          after which "license" can only be a noun modifier ("the", "vehicle", "indian", "number", "detected", ...;
+#          no conjunction or preposition other than "per").
 #          Punctuation glued to a word ("number/license plate", "(sub)license plate") is judged by that word.
 #      Anything else keeps the phrase in the text: every other word (so "vendors license plate", "open license
 #      plate", "and license plate", "to license plate" are refused), and any hyphen before "license", spaced or not;
@@ -340,18 +341,28 @@ def _reject_licence_keys(value: object, where: str) -> None:
 _LICENCE_STEM = "licen"
 _PLATE_PHRASE_RE = re.compile(r"(?<![^\W_])licen[cs]e[ -]plates?(?![^\W_])")
 _DASHES = dict.fromkeys(map(ord, "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u2e3a\u2e3b\ufe58\ufe63\uff0d\u2043\u02d7"), "-")
-# Closed allowlist (step 2). Each word can only precede "license plate" as a noun phrase: determiners and
-# prepositions ("the", "of", "per"), the vehicle it is on ("vehicle", "car", "front", "rear", "indian"), and
-# plate-domain processing words ("detected", "cropped", "read", "ocr", "anpr", "alpr"). Licensing verbs, licence
-# kinds and conjunctions are deliberately absent. Owner rulings may add words; nothing else widens it.
+# Closed allowlist (step 2, owner decision 2026-10-14). Only words after which "license/licence" cannot be a
+# licensing verb or a licensing prefix compound. Conjunctions and prepositions ("and", "or", "to", "for", "with",
+# "of", "on", "in", "from") are deliberately absent: "build and license plate models", "permission to license plate
+# weights", "terms for license plate use" are ambiguous. Bare plural nouns are absent too ("vendors license plate
+# weights" is subject + verb). Each entry:
 _NOUN_CONTEXT = frozenset({
-    "a", "an", "the", "each", "every", "any", "no", "per", "of", "for", "from", "with", "on", "in",
-    "vehicle", "vehicle's", "vehicles", "vehicles'", "car", "car's", "cars", "cars'", "indian", "front", "rear",
-    "number", "detect", "detects", "detected", "detecting", "cropped", "visible", "unreadable", "read", "reads",
-    "reading", "ocr", "recognised", "recognized", "anpr", "alpr", "lpr",
+    # determiners: always followed by a noun phrase, never by a verb
+    "a", "an", "the", "each", "every", "any",
+    # "per" takes only a noun ("accuracy per license plate"); it cannot introduce a verb or an infinitive
+    "per",
+    # possessives of the plate's carrier: a possessive is followed by the possessed noun
+    "vehicle's", "vehicles'", "car's", "cars'",
+    # attributive nouns and adjectives that describe a plate, never a subject of "license"
+    "vehicle", "car", "indian", "front", "rear", "number",
+    # participial adjectives of a plate in the recognition pipeline
+    "detected", "cropped", "visible", "unreadable", "recognised", "recognized",
+    # recognition-system acronyms used attributively ("ALPR license plate dataset")
+    "ocr", "anpr", "alpr", "lpr",
 })
 _APOSTROPHES = "'" + chr(0x2019)
-_CLAUSE_ENDS = ",;:.!?" + chr(34)
+# Sentence ends followed by a space. Commas and semicolons are absent: "copy, modify, license plate weights".
+_CLAUSE_ENDS = ".!?:" + chr(34)
 _CONFUSABLES = str.maketrans({
     "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c", "\u0443": "y", "\u0445": "x",
     "\u0456": "i", "\u0458": "j", "\u0455": "s", "\u0501": "d", "\u04cf": "l", "\u04bb": "h", "\u051b": "q",
@@ -386,7 +397,7 @@ def _plate_phrase_is_noun(text: str, start: int) -> bool:
     if text[index - 1] == "-":
         return False  # a hyphen-joined word before "license", spaced or not ("sub-license", "sub- license")
     if spaced and text[index - 1] in _CLAUSE_ENDS:
-        return True  # a clause boundary followed by a space: "README: licence-plate", "license plate, licence plate"
+        return True  # a sentence boundary followed by a space: "README: licence-plate", "Plates. License plate ..."
     if not (text[index - 1].isalnum() or text[index - 1] in _APOSTROPHES):
         while index > 0 and not text[index - 1].isalnum() and text[index - 1] not in " -":
             index -= 1
@@ -1600,7 +1611,7 @@ def validate_repository(repo: Path) -> list[str]:
         validate_decision(decision, snapshot, frozen_ledgers[event], repo=repo)
         from .baseline_seal import check_decision_seal_commits, frozen_compositions
         if frozen_compositions(frozen_ledgers[event]):
-            check_decision_seal_commits(repo, decision, frozen_ledgers[event])
+            check_decision_seal_commits(repo, decision, frozen_ledgers[event], path)
         # After the decision the working ledger only grows, and nothing is dated before it.
         validate_evolution(snapshot, ledgers[event], since=date.fromisoformat(decision["decidedOn"]))
         checked.append(relative(snapshot_path))
