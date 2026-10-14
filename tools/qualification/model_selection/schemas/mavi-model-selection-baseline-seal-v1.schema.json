@@ -39,10 +39,7 @@
           "type": "string"
         },
         "gateScope": {
-          "enum": [
-            "all-ordinary-compositions",
-            "listed-compositions"
-          ]
+          "const": "all-ordinary-compositions"
         },
         "layerAGatesSha256": {
           "pattern": "^[0-9a-f]{64}$",
@@ -157,10 +154,7 @@
           "type": "string"
         },
         "gateScope": {
-          "enum": [
-            "all-ordinary-compositions",
-            "listed-compositions"
-          ]
+          "const": "all-ordinary-compositions"
         },
         "layerAGatesSha256": {
           "pattern": "^[0-9a-f]{64}$",

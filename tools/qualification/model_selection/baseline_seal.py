@@ -66,8 +66,11 @@ LAYER_A_SCHEMA = "mavi-model-selection-layer-a-result-v1"
 RESOLVED, STOPPED = "RESOLVED", "STOPPED"
 SEAL_STATUSES = (RESOLVED, STOPPED)
 GATE_SCOPE_ALL = "all-ordinary-compositions"
-GATE_SCOPE_LISTED = "listed-compositions"
-GATE_SCOPES = (GATE_SCOPE_ALL, GATE_SCOPE_LISTED)
+# "listed-compositions" is DISABLED (owner decision, convergence review P1-B): listing compositions by free-text id lets a
+# renamed composition escape its gate. It may return only once compositions are frozen by content identity (their
+# component tuple). Until then only the all-ordinary-compositions scope exists.
+GATE_SCOPE_LISTED_DISABLED = "listed-compositions"
+GATE_SCOPES = (GATE_SCOPE_ALL,)
 DERIVATION_RULE = "highest-ranked-partner-passing-every-layer-a-gate"
 DERIVATION_RULES = (DERIVATION_RULE,)
 D_NOT_STARTED, D_ACCESSED = "NOT_STARTED", "ACCESSED"
@@ -172,20 +175,15 @@ def check_stage1_rule(composition: Mapping, entry: Mapping, where: str) -> None:
     """Structural checks of one frozen Stage-1 rule (called from the ledger check)."""
     _keys(composition, ("compositionId", "partnerEventId", "eligiblePartners", "excludedPartners",
                         "partnerRankingRuleSha256", "layerAGatesSha256", "layerAGateIds", "derivationRule",
-                        "gateScope", "gatedCompositionIds"), where)
+                        "gateScope"), where)
     _match(composition["compositionId"], LOCAL_ID_RE, f"{where}.compositionId")
     _match(composition["partnerEventId"], EVENT_ID_RE, f"{where}.partnerEventId")
     _match(composition["partnerRankingRuleSha256"], SHA256_RE, f"{where}.partnerRankingRuleSha256")
     _match(composition["layerAGatesSha256"], SHA256_RE, f"{where}.layerAGatesSha256")
     _enum(composition["derivationRule"], DERIVATION_RULES, f"{where}.derivationRule")
-    scope = _enum(composition["gateScope"], GATE_SCOPES, f"{where}.gateScope")
-    # The frozen baseline -> composition gating map (final round, item 1): every ordinary composition, or exactly the
-    # listed composition ids. A STOPPED baseline forbids protected D only for the compositions it gates.
-    gated = _list(composition["gatedCompositionIds"], f"{where}.gatedCompositionIds")
-    for index, gated_id in enumerate(gated):
-        _match(gated_id, LOCAL_ID_RE, f"{where}.gatedCompositionIds[{index}]")
-    if gated != sorted(set(gated)) or (scope == GATE_SCOPE_ALL) != (not gated):
-        raise _fail("gated_compositions_invalid", f"{where}.gatedCompositionIds")
+    if composition["gateScope"] == GATE_SCOPE_LISTED_DISABLED:
+        raise _fail("gate_scope_listed_compositions_disabled", f"{where}.gateScope")
+    _enum(composition["gateScope"], GATE_SCOPES, f"{where}.gateScope")  # every ordinary composition is gated
     gate_ids = _list(composition["layerAGateIds"], f"{where}.layerAGateIds")
     for index, gate in enumerate(gate_ids):
         _match(gate, LOCAL_ID_RE, f"{where}.layerAGateIds[{index}]")
@@ -1022,6 +1020,7 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
     forbidden_files = set().union(*(benchmark_file_hashes(entries[b]) for b in benchmark))
     passing: dict[str, float] = {}
     composition_ids: set[str] = set()
+    tuples: set[tuple] = set()
     for index, composition in enumerate(_list(block["compositionCandidates"], f"{where}.compositionCandidates")):
         at = f"{where}.compositionCandidates[{index}]"
         _keys(composition, _COMPOSITION_KEYS, at)
@@ -1031,9 +1030,8 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
         if composition_id in composition_ids or composition_id in entries:
             raise _fail("composition_id_collides", f"{at}.compositionId")
         composition_ids.add(composition_id)
-        # the frozen gating map decides which baselines gate this composition; a STOPPED one forbids its D result
-        gating = {g for g, (_entry, rule) in declared.items()
-                  if rule["gateScope"] == GATE_SCOPE_ALL or composition_id in rule["gatedCompositionIds"]}
+        # every frozen gate-only baseline gates every ordinary composition (the only scope); a STOPPED one forbids its D
+        gating = set(gate_ids)
         if any(verified[g]["status"] == STOPPED for g in gating):
             raise _fail("baseline_stopped_no_d_result", at)
         components = _list(composition["components"], f"{at}.components")
@@ -1068,6 +1066,11 @@ def check_m3_decision(decision: Mapping, *, entries: Mapping[str, dict], frozen:
                 raise _fail("benchmark_baseline_in_composition_candidate", cat)
         if len(keys) < 2 or keys != sorted(set(keys)):
             raise _fail("composition_components_invalid", f"{at}.components")
+        # a composition is its component tuple (exact identities): a renamed duplicate never coexists with its original
+        tuple_identity = tuple((c["eventId"], c["candidateId"], c["identitySha256"]) for c in components)
+        if tuple_identity in tuples:
+            raise _fail("composition_components_duplicate", f"{at}.components")
+        tuples.add(tuple_identity)
         gates = composition["gates"]
         if not isinstance(gates, dict) or set(gates) != gating:
             raise _fail("composition_hard_gate_mapping_invalid", f"{at}.gates")

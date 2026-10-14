@@ -72,7 +72,7 @@ Field rules:
   "excludedPartners": [{"candidateId": "…", "identitySha256": "…", "reason": "…"}],
   "partnerRankingRuleSha256": "…", "layerAGatesSha256": "…", "layerAGateIds": ["<sorted gate ids>"],
   "derivationRule": "highest-ranked-partner-passing-every-layer-a-gate",
-  "gateScope": "all-ordinary-compositions | listed-compositions", "gatedCompositionIds": ["<[] for all, else exact ids>"]}]}`
+  "gateScope": "all-ordinary-compositions"}]}` (`listed-compositions` is disabled)
   (`../candidate-credibility.md` §4.4). No other entry may carry it. `hostManifests` has one key per decision target
   profile. One permission per artefact kind, covering exactly the manifest files of that kind (`model-data`: the pinned
   identity files plus every `data` file). `eligiblePartners` and `excludedPartners` together are exactly the partner

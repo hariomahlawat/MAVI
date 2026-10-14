@@ -70,8 +70,7 @@ def partners():
 def stage1(**changes):
     rule = {"compositionId": GATE, "partnerEventId": PARTNER_EVENT, "eligiblePartners": partners(),
             "excludedPartners": [], "partnerRankingRuleSha256": sha("rule"), "layerAGatesSha256": sha("gates"),
-            "layerAGateIds": list(GATE_IDS), "derivationRule": bs.DERIVATION_RULE, "gateScope": bs.GATE_SCOPE_ALL,
-            "gatedCompositionIds": []}
+            "layerAGateIds": list(GATE_IDS), "derivationRule": bs.DERIVATION_RULE, "gateScope": bs.GATE_SCOPE_ALL}
     rule.update(changes)
     return rule
 
@@ -1554,50 +1553,39 @@ def test_stopped_pr2_shape_permits_no_protected_d_and_no_selection():
     refused("baseline_stopped_no_selection", check, pending, document, proof)
 
 
-def listed_gate_ledger():
+def test_listed_compositions_scope_is_disabled():
+    """Convergence review P1-B: listing gated compositions by free-text id is disabled."""
     entry = bob()
-    rule = entry["benchmarkBaseline"]["compositions"][0]
-    rule.update(gateScope=bs.GATE_SCOPE_LISTED, gatedCompositionIds=["C-A-EST"])
-    return m3_ledger(baseline(), established(), emerging(), entry)
+    entry["benchmarkBaseline"]["compositions"][0]["gateScope"] = "listed-compositions"
+    refused("gate_scope_listed_compositions_disabled", validate_ledger, m3_ledger(entry))
+    entry["benchmarkBaseline"]["compositions"][0]["gatedCompositionIds"] = ["C-A-EST"]
+    with pytest.raises(CredibilityError):
+        validate_ledger(m3_ledger(entry))
+    assert bs.GATE_SCOPES == ("all-ordinary-compositions",)
 
 
-def test_stopped_generic_baseline_does_not_invalidate_compositions_outside_its_frozen_map():
-    """Generic event: the frozen map gates only C-A-EST. With the baseline STOPPED, a D measurement of an explicitly
-    non-gated composition stays lawful; a measurement of the gated one is refused."""
-    document = listed_gate_ledger()
-    proof = stopped_evidence(document)
-    summary = m3_decision(document, proof, state="TECHNICAL_DECISION_RECORDED", implementation=None)
-    resolved = m3_block(document, evidence(document))
-    free = copy.deepcopy(resolved["compositionCandidates"][0])  # C-B-EMG, not in the frozen map
-    free.update(gates={}, baselineSealSha256s={})
+def test_renamed_composition_cannot_escape_the_gate_or_coexist_with_its_original():
+    """The reviewer's rename probe: C-A-EST renamed C-Z-EST with the same components. Every ordinary composition is
+    gated, so dropping the gate is refused; a renamed duplicate beside its original is refused too."""
+    document = m3_ledger()
+    proof = evidence(document)
+    summary = m3_decision(document, proof)
     block_ = summary["benchmarkOnlyBaselines"]
-    block_.update(compositionCandidates=[free], rankedCompositions=["C-B-EMG"], strongestEvaluatedComposition="C-B-EMG",
-                  frontier=["C-B-EMG"], dExecutionStartedAt=D_STARTED)
-    check(summary, document, proof)
-    gated = copy.deepcopy(summary)
-    gated["benchmarkOnlyBaselines"]["compositionCandidates"].append(copy.deepcopy(resolved["compositionCandidates"][1]))
-    refused("baseline_stopped_no_d_result", check, gated, document, proof)
-    # the map is checked: an ungated composition may not claim the gate, nor drop it when gated
-    claimed = copy.deepcopy(summary)
-    claimed["benchmarkOnlyBaselines"]["compositionCandidates"][0].update(resolved["compositionCandidates"][0])
-    refused("composition_hard_gate_mapping_invalid", check, claimed, document, proof)
-    # lawful pre-D candidate measurements stay in the decision unchanged
-    assert [row["candidateId"] for row in summary["evaluated"][:-1]] == ["VC-B0", "VC-EST", "VC-EMG"]
-
-
-def test_gating_map_is_frozen_and_well_formed():
-    for scope, ids, code in ((bs.GATE_SCOPE_ALL, ["C-X"], "gated_compositions_invalid"),
-                             (bs.GATE_SCOPE_LISTED, [], "gated_compositions_invalid"),
-                             (bs.GATE_SCOPE_LISTED, ["C-Z", "C-A"], "gated_compositions_invalid"),
-                             ("some-compositions", ["C-A"], "value_not_allowed")):
-        entry = bob()
-        entry["benchmarkBaseline"]["compositions"][0].update(gateScope=scope, gatedCompositionIds=ids)
-        refused(code, validate_ledger, m3_ledger(entry))
-    frozen = listed_gate_ledger()
-    later = copy.deepcopy(frozen)
-    later["candidates"][-1]["benchmarkBaseline"]["compositions"][0]["gatedCompositionIds"] = ["C-A-EST", "C-B-EMG"]
-    refused("frozen_benchmark_baseline_field_changed", validate_evolution, frozen, later)
-
+    gated = next(c for c in block_["compositionCandidates"] if c["compositionId"] == "C-A-EST")
+    renamed = copy.deepcopy(gated)
+    renamed.update(compositionId="C-Z-EST", gates={}, baselineSealSha256s={})
+    escaped = copy.deepcopy(summary)
+    escaped["benchmarkOnlyBaselines"].update(compositionCandidates=[renamed], rankedCompositions=["C-Z-EST"],
+                                             strongestEvaluatedComposition="C-Z-EST", frontier=["C-Z-EST"])
+    refused("composition_hard_gate_mapping_invalid", check, escaped, document, proof)
+    failed = copy.deepcopy(gated)
+    failed.update(gates={GATE: "failed"}, technicalGates="failed", comparativeScore=None)
+    duplicate = copy.deepcopy(gated)
+    duplicate["compositionId"] = "C-Z-EST"
+    both = copy.deepcopy(summary)
+    both["benchmarkOnlyBaselines"].update(compositionCandidates=[failed, duplicate], rankedCompositions=["C-Z-EST"],
+                                          strongestEvaluatedComposition="C-Z-EST", frontier=["C-Z-EST"])
+    refused("composition_components_duplicate", check, both, document, proof)
 
 
 # ------------------------------------------------------------------ final round, item 4: full reachable-history audit
