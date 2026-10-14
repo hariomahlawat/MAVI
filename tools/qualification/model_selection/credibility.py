@@ -1348,14 +1348,19 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
     _match(decision["protocolSha256"], SHA256_RE, "decision.protocolSha256")
     if benchmark:
         # M3 convergence P1-A: a STOPPED gate-only baseline refuses every decision summary before any M1 rule runs.
-        from .baseline_seal import frozen_compositions, load_baseline_evidence, refuse_decision_after_stop, \
-            verify_event_seals
+        from .baseline_seal import (check_event_seal_validity, event_folder, frozen_compositions,
+                                    load_baseline_evidence, refuse_decision_after_stop, verify_event_seals)
         if frozen_compositions(frozen):
             if baseline_evidence is None:
                 if repo is None:
                     raise _fail("m3_decision_requires_baseline_evidence", "decision")
+                # from a repository, the decision is checked under the same shared seal predicate (P1-C)
+                event = event_folder(Path(repo), frozen["capabilityId"]) / frozen["eventId"]
+                verified = check_event_seal_validity(Path(repo), event, frozen, decision["protocolSha256"])
                 baseline_evidence = load_baseline_evidence(Path(repo), frozen)
-            refuse_decision_after_stop(verify_event_seals(baseline_evidence, frozen, decision["protocolSha256"]))
+            else:
+                verified = verify_event_seals(baseline_evidence, frozen, decision["protocolSha256"])
+            refuse_decision_after_stop(verified)
     state = _enum(decision["eventState"], EVENT_STATES, "decision.eventState")
     decided_on = _date(decision["decidedOn"], "decision.decidedOn")
     _check_sealed_on(ledger, decided_on, "decision_snapshot_postdates_decision")

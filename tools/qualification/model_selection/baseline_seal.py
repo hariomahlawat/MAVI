@@ -531,6 +531,8 @@ def verify_event_seals(evidence: Mapping[str, Mapping], frozen: Mapping, protoco
                                    declared[composition_id][0])
         if item.get("seal") is None:
             continue
+        if not isinstance(item["seal"], dict) or item["seal"].get("compositionId") != composition_id:
+            raise _fail("baseline_seal_composition_mismatch", f"evidence.{composition_id}")  # no seal under an alias
         digest = verify_baseline_seal(item["seal"], frozen=frozen, protocol_sha256=protocol_sha256,
                                       partner_ledger=partner, layer_a=item.get("layerA"))
         verified[composition_id] = {"sha256": digest, "status": item["seal"]["status"], "seal": item["seal"]}

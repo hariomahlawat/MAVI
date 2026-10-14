@@ -1931,3 +1931,29 @@ def test_shared_predicate_is_the_only_seal_validity_path():
     for function in (bs.validate_repository_seals, bs.require_committed_baseline_seal):
         assert "check_event_seal_validity(" in inspect.getsource(function), function.__name__
     assert "require_committed_baseline_seal(" in inspect.getsource(bs.verify_d_manifest_binding)
+
+
+def test_a_seal_filed_under_another_composition_id_is_refused():
+    """Identity by label: a valid seal of one composition cannot stand in for another composition's seal."""
+    entry = bob()
+    second = copy.deepcopy(entry["benchmarkBaseline"]["compositions"][0])
+    second["compositionId"] = "GATE-TWO"
+    entry["benchmarkBaseline"]["compositions"].append(second)
+    document = m3_ledger(baseline(), established(), emerging(), entry)
+    proof = evidence(document)
+    refused("baseline_seal_composition_mismatch", bs.verify_event_seals, {"GATE-TWO": proof[GATE]}, document,
+            PROTOCOL)
+
+
+def test_cli_style_repository_decision_check_runs_the_shared_predicate(tmp_path):
+    """validate_decision(repo=...) runs the same seal predicate, so a shallow clone is refused there too."""
+    repo = tmp_path / "deep"
+    document, partner, seal, folder = build_repository(repo)
+    shallow = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "-q", "--depth", "1", repo.as_uri(), str(shallow)], check=True,
+                   capture_output=True)
+    sfolder = shallow / folder.relative_to(repo)
+    decision_doc = json.loads((sfolder / f"{EVENT}-decision.json").read_text())
+    snapshot = json.loads((sfolder / f"{EVENT}-evidence-ledger-decided.json").read_text())
+    validate_decision(json.loads((folder / f"{EVENT}-decision.json").read_text()), snapshot, snapshot, repo=repo)
+    refused("baseline_seal_history_unavailable", validate_decision, decision_doc, snapshot, snapshot, repo=shallow)
