@@ -279,7 +279,7 @@ Before `PROTOCOL_FROZEN`, the independent reviewer named in the event's frozen p
 - **Attested facts.** The venue and "established group" bases; author, affiliated and independent group assignments (affiliation cannot be proven by a validator); publisher claims; evidence dates.
 - **Candidate kind.** A released checkpoint used end to end is a `checkpoint` candidate, not a `method`. The decision summary requires a method to have MAVI-trained artefacts.
 - **MAVI-produced evidence.** No evidence item reports a MAVI measurement under another name. The validator's denylist (§2) catches only the obvious forms.
-- **Free text.** Licence reasoning appears only under an `evaluation-permission` reason. The validator refuses the word "licence" elsewhere, but not a paraphrase.
+- **Free text.** Licence reasoning appears only under an `evaluation-permission` reason. The validator refuses the word "licence" elsewhere, but not a paraphrase. It ignores only the whole-word vehicle-plate domain phrases ("license plate", "license-plate", "licence plate", "licence-plate", optional plural). The reviewer checks every text containing such a phrase for adjoining licence wording or paraphrase that the exception could mask, and checks for obfuscated spellings (zero-width or soft-hyphen characters, homoglyphs, full-width letters), which the validator does not normalise.
 - **MAVI-trained artefacts.** Each training-manifest hash in the decision summary resolves to a retained MAVI training manifest in the S2c.3 evaluation harness's evidence store. The validator checks its form, not its content.
 - **Frozen files.** Any change to a frozen ledger, a protocol, a decision snapshot, a decision summary or their hashes in the record is reviewed as a protocol revision or a decision revision. The decision file changes as the event state advances, so the reviewer compares each version's snapshot hash with the previous one.
 - **Discovery coverage.** Discovery covered the survey's sources plus a dated re-survey, and no candidate was left out because it was inconvenient. An unlisted strong candidate is a review finding.
@@ -347,7 +347,7 @@ Residual human trust (P3): these are reviewer obligations (§9), not machine che
 - whether an item typed "independent" really measured something itself;
 - relabelled sub-tasks on independent evidence;
 - disguised MAVI results;
-- paraphrased licence reasoning;
+- paraphrased licence reasoning, including licence wording next to an exempt plate-domain phrase, and obfuscated spellings of "licence";
 - training-manifest resolution;
 - the checkpoint/method kind;
 - a fabricated history prefix on superseded inputs before freeze (it can never support implementation);

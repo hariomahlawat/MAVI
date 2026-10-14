@@ -294,10 +294,13 @@ def _reject_licence_keys(value: object, where: str) -> None:
         raise _fail("licence_reasoning_in_ledger", where)
 
 
-# The vehicle-plate domain term is not licence wording. Only these exact phrases are removed before the check
-# (any case; a space or a hyphen; optional plural): "license plate", "license-plate", "licence plate",
-# "licence-plate". The bare words "license"/"licence" stay refused, including next to a plate term.
-_PLATE_DOMAIN_TERM_RE = re.compile(r"licen[cs]e[ -]plates?", re.IGNORECASE)
+# The vehicle-plate domain term is not licence wording. Only these exact phrases are removed before the check:
+# "license plate", "license-plate", "licence plate" and "licence-plate" (ASCII case-insensitive; one ASCII space or
+# hyphen; optional plural), as whole words: no ASCII letter or digit may touch either end, so "sublicense plate",
+# "relicense plate", "unlicense plate", "license plateau" and "license plated" are not stripped and stay refused.
+# Underscore, dot, CamelCase, NBSP, newline and doubled-space variants are not the phrase and stay refused. Removal
+# never joins text into new licence wording, because the check runs on the remainder (which still contains "licen").
+_PLATE_DOMAIN_TERM_RE = re.compile(r"(?<![A-Za-z0-9])licen[cs]e[ -]plates?(?![A-Za-z0-9])", re.IGNORECASE | re.ASCII)
 
 
 _TRACKING_PARAMETER_RE = re.compile(r"^(?:utm_[a-z]+|ref|source|fbclid|gclid)=", re.IGNORECASE)
