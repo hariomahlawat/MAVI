@@ -3,7 +3,7 @@
 **Status:** Accepted; amended 2026-10-07 (Stage 3.5) and 2026-10-12 (Capability query interfaces — see amendments below)  
 **Date:** 2026-09-20  
 **Context:** Operator plane (React/TypeScript), following the independent UI/UX audit of `main@b99ce26f`  
-**Specification:** `docs/architecture/ui-ux-design-specification.md` (v1.0 accepted here; v2.0 accepted by the 2026-10-07 amendment; v2.1 accepted by the 2026-10-12 amendment)
+**Specification:** `docs/architecture/ui-ux-design-specification.md` (v1.0 accepted here; v2.0 accepted by the 2026-10-07 amendment; v2.1 accepted by the 2026-10-12 amendment; v2.2 accepted by the 2026-10-14 amendment)
 
 > ADR-010 is reserved by `docs/superpowers/plans/2026-09-20-audited-review-and-cases-plan.md` for operator identity, authorization and audit. ADR-011 freezes the scene-analytics lifecycle. This ADR takes the next number.
 
@@ -147,3 +147,15 @@ The answer vocabulary must preserve MAVI's evidence semantics. A Track count is 
 **Consequences accepted:** Stage 8 must define the structured aggregation/cardinality contract before Stage 9; Ask MAVI needs its own future surface and translation/grounding qualification; the existing Stage-3.5 Search work remains valuable as the Advanced Search/evidence path rather than being redesigned again.
 
 This amendment changes operator-interface direction only. It does not choose a language model, alter current Search behaviour, add a dependency, or implement Stage 8/9.
+
+## Amendment 2026-10-14 (Visual-QA harness observability)
+
+**Context.** The X3 performance gate (§38) ends a case's CLS window when the page is settled. A query waiting out a retry's backoff has no request in flight, so the harness, which saw only the network, read that backoff as a settled page and missed the layout the retry then caused (`docs/reviews/2026-10-13-x3-performance-gate-determinism.md`, owner ruling 4). Nothing outside the page can observe the query client's backoff. §26 forbids altering production code to make inspection easier.
+
+### Decision 14 — One harness-only passive observability hook, under four conditions
+
+§26 is amended narrowly (specification v2.2): the harness may read a passive observability hook only when it is dormant in normal operation, exposes no payload or data (counts and flags only), cannot alter rendering, query configuration or scheduling, and is activated only by the harness preinstalling its handle. The one such hook is `registerHarnessObservability` (`src/web/mavi-web/src/app/harnessObservability.ts`): the query client's fetching and mutating counts, read-only, registered only on a preinstalled `window.__vqa`. A contract test binds the conditions.
+
+**Rejected:** a fixed post-settle delay (a guess that would turn a missed shift into a slower, still non-deterministic gate); intercepting the page's timers from the harness (it would alter scheduling, the thing being measured); a general production test API (it would grow into the inspection-driven production surface §26 forbids).
+
+**Consequences accepted:** the application carries a few dormant lines that exist for the harness; every further hook needs its own amendment. This amendment adds no dependency and changes no budget, threshold or surface.

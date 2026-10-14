@@ -147,7 +147,8 @@ not; no loading presentation is on screen (or, for a state that `holds:
 is not mid-seek (a page that seeks on load has done so); no finite transition is running; the
 DOM has stopped changing; no request is in flight or newly started; and no
 query is fetching or waiting out a retry's backoff (the app's query activity,
-registered on the harness handle only when the harness installed it). A
+registered on the harness handle only when the harness installed it: the one
+passive hook UI spec §26 (v2.2) permits, `harnessObservability.ts`). A
 request held open to keep a loading state is not "in flight" — it never
 completes by design. Preparations wait for the consequence of each action, never
 for a guessed duration. Every wait is bounded; a timeout refuses the state and
