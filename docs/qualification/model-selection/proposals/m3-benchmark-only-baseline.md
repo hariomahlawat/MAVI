@@ -240,13 +240,13 @@ credibility requirements for candidate selection or implementation.
 | outcome | none: the ordinary M1 outcome rules, with every BOB removed (rule 5) |
 | decision v2 | `m3_v2_unsupported` |
 
-**Licence-phrase detection (M1 validator amendment, owner decision 9, cold review P1-2).** The plate-domain phrase
-exemption runs on NFKC/case-folded text with combining marks and invisible format characters removed, Unicode dashes
-folded and whitespace runs folded. It is fail-closed: the phrase is exempt only after the start of the text, a
-phrase-opening punctuation mark, a clause end, or a word from a small closed allowlist of determiners, prepositions and
-plate-domain modifiers, with no conjunction or preposition other than "per" (owner decision 2026-10-14;
-`candidate-credibility.md` §4). Any other word, and any hyphen before "license", keeps it refused. The remainder is folded through a small Cyrillic/Greek/Armenian confusable table before "licen" is searched.
-The benign phrasings this refuses are listed for the owner (`DOCUMENTED_FALSE_POSITIVES`).
+**Licence-phrase detection (M1 validator amendment, owner decisions 9 and final round).** The plate domain term is
+exempt only when the entire normalised field value is exactly "license plate", "license plates", "licence plate" or
+"licence plates" (NFKC, case folding, combining marks and format characters removed, dashes and whitespace folded).
+No positional or neighbouring-word inference is made; every other value containing "licen" (after a Cyrillic, Greek
+and Armenian look-alike fold) is refused. Exact identifiers (repository and source URLs, model identifiers, artefact
+file names) are exempted only through the ledger's typed `identifierExemptions`, declared before freeze and fixed
+after it, matched by whole-value equality in the declared field (`candidate-credibility.md` §4.5).
 
 **Not machine-checked (review rules, M1 §9):**
 - that the Layer-A rank keys were computed by the frozen ranking rule from the Layer-A measurements. The validator

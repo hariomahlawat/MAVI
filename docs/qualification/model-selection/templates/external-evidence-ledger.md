@@ -110,7 +110,7 @@ Type rules:
 - **independent technical types** also carry `subTask` and `objectClass`, which must be the candidate's and the ledger's.
 - **producers:** an `author` group is in `authors.groups`, an `author-affiliated` group in `authors.affiliatedGroups`; `independent` is in neither.
 - **dates:** `retrievedOn` ≤ `recordedAt`; no future date.
-- **licence:** no key or text anywhere mentions a licence, except the reason and revisit trigger of an `evaluation-permission` disposition. The plate domain term ("license plate", "license-plate", "licence plate", "licence-plate", any case, optional plural, after Unicode normalisation) is not licence wording when it is a noun; after a licensing prefix ("sub", "re", "cross", "un", …) or a verb context ("to", "may", "we", "and", …) it is (`../candidate-credibility.md` §4).
+- **licence:** no key or text anywhere mentions a licence, except the reason and revisit trigger of an `evaluation-permission` disposition, a field whose whole normalised value is exactly "license plate", "license plates", "licence plate" or "licence plates", and an exact identifier declared in `identifierExemptions` (below).
 - **MAVI:** no reserved `mavi` group, MAVI path, MSR event file or `evidence-store:` source, and no item text naming MAVI.
 - **independent-benchmark:** scope is `method`.
 - **exact-checkpoint scope:** needs `reproducedArtefact`, as `{"sha256s": [...]}` equal to **all** pinned weight hashes, or as `{"repository", "revision"}` equal to the identity.

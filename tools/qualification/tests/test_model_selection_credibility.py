@@ -1238,146 +1238,7 @@ def test_module_imports_no_network_library():
         assert f"import {name}" not in source and f"from {name}" not in source
 
 
-# ------------------------------------------------- plate-domain term is not licence wording (2026-10-13)
-
-
-@pytest.mark.parametrize("field, value", [
-    ("name", "Licence Plate recogniser (CCT)"),
-    ("caveat", "Trained on the LICENSE PLATE crops of 65 regions"),
-    ("summary", "Author README: licence-plate detector validation table"),
-    ("caveat", "Licence-plate crops only"),
-    ("caveat", "the license plates of 65 regions"),
-    # normalised spellings of the exact phrase are still the plate-domain noun phrase (owner decision 9, step 1)
-    ("caveat", "license\u00a0plate crops"),
-    ("caveat", "license\u2010plate crops"),
-    ("caveat", "license\u2011plate crops"),
-    ("caveat", "license\u2013plate crops"),
-    ("caveat", "license\u2212plate crops"),
-    ("caveat", "license\u3000plate crops"),
-    ("caveat", "\uff4c\uff49\uff43\uff45\uff4e\uff53\uff45 \uff50\uff4c\uff41\uff54\uff45 crops"),
-    ("caveat", "LICEN\u200bSE PLATE crops"),
-    ("caveat", "license \uff50late crops"),
-])
-def test_plate_domain_term_is_not_licence_wording(field, value):
-    entry = established()
-    if field == "repository":
-        entry["identity"]["repository"] = value
-    elif field == "file":
-        entry["identity"]["files"][0]["path"] = value
-    elif field == "name":
-        entry["candidateName"] = value
-    elif field == "caveat":
-        entry["caveats"] = [value]
-    else:
-        entry["evidence"][0]["summary"] = value
-    assert validate_ledger(ledger(entry))["VC-EST"]["class"] == "established"
-
-
-PREFIX_FORMS = [
-    # licensing prefixes, hyphenated, spaced, plural, both spellings (review P1-1)
-    "you may sub-license plates detector weights",
-    "you may not sub license plates detector weights",
-    "sub license plate weights",
-    "re-license plate model under MIT",
-    "re license plates freely",
-    "cross-license plate weights with vendor",
-    "cross license plates",
-    "un-license plate weights",
-    "un license plate weights",
-    "Sub-Licence-plate weights",
-    "sub-licence plates",
-    "re-licence plate",
-    "cross-licence plate",
-    "un-licence plate",
-    "co-license plate weights",
-    "non-licence plates",
-    "you may not sublicense plates detector weights",
-    "relicense plate model",
-    "Unlicense plate weights",
-    "non-sublicense plate-model weights",
-    # licence verbs before the phrase
-    "we license plate weights to partners",
-    "you may license plate weights",
-    "free to licence plate models",
-    "copy, modify and license plate weights",
-    # zero-width, soft-hyphen and other format characters
-    "sub\u200b-license plates",
-    "sub-\u200blicense plates",
-    "su\u200bb license plates",
-    "sub\u00ad-license plates",
-    "sub-license\u200d plates",
-    # fullwidth Latin forms
-    "\uff53\uff55\uff42\uff0d\uff4c\uff49\uff43\uff45\uff4e\uff53\uff45 \uff50\uff4c\uff41\uff54\uff45",
-    "\uff52\uff45 \uff4c\uff49\uff43\uff45\uff4e\uff43\uff45 \uff50\uff4c\uff41\uff54\uff45\uff53",
-    # common Unicode dash and space forms
-    "sub\u2010license plates",
-    "sub\u2011license plates",
-    "sub\u2013license plates",
-    "sub\u2014licence plates",
-    "sub\u2212license plates",
-    "sub\ufe63license plates",
-    "sub\uff0dlicense plates",
-    "sub\u00a0license plates",
-    "re\u3000licence plate",
-    "un\u2009license plate",
-]
-
-
-@pytest.mark.parametrize("value", PREFIX_FORMS + [
-    "weights licence forbids redistribution",
-    "license plate detector released under a non-commercial license",
-    "license-plate model; weights licensed for research only",
-    "licence-plate crops; commercial licence required",
-    "licenseplate model",
-    "license plateau",
-    "license plated",
-    "license_plate",
-    "license.plate",
-    "LicensePlate",
-    "license/plate",
-    "license+plate",
-    "license\u200bplate",
-    "lilicense platecense",
-    "license plates license",
-    "licen\u017fe plate weights licence",
-    "LICENSE",
-    # obfuscated spellings of the word itself (owner decision 9)
-    "lic\u200bence weights",
-    "lic\u00adense",
-    "weights L\u0130CENSE forbids",
-    "\uff4c\uff49\uff43\uff45\uff4e\uff53\uff45 forbids",
-    "lic\u00e9nse terms",
-    # Unicode look-alikes: never the exempt phrase; mixed-script spellings of the word fold to "licen"
-    "license pl\u0430te",
-    "license plat\u0435",
-    "license \u0440late",
-    "licence pl\u0251te",
-    "weights lic\u0435nse forbids",
-    "l\u0456cense",
-    "\u04cficense",
-    "lic\u0435nce plate",
-])
-def test_real_licence_wording_is_still_refused_next_to_the_plate_term(value):
-    entry = established()
-    entry["caveats"] = [value]
-    refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
-
-
-def test_licence_normalisation_never_broadens_the_exemption():
-    from model_selection.credibility import has_licence_wording
-    for value in ("licence", "licensing", "license plate holder licence", "number plate", "plate"):
-        assert has_licence_wording(value) == ("licen" in value)
-    for value in ("\u043b\u0438\u0446\u0435\u043d\u0437\u0438\u044f", "\u03bb\u03b9\u03ba\u03b5\u03bd\u03c3\u03b5"):
-        assert not has_licence_wording(value)  # pure Cyrillic / Greek words never fold to "licen"
-
-
-def test_plate_term_does_not_open_licence_keys():
-    document = ledger(established())
-    document["candidates"][0]["licensePlateLicence"] = "x"
-    refused("licence_field_in_ledger", validate_ledger, document)
-
-
-# ------------------------------------------- cold review of f24dcf5e (P1-2): fail-closed noun-context allowlist
+# ------------------------------------------------- plate domain term: exact whole value only (M3 final round)
 
 U = chr
 
@@ -1386,7 +1247,72 @@ def fw(text):
     return "".join(U(0xff00 + ord(ch) - 0x20) if ch != " " else " " for ch in text)
 
 
-REVIEW_MUST_REFUSE = [
+# The only values exempt from the licence scan: the whole field is the plate domain term, after normalisation.
+EXEMPT_WHOLE_VALUES = [
+    "license plate", "license plates", "licence plate", "licence plates", "License Plate", "LICENCE PLATES",
+    "  license plate  ", "license" + U(0xa0) + "plate", "license" + U(0x3000) + "plates", "license" + U(9) + "plate",
+    "lic" + U(0x200b) + "ense plate", "LICEN" + U(0xad) + "CE PLATE", fw("license plate"), fw("licence plates"),
+]
+
+OWNER_REFUSED = [
+    "License plate weights to anyone", "Vendors: license plate weights to OEMs", "build & license plate models",
+    "buy / license plate software", "vehicle and license plate crops", "applied to license plate recognition",
+    "multi-line license plates", "license-plate", "licence-plate", "license plate.", '"license plate"',
+    "(license plate)", "[license plate]", "license plate...", "license plate" + U(0x2026), "- license plate",
+    "* license plate", "1. license plate", "a) license plate", "license plate:", "the license plate",
+    "license plate detector", "license plates and licence plates", "license plate license plate",
+    "https://huggingface.co/example-org/yolo-license-plate-detection", "yolo-license-plates.onnx",
+]
+
+COLD_B_CASES = [
+ # must refuse (owner)
+ "build and license plate models","permission to license plate weights","buy or license plate software",
+ # punctuation conjunctions
+ "build & license plate models","build + license plate models","buy / license plate software","buy | license plate software",
+ "buy \u00b7 license plate software","copy, license plate weights","copy; license plate weights",
+ "build &license plate models","build and/or license plate models","build and / license plate models",
+ "we copy\u2026 license plate weights","Vendors: license plate weights to OEMs","Vendors. License plate weights to OEMs!",
+ "the \"vendors\" license plate weights","the 'vendors' license plate weights","vendors' license plate weights",
+ "(we) license plate weights","we (license plate weights)","*license plate weights*","we * license plate weights",
+ "we\u3000& license plate weights", "build \uff06 license plate models", "build ＆license plate",
+ # allowlist entry as verb context
+ "makers of ALPR license plate weights commercially","firms that sell OCR license plate models","the car license plate models",
+ "any license plate weights you want","License plate weights to anyone","License plates under MIT",
+ "who per license plate", "per license plate weights",
+ # prefixes
+ "sub-license plate","sublicense plate","re-license plate","re license plate","open-license plate","the sub\u00adlicense plate",
+ "the sub\u200blicense plate","the sub\u2011license plate","x-license plate","the-license plate","sub_license plate",
+ "sub\u2010license plate", "sub\u2e3alicense plate", "sub~license plate", "sub~ license plate", "sub ~ license plate",
+ "sub\u02d7license plate", "sub\u2027license plate", "sub\u2022license plate", "sub \u2022 license plate",
+ "sub\u00a0license plate", "sub\u2063license plate", "sub\u034flicense plate", "sub\u180elicense plate", "sub\u3164license plate",
+ "sub\u115flicense plate", "sub\u2800license plate", "sub\uffa0license plate",
+ # look-alikes
+ "the l\u0456cense plate weights","the \u217cicense plate","\u0430nd license plate","\uff41nd license plate","the licen\u0455e plate",
+ "\u0430nd license plate", "th\u0435 license plate", "and\u0301 license plate", "\u24d0nd license plate", "\U0001d41a\U0001d427\U0001d41d license plate",
+ "the license plate license","the license plate, licensed under MIT","the license plates; re-licensed",
+ "the l1cense plate", "the lic\u0435nse", "the \u029fi\u1d04\u1d07\u0274se",
+ # benign expected
+ "the license plate detector","indian licence-plate dataset","number plate","yolov11-license-plate-detection",
+ "https://huggingface.co/foo/yolov11-license-plate-detection","license_plate_detector.pt","ALPR / license plate",
+ "Vehicle license plate","a licence plate","LICENSE PLATE","license-plates", "keremberke/yolov8n-license-plate-extraction",
+ "license plate", "plates (license plate)",
+]
+
+COLD_B_LIST = [
+    "Owners of the car license plate data to insurers",
+    "Makers of every vehicle license plate weights for a fee",
+    "We require that each LPR license plate weights separately",
+    "Suppliers to the front license plate models",
+    "Vendors who sell to ALPR license plate models commercially",
+    "We build \"and\" license plate models",
+    "weights (license plate models to OEMs)",
+    "The authors [license plate weights] under CC-BY",
+    "a) license plate weights to third parties",
+    "1. License plate weights to anyone",
+    "build > license plate", "buy = license plate", "build ... license plate", "build \u2026license plate",
+]
+
+COLD_A_REFUSE = [
  "sub-license plate weights", "sub license plate weights", "sublicense plate weights", "Sub-Licence-plate",
  "re-licence plates", "relicense plate", "cross-license plate", "un-licensed plate", "unlicense plate",
  "sub\u2010license plate", "sub\u2014license plate", "sub\u00a0license plate", "sub\u200blicense plate",
@@ -1410,7 +1336,8 @@ REVIEW_MUST_REFUSE = [
  "sub\u2028license plate", "sub\u3000license plate", "sub\ufe63license plate", "sub\u2212license plate",
  "sub\u00b7license plate", "sub\u2022license plate", "sub\u30fclicense plate",
 ]
-REVIEW_PLATE_TEXT = [
+
+COLD_A_PLATE_TEXT = [
  "license plate", "licence plate", "License Plate", "LICENCE-PLATE", "license-plates", "licence plates",
  "Licence-plate detector", "license\u2011plate", "license\u00a0plate", "lic\u200bense plate",
  "\uff4c\uff49\uff43\uff45\uff4e\uff53\uff45 \uff50\uff4c\uff41\uff54\uff45",
@@ -1425,81 +1352,58 @@ REVIEW_PLATE_TEXT = [
  "trained on CCPD and license plates", "license plates or vehicles", "cars, trucks and license plates",
  "license  plate",
 ]
-# Benign phrasings the fail-closed allowlist refuses. Listed for the owner's ruling (conjunction and "to" contexts,
-# hyphenated plate-domain modifiers, dataset names); the author writes "number plate" or "plate" instead.
-DOCUMENTED_FALSE_POSITIVES = [
-    # owner decision 2026-10-14: no conjunction, preposition or verb before the phrase is exempt
-    "detects license plates in images", "reads licence-plate text", "on license plates.",
-    "Trained on LICENSE PLATE crops from 65 regions", "vehicle and license plate crops",
-    "applied to license plate recognition", "crops of license plates", "for license plate recognition",
-    "with license plates", "in license plate images", "license plate, licence plate", "vehicles license plates",
-    "CCPD license plate dataset", "multi-line license plates", "dual-row licence plates", "double-line license plate",
-    "non-standard license plates", "under-exposed license plates", "self-driving license plate dataset",
-    "over-exposed license plates", "pre-processed license plates", "re-identification license plate",
-    "license plates and licence plates", "OCR to license plate text", "Applied to license plate images",
-    "and license plates", "trained on CCPD and license plates", "cars, trucks and license plates",
-    # identifiers with a hyphen-joined word before "license" (fail-closed; real PR-2 repository and file names)
-    "https://huggingface.co/morsetechlab/yolov11-license-plate-detection",
-    "https://huggingface.co/justjuu/rtdetr-v2-license-plate-detection",
-    "yolo-v9-s-608-license-plates-end2end.onnx",
-]
 
 
-OWNER_AMBIGUOUS_CONTEXTS = [
-    "build and license plate models", "permission to license plate weights", "buy or license plate software",
-    "terms for license plate use", "copy, modify, license plate weights", "copy; license plate weights",
-    "rights with license plate weights", "in license plate models we grant", "no license plate weights may be sold",
-    "vendors license plate weights", "cars license plate", "they detect license plate weights and license them",
-]
+def _in_scan(value):
+    from model_selection.credibility import has_licence_wording
+    return has_licence_wording(value)
 
 
-@pytest.mark.parametrize("value", REVIEW_MUST_REFUSE + OWNER_AMBIGUOUS_CONTEXTS +
-                         ["lice" + U(0x578) + "se", "lic" + U(0x435) + "nse"])
-def test_cold_review_licensing_forms_are_refused(value):
-    entry = established()
-    entry["caveats"] = [value]
-    refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
-
-
-@pytest.mark.parametrize("value", [v for v in REVIEW_PLATE_TEXT if v not in DOCUMENTED_FALSE_POSITIVES])
-def test_cold_review_plate_domain_text_is_accepted(value):
+@pytest.mark.parametrize("value", EXEMPT_WHOLE_VALUES)
+def test_only_the_whole_plate_domain_value_is_exempt(value):
     entry = established()
     entry["caveats"] = [value]
     validate_ledger(ledger(entry))
 
 
-@pytest.mark.parametrize("value", DOCUMENTED_FALSE_POSITIVES)
-def test_documented_false_positives_are_refused_until_the_owner_rules(value):
+ALL_PROBES = sorted(set(OWNER_REFUSED + COLD_B_CASES + COLD_B_LIST + COLD_A_REFUSE + COLD_A_PLATE_TEXT))
+
+
+@pytest.mark.parametrize("value", [v for v in ALL_PROBES if " ".join(v.split()).casefold() not in
+                                   ("license plate", "license plates", "licence plate", "licence plates")
+                                   and "licen" in v.casefold()])
+def test_every_other_value_containing_licence_letters_is_refused(value):
     entry = established()
     entry["caveats"] = [value]
     refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
 
 
+def test_probe_values_with_obfuscated_letters_are_refused_too():
+    """Values whose "licen" is hidden by look-alikes, format characters or full-width letters are refused unless the
+    whole value normalises to the plate domain term."""
+    from model_selection.credibility import _normalise_text, _skeleton
+    exempt = {"license plate", "license plates", "licence plate", "licence plates"}
+    for value in ALL_PROBES:
+        normal = _normalise_text(value)
+        if "licen" in _skeleton(normal) and normal not in exempt:
+            assert _in_scan(value), ascii(value)
+
+
+def test_no_positional_noun_inference_remains():
+    import model_selection.credibility as module
+    for name in ("_NOUN_CONTEXT", "_plate_phrase_is_noun", "_PLATE_PHRASE_RE", "_CLAUSE_ENDS"):
+        assert not hasattr(module, name), name
+    assert module._PLATE_DOMAIN_VALUES == {"license plate", "license plates", "licence plate", "licence plates"}
+
+
 def test_licence_keys_never_take_the_exemption():
-    for key in ("license_plate", "licensePlate", "plateLicence", "l" + U(0x456) + "cense"):
+    for key in ("license plate", "license_plate", "licensePlate", "plateLicence", "l" + U(0x456) + "cense"):
         document = ledger(established())
         document["candidates"][0][key] = 1
         refused("licence_field_in_ledger", validate_ledger, document)
 
 
-@pytest.mark.parametrize("word", ["a", "an", "the", "each", "every", "any", "per", "vehicle's", "vehicles'", "car's",
-                                  "cars'", "vehicle", "car", "indian", "front", "rear", "number", "detected",
-                                  "cropped", "visible", "unreadable", "recognised", "recognized", "ocr", "anpr",
-                                  "alpr", "lpr"])
-def test_every_allowlisted_word_exempts_only_the_noun_phrase(word):
-    from model_selection.credibility import _NOUN_CONTEXT, has_licence_wording
-    assert word in _NOUN_CONTEXT
-    assert not has_licence_wording(f"{word} license plate crops")
-    # the allowlisted word never exempts licensing wording around or inside the phrase
-    for value in (f"{word} license plate weights licensed under MIT", f"{word} sub-license plate",
-                  f"{word} licence", f"{word}-license plate"):
-        assert has_licence_wording(value), value
-
-
-def test_allowlist_is_exactly_the_documented_set():
-    from model_selection.credibility import _NOUN_CONTEXT
-    assert _NOUN_CONTEXT == {"a", "an", "the", "each", "every", "any", "per", "vehicle's", "vehicles'", "car's",
-                             "cars'", "vehicle", "car", "indian", "front", "rear", "number", "detected", "cropped",
-                             "visible", "unreadable", "recognised", "recognized", "ocr", "anpr", "alpr", "lpr"}
-    for absent in ("and", "or", "to", "for", "with", "of", "on", "in", "from", "no", "vehicles", "cars"):
-        assert absent not in _NOUN_CONTEXT
+def test_pure_non_latin_words_never_fold_to_licence():
+    cyrillic = "".join(map(U, (0x43b, 0x438, 0x446, 0x435, 0x43d, 0x437, 0x438, 0x44f)))
+    greek = "".join(map(U, (0x3bb, 0x3b9, 0x3ba, 0x3b5, 0x3bd, 0x3c3, 0x3b5)))
+    assert not _in_scan(cyrillic) and not _in_scan(greek)
