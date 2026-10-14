@@ -52,28 +52,69 @@ export const RESPONSE_ORDERS = Object.freeze(['natural', 'forward', 'reverse']);
 export const RESPONSE_SPACING_MS = 120;
 export const BURST_GATHER_MS = 100;
 
+/**
+ * The pinned-order scheduler, one generation per case. Answers go one at a time
+ * from the generation's queue: each is sent, then the next waits spacingMs from
+ * that moment (measured from the send, so a timer that fires late never brings
+ * the next answer closer). Under `reverse` the requests that arrive within
+ * gatherMs of a burst's first are released in the opposite order.
+ *
+ * reset() closes the generation: every timer it set is cancelled, its queue
+ * and any burst being gathered are dropped (each entry's `drop` refuses its
+ * request), and a fresh generation begins with nothing pending and no spacing
+ * owed. No closure of a closed generation can run — its timers are cleared and
+ * guarded — so a previous case cannot shift the next case's grouping, order or
+ * timing. `setTimer`/`clearTimer` are injectable for a virtual clock in tests.
+ */
+export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS, gatherMs = BURST_GATHER_MS, setTimer = setTimeout, clearTimer = clearTimeout }) {
+  if (order !== 'forward' && order !== 'reverse') throw new Error(`a scheduler pins forward or reverse, not "${order}"`);
+  const open = () => {
+    const g = { queue: [], burst: null, timers: new Set(), pumping: false, live: true };
+    const later = (fn, ms) => {
+      const t = setTimer(() => { g.timers.delete(t); if (g.live) fn(); }, ms);
+      g.timers.add(t);
+    };
+    const pump = () => {
+      const entry = g.queue.shift();
+      if (!entry) { g.pumping = false; return; }
+      entry.answer();
+      later(pump, spacingMs);
+    };
+    const release = (entries) => {
+      g.queue.push(...entries);
+      if (!g.pumping) { g.pumping = true; pump(); }
+    };
+    g.submit = (entry) => {
+      if (order === 'forward') { release([entry]); return; }
+      if (!g.burst) {
+        g.burst = [];
+        later(() => { const entries = g.burst.reverse(); g.burst = null; release(entries); }, gatherMs);
+      }
+      g.burst.push(entry);
+    };
+    g.close = () => {
+      g.live = false;
+      for (const t of g.timers) clearTimer(t);
+      g.timers.clear();
+      const dropped = [...g.queue, ...(g.burst ?? [])];
+      g.queue.length = 0;
+      g.burst = null;
+      for (const entry of dropped) entry.drop?.();
+    };
+    return g;
+  };
+  let generation = open();
+  return {
+    submit: (answer, drop) => generation.submit({ answer, drop }),
+    reset() { generation.close(); generation = open(); },
+    /** What the current generation still holds (diagnostic and tests). */
+    pending: () => ({ queued: generation.queue.length, gathering: generation.burst?.length ?? 0, timers: generation.timers.size }),
+  };
+}
+
 export function startServer({ distDir, fixtureDir, scenario, footage, textSpacing = () => false, responseOrder = 'natural' }) {
   if (!RESPONSE_ORDERS.includes(responseOrder)) throw new Error(`unknown response order "${responseOrder}" (${RESPONSE_ORDERS.join(', ')})`);
-  /**
-   * A pinned order's answers go one at a time from this queue: each is sent,
-   * then the next waits RESPONSE_SPACING_MS from that moment — measured from
-   * the send itself, so a timer that fires late (a loaded host) never brings
-   * the next answer closer to it.
-   */
-  const queue = [];
-  let pumping = false;
-  const pump = () => {
-    const answer = queue.shift();
-    if (!answer) { pumping = false; return; }
-    answer();
-    setTimeout(pump, RESPONSE_SPACING_MS);
-  };
-  const release = (answers) => {
-    queue.push(...answers);
-    if (!pumping) { pumping = true; pump(); }
-  };
-  /** `reverse`: the burst being gathered, its answers in arrival order. */
-  let burst = null;
+  const scheduler = responseOrder === 'natural' ? null : createResponseScheduler({ order: responseOrder });
   /** Bumped by resetSequences: a queued answer of an earlier epoch is dropped. */
   let epoch = 0;
   /**
@@ -154,15 +195,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
     };
     if (responseOrder !== 'natural' && path.startsWith('/api/') && staleDocument(req)) { res.destroy(); return; }
     if (responseOrder !== 'natural' && req.method === 'GET' && path.startsWith('/api/') && !videoStream) {
-      if (responseOrder === 'reverse') {
-        if (!burst) {
-          burst = [];
-          setTimeout(() => { const answers = burst.reverse(); burst = null; release(answers); }, BURST_GATHER_MS);
-        }
-        burst.push(answer);
-        return;
-      }
-      release([answer]);
+      scheduler.submit(answer, () => res.destroy());
       return;
     }
     answer();
@@ -454,7 +487,10 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
           // A pinned order's answers still queued belong to the scenario being
           // reset (a previous document's poll, say): answered after the reset
           // they would consume the next case's sequenced fixtures, which a
-          // natural-order server answered before it. They are dropped.
+          // natural-order server answered before it. The generation is closed —
+          // its timers cancelled, its queue and burst dropped (their requests
+          // refused) — and the next case starts a fresh one.
+          scheduler?.reset();
           epoch += 1;
         },
         /** X2: the API requests made since the last reset, oldest first. */
