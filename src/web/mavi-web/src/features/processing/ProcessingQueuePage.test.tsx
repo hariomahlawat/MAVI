@@ -288,8 +288,9 @@ describe('ProcessingQueuePage', () => {
     expect(await within(rows[1]).findByText(/run status unavailable/i)).toBeInTheDocument();
     expect(within(rows[1]).queryByText(/Loading run/)).not.toBeInTheDocument();
     // S6/X3: the failed row keeps its folded-values reserve, invisible, so the
-    // columns do not move back when the lookup fails.
-    expect(rows[1].querySelectorAll('.ledger-folded .queue-reserve[aria-hidden="true"]')).toHaveLength(3);
+    // columns do not move back when the lookup fails — the shape its status
+    // predicts (owner ruling 3): Queued and Attempt, no Tracks for a Failed row.
+    expect(rows[1].querySelectorAll('.ledger-folded .queue-reserve[aria-hidden="true"]')).toHaveLength(2);
 
     vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: run('Failed', { failureCode: 'worker_watchdog_timeout' }) });
     await user.click(within(rows[1]).getByRole('button', { name: /retry/i }));
@@ -301,9 +302,10 @@ describe('ProcessingQueuePage', () => {
     vi.mocked(getProcessingStatus).mockImplementation(() => new Promise((r) => { pending.push(r); }));
     renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
     const table = await screen.findByRole('table');
-    const row = within(table).getAllByRole('row')[1];
+    // The Processed row: Queued, Attempt and a Tracks value — the completed
+    // run's full shape, predicted from the row's own status (owner ruling 3).
+    const row = within(table).getAllByRole('row').find((r) => r.textContent?.includes(done.originalFileName)) as HTMLElement;
     const reserve = row.querySelectorAll('.ledger-folded .queue-reserve');
-    // Queued, Attempt and a Tracks value: the completed run's full shape.
     expect(reserve).toHaveLength(3);
     expect(reserve[2]).toHaveTextContent(/tracks$/);
     reserve.forEach((node) => expect(node).toHaveAttribute('aria-hidden', 'true'));
@@ -330,6 +332,23 @@ describe('ProcessingQueuePage', () => {
     // rows already drawn keep theirs.
     const newRow = within(table).getAllByRole('row').find((row) => row.textContent?.includes(arrived.originalFileName)) as HTMLElement;
     expect(newRow.querySelectorAll('.ledger-folded .queue-reserve').length).toBeGreaterThan(0);
+  });
+
+  it('draws every row at once when one row’s lookup is slow, that row holding its final shape (owner ruling 3, §38)', async () => {
+    vi.mocked(getProcessingStatus).mockImplementation((id) => (id === running.id
+      ? new Promise(() => {})
+      : Promise.resolve({ videoStatus: 'Processed', latestRun: run('Completed', { progressPercent: 100, tracksCreated: 42 }) })));
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    const table = await screen.findByRole('table');
+    // The other rows are drawn with their runs while the slow one is out.
+    await waitFor(() => expect(within(table).getAllByText('42').length).toBeGreaterThan(0));
+    const slow = within(table).getAllByRole('row').find((r) => r.textContent?.includes(running.originalFileName)) as HTMLElement;
+    expect(within(slow).getByText(/Loading run/)).toBeInTheDocument();
+    // Its placeholders: the folded values' shape, the status line's unseen
+    // progress, and the Queued cell's dash over an unseen timestamp.
+    expect(slow.querySelectorAll('.ledger-folded .queue-reserve[aria-hidden="true"]')).toHaveLength(2);
+    expect(slow.querySelector('.run-cell .cell-reserve .cell-reserve__ghost .progress--inline')).not.toBeNull();
+    expect(slow.querySelector('td .cell-reserve__ghost[data-reserve]')).not.toBeNull();
   });
 
   describe('M2: the run-status retry in the capped status cell', () => {

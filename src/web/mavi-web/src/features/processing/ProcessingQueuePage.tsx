@@ -261,10 +261,13 @@ export default function ProcessingQueuePage() {
                             // Measured under Segoe and Verdana at 1024/768.
                             <>
                               <span className="ledger-folded__value queue-reserve" aria-hidden="true">
-                                {compactTimestamp(new Date().toISOString(), displayZone)}
+                                {compactTimestamp(`${new Date().getUTCFullYear()}-09-28T18:29:00Z`, displayZone)}
                               </span>
                               <span className="ledger-folded__value queue-reserve" aria-hidden="true">#1</span>
-                              <span className="ledger-folded__value queue-reserve" aria-hidden="true">0 tracks</span>
+                              {/* Owner ruling 3 (§38): a Tracks value only where the
+                                  row's status says its run completed — the shape
+                                  the run will bring, not every row's widest. */}
+                              {row.processingStatus === 'Processed' ? <span className="ledger-folded__value queue-reserve" aria-hidden="true">0 tracks</span> : null}
                             </>
                           ) : null}
                         />
@@ -288,7 +291,15 @@ export default function ProcessingQueuePage() {
                               row): the row keeps its identity and this cell
                               carries the request's state. */}
                           {!run || hasFailure(statusState) ? (
-                            <span className="run-cell__line">
+                            <span className={statusState.kind === 'loading' ? 'run-cell__line cell-reserve cell-reserve--start' : 'run-cell__line'}>
+                              {/* Owner ruling 3 (§38): while the run is out, its
+                                  loading line sits over an unseen copy of the
+                                  inline value the row's status will carry — an
+                                  active row's progress, a failed row's capped
+                                  code — so the status column is already as wide
+                                  as it will be when the run lands. */}
+                              {statusState.kind === 'loading' && active ? <span className="cell-reserve__ghost" aria-hidden="true"><Progress value={0} inline /></span> : null}
+                              {statusState.kind === 'loading' && row.processingStatus === 'Failed' ? <code className="cell-reserve__ghost" aria-hidden="true"><span className="truncate cap-md">vision_job_attempts_exhausted</span></code> : null}
                               <StateRegion
                                 kind="row"
                                 state={statusState}
@@ -313,7 +324,15 @@ export default function ProcessingQueuePage() {
                         </div>
                       </td>
                       <td className="num ledger-fold" title={run ? displayTimestamp(run.queuedAtUtc, displayZone) : undefined}>
-                        {run ? compactTimestamp(run.queuedAtUtc, displayZone) : '—'}
+                        {run ? compactTimestamp(run.queuedAtUtc, displayZone) : (
+                          // Its dash over an unseen timestamp of this year's
+                          // shape: the column keeps the width the run brings.
+                          <span className="cell-reserve">
+                            <span>—</span>
+                            {/* Drawn by CSS (::before), so the reserve is no text of the cell's. */}
+                            <span className="cell-reserve__ghost" aria-hidden="true" data-reserve={compactTimestamp(`${new Date().getUTCFullYear()}-09-28T18:29:00Z`, displayZone)} />
+                          </span>
+                        )}
                       </td>
                       <td className="num ledger-fold">{run ? formatCount(run.attemptCount) : '—'}</td>
                       <td className="num ledger-fold">{run && run.status === 'Completed' ? formatCount(run.tracksCreated) : '—'}</td>
