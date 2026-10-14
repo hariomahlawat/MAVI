@@ -590,8 +590,11 @@ def validate_repository_seals(repo: Path, root: Path, frozen_by_event: Mapping[P
             raise _fail("d_manifest_without_frozen_composition", path.relative_to(repo).as_posix())
         check_d_manifest(repo, path, frozen)
         checked.append(path.relative_to(repo).as_posix())
-    if any(SEAL_INFIX in path or LAYER_A_INFIX in path for path in checked):
-        checked.append(f"git-history:{check_seal_history(repo, root)}")
+    m3_folders = [event.parent.relative_to(repo).as_posix() for event, frozen in frozen_by_event.items()
+                  if frozen_compositions(frozen)]
+    if m3_folders:
+        # every M3 event folder is audited, even when its seals have vanished from HEAD (final round, item 4)
+        checked.append(f"git-history:{check_seal_history(repo, m3_folders)}")
     return checked
 
 
@@ -653,8 +656,8 @@ def check_d_chronology(repo: Path, artefact: Path, rows: Sequence[Mapping], froz
     relative = artefact.relative_to(repo).as_posix()
     if state != "full":
         raise _fail("baseline_seal_history_unavailable", f"{relative}:{state}")
-    added = _git(repo, "log", "--diff-filter=A", "--no-renames", "--format=%H", "--", relative).decode().split()
-    first = added[-1] if added else None
+    # every commit that adds the artefact on any parent edge, merges included (final round, item 4)
+    adds = sorted(artefact_history(repo, artefact.parent.relative_to(repo).as_posix())["adds"].get(relative, ()))
     for row in rows:
         seal_file = seal_path(Path(repo), frozen, row["compositionId"])
         try:
@@ -663,11 +666,11 @@ def check_d_chronology(repo: Path, artefact: Path, rows: Sequence[Mapping], froz
             committed = None  # no such commit, or the seal is not in it
         if committed != row["sealSha256"]:
             raise _fail("d_artefact_seal_commit_mismatch", f"{relative}:{row['compositionId']}")
-        if first is None:
+        if not adds:
             ancestral = _git_ok(repo, "merge-base", "--is-ancestor", row["sealCommit"], "HEAD")
         else:
-            ancestral = row["sealCommit"] != first and _git_ok(repo, "merge-base", "--is-ancestor", row["sealCommit"],
-                                                                 first)
+            ancestral = all(row["sealCommit"] != added and
+                            _git_ok(repo, "merge-base", "--is-ancestor", row["sealCommit"], added) for added in adds)
         if not ancestral:
             raise _fail("d_artefact_seal_commit_not_ancestral", f"{relative}:{row['compositionId']}")
 
@@ -707,40 +710,86 @@ def git_history_state(repo: Path) -> str:
     return "full"
 
 
-def check_seal_history(repo: Path, root: Path) -> str:
-    """Seal and Layer-A files are add-only and record citations never change (cold review P1-1).
+_ARTEFACT_INFIXES = (SEAL_INFIX, LAYER_A_INFIX, D_MANIFEST_INFIX)
 
-    With full history: no commit may modify, delete, rename or retype a seal or Layer-A file, a tracked one may not
-    be modified in the working tree, and every version of each event record in history must cite each composition
-    with the same single hash it cites now (or not yet at all). Without history (no Git, a shallow clone) the check
-    cannot run; it returns ``shallow`` or ``absent`` and the add-only property is a reviewer item (M1 §9)."""
+
+def _is_artefact(name: str) -> bool:
+    return name.startswith("msr-") and name.endswith(".json") and any(infix in name for infix in _ARTEFACT_INFIXES)
+
+
+def artefact_history(repo: Path, folder: str) -> dict:
+    """Every change to ``folder`` on every parent edge of every commit reachable from HEAD (final round, item 4).
+
+    One ``git log --full-history --sparse --diff-merges=separate --root --raw`` walk: no history simplification, every
+    commit shown, a merge diffed against each parent separately. Returns ``{"changes": [(commit, status, path, old,
+    new)], "adds": {path: {commits}}, "blobs": {path: {blob ids}}, "touched": {path: {commits}}}``."""
+    out = _git(repo, "log", "--full-history", "--sparse", "--diff-merges=separate", "--root", "--raw", "--no-renames",
+               "--no-abbrev", "--format=@@%H", "HEAD", "--", folder).decode("utf-8", "replace")
+    history: dict = {"changes": [], "adds": {}, "blobs": {}, "touched": {}}
+    commit = None
+    for line in out.splitlines():
+        if line.startswith("@@"):
+            commit = line[2:].strip()
+        elif line.startswith(":") and commit:
+            meta, _, path = line.partition("\t")
+            _old_mode, _new_mode, old, new, status = meta[1:].split()[:5]
+            history["changes"].append((commit, status[0], path, old, new))
+            history["touched"].setdefault(path, set()).add(commit)
+            if status[0] == "A":
+                history["adds"].setdefault(path, set()).add(commit)
+            if status[0] in ("A", "M", "T"):
+                history["blobs"].setdefault(path, set()).add(new)
+    return history
+
+
+def check_seal_history(repo: Path, folders: Sequence[str]) -> str:
+    """Seal, Layer-A and D-manifest files are add-only, keep exactly one content identity and never disappear, and
+    record citations never change, over the full reachable history (cold review P1-1; final round, item 4).
+
+    Refused: any modify, retype or delete of such a file on any parent edge (including inside a merge), two different
+    blobs for one path (a branch resealing, or delete and re-create), a path once added that is missing from HEAD, a
+    tracked artefact modified in the working tree, and any historical record version citing a composition with a
+    different hash than now. Without full history it returns ``shallow`` or ``absent``; events holding a D artefact
+    are then refused by ``check_d_chronology``."""
     state = git_history_state(repo)
     if state != "full":
         return state
-    paths = sorted({*root.glob(f"*/msr-*{SEAL_INFIX}*.json"), *root.glob(f"*/msr-*{LAYER_A_INFIX}*.json"),
-                    *root.glob(f"*/msr-*{D_MANIFEST_INFIX}*.json")})
-    for path in paths:
-        relative = path.relative_to(repo).as_posix()
-        log = _git(repo, "log", "--format=", "--name-status", "--no-renames", "--", relative).decode().split()
-        if any(token in ("M", "D", "T") for token in log[0::2]):
-            raise _fail("baseline_artefact_rewritten_in_history", relative)
-        status = _git(repo, "status", "--porcelain", "--", relative).decode()
-        if status and not status.startswith("??") and not status.startswith("A "):
-            raise _fail("baseline_artefact_rewritten_in_history", relative)
-    for record in sorted({path.parent / (path.name.split(SEAL_INFIX)[0] + ".md")
-                          for path in paths if SEAL_INFIX in path.name}):
-        if not record.is_file():
-            continue
-        relative = record.relative_to(repo).as_posix()
-        now = record_seal_citations(record.read_text(encoding="utf-8"))
-        for commit in _git(repo, "log", "--format=%H", "--", relative).decode().split():
-            try:
-                text = _git(repo, "show", f"{commit}:{relative}").decode("utf-8")
-            except CredibilityError:
-                continue  # the record did not exist at that commit
-            for composition_id, hashes in record_seal_citations(text).items():
-                if now.get(composition_id) != hashes:
-                    raise _fail("baseline_seal_citation_changed", f"{relative}:{composition_id}")
+    for folder in sorted(set(folders)):
+        history = artefact_history(repo, folder)
+        for commit, status, path, old, new in history["changes"]:
+            if _is_artefact(Path(path).name) and status in ("M", "T", "D"):
+                code = "baseline_artefact_deleted_in_history" if status == "D" else "baseline_artefact_rewritten_in_history"
+                raise _fail(code, f"{path}@{commit[:12]}")
+        head = {}
+        for line in _git(repo, "ls-tree", "-r", "HEAD", "--", folder).decode("utf-8", "replace").splitlines():
+            meta, _, path = line.partition("\t")
+            head[path] = meta.split()[2]
+        for path, blobs in sorted(history["blobs"].items()):
+            if not _is_artefact(Path(path).name):
+                continue
+            if len(blobs) != 1:
+                raise _fail("baseline_artefact_rewritten_in_history", path)
+            if head.get(path) not in blobs:
+                raise _fail("baseline_artefact_deleted_in_history", path)
+        for path in sorted(head):
+            if _is_artefact(Path(path).name):
+                status = _git(repo, "status", "--porcelain", "--", path).decode()
+                if status and not status.startswith("??") and not status.startswith("A "):
+                    raise _fail("baseline_artefact_rewritten_in_history", path)
+        for path, commits in sorted(history["touched"].items()):
+            name = Path(path).name
+            if not (name.startswith("msr-") and name.endswith(".md") and "-" in name):
+                continue
+            record = Path(repo) / path
+            now = record_seal_citations(record.read_text(encoding="utf-8")) if record.is_file() else {}
+            for commit in sorted(commits):
+                try:
+                    text = _git(repo, "show", f"{commit}:{path}").decode("utf-8")
+                except CredibilityError:
+                    continue  # the record was deleted in that commit
+                for composition_id, hashes in record_seal_citations(text).items():
+                    if now.get(composition_id) != hashes:
+                        raise _fail("baseline_seal_citation_changed", f"{path}:{composition_id}")
     return state
 
 
