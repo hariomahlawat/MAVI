@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Mavi.Application.Modules.Intelligence;
@@ -51,15 +52,18 @@ public sealed class PlateSearchScaleFactAttribute : FactAttribute
 /// </para>
 /// <para>
 /// <b>Modes</b> (<c>MAVI_PLATE_SEARCH_SCALE_MODE</c>). <c>development</c> (default) is the authority for
-/// the 300 ms budget and runs on the pinned Development host. <c>ci</c> is informational on CI PostgreSQL:
+/// the 300 ms budget and runs on the pinned Development host. <c>ci</c> is an informational CI diagnostic on CI PostgreSQL
+/// (workflow <c>plate-search-scale-informational.yml</c>, not a merge gate, not qualification evidence):
 /// it asserts the intended plan shape of the real statements and a catastrophic bound of
 /// <see cref="CatastrophicMilliseconds"/> (10× the budget: a shared hosted runner with PostgreSQL's
 /// default 128 MB of shared buffers against a ≈ 1 GB corpus is expected to be several times slower than
 /// the Development host, and an order-of-magnitude margin keeps runner noise from failing it while a
 /// change of complexity class — a scan or an id list of the installation per page — still fails it; a
-/// lost index fails the shape assertions whatever the time). Both modes assert the shape and write
-/// <c>plate-search-scale.json</c> and <c>plate-search-scale-plans.txt</c> to
-/// <c>MAVI_PLATE_SEARCH_SCALE_OUT</c> when it is set.
+/// lost index fails the shape assertions whatever the time). Both modes assert the shape. When
+/// <c>MAVI_PLATE_SEARCH_SCALE_OUT</c> is set, <c>development</c> writes <c>plate-search-scale.json</c> and
+/// <c>plate-search-scale-plans.txt</c> (with the budget), and <c>ci</c> writes
+/// <c>plate-search-scale-ci-diagnostic.json</c> and <c>plate-search-scale-ci-diagnostic-plans.txt</c>,
+/// which carry the catastrophic bound only, never the budget, and state <c>qualificationEvidence: false</c>.
 /// </para>
 /// <para>
 /// <b>Stress probe.</b> <c>S1 prefix XQ0</c> is declared before measuring as the walk's known worst
@@ -68,12 +72,29 @@ public sealed class PlateSearchScaleFactAttribute : FactAttribute
 /// and is outside both bounds; it is never a pass. (Since ADR-018 the candidate read is bounded by the matching
 /// texts rather than by the scope; the probe keeps its frozen definition and its place outside both bounds.)
 /// </para>
+/// <para>
+/// <b>Query set v2</b> (<see cref="QuerySetV2Id"/>, owner decision 2026-10-16 on cold review P1-2): frozen and
+/// hashed (<see cref="QuerySetV2Sha256"/>) before it was measured, beside v1, which is unchanged
+/// (<see cref="QuerySetSha256"/>). It adds the filter classes v1 did not exercise: a common text under a
+/// historical upper time bound, and under a minimum confidence, duration or subclass that rejects every Track of
+/// the corpus (whose Tracks are all 0.8 mean confidence, 4 000 ms and without a subclass, so a reject-all
+/// threshold is the meaningful selective case; 0.8 itself is the inclusive boundary); a lower bound alone; a
+/// historical continuation; and a combined analytic search on a never-configured camera. Same samples and
+/// bounds; every v2 query is budgeted.
+/// </para>
 /// </remarks>
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
 {
     public const string CorpusId = "mavi-plate-search-skewed-v1";
     public const string QuerySetId = "mavi-plate-search-queries-v1";
+    public const string QuerySetV2Id = "mavi-plate-search-skewed-queries-v2";
+
+    /// <summary>SHA-256 of <see cref="Canonical"/> over the v1 set (frozen at <c>b9cb50eb</c>, unchanged; pinned 2026-10-16).</summary>
+    public const string QuerySetSha256 = "93bcebaabd402917fc44f946dc18714f8c0d0e9744e26016610c0ff6da7fee98";
+
+    /// <summary>SHA-256 of <see cref="Canonical"/> over the v2 set, pinned when v2 was frozen, before it was measured.</summary>
+    public const string QuerySetV2Sha256 = "b2d7d728a4ae23f5241864e55aa56a5a8a17f558c303941bdb06d09f6b0e92fa";
     private const string ModeVariable = "MAVI_PLATE_SEARCH_SCALE_MODE";
     private const string OutputVariable = "MAVI_PLATE_SEARCH_SCALE_OUT";
 
@@ -107,9 +128,25 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
         NotConfigured,
         /// <summary>A preferred identity no run has published: no run Ready.</summary>
         NoRunReady,
+        /// <summary>v2: a first page with the query's Track-level filters (<see cref="Filters"/>).</summary>
+        Filtered,
+        /// <summary>v2: the continuation page N of a filtered query.</summary>
+        FilteredContinuation,
+        /// <summary>v2: a first page scoped to camera 1 with an analytic predicate (loitering); no camera is configured.</summary>
+        AnalyticsUnconfiguredCamera,
     }
 
-    private sealed record Frozen(string Name, TrackPlateQuery Plate, Kind Kind, int PageNumber = 1, bool Stress = false);
+    /// <summary>
+    /// v2's Track-level filters: time bounds as whole days after the corpus epoch (2026-09-01T00:00Z), and the
+    /// minimum confidence, duration and subclass, as the API would pass them.
+    /// </summary>
+    private sealed record Filters(int? FromDays = null, int? ToDays = null, double? MinimumConfidence = null, long? MinimumDurationMs = null, string? Subclass = null)
+    {
+        public string Canonical() => string.Create(CultureInfo.InvariantCulture,
+            $"from={FromDays};to={ToDays};confidence={MinimumConfidence:R};duration={MinimumDurationMs};subclass={Subclass}");
+    }
+
+    private sealed record Frozen(string Name, TrackPlateQuery Plate, Kind Kind, int PageNumber = 1, bool Stress = false, Filters? Filter = null);
 
     /// <summary>The frozen query set (<see cref="QuerySetId"/>). <c>&lt;newest&gt;</c> is the newest Ready Track's own text.</summary>
     private static readonly Frozen[] FrozenQueries =
@@ -131,13 +168,38 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
         new("S1 prefix XQ0 (stress: dense only in the oldest 2 %)", new("XQ0", TrackPlateMatch.Prefix), Kind.FirstPage, Stress: true),
     ];
 
+    /// <summary>The frozen query set v2 (<see cref="QuerySetV2Id"/>). Run 21, the oldest with <c>KA</c> texts, starts at day 0.6.</summary>
+    private static readonly Frozen[] FrozenQueriesV2 =
+    [
+        new("V01 contains KA0, toUtc day 1 (historical: the oldest 3 %)", new("KA0", TrackPlateMatch.Contains), Kind.Filtered, Filter: new(ToDays: 1)),
+        new("V02 contains KA0, toUtc day 15 (historical: the older half)", new("KA0", TrackPlateMatch.Contains), Kind.Filtered, Filter: new(ToDays: 15)),
+        new("V03 contains KA01, toUtc day 1 (historical, selective)", new("KA01", TrackPlateMatch.Contains), Kind.Filtered, Filter: new(ToDays: 1)),
+        new("V04 contains KA0, minimumConfidence 0.95 (rejects every Track)", new("KA0", TrackPlateMatch.Contains), Kind.Filtered, Filter: new(MinimumConfidence: 0.95)),
+        new("V05 contains KA0, minimumConfidence 0.8 (inclusive boundary, admits every Track)", new("KA0", TrackPlateMatch.Contains), Kind.Filtered, Filter: new(MinimumConfidence: 0.8)),
+        new("V06 contains KA0, minimumDurationMs 4001 (rejects every Track)", new("KA0", TrackPlateMatch.Contains), Kind.Filtered, Filter: new(MinimumDurationMs: 4001)),
+        new("V07 contains KA0, objectSubclass car (rejects every Track)", new("KA0", TrackPlateMatch.Contains), Kind.Filtered, Filter: new(Subclass: "car")),
+        new("V08 contains KA0, fromUtc day 29 (lower bound only)", new("KA0", TrackPlateMatch.Contains), Kind.Filtered, Filter: new(FromDays: 29)),
+        new("V09 contains KA0, toUtc day 15, page 2", new("KA0", TrackPlateMatch.Contains), Kind.FilteredContinuation, PageNumber: 2, Filter: new(ToDays: 15)),
+        new("V10 contains KA0 + camera 1 + loitering (camera never configured)", new("KA0", TrackPlateMatch.Contains), Kind.AnalyticsUnconfiguredCamera, Filter: new()),
+    ];
+
+    /// <summary>A query set's canonical text, one line per query, hashed to pin it (invariant culture).</summary>
+    private static string Canonical(Frozen[] set) => string.Join("\n", set.Select(item => string.Create(CultureInfo.InvariantCulture,
+        $"{item.Name}|{item.Plate.Text}|{item.Plate.Match}|{item.Kind}|{item.PageNumber}|{item.Stress}|{item.Filter?.Canonical()}")));
+
+    private static string Sha256(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+
     /// <summary>The queries whose real statements are EXPLAINed and whose plan shape is asserted.</summary>
     private static readonly string[] ExplainedQueries = ["Q01", "Q02", "Q07", "Q08", "Q11", "Q12"];
+
+    /// <summary>The v2 queries EXPLAINed under the same shape assertions: every v2 first page.</summary>
+    private static readonly string[] ExplainedQueriesV2 = ["V01", "V02", "V03", "V04", "V05", "V06", "V07", "V08", "V10"];
 
     /// <summary>Relations of 10^6 rows that no warm statement may scan sequentially.</summary>
     private static readonly string[] LargeRelations = ["tracks", "plate_track_texts", "plate_track_outcomes", "plate_observations", "observations"];
 
     private sealed record Result(
+        string QuerySet,
         string Name,
         bool Stress,
         int Rows,
@@ -146,6 +208,20 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
         double P95,
         double Max,
         TrackPlateCoverage Coverage);
+
+    /// <summary>
+    /// The frozen query sets cannot drift silently: v1 is pinned unchanged, and v2 as it was frozen before it was
+    /// measured. Runs everywhere (no database), unlike the measurement itself.
+    /// </summary>
+    [Fact]
+    public void TheFrozenQuerySetsArePinned()
+    {
+        Assert.Equal(QuerySetSha256, Sha256(Canonical(FrozenQueries)));
+        Assert.Equal(QuerySetV2Sha256, Sha256(Canonical(FrozenQueriesV2)));
+        Assert.Equal(15, FrozenQueries.Length);
+        Assert.Equal(10, FrozenQueriesV2.Length);
+        Assert.DoesNotContain(FrozenQueriesV2, item => item.Stress);
+    }
 
     [PlateSearchScaleFact]
     public async Task PlateSearchAtTheFrozenSkewedScaleIsMeasured()
@@ -178,14 +254,22 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
             """))!;
         var newestReadyRun = (Guid)(await ScalarAsync(connectionString, "SELECT md5('run-999')::uuid"))!;
 
+        // Both query sets are pinned before anything is measured: v1 unchanged, v2 as frozen.
+        var v1Sha256 = Sha256(Canonical(FrozenQueries));
+        var v2Sha256 = Sha256(Canonical(FrozenQueriesV2));
+        output.WriteLine($"{QuerySetId} sha256 {v1Sha256}; {QuerySetV2Id} sha256 {v2Sha256}");
+        Assert.Equal(QuerySetSha256, v1Sha256);
+        Assert.Equal(QuerySetV2Sha256, v2Sha256);
+        var firstCamera = (Guid)(await ScalarAsync(connectionString, "SELECT md5('camera-1')::uuid"))!;
+
         var results = new List<Result>();
         double? coldFirstCall = null;
-        foreach (var frozen in FrozenQueries)
+        foreach (var (querySet, frozen) in FrozenQueries.Select(item => (QuerySetId, item)).Concat(FrozenQueriesV2.Select(item => (QuerySetV2Id, item))))
         {
             var plate = frozen.Plate.Text == "<newest>" ? frozen.Plate with { Text = newestText } : frozen.Plate;
-            var search = SearchFor(frozen.Kind, plate, newestReadyRun);
+            var search = SearchFor(frozen, plate, newestReadyRun, firstCamera);
             var fingerprint = PreferredFingerprint(frozen.Kind);
-            var cursor = frozen.Kind == Kind.Continuation
+            var cursor = frozen.Kind is Kind.Continuation or Kind.FilteredContinuation
                 ? await CursorForPageAsync(connectionString, search, frozen.PageNumber)
                 : null;
 
@@ -208,17 +292,18 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
                 await new TrackSearchRepository(db, TimeProvider.System).SearchPlatesAsync(search, fingerprint, cursor, PageSize + 1, default);
 
             samples.Sort();
-            results.Add(new Result(frozen.Name, frozen.Stress, page!.Items.Count, capture.Statements.Count,
+            results.Add(new Result(querySet, frozen.Name, frozen.Stress, page!.Items.Count, capture.Statements.Count,
                 Percentile(samples, 0.50), Percentile(samples, 0.95), samples[^1], page.PlateCoverage));
         }
 
         // The real statements of a warm call, replayed under EXPLAIN (ANALYZE, BUFFERS).
         var plans = new StringBuilder();
         var shapeFailures = new List<string>();
-        foreach (var prefix in ExplainedQueries)
+        var explained = ExplainedQueries.Select(prefix => FrozenQueries.Single(item => item.Name.StartsWith(prefix + " ", StringComparison.Ordinal)))
+            .Concat(ExplainedQueriesV2.Select(prefix => FrozenQueriesV2.Single(item => item.Name.StartsWith(prefix + " ", StringComparison.Ordinal))));
+        foreach (var frozen in explained)
         {
-            var frozen = FrozenQueries.Single(item => item.Name.StartsWith(prefix + " ", StringComparison.Ordinal));
-            var search = SearchFor(frozen.Kind, frozen.Plate, newestReadyRun);
+            var search = SearchFor(frozen, frozen.Plate, newestReadyRun, firstCamera);
             var capture = new SqlCapture();
             await using (var db = CreateContext(connectionString, capture))
                 await new TrackSearchRepository(db, TimeProvider.System).SearchPlatesAsync(search, PreferredFingerprint(frozen.Kind), null, PageSize + 1, default);
@@ -241,26 +326,32 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
             }
 
             // A contains search reads its candidates through the trigram index (ADR-018's candidate statement).
-            if (prefix is "Q07" or "Q11" &&
-                !queryPlans.Any(plan => plan.Contains("ix_plate_track_texts_normalised_text_trgm", StringComparison.Ordinal)))
-                shapeFailures.Add($"{frozen.Name}: no statement reads ix_plate_track_texts_normalised_text_trgm");
+            if (frozen.Name.StartsWith("Q07 ", StringComparison.Ordinal) || frozen.Name.StartsWith("Q11 ", StringComparison.Ordinal))
+            {
+                if (!queryPlans.Any(plan => plan.Contains("ix_plate_track_texts_normalised_text_trgm", StringComparison.Ordinal)))
+                    shapeFailures.Add($"{frozen.Name}: no statement reads ix_plate_track_texts_normalised_text_trgm");
+            }
         }
 
         var report = new StringBuilder();
-        report.AppendLine(CultureInfo.InvariantCulture, $"mode: {mode}; corpus {CorpusId}; queries {QuerySetId}; bound p95 ≤ {bound} ms (stress probe reported only)");
+        report.AppendLine(mode == "ci"
+            ? string.Create(CultureInfo.InvariantCulture, $"mode: ci (INFORMATIONAL CI DIAGNOSTIC; qualificationEvidence: false; not the Development budget); corpus {CorpusId}; " +
+              $"query sets {QuerySetId} ({v1Sha256}) and {QuerySetV2Id} ({v2Sha256}); catastrophic bound p95 ≤ {CatastrophicMilliseconds} ms (stress probe reported only)")
+            : string.Create(CultureInfo.InvariantCulture, $"mode: development; corpus {CorpusId}; query sets {QuerySetId} ({v1Sha256}) and {QuerySetV2Id} ({v2Sha256}); " +
+              $"budget p95 ≤ {BudgetMilliseconds} ms (stress probe reported only)"));
         report.AppendLine(CultureInfo.InvariantCulture, $"cold first call (process caches empty): {coldFirstCall:F1} ms");
-        report.AppendLine("query | rows | statements | p50 ms | p95 ms | max ms | coverage (ready/pending/failed/stale/notConfigured of inScope)");
+        report.AppendLine("query set | query | rows | statements | p50 ms | p95 ms | max ms | coverage (ready/pending/failed/stale/notConfigured of inScope)");
         foreach (var result in results)
         {
             var coverage = result.Coverage;
             report.AppendLine(CultureInfo.InvariantCulture,
-                $"{result.Name} | {result.Rows} | {result.Statements} | {result.P50:F1} | {result.P95:F1} | {result.Max:F1} | " +
+                $"{result.QuerySet} | {result.Name} | {result.Rows} | {result.Statements} | {result.P50:F1} | {result.P95:F1} | {result.Max:F1} | " +
                 $"{coverage.Ready}/{coverage.Pending}/{coverage.Failed}/{coverage.Stale}/{coverage.NotConfigured} of {coverage.VehicleTracksInScope}");
         }
 
         output.WriteLine(report.ToString());
         output.WriteLine(plans.ToString());
-        await WriteOutputsAsync(mode, bound, coldFirstCall!.Value, results, report.ToString(), plans.ToString(), shapeFailures);
+        await WriteOutputsAsync(mode, v1Sha256, v2Sha256, coldFirstCall!.Value, results, report.ToString(), plans.ToString(), shapeFailures);
 
         var failures = results
             .Where(result => !result.Stress && result.P95 > bound)
@@ -270,15 +361,29 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
         Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
     }
 
-    private static TrackSearchQuery SearchFor(Kind kind, TrackPlateQuery plate, Guid newestReadyRun)
+    private static TrackSearchQuery SearchFor(Frozen frozen, TrackPlateQuery plate, Guid newestReadyRun, Guid firstCamera)
     {
         var search = new TrackSearchQuery(null, null, null, ObjectClass.Vehicle, null, null, null, null, null, PageSize, Plate: plate);
-        return kind switch
+        search = frozen.Kind switch
         {
             Kind.NewestReadyRun => search with { ProcessingRunId = newestReadyRun },
             Kind.NewestDay => search with { FromUtc = Epoch.AddDays(29), ToUtc = Epoch.AddDays(31) },
+            Kind.AnalyticsUnconfiguredCamera => search with { CameraId = firstCamera, Analytics = TrackAnalyticsQuery.Empty with { Loitering = true } },
             _ => search,
         };
+        if (frozen.Filter is { } filter)
+        {
+            search = search with
+            {
+                FromUtc = filter.FromDays is { } from ? Epoch.AddDays(from) : search.FromUtc,
+                ToUtc = filter.ToDays is { } to ? Epoch.AddDays(to) : search.ToUtc,
+                MinimumConfidence = filter.MinimumConfidence ?? search.MinimumConfidence,
+                MinimumDurationMs = filter.MinimumDurationMs ?? search.MinimumDurationMs,
+                ObjectSubclass = filter.Subclass ?? search.ObjectSubclass,
+            };
+        }
+
+        return search;
     }
 
     private static string? PreferredFingerprint(Kind kind) => kind switch
@@ -308,21 +413,21 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
         return cursor!;
     }
 
+    /// <summary>
+    /// The Development measurement (with the 300 ms budget) or the informational CI diagnostic (with the
+    /// catastrophic bound only, its own file names, and <c>qualificationEvidence = false</c>): never both in one file.
+    /// </summary>
     private async Task WriteOutputsAsync(
-        string mode, double bound, double coldFirstCall, List<Result> results, string report, string plans, List<string> shapeFailures)
+        string mode, string v1Sha256, string v2Sha256, double coldFirstCall, List<Result> results, string report, string plans, List<string> shapeFailures)
     {
         if (Environment.GetEnvironmentVariable(OutputVariable) is not { Length: > 0 } directory)
             return;
         Directory.CreateDirectory(directory);
-        var document = new
+        var querySets = new[] { (Id: QuerySetId, Sha256: v1Sha256), (Id: QuerySetV2Id, Sha256: v2Sha256) }.Select(set => new
         {
-            corpus = CorpusId,
-            querySet = QuerySetId,
-            mode,
-            boundMilliseconds = bound,
-            budgetMilliseconds = BudgetMilliseconds,
-            coldFirstCallMilliseconds = coldFirstCall,
-            results = results.Select(result => new
+            id = set.Id,
+            sha256 = set.Sha256,
+            results = results.Where(result => result.QuerySet == set.Id).Select(result => new
             {
                 name = result.Name,
                 stress = result.Stress,
@@ -333,11 +438,42 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
                 max = result.Max,
                 coverage = result.Coverage,
             }),
-            shapeFailures,
-        };
-        await File.WriteAllTextAsync(Path.Combine(directory, "plate-search-scale.json"),
-            JsonSerializer.Serialize(document, Indented));
-        await File.WriteAllTextAsync(Path.Combine(directory, "plate-search-scale-plans.txt"), report + Environment.NewLine + plans);
+        });
+
+        string json, prefix;
+        if (mode == "ci")
+        {
+            prefix = "plate-search-scale-ci-diagnostic";
+            json = JsonSerializer.Serialize(new
+            {
+                kind = "informational CI diagnostic (plate-search-scale-informational.yml); not a merge gate",
+                qualificationEvidence = false,
+                developmentEvidence = false,
+                corpus = CorpusId,
+                mode,
+                catastrophicBoundMilliseconds = CatastrophicMilliseconds,
+                coldFirstCallMilliseconds = coldFirstCall,
+                querySets,
+                shapeFailures,
+            }, Indented);
+        }
+        else
+        {
+            prefix = "plate-search-scale";
+            json = JsonSerializer.Serialize(new
+            {
+                kind = "Development-host measurement (plan §2.8 budget)",
+                corpus = CorpusId,
+                mode,
+                budgetMilliseconds = BudgetMilliseconds,
+                coldFirstCallMilliseconds = coldFirstCall,
+                querySets,
+                shapeFailures,
+            }, Indented);
+        }
+
+        await File.WriteAllTextAsync(Path.Combine(directory, prefix + ".json"), json);
+        await File.WriteAllTextAsync(Path.Combine(directory, prefix + "-plans.txt"), report + Environment.NewLine + plans);
         output.WriteLine($"wrote the measurement to {directory}");
     }
 
