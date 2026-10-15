@@ -13,6 +13,7 @@ When reviewing or implementing:
 - do not add model weights, video datasets or credentials to Git;
 - before proposing a significant annotation campaign, a bespoke dataset or new Development capture, follow ADR-017 and the `AGENTS.md` "Data, benchmarks and annotation" rules: search for and reuse established labelled benchmarks first, and treat such a campaign as a justified fallback (small diagnostic labelling needs only a technical rationale);
 - for consequential experiments, benchmarks, qualification, parameter studies or mappings, follow the `AGENTS.md` "Experimental methodology" gate: being asked to run an experiment is not evidence that its method is sound; challenge the method against the implementation and the evidence before running it, and stop and report if it cannot answer the question;
+- follow the binding delivery discipline in operating principle 10: decide architecture and source of truth first, spike risky assumptions, deliver a thin end-to-end slice early, reassess at half a day and get owner approval beyond one working day of infrastructure or debugging work (unless it protects security, safety, data integrity, an irreversible contract or a genuine qualification/release blocker), reassess the architecture after two similar defects from one assumption, and reduce scope or redesign rather than weaken acceptance criteria or quality for schedule;
 - run repository verification and relevant subsystem tests before declaring completion.
 
 For architecture changes, write or update an ADR first and state the trade-off being accepted.

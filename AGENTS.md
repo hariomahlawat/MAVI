@@ -96,7 +96,7 @@ Routine bug fixes, formatting, mechanical refactors, test repairs, implementatio
 
 ## Engineering practice
 
-Work implementation-first: see `docs/architecture/engineering-operating-principles.md`.
+Work implementation-first: see `docs/architecture/engineering-operating-principles.md`. Its delivery discipline (principle 10) is binding: architecture and source-of-truth decisions before substantial implementation; bounded spikes before infrastructure; a thin end-to-end capability early; reassess at half a day of infrastructure or debugging work and obtain owner approval beyond one working day (except for security, safety, data integrity, irreversible-contract or genuine qualification/release-blocker work); reassess the architecture after two similar defects from one assumption; and never weaken acceptance criteria or quality standards for schedule — reduce scope or redesign instead.
 
 - Prefer small, cohesive modules and explicit interfaces.
 - Keep model-specific libraries behind Python vision interfaces.
