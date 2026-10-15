@@ -755,6 +755,8 @@ Centralised in shared formatters. Per ADR-004, the browser or operating-system t
 
 A contract test binds the four conditions (`src/web/mavi-web/src/app/harnessObservability.test.tsx`). This is not a production test API and MUST NOT be generalised into one; any further hook needs its own amendment.
 
+**Cross-reference — X3 request identity and admission (2026-10-15; no version change).** Under the performance gate's `forward` order the harness numbers the page's data requests as they are issued and admits them to the network in that order before transport (ADR-012 Decision 15). That is harness interception of the page — like the intercepted API fixtures above — not a production hook: it alters no production code and is part of the X3 measurement contract, bound by the conditions of Decision 15.
+
 **Automated assertions the harness SHOULD make:** no horizontal page overflow; no uncaught page errors; no element overlap in the checked states; and, on a surface that declares an archetype, the §4 geometry and scroll-ownership rules only a rendered page can settle.
 
 **A contained column clips in both directions.** An archetype whose page does not scroll cannot produce a document-level horizontal scrollbar either, so a layout whose columns do not fit simply loses its right edge — controls and all — while every other assertion passes. The harness MUST check a contained column's width as well as its height. This is how the Investigation at 1500px was found to be clipping the inspector's own Open and Close controls (§4.4, open decision 3).

@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { createAdmission } from '../admission.mjs';
+import { classifyRequest } from '../request-class.mjs';
 import { ORDER_HEADER } from '../request-identity.mjs';
 import { startServer } from '../server.mjs';
 import { openBrowser, unitBlock } from './browser.mjs';
@@ -279,6 +280,25 @@ describe('X3 page identity: fetch and XHR keep their semantics; a Request body i
     assert.equal(withIt['fetch rejected before sending (invalid method)'].seen, 'TypeError');
     assert.equal(withIt['fetch already aborted'].received.length, 0);
     assert.deepEqual(admitted.admissionFaults, []);
+  });
+
+  it('the page and the server classify by one contract: the page numbers exactly what classifyRequest calls schedulable', async () => {
+    const origin = admitted.server.origin;
+    const table = [
+      ['GET', '/api/items'], ['POST', '/api/items'], ['PUT', '/api/items/7'], ['DELETE', '/api/items/7'], ['PATCH', '/api/items/7'],
+      ['GET', '/api/items?page=2'], ['GET', '/api/videos/v1/content'], ['GET', '/api/videos/v1/content?range=1'],
+      ['GET', '/api/videos/v1/contents'], ['GET', '/api/videos/v1'], ['GET', '/api/artifacts/a1/content'], ['GET', '/api'], ['GET', '/apix'],
+      ['GET', '/index.html'], ['GET', 'http://localhost:9/api/items'],
+    ];
+    await admitted.page('<main>table</main>', { api: API });
+    const issued = await admitted.browser.evaluate(`(async () => {
+      for (const [method, url] of ${JSON.stringify(table)}) fetch(url, { method }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 800));
+      return window.__vqaRequestLog.log.map((r) => [r[2], r[3]]);
+    })()`);
+    const expected = table.filter(([method, url]) => classifyRequest(method, url, origin) === 'schedulable').map(([method, url]) => [method, new URL(url, origin).pathname + new URL(url, origin).search]);
+    assert.deepEqual(issued, expected);
+    for (const t of admitted.server.traffic()) assert.equal(t.kind === 'schedulable' && !t.image, Boolean(t.order), JSON.stringify(t));
   });
 
   it('numbers exactly the calls that reach the network, contiguously, in program order', async () => {

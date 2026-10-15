@@ -16,6 +16,17 @@ budgets themselves were not changed and are not proposed for change here.
 Raw evidence (per-repetition, per-case values, scripts) is outside Git at
 `E:\MAVI-Working\tmp\perf-gate\` (`summary.md`); this record is the summary.
 
+**Status (2026-10-15): the response-order method is superseded.** The
+`forward` order below was the order requests *arrived at the fixture server*,
+and the `reverse` lane reversed server-arrival bursts. Both depend on
+transport, the browser's connection pool and host load, so neither is a pure
+function of what the page issued. The owner selected the **CDP-forward**
+method (page-issued request identity, pre-transport admission, exact arrival
+acknowledgement, the existing forward spacing) and rejected generic reverse
+ordering; see *CDP-forward method* at the end. The sections between are kept
+as the record of how the gate got here; where they describe server-arrival
+order or the reverse lane, they no longer describe the gate.
+
 ## Method
 
 - Same bytes: the frontend tree of `06e16ec8`…`a7edc003` is identical
@@ -128,15 +139,19 @@ class was changed.
 
 ### Gate and harness
 
+*(Superseded 2026-10-15 by the CDP-forward method: the order is now the
+page's issue order, admitted before transport; the reverse lane is removed.
+As first implemented:)*
+
 - The sweep shards and the long-task lane run with
   `MAVI_VQA_RESPONSE_ORDER=forward`; `performance.mjs` judges only results of
   that order (`GATE_RESPONSE_ORDER`) and faults any other.
-- The sweep's ordinary cases run again in `reverse` order, in their own
+- The sweep's ordinary cases ran again in `reverse` order, in their own
   four-shard job (`performance-reverse`, beside the sweep);
-  `performance` judges their CLS (`--ordinary-lane --response-order reverse`)
-  against the same budgets, after the forward verdict.
+  `performance` judged their CLS (`--ordinary-lane --response-order reverse`)
+  against the same budgets, after the forward verdict. *(Removed.)*
 - The fixture server answers pinned-order data GETs from a queue, one at a
-  time and 120 ms from the previous send; `reverse` answers each burst
+  time and 120 ms from the previous send; `reverse` answered each burst
   (requests within 100 ms) in the opposite order. A document carries the epoch
   it was served in, and a request from a document the harness has left is
   refused: without this, a previous page's poll took the next case's first
@@ -185,7 +200,7 @@ field, badges and actions).
 
 ### Accepted trade-offs (only these two)
 
-1. **Reverse lane: ordinary non-CLS findings are recorded, not gating.** The
+1. *(Withdrawn 2026-10-15 with the reverse lane.)* **Reverse lane: ordinary non-CLS findings are recorded, not gating.** The
    reverse shards run with `--keep`; their visual and accessibility findings are
    order-dependent evidence, uploaded, not a verdict. Their CLS is judged
    against the same budgets (`--ordinary-lane --response-order reverse`) and
@@ -421,3 +436,48 @@ documentation-only commit):
 | Pinned-order browser tests (`forward`, `reverse`, artifact content), 30 runs beside 36 busy threads | 30/30 pass (90 reverse, 90 forward loads; 1 forward load arrived out of issue order and spread 110 ms; no reverse load split) |
 | Harness unit suite (`MAVI_VQA_TEST_GROUP=unit`, ffmpeg on PATH), 3 runs | 372/372 each (22 end-to-end skipped by group) |
 | `verify_repo` | PASSED |
+
+## CDP-forward method (owner decision, 2026-10-15)
+
+**Why.** Server-arrival order is not a function of what the page issued.
+Recorded on identical page issue traces (experiment branches, preserved
+unchanged: `exp/216-stage1a`, `exp/216-cdp-spike` at `926f72ae`,
+`exp/216-cdp-closure` at `083f8964`): under host load the fixture server saw
+requests out of issue order in 46 of 460 loads (23 cases × 20) and answered
+them out of order, and CLS varied in 14 of 23 cases; quiet, in 3 of 460 loads.
+The same loads, admitted before transport in issue order: 0 of 460 out of
+order, CLS varied in 0 of 23 cases, quiet and loaded.
+
+**Method (the measurement contract; ADR-012 Decision 15, UI spec §26).**
+
+- *Page-issued identity* (`request-identity.mjs`). A harness init script
+  wraps `fetch` and `XMLHttpRequest`; every schedulable call — same origin,
+  under `/api/`, any method, not a media stream (`request-class.mjs`, one
+  rule for page and server) — is numbered synchronously as it is made, in
+  program order (`x-vqa-order: <docId>.<seq>.<run>`). A call the browser
+  rejects before sending takes no number; a `Request` body is never read.
+  Nothing else about the call changes.
+- *Pre-transport admission* (`admission.mjs`). Chromium pauses every `/api/`
+  request at the CDP Fetch Request stage, before connection-pool admission.
+  Numbered requests of the page's own document are admitted in `seq` order:
+  N+1 only when the fixture server has acknowledged the exact identity N, or
+  Chromium has reported N failed or cancelled. Positively identified images
+  (`resourceType: Image`) and media streams continue at once, outside the
+  order (images sit in fixed-size boxes; early vs late delivery changed no
+  CLS, state, finding or signature in 97 of 97 image-bearing cases). Any other
+  unnumbered request is a harness fault and is failed; a request of a
+  document the harness left is failed.
+- *Server* (`server.mjs`). Every identity-bearing request goes through the
+  existing forward queue: one answer at a time, 120 ms from the previous
+  send. A duplicate `{epoch, identity}` is refused before the fixtures,
+  their sequence counters or mutation state see it, and is a harness fault;
+  under admission, an unnumbered non-image request is refused (a fault).
+- *Judge* (`performance.mjs`). Only `forward` runs with
+  `requestAdmission: page-identity+cdp-pre-transport` and no harness error
+  are evidence. No timer decides an order: a backstop only reports a fault.
+
+**Removed.** Generic reverse ordering (`reverse`, `BURST_GATHER_MS`), the
+`performance-reverse` job and the reverse judge path. The product fixes the
+reverse lane exposed stay (the shared layout hold, the analytics fixes and
+the rest of *Product fixes* above). No CLS, long-task, accessibility or
+qualification threshold changed.

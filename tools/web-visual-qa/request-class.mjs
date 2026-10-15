@@ -1,14 +1,15 @@
 /**
  * The one request-classification contract shared by the page-side request
  * identity instrumentation (request-identity.mjs) and the fixture server
- * (server.mjs). X3 Stage 1 (owner decision, 2026-10-15): every request the
- * fixture server could schedule carries a harness identity assigned before
- * transport; only media streams are excluded, by this same rule on both
- * sides, so the two can never disagree about which requests are numbered.
+ * (server.mjs) and admission (admission.mjs). Under the X3 `forward` order
+ * every request the fixture server could schedule carries a harness identity
+ * assigned before transport; only media streams are excluded, by this same
+ * rule on every side, so they can never disagree about which requests are
+ * numbered.
  *
  * `classifyRequest` is self-contained (no imports, no outer references): the
  * instrumentation serialises its source into the page, and a table test
- * (test/request-identity.test.mjs) proves the page's copy and this one agree.
+ * (test/admission.test.mjs) proves the page's copy and this one agree.
  */
 
 /**

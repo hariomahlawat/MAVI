@@ -90,9 +90,8 @@ a `.mavi-visual-qa-output` marker), and
 states added (the deliberately unreachable state of `test/run.test.mjs`); a run
 under it records `statesModule` and is never a full sweep.
 
-`MAVI_VQA_RESPONSE_ORDER` (`natural`, the default, `forward` — the gate's —
-or `reverse`) pins the fixture server's data-response order; see *X3 (§38)*
-below.
+`MAVI_VQA_RESPONSE_ORDER` (`natural`, the default, or `forward` — the
+gate's) pins the data-response order; see *X3 (§38)* below.
 
 ## Harness v2 (Stage 3.5 S2)
 
@@ -611,27 +610,34 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   its own artifact: a shift right after a late response is the page
   re-laying out for that data; a long frame whose time is neither script nor
   style and layout is not the page's code.
-- **Response order** (owner decision, 2026-10-13): the gate judges runs whose
-  data responses were answered in one pinned order, so every intermediate
-  layout of a load is painted and a case's CLS is a function of the bundle
-  alone (`docs/reviews/2026-10-13-x3-performance-gate-determinism.md`). With
-  `MAVI_VQA_RESPONSE_ORDER` the fixture server answers data GETs (not a
-  video stream; artifact content is data) one at a time, `RESPONSE_SPACING_MS` apart: `forward` in the order they
-  arrive — the blocking sweep and long-task lane run it, and the judge faults
-  any other order (`GATE_RESPONSE_ORDER`) — or `reverse`, each burst's
-  requests (those arriving at the server within `BURST_GATHER_MS` of the
-  burst's first; requests a page issues together can arrive as several bursts
-  on a loaded host) in the opposite order: the adversarial lane, the sweep's
-  ordinary cases again in its own four-shard CI job (`performance-reverse`),
-  judged for CLS only (`performance.mjs --ordinary-lane
-  --response-order reverse --sweep <shard>,…`). `natural` (the default for
-  local runs and the journeys) answers as requests arrive. Each case is one
-  scheduler generation: a reset cancels the previous one's timers and drops
-  its queue and any burst being gathered, so nothing of a case can shift the
-  next one's order, grouping or timing. Under a pinned
-  order a document carries the epoch it was served in (a cookie), and a
-  request from a document the harness has left is refused, so it cannot take
-  the next case's sequenced answers.
+- **Response order** (owner decisions, 2026-10-13 and 2026-10-15): the gate
+  judges runs whose data responses were answered one at a time in the order
+  the page issued them, so every intermediate layout of a load is painted and
+  a case's CLS is a function of the bundle alone
+  (`docs/reviews/2026-10-13-x3-performance-gate-determinism.md`, *CDP-forward
+  method*; ADR-012 Decision 15). Under `MAVI_VQA_RESPONSE_ORDER=forward` —
+  the sweep and the long-task lane; the judge faults any other run
+  (`GATE_RESPONSE_ORDER`, `GATE_REQUEST_ADMISSION`):
+  - the page numbers every schedulable request as it is made
+    (`request-identity.mjs`: same origin, under `/api/`, any method, not a
+    video stream — `request-class.mjs`, one rule for page and server);
+  - the browser holds every `/api/` request before connection-pool admission
+    (CDP Fetch) and `admission.mjs` admits the numbered ones in issue order,
+    the next only on the server's exact acknowledgement of the previous
+    identity or Chromium's report that it failed; images and video streams
+    continue at once, outside the order; any other unnumbered request, and a
+    duplicate identity at the server, is a harness fault;
+  - the fixture server answers them in that order, `RESPONSE_SPACING_MS`
+    apart; each case is one scheduler generation (a reset cancels the
+    previous one's timers and drops its queue), a document carries the epoch
+    it was served in (a cookie), and a request of a document the harness has
+    left is refused, so it cannot take the next case's sequenced answers.
+
+  Each case's `requestTrace` (diagnostic) keeps the page's issue order, the
+  admission order, the browser's transport outcome, the server's arrival and
+  answer, and the page's completion times. `natural` (the default for local
+  runs and the journeys) answers as requests arrive, with no identity or
+  admission.
 - **Drawn once**: the product draws a region when every answer that decides
   its final layout has settled (`holdUntilSettled`, §38), so the pinned order
   measures the loading-to-content transition, not a provisional layout. A
