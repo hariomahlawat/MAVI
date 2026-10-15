@@ -546,6 +546,20 @@ def test_qualification_lanes_shard_by_test_and_never_vacuously() -> None:
         assert "@shard-tests.txt" in block and "set -euo pipefail" in block
 
 
+def test_the_performance_lanes_run_the_forward_admitted_order_and_no_reverse_lane() -> None:
+    """X3 determinism: the sweep and the long-task lane measure in `forward`
+    order (page-issued identity, pre-transport admission: admission.mjs), the
+    order performance.mjs judges; generic reverse ordering is not a method, so
+    there is no reverse lane, and the judge has no reverse path."""
+    workflow = (_WORKFLOWS / "quality-gate.yml").read_text(encoding="utf-8")
+    blocks = _job_blocks(workflow)
+    assert "MAVI_VQA_RESPONSE_ORDER: forward" in blocks["visual-sweep"]
+    assert "MAVI_VQA_RESPONSE_ORDER: forward" in blocks["performance-long-tasks"]
+    assert "performance-reverse" not in blocks and "performance-reverse" not in workflow
+    assert "MAVI_VQA_RESPONSE_ORDER: reverse" not in workflow
+    assert "--ordinary-lane" not in workflow and "--response-order" not in workflow
+
+
 def test_the_quality_aggregate_accounts_for_every_lane() -> None:
     """`quality` depends on every other job and requires each one to be
     `success` where the scope job made it applicable and `skipped` where it did

@@ -646,6 +646,11 @@ jobs:
         shell: bash
         env:
           SHARD_INDEX: ${{ matrix.shard }}
+          # X3 determinism: data responses answered one at a time in the order
+          # the page issued them — numbered in the page, admitted before the
+          # connection pool (admission.mjs) — so every intermediate layout is
+          # painted and the performance gate judges the bundle, not transport.
+          MAVI_VQA_RESPONSE_ORDER: forward
         run: node tools/web-visual-qa/run.mjs --workers 3 --shard "$SHARD_INDEX/$SHARD_COUNT"
       # The shard's results (small) for the aggregate; its captures (diagnostic,
       # never qualification evidence) for a person to read.
@@ -932,6 +937,8 @@ jobs:
         if: steps.mode.outputs.mode != 'closure'
         env:
           MAVI_VQA_OUT: tools/web-visual-qa/.performance/long-tasks
+          # X3 determinism: the same order and admission as the sweep (performance.mjs).
+          MAVI_VQA_RESPONSE_ORDER: forward
         run: node tools/web-visual-qa/run.mjs --long-tasks
       # The lane's results (small): the performance gate judges them.
       - name: Retain the long-task results

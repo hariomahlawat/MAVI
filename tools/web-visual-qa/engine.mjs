@@ -418,6 +418,17 @@ export async function settle(lane, state, { timeoutMs = 20_000, stable = 2, befo
     const net = lane.server.network();
     const why = [...probe.why];
     if (net.inflight > 0) why.push(net.inflight + ' request(s) in flight');
+    // X3 admission: requests the browser holds for their turn, or still on
+    // their way to the server, are in flight too.
+    const admitting = lane.admission?.pending() ?? 0;
+    if (admitting > 0) why.push(admitting + ' request(s) awaiting admission');
+    // A query the application still counts as fetching (a retry waiting out
+    // its backoff, a request about to start) beyond those held open on purpose
+    // is unsettled work: settling now would end the CLS window and start the
+    // preparation before it lands (owner ruling 4, the settle race).
+    if (probe.queries && probe.queries.fetching + probe.queries.mutating > (net.hung ?? 0)) {
+      why.push((probe.queries.fetching + probe.queries.mutating - (net.hung ?? 0)) + ' query(ies) fetching or waiting to retry');
+    }
     if (previous && net.started !== previous.started) why.push('new requests started');
     if (previous && probe.mutations !== previous.mutations) why.push('the DOM is still changing');
     run = previous && why.length === 0 ? run + 1 : 0;

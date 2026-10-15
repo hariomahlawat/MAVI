@@ -9,7 +9,7 @@ import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
-import { hasFailure } from '../../shared/async/asyncState';
+import { hasFailure, holdUntilSettled } from '../../shared/async/asyncState';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Panel from '../../shared/components/Panel';
 import TruncatedText from '../../shared/overlay/Truncated';
@@ -224,7 +224,10 @@ export default function VideoReviewPage() {
         ) : undefined}
       />
 
-      {detail ? (
+      {/* The evidence is drawn once the display timezone has settled too
+          (§38): its transport, summary and provenance state times in it, and
+          drawn first in UTC they re-wrap the rail when the zone arrives. */}
+      {detail && !systemConfig.isPending ? (
         <ReviewLayout
           notices={hasNotice ? notices : undefined}
           player={(
@@ -287,7 +290,7 @@ export default function VideoReviewPage() {
               above as an invalid link. */}
           <StateRegion
             kind="page"
-            state={fromQuery(track)}
+            state={holdUntilSettled(fromQuery(track), !systemConfig.isPending)}
             label="Track evidence"
             unavailableMessage={(error) => describeError(error, 'Track evidence could not be loaded.')}
             retryable={(error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500)}

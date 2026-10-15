@@ -90,6 +90,9 @@ a `.mavi-visual-qa-output` marker), and
 states added (the deliberately unreachable state of `test/run.test.mjs`); a run
 under it records `statesModule` and is never a full sweep.
 
+`MAVI_VQA_RESPONSE_ORDER` (`natural`, the default, or `forward` — the
+gate's) pins the data-response order; see *X3 (§38)* below.
+
 ## Harness v2 (Stage 3.5 S2)
 
 **The assertion manifest** (`manifest.mjs`, register V1) has one entry per rule
@@ -141,7 +144,10 @@ consecutive probes: the page's expected text is shown and its forbidden text is
 not; no loading presentation is on screen (or, for a state that `holds:
 'loading'`, one is); images have loaded; a visible video has its metadata and
 is not mid-seek (a page that seeks on load has done so); no finite transition is running; the
-DOM has stopped changing; and no request is in flight or newly started. A
+DOM has stopped changing; no request is in flight or newly started; and no
+query is fetching or waiting out a retry's backoff (the app's query activity,
+registered on the harness handle only when the harness installed it: the one
+passive hook UI spec §26 (v2.2) permits, `harnessObservability.ts`). A
 request held open to keep a loading state is not "in flight" — it never
 completes by design. Preparations wait for the consequence of each action, never
 for a guessed duration. Every wait is bounded; a timeout refuses the state and
@@ -595,6 +601,60 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   `states.mjs`, not from the results); a case no class covers; a malformed
   budget table; results of different heads. Exit 2 for a fault, 1 for a
   finding.
+- **Attribution, recorded and never judged**: a measured CLS window lists the
+  data responses that landed in it (`cls.responses`: path and time) and each
+  counted shift says where its sources moved (`entries[].moves`, previous and
+  current rect); a long-task window lists the long animation frames that
+  overlap it (`longTasks.frames`: duration, style-and-layout time and the
+  scripts by entry point and source position). A finding can then be read from
+  its own artifact: a shift right after a late response is the page
+  re-laying out for that data; a long frame whose time is neither script nor
+  style and layout is not the page's code.
+- **Response order** (owner decisions, 2026-10-13 and 2026-10-15): the gate
+  judges runs whose data responses were answered one at a time in the order
+  the page issued them, so every intermediate layout of a load is painted and
+  a case's CLS is a function of the bundle alone
+  (`docs/reviews/2026-10-13-x3-performance-gate-determinism.md`, *CDP-forward
+  method*; ADR-012 Decision 15). Under `MAVI_VQA_RESPONSE_ORDER=forward` —
+  the sweep and the long-task lane; the judge faults any other run
+  (`GATE_RESPONSE_ORDER`, `GATE_REQUEST_ADMISSION`):
+  - the page numbers every schedulable request as it is made
+    (`request-identity.mjs`: same origin, under `/api/`, any method, not a
+    video stream — `request-class.mjs`, one rule for page and server);
+  - the browser holds every `/api/` request before connection-pool admission
+    (CDP Fetch) and `admission.mjs` admits the numbered ones in issue order,
+    the next only on the server's exact acknowledgement of the previous
+    identity or Chromium's report that it failed; the qualified artifact
+    image (`/api/artifacts/{id}/content`) and video streams continue at once,
+    outside the order; any other unnumbered request is a harness fault, and
+    a second document becoming current within one admission window is too;
+  - admission binds the fixture server to the case's document before its
+    first request is released; the server refuses any other document's
+    identity-bearing requests (a document the harness left, whatever epoch
+    cookie it sends) before any fixture state, recorded but not a fault, and
+    refuses a duplicate or out-of-order number of the bound document (a
+    fault);
+  - the fixture server answers the accepted ones in that order,
+    `RESPONSE_SPACING_MS` apart; each case is one scheduler generation (a
+    reset cancels the previous one's timers, drops its queue and clears the
+    binding), and the epoch cookie remains a redundant defence.
+
+  Each case's `requestTrace` (diagnostic) keeps the page's issue order, the
+  admission order, the browser's transport outcome, the server's arrival and
+  answer, and the page's completion times. `natural` (the default for local
+  runs and the journeys) answers as requests arrive, with no identity or
+  admission.
+- **Drawn once**: the product draws a region when every answer that decides
+  its final layout has settled (`holdUntilSettled`, §38), so the pinned order
+  measures the loading-to-content transition, not a provisional layout. A
+  per-row lookup never holds a ledger: the row draws at once in its final
+  geometry, its pending values held by unseen placeholders.
+- **One operator input per task**: a preparation that stands for several
+  operator inputs (the Import form's camera, time and file) dispatches each in
+  its own task, after a frame, as an operator's inputs arrive (the zone
+  drawing's two vertex clicks likewise); dispatched back
+  to back they were one task, and the lane measured three inputs (and the
+  harness's own script) as one long task.
 
 ```bash
 node tools/web-visual-qa/performance.mjs --sweep <aggregate results.json> --long-tasks <long-task results.json> [--out <dir>]

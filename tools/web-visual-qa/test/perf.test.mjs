@@ -11,6 +11,7 @@ import { after, before, describe, it } from 'node:test';
 import { toExpression } from '../assertions.mjs';
 import { settle } from '../engine.mjs';
 import { perfCollect } from '../settle.mjs';
+import { RESPONSE_SPACING_MS } from '../server.mjs';
 import { openBrowser } from './browser.mjs';
 
 let lane;
@@ -185,5 +186,114 @@ describe('first-interaction long tasks', () => {
     const perf = await sequence({ interaction: null, busyMs: 120 });
     assert.equal(perf.longTasks.status, 'not-applicable');
     assert.match(perf.longTasks.why, /fixture setup or verification/);
+  });
+});
+
+describe('diagnostic attribution (recorded, never judged)', () => {
+  it('names the data responses that landed in a CLS window, and where each shifted source moved', async () => {
+    const perf = await sequence({ interaction: 'reload the region' });
+    assert.equal(perf.cls.status, 'measured');
+    assert.ok(perf.cls.responses.some((r) => r.path === '/api/thing'), JSON.stringify(perf.cls.responses));
+    const shift = perf.cls.entries.find((entry) => entry.value > 0);
+    const landed = perf.cls.responses.find((r) => r.path === '/api/thing').at;
+    assert.ok(shift.at >= landed, 'the shift followed the response it re-laid out for');
+    assert.ok(shift.moves.some(([from, to]) => from && to && to[1] > from[1]), JSON.stringify(shift.moves));
+  });
+
+  it('attributes a long task to the frame it ran in, with its scripts and its style and layout', async () => {
+    await lane.page(PAGE, { api: { '/api/thing': { label: 'Ready', height: 200 } } });
+    await settle(lane, { expectText: 'Ready' }, { timeoutMs: 8000 });
+    const settledAt = await lane.browser.evaluate('performance.now()');
+    const prepareStart = await lane.browser.evaluate('window.__vqa.mark("prepare-start")');
+    await lane.browser.evaluate(`(() => { requestAnimationFrame(() => { const end = performance.now() + 120; while (performance.now() < end) { /* draw */ } }); return true; })()`);
+    const prepared = await settle(lane, { expectText: 'Ready' }, { timeoutMs: 8000 });
+    const preparedAt = await lane.browser.evaluate('performance.now()');
+    const perf = await lane.browser.evaluate(toExpression(perfCollect, { holds: null, settledAt, prepareStart, preparedAt, confirmedAt: prepared.confirmedAt, interaction: 'draw' }));
+    assert.ok(perf.longTasks.count >= 1);
+    const frame = perf.longTasks.frames.find((f) => f.ms >= 100);
+    assert.ok(frame, JSON.stringify(perf.longTasks.frames));
+    assert.ok(frame.scripts.some((s) => s.type === 'user-callback' && s.ms >= 100), JSON.stringify(frame.scripts));
+  });
+});
+
+describe('a pinned data-response order (server.mjs `forward`)', () => {
+  // `forward` answers a page's data requests one at a time, a spacing apart,
+  // in the order the page ISSUED them: each is numbered in the page as it is
+  // made (request-identity.mjs) and admitted to the network in that order,
+  // before the browser's connection pool (admission.mjs), so neither the
+  // transport nor the host's load can reorder them. These tests check it end
+  // to end: the issue order the page recorded, the server's arrivals and
+  // answers in that order, sends a spacing apart (to the millisecond of the
+  // timer clock: libuv schedules in whole milliseconds), and the page
+  // receiving them in that order.
+  const TWO = `<main id="log"></main><script>
+    const log = [];
+    // When each response reached the network layer (resource timing), not
+    // when a busy main thread got round to it.
+    const landed = (name) => Math.round(performance.getEntriesByName(location.origin + '/api/' + name)[0]?.responseEnd ?? -1);
+    const get = (name) => fetch('/api/' + name).then((r) => r.json()).then(() => { log.push([name, landed(name)]); log.sort((a, b) => a[1] - b[1]); document.getElementById('log').textContent = log.map((e) => e[0]).join(','); });
+    Promise.all([get('first'), get('second'), get('third')]);
+    window.__log = log;
+  </script>`;
+  const THREE = { '/api/first': { ok: 1 }, '/api/second': { ok: 2 }, '/api/third': { ok: 3 } };
+  /** The page's issue order, and the server's arrivals and answers checked against it. */
+  async function assertIssueOrder(lane) {
+    const issued = (await lane.browser.evaluate('window.__vqaRequestLog.log.map((r) => r[3])'));
+    const scheduled = lane.server.scheduled();
+    const context = JSON.stringify({ issued, scheduled });
+    assert.deepEqual(scheduled.map((a) => a.label), issued, `arrival is not issue order: ${context}`);
+    assert.ok(scheduled.every((a) => typeof a.answeredAt === 'number'), `a request was never answered: ${context}`);
+    const sent = [...scheduled].sort((a, b) => a.answeredAt - b.answeredAt);
+    assert.deepEqual(sent.map((a) => a.label), issued, context);
+    for (let i = 1; i < sent.length; i += 1) assert.ok(sent[i].answeredAt - sent[i - 1].answeredAt >= RESPONSE_SPACING_MS - 1, context);
+    return issued;
+  }
+  let pinned;
+  before(async () => { pinned = await openBrowser({ responseOrder: 'forward' }); });
+  after(async () => { await pinned.close(); });
+
+  it('answers concurrent requests in the order the page issued them, a spacing apart, every request on every load', async () => {
+    for (let run = 0; run < 3; run += 1) {
+      await pinned.page(TWO, { api: THREE });
+      const done = await settle(pinned, { expectText: ['first', 'second', 'third'] }, { timeoutMs: 8000 });
+      assert.equal(done.ok, true, JSON.stringify(done));
+      const issued = await assertIssueOrder(pinned);
+      assert.deepEqual(issued, ['/api/first', '/api/second', '/api/third']);
+      const log = await pinned.browser.evaluate('window.__log');
+      assert.deepEqual(log.map((e) => '/api/' + e[0]), issued, JSON.stringify(log));
+    }
+    assert.deepEqual(pinned.admissionFaults, []);
+  });
+
+  it('refuses, unanswered, a request from a document served before the fixtures were reset', async () => {
+    await pinned.page('<main>page</main>', { api: { '/api/first': { ok: 1 } } });
+    const fresh = await pinned.browser.evaluate(`fetch('/api/first').then((r) => r.ok, () => 'refused')`);
+    assert.equal(fresh, true);
+    // The next case resets the fixtures while this document is still alive: its
+    // request would consume the next case's sequenced answers, so it is refused.
+    pinned.server.resetSequences();
+    const stale = await pinned.browser.evaluate(`fetch('/api/first').then((r) => r.ok, () => 'refused')`);
+    assert.equal(stale, 'refused');
+  });
+
+  it('orders an artifact’s content fetched as data (a trajectory) like any data answer; only images and video streams stay outside the order', async () => {
+    await pinned.page(`<main id="log"></main><script>
+      const log = [];
+      const landed = (p) => Math.round(performance.getEntriesByName(location.origin + p)[0]?.responseEnd ?? -1);
+      const get = (p) => fetch(p).then((r) => r.text()).then(() => { log.push([p, landed(p)]); log.sort((a, b) => a[1] - b[1]); document.getElementById('log').textContent = log.map((e) => e[0]).join(','); });
+      Promise.all([get('/api/first'), get('/api/artifacts/t1/content'), get('/api/third')]);
+      window.__log = log;
+    </script>`, { api: { '/api/first': { ok: 1 }, '/api/third': { ok: 3 } } });
+    const paths = ['/api/first', '/api/artifacts/t1/content', '/api/third'];
+    const done = await settle(pinned, { expectText: paths }, { timeoutMs: 8000 });
+    assert.equal(done.ok, true, JSON.stringify(done));
+    assert.deepEqual(await assertIssueOrder(pinned), paths);
+    const log = await pinned.browser.evaluate('window.__log');
+    assert.deepEqual(log.map((e) => e[0]), paths, JSON.stringify(log));
+  });
+
+  it('refuses an order it does not know, `reverse` included (rejected: generic reverse ordering is not a measurement method)', async () => {
+    await assert.rejects(() => openBrowser({ responseOrder: 'shuffled' }), /unknown response order "shuffled"/);
+    await assert.rejects(() => openBrowser({ responseOrder: 'reverse' }), /unknown response order "reverse"/);
   });
 });

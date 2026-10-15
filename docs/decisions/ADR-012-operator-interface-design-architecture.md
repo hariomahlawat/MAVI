@@ -3,7 +3,7 @@
 **Status:** Accepted; amended 2026-10-07 (Stage 3.5) and 2026-10-12 (Capability query interfaces — see amendments below)  
 **Date:** 2026-09-20  
 **Context:** Operator plane (React/TypeScript), following the independent UI/UX audit of `main@b99ce26f`  
-**Specification:** `docs/architecture/ui-ux-design-specification.md` (v1.0 accepted here; v2.0 accepted by the 2026-10-07 amendment; v2.1 accepted by the 2026-10-12 amendment)
+**Specification:** `docs/architecture/ui-ux-design-specification.md` (v1.0 accepted here; v2.0 accepted by the 2026-10-07 amendment; v2.1 accepted by the 2026-10-12 amendment; v2.2 accepted by the 2026-10-14 amendment)
 
 > ADR-010 is reserved by `docs/superpowers/plans/2026-09-20-audited-review-and-cases-plan.md` for operator identity, authorization and audit. ADR-011 freezes the scene-analytics lifecycle. This ADR takes the next number.
 
@@ -147,3 +147,25 @@ The answer vocabulary must preserve MAVI's evidence semantics. A Track count is 
 **Consequences accepted:** Stage 8 must define the structured aggregation/cardinality contract before Stage 9; Ask MAVI needs its own future surface and translation/grounding qualification; the existing Stage-3.5 Search work remains valuable as the Advanced Search/evidence path rather than being redesigned again.
 
 This amendment changes operator-interface direction only. It does not choose a language model, alter current Search behaviour, add a dependency, or implement Stage 8/9.
+
+## Amendment 2026-10-14 (Visual-QA harness observability)
+
+**Context.** The X3 performance gate (§38) ends a case's CLS window when the page is settled. A query waiting out a retry's backoff has no request in flight, so the harness, which saw only the network, read that backoff as a settled page and missed the layout the retry then caused (`docs/reviews/2026-10-13-x3-performance-gate-determinism.md`, owner ruling 4). Nothing outside the page can observe the query client's backoff. §26 forbids altering production code to make inspection easier.
+
+### Decision 14 — One harness-only passive observability hook, under four conditions
+
+§26 is amended narrowly (specification v2.2): the harness may read a passive observability hook only when it is dormant in normal operation, exposes no payload or data (counts and flags only), cannot alter rendering, query configuration or scheduling, and is activated only by the harness preinstalling its handle. The one such hook is `registerHarnessObservability` (`src/web/mavi-web/src/app/harnessObservability.ts`): the query client's fetching and mutating counts, read-only, registered only on a preinstalled `window.__vqa`. A contract test binds the conditions.
+
+**Rejected:** a fixed post-settle delay (a guess that would turn a missed shift into a slower, still non-deterministic gate); intercepting the page's timers from the harness (it would alter scheduling, the thing being measured); a general production test API (it would grow into the inspection-driven production surface §26 forbids).
+
+**Consequences accepted:** the application carries a few dormant lines that exist for the harness; every further hook needs its own amendment. This amendment adds no dependency and changes no budget, threshold or surface.
+
+### Decision 15 — X3 forward measurement: page-issued request identity and pre-transport admission (2026-10-15)
+
+**Context.** The X3 gate judges CLS in a pinned response order. Ordering by arrival at the fixture server made the order a function of transport, the browser's connection pool and host load, not of the page (`docs/reviews/2026-10-13-x3-performance-gate-determinism.md`, *CDP-forward method*).
+
+**Decision.** The `forward` measurement contract is: page-issued identity → CDP admission → server-bound document authority → exact acknowledgement → monotonic forward scheduler. The harness numbers each schedulable request in the page, synchronously as the page issues it (an init-script wrapper of `fetch` and `XMLHttpRequest`, `tools/web-visual-qa/request-identity.mjs`); the browser holds each `/api/` request before connection-pool admission (CDP Fetch, Request stage) and the harness admits the numbered ones of the page's one current document in issue order (`admission.mjs`), having first bound the fixture server to that document; the server refuses any other document's identity-bearing requests before any fixture state (recorded, not a fault), acknowledges each accepted identity — the harness releases the next only on that exact acknowledgement or the browser's report that the previous one failed — refuses a duplicate or out-of-order number before any state advances (a fault), and answers in that order with its fixed spacing. Only the qualified artifact image (`/api/artifacts/{id}/content`, `request-class.mjs`) and media streams are outside the order. This is harness interception of the page, not a product hook: no product code changes, and it is bound by these conditions — installed only by the harness under `forward`; adds exactly one request header (`x-vqa-order`) and one page-side log entry per numbered call and changes nothing else about the call (method, URL, headers, body, signal, credentials; a `Request` body is never read); never touches a response; numbers only requests the shared classification (`request-class.mjs`) calls schedulable. Focused fidelity tests bind the conditions (`tools/web-visual-qa/test/admission.test.mjs`).
+
+**Rejected:** server-arrival order (transport decides it); a timeout or a quiescence barrier to decide grouping or order (wall-clock); generic reverse ordering by arrival bursts (not a function of the page's issue order; removed with its CI lane); fulfilling responses from CDP instead of the fixture server (would move fixture semantics into the harness and change network timing).
+
+**Consequences accepted:** each numbered request costs about 0.1 ms of synchronous page script and one CDP round trip before transport (a load's answers reach the page a median 19 ms later on a quiet host); under host load, answers no longer arrive at the page bunched into one frame, which is the forward schedule's intent. A backstop only reports a harness fault; an invalid case fails the run.

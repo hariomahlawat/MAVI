@@ -518,3 +518,72 @@ describe('VideosPage — R2 actions, run lookups and failure copy', () => {
     expect(screen.getByRole('combobox', { name: 'Status' })).toHaveFocus();
   });
 });
+
+describe('VideosPage — drawn once, then updated in place (§38; cold review P1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: null });
+  });
+
+  it('keeps the table, the row and its hint when Process queues a row whose new lookup is still out', async () => {
+    const user = userEvent.setup();
+    const queued = { ...fresh, processingStatus: 'Queued' as const };
+    vi.mocked(listVideos).mockResolvedValueOnce([fresh, failed, processed]).mockResolvedValue([queued, failed, processed]);
+    vi.mocked(queueProcessing).mockResolvedValue({ processingRunId: 'run-fresh' });
+    renderWithApp(<VideosPage />, { route: '/videos' });
+
+    const table = await screen.findByRole('table');
+    const row = (await screen.findByText('yard.mp4')).closest('tr') as HTMLElement;
+    // The queued row's lookup never answers in this test.
+    vi.mocked(getProcessingStatus).mockImplementation((id) => (id === fresh.id ? new Promise(() => {}) : Promise.resolve({ videoStatus: 'Failed', latestRun: null })));
+    const process = within(row).getByRole('button', { name: 'Process' });
+    await user.click(process);
+
+    await waitFor(() => expect(listVideos).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(within(screen.getByRole('table')).getByText('yard.mp4').closest('tr')).toHaveTextContent('Queued'));
+    // The same table, still drawn: no return to the skeleton, the hint still the count.
+    expect(screen.getByRole('table')).toBe(table);
+    expect(screen.queryByText('Loading videos…')).not.toBeInTheDocument();
+    // The row is the same node, not redrawn. (Focus itself leaves with the
+    // Process button, which a Queued row no longer offers — the behaviour
+    // before the drawn-once change too, measured without any hold.)
+    expect(within(screen.getByRole('table')).getByText('yard.mp4').closest('tr')).toBe(row);
+  });
+
+  it('keeps the table when a refetch adds a row whose lookup is still out; only that row waits', async () => {
+    const added = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21424', { originalFileName: 'gate-new.mp4', processingStatus: 'Processing', recordingStartUtc: '2026-09-15T02:00:00Z' });
+    vi.mocked(listVideos).mockResolvedValue([fresh, failed, processed]);
+    const { queryClient } = renderWithApp(<VideosPage />, { route: '/videos' });
+    const table = await screen.findByRole('table');
+
+    vi.mocked(getProcessingStatus).mockImplementation((id) => (id === added.id ? new Promise(() => {}) : Promise.resolve({ videoStatus: 'Failed', latestRun: null })));
+    vi.mocked(listVideos).mockResolvedValue([added, fresh, failed, processed]);
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.videos }); });
+
+    await screen.findByText('gate-new.mp4');
+    expect(screen.getByRole('table')).toBe(table);
+    expect(screen.getByText('yard.mp4')).toBeInTheDocument();
+    expect(screen.queryByText('Loading videos…')).not.toBeInTheDocument();
+  });
+});
+
+describe('VideosPage — a slow run lookup holds its row, not the table (owner ruling 3, §38)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+  });
+
+  it('draws every row at once; the slow row holds its run’s inline shape, unseen', async () => {
+    const moving = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21426', { originalFileName: 'gate-live.mp4', processingStatus: 'Processing', recordingStartUtc: '2026-09-15T02:00:00Z' });
+    vi.mocked(listVideos).mockResolvedValue([moving, failed, processed]);
+    vi.mocked(getProcessingStatus).mockImplementation((id) => (id === moving.id ? new Promise(() => {}) : Promise.resolve({ videoStatus: 'Failed', latestRun: null })));
+    renderWithApp(<VideosPage />, { route: '/videos' });
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('dock-night.mp4')).toBeInTheDocument();
+    const slow = within(table).getByText('gate-live.mp4').closest('tr') as HTMLElement;
+    expect(slow.querySelector('.run-cell .queue-reserve[aria-hidden="true"] .progress--inline')).not.toBeNull();
+  });
+});
