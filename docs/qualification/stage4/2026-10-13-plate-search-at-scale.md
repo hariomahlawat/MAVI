@@ -198,7 +198,7 @@ The 2026-10-15 candidate without the lock measured a completion mean of 9 875 ms
 
 `mavi-plate-search-skewed-queries-v2`, SHA-256 `b2d7d728a4ae23f5241864e55aa56a5a8a17f558c303941bdb06d09f6b0e92fa`. It was committed in `105b1dca` before any v2 timing existed. v1 is unchanged and pinned (SHA-256 `93bcebaabd402917fc44f946dc18714f8c0d0e9744e26016610c0ff6da7fee98`). `TheFrozenQuerySetsArePinned` checks both hashes without a database.
 
-The corpus is unchanged. Every Track in it has mean confidence 0.8, duration 4 000 ms and no subclass. So the meaningful selective thresholds are reject-all ones (0.95, 4 001 ms, `car`), with 0.8 as the inclusive boundary that admits every Track. The budget (300 ms p95), the samples (3 warm-ups, 20 samples), the mode and the host are unchanged, and every v2 query is budgeted.
+The corpus is unchanged. Every Track in it has mean confidence 0.8, duration 4 000 ms and no subclass. So the meaningful selective thresholds are reject-all ones (0.95, 4 001 ms, `car`), with 0.8 as the inclusive boundary that admits every Track. The budget (300 ms p95), the samples (3 warm-ups, 20 samples), the mode and the host are unchanged, and every v2 query is budgeted. *[Superseded by the owner decision of 2026-10-16 above: v2 is a diagnostic set of declared limits, not an acceptance set.]*
 
 | Id | Query |
 |---|---|
@@ -288,7 +288,7 @@ The corpus is unchanged. Every Track in it has mean confidence 0.8, duration 4 0
   - V04–V06 and V02 still miss, by up to 1.6×. The miss comes mainly from the filtered coverage count, which owner decision 2 did not address.
   - It also comes from the reject-all probe of every match.
 - **Stopped.** Per the owner's stop condition, no further optimisation architecture was started.
-- **Open for owner decision:**
+- **Open for owner decision** *(decided 2026-10-16, above: the claim is bounded to v1 and none of these options was taken)*:
   - a supporting index or other bound for the filtered coverage count;
   - for confidence and duration, a denormalised or indexed path;
   - declaring these filter classes outside plan §2.8.
@@ -311,7 +311,7 @@ The plate search at scale now runs in its own informational workflow, `plate-sea
 - **Timing boundary.** The time is that of the repository call (`SearchPlatesAsync`: transaction, barrier, coverage, page and explanation) in-process. It excludes HTTP, authentication, serialisation and the client.
 - **Database condition.** The scale database was last compacted with `VACUUM FULL plate_track_texts` (2026-10-15), and the cache was warm. A production database without that step carries the backfill's dead row versions until autovacuum.
 - **Not re-measured in this round:**
-  - the write cost of the trigger's new `FOR SHARE` row lock on PR-3's completion;
+  - the write cost of the trigger's new `FOR SHARE` row lock on PR-3's completion *(re-measured later on 2026-10-16: 10.5 s and 9.5 s, within the 15 s budget; see the owner-decision section above)*;
   - the CI diagnostic (it runs when the branch is pushed).
 - **One host, one corpus.** The v2 thresholds are reject-all or admit-all because the corpus has no confidence, duration or subclass variation. Intermediate selectivities lie between those measured.
 - **Raw output, outside Git:**
