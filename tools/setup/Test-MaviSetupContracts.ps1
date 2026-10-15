@@ -31,6 +31,27 @@ try {
     $genericManifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $genericManifestPath -Encoding UTF8
     [void](Test-MaviManifest -Root $genericRoot -ManifestPath $genericManifestPath -ExpectedSchemaVersion "mavi-test-manifest-v1")
 
+    # IIS request-log privacy (Stage 4; ADR-013 item 20): the MAVI site's W3C log never records the query
+    # string, the Referer or cookies, because plate text and cursors travel in query strings.
+    $iisFields = Get-MaviIisLogFields
+    foreach ($forbidden in @("UriQuery", "Referer", "Cookie")) {
+        if (($iisFields -split ",") -contains $forbidden) { throw "The MAVI IIS log field set includes $forbidden." }
+    }
+    foreach ($required in @("Date", "Time", "Method", "UriStem", "HttpStatus", "TimeTaken")) {
+        if (($iisFields -split ",") -notcontains $required) { throw "The MAVI IIS log field set lost $required." }
+    }
+    if (-not (Test-MaviIisLogFieldsSafe -LogExtFileFlags $iisFields)) { throw "Test-MaviIisLogFieldsSafe refused the MAVI field set." }
+    $iisDefaults = "Date,Time,ClientIP,UserName,ServerIP,Method,UriStem,UriQuery,HttpStatus,Win32Status,TimeTaken,ServerPort,UserAgent,Referer,HttpSubStatus"
+    if (Test-MaviIisLogFieldsSafe -LogExtFileFlags $iisDefaults) { throw "Test-MaviIisLogFieldsSafe accepted the IIS default fields (UriQuery, Referer)." }
+    if (Test-MaviIisLogFieldsSafe -LogExtFileFlags "Date,Time,UriStem,Referer") { throw "Test-MaviIisLogFieldsSafe accepted Referer." }
+    if (Test-MaviIisLogFieldsSafe -LogExtFileFlags "Date, Time, UriStem, UriQuery") { throw "Test-MaviIisLogFieldsSafe accepted UriQuery with spaces." }
+    if (Test-MaviIisLogFieldsSafe -LogExtFileFlags "") { throw "Test-MaviIisLogFieldsSafe accepted an unreadable (empty) field set." }
+    $windowsModule = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Mavi.Setup.Windows.psm1") -Raw
+    $siteFunction = [regex]::Match($windowsModule, "function Set-MaviIisSite \{.*?\n\}", [Text.RegularExpressions.RegexOptions]::Singleline).Value
+    if ($siteFunction -notmatch "Set-MaviIisSiteLogging -SiteName \`$SiteName") { throw "Set-MaviIisSite no longer applies the MAVI IIS log field set." }
+    $environmentCheck = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Test-MaviEnvironment.ps1") -Raw
+    if ($environmentCheck -notmatch "Get-MaviIisSiteLogPrivacy") { throw "Test-MaviEnvironment no longer verifies IIS request-log privacy." }
+
     # Analytic search cursor signing key contract: 32 random bytes, base64, kept across
     # re-runs and only ever rotated by an explicit act.
     $cursorKey = New-MaviCursorSigningKey

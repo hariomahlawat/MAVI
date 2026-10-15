@@ -600,6 +600,48 @@ def test_the_quality_aggregate_accounts_for_every_lane() -> None:
     assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
 
 
+INFORMATIONAL_WORKFLOWS = {"plate-search-scale-informational.yml": "plate-search-scale-diagnostic"}
+
+
+def test_the_plate_search_scale_workflow_is_informational_and_outside_the_quality_gate() -> None:
+    """Stage 4 PR-4 (owner decision 2026-10-16): the plate search at scale is an
+    informational CI diagnostic in a workflow of its own. It is not a Quality Gate
+    lane (so the aggregate above stays exactly the gate's lanes), not a required
+    check, never writes under qualification-evidence/, is bound to the exact head,
+    and says in its own output that it is not qualification evidence."""
+    import re
+
+    gate = (_WORKFLOWS / "quality-gate.yml").read_text(encoding="utf-8")
+    assert "plate-search-scale" not in gate and "PlateSearchScaleMeasurementTests" not in gate
+    for workflow_file, job in INFORMATIONAL_WORKFLOWS.items():
+        workflow = (_WORKFLOWS / workflow_file).read_text(encoding="utf-8")
+        assert "INFORMATIONAL DIAGNOSTIC ONLY" in workflow
+        blocks = _job_blocks(workflow)
+        assert set(blocks) == {job}
+        block = blocks[job]
+        name = re.search(r"^    name: (.+)$", block, re.M).group(1)
+        assert "informational" in name and "not a gate" in name
+        assert "needs:" not in block and "continue-on-error" not in block
+        # Exact head.
+        assert "MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
+        assert 'test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"' in block
+        # Diagnostic output only: CI mode, named as a diagnostic, never under qualification-evidence/.
+        assert "MAVI_PLATE_SEARCH_SCALE_MODE: ci" in block
+        assert "qualification-evidence" not in workflow
+        uploads = block.split("uses: actions/upload-artifact@v4")[1:]
+        assert len(uploads) == 1
+        assert "name: plate-search-scale-informational-ci-diagnostic\n" in uploads[0]
+        assert "path: plate-search-scale-ci-diagnostic/\n" in uploads[0]
+        assert "retention-days: 14\n" in uploads[0]
+    # The harness writes the CI output under its own names and states it is not evidence.
+    harness = (Path(__file__).parents[3] / "tests" / "Mavi.IntegrationTests" / "PlateSearchScaleMeasurementTests.cs").read_text(encoding="utf-8")
+    assert "qualificationEvidence = false" in harness
+    assert 'prefix = "plate-search-scale-ci-diagnostic";' in harness
+    # Owner decision 2026-10-16: v1 is the budgeted set, v2 the diagnostic (declared-limits) set.
+    assert "budgetedQuerySet = BudgetedQuerySet" in harness and "diagnosticQuerySet = DiagnosticQuerySet" in harness
+    assert "budgetMilliseconds" not in harness.split('prefix = "plate-search-scale-ci-diagnostic";', 1)[1].split("else", 1)[0]
+
+
 def test_task12_keeps_its_byte_reproducibility_build_serial() -> None:
     """Task 10 compiles MMCV in parallel (a tuning knob); Task 12's wheel
     reproducibility proof keeps MAX_JOBS=1."""

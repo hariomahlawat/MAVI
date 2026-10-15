@@ -13,6 +13,10 @@ namespace Mavi.Contracts.Api.Tracks;
 /// <see cref="ObjectSubclass"/> is the operator-facing vehicle subclass under the same
 /// exposure policy as search (Stage 3, X2), omitted when the Track has none to expose.
 /// </para>
+/// <para>
+/// <see cref="Plates"/> is a Vehicle Track's plate evidence (Stage 4, plan §5.4). A Person Track
+/// omits it: the capability does not apply.
+/// </para>
 /// </remarks>
 public sealed record TrackDetailResponse(
     Guid Id,
@@ -39,7 +43,9 @@ public sealed record TrackDetailResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     TrackDetailAnalyticsResponse? Analytics = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? ObjectSubclass = null);
+    string? ObjectSubclass = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    TrackPlatesResponse? Plates = null);
 
 public sealed record TrackCameraResponse(Guid Id, string Code, string Name);
 

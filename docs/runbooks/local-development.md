@@ -317,7 +317,7 @@ Analytic Track searches (any `GET /api/tracks` request with a scene-analytics ke
 - PostgreSQL service `MAVI-Dev-PostgreSQL-18` on `127.0.0.1:55433`;
 - `mavi_dev`;
 - `mavi_test`;
-- pgvector in both databases; and
+- pgvector and pg_trgm (PostgreSQL contrib; the plate-text search index) in both databases; and
 - machine-scoped `MAVI_TEST_DB_CONNECTION`.
 
 Do not manually create the databases, switch the integration tests to port 5432, or point tests at another PostgreSQL instance as the normal workflow.

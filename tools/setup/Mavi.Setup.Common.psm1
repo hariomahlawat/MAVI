@@ -385,4 +385,32 @@ function Write-MaviSetupStatus {
     Write-Host ("{0,-26} {1}{2}" -f $Name, $Status, $suffix)
 }
 
+# --- IIS request-log privacy (Stage 4 plan §5.5; ADR-013 item 20) ---------------------------------
+# IIS W3C logs record the query string (UriQuery) and the Referer by default. A MAVI query string can
+# carry plate text and cursors, and once the SPA navigates with them the Referer of later requests does
+# too, so the MAVI site logs a fixed field set without either (and without cookies).
+
+# The W3C fields IIS writes by default (applicationHost siteDefaults), for reference and tests.
+$script:MaviIisDefaultLogFields = "Date,Time,ClientIP,UserName,ServerIP,Method,UriStem,UriQuery,HttpStatus,Win32Status,TimeTaken,ServerPort,UserAgent,Referer,HttpSubStatus"
+
+# Fields that can carry a query value or session material and must never be logged for the MAVI site.
+$script:MaviIisForbiddenLogFields = @("UriQuery", "Referer", "Cookie")
+
+function Get-MaviIisLogFields {
+    # Every default field except the forbidden ones: the request line without its query, the status and the timing.
+    ($script:MaviIisDefaultLogFields -split "," | Where-Object { $script:MaviIisForbiddenLogFields -notcontains $_ }) -join ","
+}
+
+function Get-MaviIisForbiddenLogFields { $script:MaviIisForbiddenLogFields }
+
+function Test-MaviIisLogFieldsSafe {
+    param([AllowEmptyString()][string]$LogExtFileFlags)
+    if ([string]::IsNullOrWhiteSpace($LogExtFileFlags)) { return $false }
+    $fields = $LogExtFileFlags -split "\s*,\s*" | Where-Object { $_ }
+    foreach ($forbidden in $script:MaviIisForbiddenLogFields) {
+        if ($fields -contains $forbidden) { return $false }
+    }
+    return $true
+}
+
 Export-ModuleMember -Function *

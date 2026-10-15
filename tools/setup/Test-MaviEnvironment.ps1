@@ -65,6 +65,9 @@ if ($machineConfigExists -and (Test-Path -LiteralPath $psqlPath -PathType Leaf))
         $vector = Invoke-MaviPsql -PsqlPath $psqlPath -Port $dbPort -User $dbUser -Password $dbPassword -Database $dbName -Sql "select extversion from pg_extension where extname='vector';" -CaptureOutput
         $vectorVersion = $vector.StandardOutput.Trim()
         Add-Check -Name "pgvector" -Passed (-not [string]::IsNullOrWhiteSpace($vectorVersion)) -Detail $(if ($vectorVersion) { $vectorVersion } else { "not enabled" })
+        $trigram = Invoke-MaviPsql -PsqlPath $psqlPath -Port $dbPort -User $dbUser -Password $dbPassword -Database $dbName -Sql "select extversion from pg_extension where extname='pg_trgm';" -CaptureOutput
+        $trigramVersion = $trigram.StandardOutput.Trim()
+        Add-Check -Name "pg_trgm" -Passed (-not [string]::IsNullOrWhiteSpace($trigramVersion)) -Detail $(if ($trigramVersion) { $trigramVersion } else { "not enabled; re-run Setup-MAVI" })
         Add-Check -Name "Managed media root" -Passed (Test-Path -LiteralPath ([string]$machineConfig.MediaStorage.RootPath) -PathType Container) -Detail ([string]$machineConfig.MediaStorage.RootPath)
         Add-Check -Name "Evidence root" -Passed (Test-Path -LiteralPath ([string]$machineConfig.MediaStorage.EvidenceRootPath) -PathType Container) -Detail ([string]$machineConfig.MediaStorage.EvidenceRootPath)
         $cursorKeyPresent = $null -ne (Get-MaviExistingCursorSigningKey -MachineConfigPath $machineConfigPath)
@@ -136,6 +139,12 @@ else {
     Add-Check -Name "IIS" -Passed (Test-Path -LiteralPath $appCmd -PathType Leaf) -Detail $appCmd
     $hostingModule = Join-Path $env:ProgramFiles "IIS\Asp.Net Core Module\V2\aspnetcorev2.dll"
     Add-Check -Name "ASP.NET Core Module" -Passed (Test-Path -LiteralPath $hostingModule -PathType Leaf) -Detail $hostingModule
+    # Plate text and cursors travel in query strings: the site's request log must not record them (ADR-013 item 20).
+    try {
+        $logPrivacy = Get-MaviIisSiteLogPrivacy -SiteName ([string]$profileDefaults.iisSiteName)
+        Add-Check -Name "IIS request-log privacy" -Passed $logPrivacy.Safe -Detail $(if ($logPrivacy.Safe) { $logPrivacy.Detail } else { "$($logPrivacy.Detail); re-run Setup-MAVI" })
+    }
+    catch { Add-Check -Name "IIS request-log privacy" -Passed $false -Detail $_.Exception.Message }
     if ($HttpPort -eq 0) { $HttpPort = [int]$profileDefaults.httpPort }
     $baseUrl = "http://127.0.0.1:$HttpPort"
     try {

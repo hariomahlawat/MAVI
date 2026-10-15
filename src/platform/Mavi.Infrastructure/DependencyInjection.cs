@@ -48,6 +48,8 @@ public static class DependencyInjection
         services.AddSingleton<VisionFinalizationState>();
         services.AddSingleton<IVisionFinalizationMonitor>(provider => provider.GetRequiredService<VisionFinalizationState>());
         services.AddScoped<ITrackSearchRepository, TrackSearchRepository>();
+        // Stage 4 plate search and detail; the plate release and readiness are PR-3's registrations.
+        services.AddScoped<ITrackPlateSearchRepository, TrackSearchRepository>();
         services.AddScoped<TrackSearchService>();
         services.AddScoped<ISceneConfigurationRepository, SceneConfigurationRepository>();
         services.AddScoped<SceneConfigurationService>();

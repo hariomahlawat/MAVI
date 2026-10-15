@@ -22,8 +22,12 @@ $destinationRoot = [IO.Path]::GetFullPath($DestinationRoot)
 $postgresExe = Join-Path $sourceRoot "bin\postgres.exe"
 $pgConfigExe = Join-Path $sourceRoot "bin\pg_config.exe"
 $vectorControl = Join-Path $sourceRoot "share\extension\vector.control"
+# PostgreSQL contrib: the plate search's trigram index (Stage 4 PR-4). Shipped with PostgreSQL itself,
+# so a source runtime without it is an incomplete installation, not a missing optional component.
+$trigramControl = Join-Path $sourceRoot "share\extension\pg_trgm.control"
+$trigramLibrary = Join-Path $sourceRoot "lib\pg_trgm.dll"
 
-foreach ($required in @($postgresExe, $pgConfigExe, $vectorControl)) {
+foreach ($required in @($postgresExe, $pgConfigExe, $vectorControl, $trigramControl, $trigramLibrary)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Required PostgreSQL runtime artifact is missing: $required"
     }
@@ -41,6 +45,12 @@ if (-not $versionMatch.Success) {
     throw "Unable to determine pgvector version from vector.control."
 }
 $pgVectorVersion = $versionMatch.Groups["v"].Value
+
+$trigramMatch = [regex]::Match((Get-Content -LiteralPath $trigramControl -Raw), 'default_version\s*=\s*[''"](?<v>[^''"]+)[''"]')
+if (-not $trigramMatch.Success) {
+    throw "Unable to determine pg_trgm version from pg_trgm.control."
+}
+$pgTrgmVersion = $trigramMatch.Groups["v"].Value
 
 if (Test-Path -LiteralPath $destinationRoot) {
     Remove-Item -LiteralPath $destinationRoot -Recurse -Force
@@ -97,6 +107,7 @@ $manifest = [ordered]@{
     postgresqlMajorVersion = 18
     postgresqlVersion = $postgresVersion
     pgvectorVersion = $pgVectorVersion
+    pgTrgmVersion = $pgTrgmVersion
     artifacts = @($artifacts)
 }
 
@@ -107,6 +118,7 @@ $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash
 Write-Host "Staged MAVI PostgreSQL runtime pack."
 Write-Host "  PostgreSQL : $postgresVersion"
 Write-Host "  pgvector   : $pgVectorVersion"
+Write-Host "  pg_trgm    : $pgTrgmVersion"
 Write-Host "  Files      : $($artifactFiles.Count)"
 Write-Host "  Output     : $destinationRoot"
 Write-Host "  Manifest SHA-256: $manifestHash"

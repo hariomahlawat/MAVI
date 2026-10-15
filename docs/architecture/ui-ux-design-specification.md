@@ -1,6 +1,6 @@
 # MAVI UI/UX Design Specification
 
-**Version:** 2.2 (visual-QA observability amendment, 2026-10-14; 2.1 capability-interface amendment, 2026-10-12; v2.0 remains the Stage 3.5 architecture freeze)
+**Version:** 2.3 (Stage 4 ANPR/OCR amendment, 2026-10-13, numbered 2.3 because the 2.2 visual-QA observability amendment of 2026-10-14 reached `main` first; v2.2 visual-QA observability amendment; v2.1 capability-interface amendment, 2026-10-12; v2.0 remains the Stage 3.5 architecture freeze)
 **Status:** Adopted. Normative for all frontend work. Stage 3.5 closed on 2026-10-12 (PR #209 + closure PR #210, `main@1468286d`); full conformance (§34 items 1–17) is the normal frontend baseline. The Stage 3.5 staged-conformance rule §34.2 has expired, and the UI-1 → UI-5 transitional clause (§34.1) is closed.
 **Design baseline (v1.0):** `main@b99ce26f041b3fff25094b8a5ac6a84f7305fc87`
 **Audit baseline (v2.0):** `main@98e5cd3f3ae8ca636ffbe2115c6b74b4ebcb2b16` (Stage 3 closed; UI-1 → UI-5 and Scene Analytics Slices 0–7 merged)
@@ -13,6 +13,8 @@
 **What changed in 2.1.** The capability roadmap now distinguishes the expert/evidence query builder from the future ordinary-language operator surface. §17 freezes **Advanced Search** as the existing precise, reproducible query builder and **Ask MAVI** as a separate future top-level Investigation surface. Ask MAVI translates an operator question into the Stage-8 whitelisted structured query/aggregation contract; factual counts, rows and charts come only from deterministic query results, never from language-model generation. §29 records Face Intelligence (Stage 5A), Structured Intelligence Query (Stage 8) and Ask MAVI (Stage 9) as future capability integrations. No existing Stage-3.5 surface or component is redesigned by v2.1.
 
 **What changed in 2.2.** One narrow amendment to §26: the visual-QA harness may read a harness-only passive observability hook, under four conditions stated there, so that it can tell a query waiting out a retry's backoff from a settled page. No surface, component, token or budget changes.
+
+**What changed in 2.3.** Stage 4 (ANPR/OCR) is specified before any of its UI is built, as ADR-013 §18 requires and as `docs/superpowers/plans/2026-10-12-stage4-anpr-ocr.md` §6 plans. New §17.2 specifies plate search and plate evidence on the existing surfaces: a *Plate text* field in the filter rail's Scope section, a plate coverage line in the existing coverage strip, one line of plain secondary text on a matching result row, and a `TrackPlateReadings` evidence section in the Investigation inspector and the Review evidence rail. It fills the §29 ANPR row. No route, workspace, archetype, dashboard, badge or shared primitive is added, and no existing surface is redesigned. Every element is bound to the PR-4 wire contract (`plateText`, `plateMatch`, `plateCoverage`, item `plate`, detail `plates`).
 
 Status markers used throughout:
 
@@ -552,6 +554,76 @@ The interaction contract is `question → local language translation → whiteli
 
 Where the operator uses ordinary language such as "how many people", the answer label follows the data MAVI actually owns. Before confirmed Entity semantics support a unique-person count, the surface says **Person Tracks** and, when relevant, **crossing/events**, rather than silently presenting Track count as unique people.
 
+### 17.2 Plate search and plate evidence (Added in v2.3, Stage 4; frozen)
+
+A plate reading is model output from evidence crops, never a registration fact. Every rule below follows from that: the surface says what was **read**, how often and how confidently, and never asserts *the* plate of a vehicle. The rules land on the existing Investigation and Review surfaces; nothing here is a new route, workspace, archetype or shared primitive.
+
+**17.2.1 Search — filter rail, Scope section.**
+
+| Rule | Level |
+|---|---|
+| The Scope section of the filter rail gains a **Plate text** field with a three-way segmented control **Contains · Starts with · Exact** (default Contains). No new rail section. | MUST |
+| Persistent helper text under the field: *"Spaces and dashes are ignored; letters are not substituted."* It states the two facts an operator needs: separators do not matter, and `O`/`0`, `I`/`1`, `B`/`8` are different characters. | MUST |
+| Validation runs in `commitDraft`, never on keystroke, and applies the API's grammar: the frozen `mavi-plate-normalisation-v1` (NFKC, ASCII upper-case, removal of space, tab, line breaks, `-`, `.`, `/`, `:` and `·`), then 3–15 characters of `[A-Z0-9]`. A value outside it is an **invalid** field (§12) with the message *"Enter 3 to 15 letters or digits"* and no request is made. A `400 track_search_invalid` from the API is presented as the same field error; the client check is a convenience, the API is the authority. | MUST |
+| A plate text applies to Vehicle Tracks only. Committing it with the class filter on Person is an invalid combination reported on the class field; with no class chosen the committed state is Vehicle, and the class control shows it. | MUST |
+| The URL is the state (§17): `plateText` carries the **normalised** text, and `plateMatch` is written only when it is not `contains`, so one search has one URL. | MUST |
+| The committed chip reads **Plate contains KA01**, **Plate starts with KA01** or **Plate is KA01AB1234**, with the text in the mono face. | MUST |
+| The plate filter combines with every other filter (AND). With analytic predicates the single-camera analytics scope applies as it always has; plate-only searches span cameras. | MUST |
+
+**17.2.2 Results header — coverage.** `plateCoverage` is present on every plate search, and the existing **coverage strip** (§17, Slice 4) renders it as one line; no new component:
+
+- *Plate readings available for 812 of 840 vehicle tracks in scope · 28 pending* — `ready` of `vehicleTracksInScope`, then each non-zero bucket among `pending`, `failed` and `stale` in that order (*· 2 failed*, *· 4 from an earlier configuration*).
+- `notConfigured` equal to the scope: the **not configured** state (§14), *"Plate reading is not configured in this installation"*, and no plate result can be expected.
+- With analytic predicates as well, the strip carries the analytics line and the plate line, analytics first.
+
+The three outcomes stay distinct (§17): a zero-result page with every vehicle track Ready is **filtered-empty** (*"No vehicle track has a reading matching KA01"*); a zero-result page with incomplete coverage is filtered-empty **and** the strip, so an empty page is never read as "no such vehicle"; an unavailable request is the **unavailable** alert.
+
+**17.2.3 Result row.** One line (§16); the explanation is plain secondary text, per the §29 attributes rule — **no new badge or chip**:
+
+- *Read as **KA01**AB1234 · on 3 of 4 plates · 92 %* — `plate.matchedText`, `plate.supportCount` of `plate.plateObservationCount`, `plate.maxConfidence` as an integer percent (§24, lists). The denominator counts every plate observation of the Track, Unreadable plates included, so the copy says *plates*, never *readings*: *3 of 4 plates* means three plates were read as this text and the fourth was read otherwise or not at all.
+- The matched part (`contains`: its first occurrence; `prefix`: the leading characters; `exact`: the whole text) is shown with an **underline as well as weight**, so the cue is not colour alone (§23).
+- When `plate.distinctTextCount` is above one the line appends *· 1 other reading* (*· 2 other readings*): the vehicle's readings disagree, and the operator sees that before opening it.
+- The wording is always **Read as**. Never *Plate:*, never *Confirmed*, never a registration-styled plate graphic.
+
+**17.2.4 Inspector and Review — `TrackPlateReadings`.** A feature component in `features/video-review/`, composed in `TrackInspector` and in the `VideoReviewPage` evidence rail, rendered only when the Track detail carries `plates` (Vehicle Tracks). A Person Track shows no plate section at all — not a "not applicable" message. Its content follows the §37.2 tiers:
+
+| Tier | Content |
+|---|---|
+| 1 — Operational | The Track texts (`plates.texts`), best supported first: the normalised text in mono, *on 3 of 4 plates* (`supportCount` of the Track's plate observations, Unreadable ones included), max confidence to one decimal (§24, inspectors). The agreement as one plain line: *Consistent readings* (`consistent`), *Single reading* (`single`), *Conflicting readings · 2 texts* (`conflicting`), *No searchable reading* (`none`). |
+| 2 — Explanation | Each plate observation (`plates.observations`), in evidence order: the **plate region** cut client-side from the source crop — the Track's `observations[]` entry whose `observationId` is `sourceObservationId`, through its existing `evidenceContentUrl` — at `box.x, box.y, box.width, box.height` in the crop's `box.cropWidth × box.cropHeight` pixel space; the rank-0 reading as **Raw** (`rawText`, a two-line reading on two lines) and **Normalised** (`normalisedText`), labelled; its confidence to one decimal; the role and the offset as `mm:ss.t`. Further readings sit behind *2 other readings*. A rejected reading shows its raw text and *"Not searchable — does not normalise to letters and digits"*: the wire says only `rejected`, and the reason may be an empty text (nothing left after separators are removed) or a character outside A–Z and 0–9. An `Unreadable` observation is listed as **Unreadable plate** with its region and no text. Beyond five observations the list is bounded with a disclosure (§37.1, large data). |
+| 3 — Forensic | Collapsed by default, in `ProvenancePanel` (17.2.6). |
+
+- A reading's confidence is the recogniser's confidence in the **whole reading** (ADR-013 item 13). It is shown once per reading, never per character, and no character of a raw or normalised text is emphasised, coloured or annotated as more or less certain.
+- Only the selected plate of a scored crop is listed. A crop the worker abstained on (including an OCR-output fault, which keeps detector proposals but no readings), excluded or found unavailable has no entry; it appears in the Track's outcome reason when it decided the outcome, and otherwise only in the sealed artefact.
+- When the decoded crop's size differs from `box.cropWidth × box.cropHeight`, the region is **not** drawn and the entry shows `No image` (§37.1); a region is never rescaled into a guess. A crop whose bytes are unavailable is the EvidencePlaceholder, as everywhere else.
+- Selecting an observation selects its source crop in the Track Evidence Set strip and its existing timeline marker; seeking uses the existing marker action. There is no new seek pattern and no second player (§18).
+- States go through `StateRegion` (§14.1, §37.1, panel column) from `plates.readiness`, `plates.trackOutcome` and `plates.unavailableReason`:
+
+| Detail | State and copy |
+|---|---|
+| `Pending` | loading-class info line: *"Plate reading pending"* |
+| `Ready`, `Analysed`, no observation | empty: *"No plate found in the evidence"* — never *"No plate"*, which would be a claim about the vehicle |
+| `Ready`, `Unavailable` | unavailable, operator sentence first, reason in mono last: *"Plate reading unavailable for this track · `evidence_missing`"*; no retry (it is a fact of the analysis, not a transport failure) |
+| `NotConfigured` | not configured: *"Plate reading is not configured in this installation"* |
+| `Failed` | failed: *"Plate reading failed for this run"* |
+| `Stale` | stale: *"Plate readings are from an earlier configuration"*; no facts are shown |
+
+**17.2.5 Why it matched.** Opened from a plate search, the inspector marks the matched text group in tier 1 with the same underline-and-weight cue as the row, following `TrackAnalyticsExplanation`; it does not reorder the list.
+
+**17.2.6 Provenance.** `ProvenancePanel` lists the plate analysis (`plates.provenance.analysisId`), the plate-detector and OCR Model Pack ids, the normalisation id and SHA-256, the summary policy id, version and SHA-256, and the completion time — tier 3, mono, copyable.
+
+**17.2.7 Contract binding (PR-4).**
+
+| UI element | Wire source |
+|---|---|
+| Plate text, match control, chip, URL | query keys `plateText`, `plateMatch` (`contains` \| `prefix` \| `exact`) |
+| Coverage line | root `plateCoverage{identityFingerprint, vehicleTracksInScope, ready, pending, failed, stale, notConfigured}` |
+| Row line | item `plate{matchedText, matchKind, supportCount, plateObservationCount, distinctTextCount, maxConfidence, bestPlateObservationId}` |
+| `TrackPlateReadings` | detail `plates{readiness, trackOutcome?, unavailableReason?, agreement?, texts[], observations[], provenance?}` |
+| Continuation | the opaque `nextCursor` (v4), passed back unchanged |
+
+**17.2.8 Visual QA.** §34 items 1–17 apply unqualified. The §26 sweep gains fixtures for: ready-consistent; conflicting; unreadable; rejected reading; pending; no plate found; unavailable; not configured; stale; long raw text (32 characters); two-line reading; a plate search with partial coverage and an empty page.
+
 ---
 
 ## 18. Media and evidence
@@ -844,7 +916,7 @@ Scene Analytics slices are numbered 0–7; capability roadmap stages are numbere
 | Aggregates, occupancy, heatmap | **Slice 6** | Workbench | Workbench grammar from UI-2; sequential scale and legend; zone colour already separated from accent (§8.3) |
 | Hardening, acceptance, qualification | **Slice 7** | — | Visual QA standard (§26) as part of acceptance evidence |
 | Visual attributes | Capability stage 2 | Investigation filter section + committed-filter chips; inspector key/value + Evidence Set viewer; Review evidence rail | committed-filter chips (§17), explicit `unknown` state (§14), one-badge-per-row rule (§16) — a matched attribute value may appear on a result row only as plain secondary text, never as an additional badge or chip — bounded observations[] evidence presentation (§4.5/§20) |
-| ANPR / OCR | Capability stage 4 | Investigation | none beyond §17 |
+| ANPR / OCR | Capability stage 4 — **specified in §17.2 (v2.3)**; API in Stage 4 PR-4, UI in PR-5 | Investigation filter-rail Scope field + committed chip; coverage-strip line; result-row secondary text; `TrackPlateReadings` in the Investigation inspector and the Review evidence rail; `ProvenancePanel` | committed-filter chips and coverage strip (§17); §14 states with *no plate found* kept apart from *unavailable*; one-line row with no new badge (§16); confidence formatting (§24); non-colour cues (§23); §37.2 tiers; the existing Evidence Set strip and timeline markers (§18, §20) |
 | Visual similarity | Capability stage 5 | Investigation | candidate styling and rank numeral (§19) |
 | **Face Intelligence** | **Capability stage 5A** | Investigation + bounded enrolled-person management surface | candidate-match styling (§19); observed/reference face evidence; Unknown when no usable face; authorised-person match never styled as confirmed identity solely from similarity |
 | ReID / entity candidates | Capability stage 6 | Ledger to Record, plus canvas link glyph | candidate is not confirmed styling (§19) |

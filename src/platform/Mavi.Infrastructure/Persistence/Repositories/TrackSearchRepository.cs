@@ -138,9 +138,13 @@ public sealed partial class TrackSearchRepository(
     private IQueryable<TrackSearchRow> BuildQuery(
         TrackSearchQuery query,
         long snapshotVisibilitySequence,
-        TrackCursorPosition? cursor)
+        TrackCursorPosition? cursor,
+        Func<IQueryable<TrackCandidate>, IQueryable<TrackCandidate>>? narrow = null)
     {
         var tracks = BaseCandidates(query, snapshotVisibilitySequence);
+        // A derived-capability predicate (Stage 4: plates), ANDed before keyset and ordering.
+        if (narrow is not null)
+            tracks = narrow(tracks);
 
         if (cursor is not null)
         {

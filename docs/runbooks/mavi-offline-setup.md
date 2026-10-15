@@ -114,7 +114,9 @@ Use a known-good PostgreSQL 18 installation on the build machine after the appro
 powershell -ExecutionPolicy Bypass -File tools/native/stage_postgresql_runtime_windows.ps1 -PostgreSqlRoot "C:\Program Files\PostgreSQL\18" -PgVectorLicensePath "<PGVECTOR_LICENSE>"
 ~~~
 
-The runtime pack contains the PostgreSQL bin, lib and share trees, including pgvector. Its manifest records every file hash plus the observed PostgreSQL and pgvector versions.
+The runtime pack contains the PostgreSQL bin, lib and share trees, including pgvector and the PostgreSQL contrib extension `pg_trgm` (the plate-text search index, Stage 4). Staging refuses a source tree without `pg_trgm.control` and `pg_trgm.dll`. Its manifest records every file hash plus the observed PostgreSQL, pgvector and pg_trgm (`pgTrgmVersion`) versions; packs staged before Stage 4 PR-4 already contain pg_trgm (contrib ships with every PostgreSQL 18 Windows installation) but do not record its version.
+
+Setup creates `pg_trgm` as the administrator in each MAVI database, beside `vector`; the platform's startup check refuses to start without it, and `Test-MaviEnvironment.ps1` reports it.
 
 This is the preferred end-user deployment path. The lower-level standalone pgvector staging/installer remains available for controlled maintenance/build-machine workflows but is not required during normal MAVI installation.
 
@@ -286,7 +288,7 @@ Double-click:
 Setup-MAVI-Production.cmd
 ~~~
 
-Setup automatically verifies every bundle file; installs/repairs the isolated PostgreSQL runtime; starts MAVI-PostgreSQL-18 on port 55432; generates protected database credentials; creates the mavi database and pgvector extension; creates storage roots; writes and ACL-protects machine configuration; enables required IIS features; installs the ASP.NET Core Hosting Bundle when absent; deploys the qualified application; creates the dedicated MAVI application pool/site; starts MAVI; lets startup verify native dependencies and apply EF migrations; and validates both /api/health and the UI root.
+Setup automatically verifies every bundle file; installs/repairs the isolated PostgreSQL runtime; starts MAVI-PostgreSQL-18 on port 55432; generates protected database credentials; creates the mavi database and pgvector extension; creates storage roots; writes and ACL-protects machine configuration; enables required IIS features; installs the ASP.NET Core Hosting Bundle when absent; deploys the qualified application; creates the dedicated MAVI application pool/site, whose IIS request log records no query string, Referer or cookie (plate text and cursors travel in query strings; `Test-MaviEnvironment` fails if they are logged, including under server-wide central logging); starts MAVI; lets startup verify native dependencies and apply EF migrations; and validates both /api/health and the UI root.
 
 Default URL:
 
