@@ -217,23 +217,15 @@ describe('diagnostic attribution (recorded, never judged)', () => {
 });
 
 describe('a pinned data-response order (server.mjs `forward`)', () => {
-  // Three requests the page makes at once, answered by a natural server
-  // whenever scheduling says so; a pinned order answers them one at a time, a
-  // spacing apart, in the order its rule defines for the requests as they
-  // ARRIVED at the server (server.mjs, RESPONSE_ORDERS; review record
-  // 2026-10-13-x3, "Gate and harness"): `forward` in arrival order, `reverse`
-  // each burst — the requests that arrive within BURST_GATHER_MS of its
-  // first — in the opposite order. The page issues the three together, but
-  // when (and in which order) they reach the server is the host's scheduling:
-  // on a loaded runner they can arrive hundreds of ms apart and form two or
-  // three bursts (CI run 38601805584; reproduced locally under CPU load, every
-  // split run's order exactly the rule's). Likewise the spacing is the
-  // server's, between its sends: the page's network stack can see answers
-  // sent 120 ms apart land together. So these tests take the arrivals from the
-  // server and assert what the rule owes for them, end to end: every request
-  // answered (none stranded), sent in the owed order a spacing apart, and
-  // received by the page in that order. The grouping rule itself is pinned
-  // exactly on a virtual clock (scheduler.test.mjs).
+  // `forward` answers a page's data requests one at a time, a spacing apart,
+  // in the order the page ISSUED them: each is numbered in the page as it is
+  // made (request-identity.mjs) and admitted to the network in that order,
+  // before the browser's connection pool (admission.mjs), so neither the
+  // transport nor the host's load can reorder them. These tests check it end
+  // to end: the issue order the page recorded, the server's arrivals and
+  // answers in that order, sends a spacing apart (to the millisecond of the
+  // timer clock: libuv schedules in whole milliseconds), and the page
+  // receiving them in that order.
   const TWO = `<main id="log"></main><script>
     const log = [];
     // When each response reached the network layer (resource timing), not
@@ -244,61 +236,33 @@ describe('a pinned data-response order (server.mjs `forward`)', () => {
     window.__log = log;
   </script>`;
   const THREE = { '/api/first': { ok: 1 }, '/api/second': { ok: 2 }, '/api/third': { ok: 3 } };
-  /**
-   * What the rule owes for the requests the server saw, and what it did: the
-   * owed answer order (bursts in arrival order, each reversed under
-   * `reverse`; every request its own group under `forward`) against the order
-   * it sent them in, every request answered, consecutive sends at least a
-   * spacing apart (to the millisecond of the timer clock: libuv schedules in
-   * whole milliseconds).
-   */
-  function assertOwed(lane, order, paths) {
-    const arrivals = lane.server.scheduled();
-    const context = JSON.stringify(arrivals);
-    assert.deepEqual(arrivals.map((a) => a.label).sort(), [...paths].sort(), context);
-    const groups = [];
-    for (const a of arrivals) {
-      if (groups.at(-1)?.group !== a.group) groups.push({ group: a.group, labels: [] });
-      groups.at(-1).labels.push(a.label);
-    }
-    const owed = groups.flatMap((g) => (order === 'reverse' ? [...g.labels].reverse() : g.labels));
-    assert.ok(arrivals.every((a) => typeof a.answeredAt === 'number'), `a request was never answered: ${context}`);
-    const sent = [...arrivals].sort((a, b) => a.answeredAt - b.answeredAt);
-    assert.deepEqual(sent.map((a) => a.label), owed, context);
+  /** The page's issue order, and the server's arrivals and answers checked against it. */
+  async function assertIssueOrder(lane) {
+    const issued = (await lane.browser.evaluate('window.__vqaRequestLog.log.map((r) => r[3])'));
+    const scheduled = lane.server.scheduled();
+    const context = JSON.stringify({ issued, scheduled });
+    assert.deepEqual(scheduled.map((a) => a.label), issued, `arrival is not issue order: ${context}`);
+    assert.ok(scheduled.every((a) => typeof a.answeredAt === 'number'), `a request was never answered: ${context}`);
+    const sent = [...scheduled].sort((a, b) => a.answeredAt - b.answeredAt);
+    assert.deepEqual(sent.map((a) => a.label), issued, context);
     for (let i = 1; i < sent.length; i += 1) assert.ok(sent[i].answeredAt - sent[i - 1].answeredAt >= RESPONSE_SPACING_MS - 1, context);
-    return owed;
+    return issued;
   }
   let pinned;
   before(async () => { pinned = await openBrowser({ responseOrder: 'forward' }); });
   after(async () => { await pinned.close(); });
 
-  it('answers concurrent requests in the order they arrive, a spacing apart, every request on every load', async () => {
+  it('answers concurrent requests in the order the page issued them, a spacing apart, every request on every load', async () => {
     for (let run = 0; run < 3; run += 1) {
       await pinned.page(TWO, { api: THREE });
-      // No request is stranded: all three are answered.
       const done = await settle(pinned, { expectText: ['first', 'second', 'third'] }, { timeoutMs: 8000 });
       assert.equal(done.ok, true, JSON.stringify(done));
-      const owed = assertOwed(pinned, 'forward', Object.keys(THREE));
+      const issued = await assertIssueOrder(pinned);
+      assert.deepEqual(issued, ['/api/first', '/api/second', '/api/third']);
       const log = await pinned.browser.evaluate('window.__log');
-      assert.deepEqual(log.map((e) => '/api/' + e[0]), owed, JSON.stringify(log));
+      assert.deepEqual(log.map((e) => '/api/' + e[0]), issued, JSON.stringify(log));
     }
-  });
-
-  it('answers each burst in the opposite order under `reverse`, a spacing apart, every request on every load', async () => {
-    const reversed = await openBrowser({ responseOrder: 'reverse' });
-    try {
-      for (let run = 0; run < 3; run += 1) {
-        await reversed.page(TWO, { api: THREE });
-        // No request is stranded: all three are answered, whatever the grouping.
-        const done = await settle(reversed, { expectText: ['first', 'second', 'third'] }, { timeoutMs: 8000 });
-        assert.equal(done.ok, true, JSON.stringify(done));
-        const owed = assertOwed(reversed, 'reverse', Object.keys(THREE));
-        const log = await reversed.browser.evaluate('window.__log');
-        assert.deepEqual(log.map((e) => '/api/' + e[0]), owed, JSON.stringify(log));
-      }
-    } finally {
-      await reversed.close();
-    }
+    assert.deepEqual(pinned.admissionFaults, []);
   });
 
   it('refuses, unanswered, a request from a document served before the fixtures were reset', async () => {
@@ -312,7 +276,7 @@ describe('a pinned data-response order (server.mjs `forward`)', () => {
     assert.equal(stale, 'refused');
   });
 
-  it('orders an artifact’s content (a trajectory, a crop) like any data answer; only a video stream is media (owner ruling 5)', async () => {
+  it('orders an artifact’s content fetched as data (a trajectory) like any data answer; only images and video streams stay outside the order', async () => {
     await pinned.page(`<main id="log"></main><script>
       const log = [];
       const landed = (p) => Math.round(performance.getEntriesByName(location.origin + p)[0]?.responseEnd ?? -1);
@@ -323,13 +287,13 @@ describe('a pinned data-response order (server.mjs `forward`)', () => {
     const paths = ['/api/first', '/api/artifacts/t1/content', '/api/third'];
     const done = await settle(pinned, { expectText: paths }, { timeoutMs: 8000 });
     assert.equal(done.ok, true, JSON.stringify(done));
-    // The artifact's content was scheduled (ordered and spaced) like the data.
-    const owed = assertOwed(pinned, 'forward', paths);
+    assert.deepEqual(await assertIssueOrder(pinned), paths);
     const log = await pinned.browser.evaluate('window.__log');
-    assert.deepEqual(log.map((e) => e[0]), owed, JSON.stringify(log));
+    assert.deepEqual(log.map((e) => e[0]), paths, JSON.stringify(log));
   });
 
-  it('refuses an order it does not know', async () => {
+  it('refuses an order it does not know, `reverse` included (rejected: generic reverse ordering is not a measurement method)', async () => {
     await assert.rejects(() => openBrowser({ responseOrder: 'shuffled' }), /unknown response order "shuffled"/);
+    await assert.rejects(() => openBrowser({ responseOrder: 'reverse' }), /unknown response order "reverse"/);
   });
 });

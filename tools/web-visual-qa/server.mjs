@@ -12,6 +12,8 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { basename, dirname, extname, join, normalize } from 'node:path';
 import { encodeTrajectory } from './msgpack.mjs';
+import { classifyRequest } from './request-class.mjs';
+import { ORDER_HEADER, parseOrder } from './request-identity.mjs';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -37,63 +39,47 @@ const TYPES = {
 export const TEXT_SPACING_CSS = '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }';
 
 /**
- * The data-response order a run pins (X3 determinism, 2026-10-13). With
- * `natural` each request is answered as it arrives, so when the page sees
- * concurrent responses — and so which intermediate layouts it paints — is left
- * to scheduling. A pinned order answers data GETs (not media) one at a time,
- * each no sooner than RESPONSE_SPACING_MS after the previous answer, so every
- * intermediate layout of a load is painted and a case's CLS is a function of
- * the bundle alone:
- * - `forward` (the gate's, performance.mjs): in the order the requests arrive;
- * - `reverse` (the adversarial lane): the requests of one burst — those that
- *   arrive within BURST_GATHER_MS of its first — in the opposite order.
- *   Bursts are formed by arrival at the server, not by when the page issued
- *   the requests: requests a page issues together but that reach the server
- *   more than BURST_GATHER_MS apart (a loaded host) are separate bursts, each
- *   reversed in itself, the bursts answered in arrival order. Every request is
- *   answered exactly once in either order, unless its generation is reset.
- * The spacing is between the server's sends; a loaded host's network stack can
- * still deliver answers to the page closer together.
+ * The data-response order a run pins (X3 determinism). With `natural` each
+ * request is answered as it arrives, so when the page sees concurrent
+ * responses — and so which intermediate layouts it paints — is left to
+ * scheduling. `forward` (the gate's, performance.mjs) answers data requests
+ * one at a time, in the order the page issued them, each no sooner than
+ * RESPONSE_SPACING_MS after the previous answer, so every intermediate layout
+ * of a load is painted and a case's CLS is a function of the bundle alone.
+ *
+ * The order is the page's, not the transport's: the harness numbers each
+ * schedulable request in the page as it is issued (request-identity.mjs) and
+ * admits it to the network one at a time, in that order, before the browser's
+ * connection pool (admission.mjs). This server answers what it receives in
+ * the order received — which admission has made the issue order — and
+ * acknowledges each identity's arrival so admission can release the next.
+ * Images and media streams are answered as they come, outside the order.
  */
-export const RESPONSE_ORDERS = Object.freeze(['natural', 'forward', 'reverse']);
+const ORIGIN_BASE = 'http://127.0.0.1';
+export const RESPONSE_ORDERS = Object.freeze(['natural', 'forward']);
 export const RESPONSE_SPACING_MS = 120;
-export const BURST_GATHER_MS = 100;
 
 /**
  * The pinned-order scheduler, one generation per case. Answers go one at a time
- * from the generation's queue: each is sent, then the next waits spacingMs from
- * that moment (measured from the send, so a timer that fires late never brings
- * the next answer closer). Under `reverse` the requests that arrive within
- * gatherMs of a burst's first are released in the opposite order.
- *
- * Burst membership is a function of arrival times alone: each request's
- * arrival is read once, on submit, and a request arriving gatherMs or more
- * after the open burst's first finds that burst expired — it is released
- * there and then, before the new burst opens, whether or not its gather timer
- * has run. The gather timer only wakes a burst no later request closes; a
- * late or stale one (its burst already released, or its generation closed)
- * does nothing, so it cannot release a burst twice or touch the next burst or
- * generation.
+ * from the generation's queue, in the order submitted: each is sent, then the
+ * next waits spacingMs from that moment (measured from the send, so a timer
+ * that fires late never brings the next answer closer).
  *
  * reset() closes the generation: every timer it set is cancelled, its queue
- * and any burst being gathered are dropped (each entry's `drop` refuses its
- * request), and a fresh generation begins with nothing pending and no spacing
- * owed. No closure of a closed generation can run — its timers are cleared and
- * guarded — so a previous case cannot shift the next case's grouping, order or
- * timing. `setTimer`/`clearTimer`/`now` are injectable for a virtual clock in tests.
+ * is dropped (each entry's `drop` refuses its request), and a fresh
+ * generation begins with nothing pending and no spacing owed. No closure of a
+ * closed generation can run — its timers are cleared and guarded — so a
+ * previous case cannot shift the next case's order or timing.
+ * `setTimer`/`clearTimer`/`now` are injectable for a virtual clock in tests.
  */
-export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS, gatherMs = BURST_GATHER_MS, setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
-  if (order !== 'forward' && order !== 'reverse') throw new Error(`a scheduler pins forward or reverse, not "${order}"`);
+export function createResponseScheduler({ spacingMs = RESPONSE_SPACING_MS, setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() } = {}) {
   const open = () => {
-    // `arrivals`: each request submitted in this generation, in arrival
-    // order, with when it arrived, the release group it joined (a burst under
-    // `reverse`; its own under `forward`) and when it was answered — a
-    // diagnostic, it decides nothing.
-    const g = { queue: [], burst: null, group: -1, arrivals: [], timers: new Set(), pumping: false, live: true };
+    // `arrivals`: each request submitted in this generation, in order, with
+    // when it arrived and when it was answered — a diagnostic.
+    const g = { queue: [], arrivals: [], timers: new Set(), pumping: false, live: true };
     const later = (fn, ms) => {
       const t = setTimer(() => { g.timers.delete(t); if (g.live) fn(); }, ms);
       g.timers.add(t);
-      return t;
     };
     const pump = () => {
       const entry = g.queue.shift();
@@ -102,44 +88,17 @@ export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS
       entry.answer();
       later(pump, spacingMs);
     };
-    const release = (entries) => {
-      g.queue.push(...entries);
-      if (!g.pumping) { g.pumping = true; pump(); }
-    };
-    /** Release a burst once: only while it is still the generation's open burst. */
-    const releaseBurst = (burst) => {
-      if (g.burst !== burst) return;
-      g.burst = null;
-      if (g.timers.delete(burst.timer)) clearTimer(burst.timer);
-      release(burst.entries.reverse());
-    };
     g.submit = (entry) => {
-      const arrivedAt = now();
-      if (order === 'forward') {
-        g.group += 1;
-        entry.arrival = { label: entry.label, group: g.group, at: arrivedAt, answeredAt: null };
-        g.arrivals.push(entry.arrival);
-        release([entry]);
-        return;
-      }
-      if (g.burst && arrivedAt >= g.burst.openedAt + gatherMs) releaseBurst(g.burst);
-      if (!g.burst) {
-        g.group += 1;
-        const burst = { openedAt: arrivedAt, entries: [], timer: null };
-        g.burst = burst;
-        burst.timer = later(() => releaseBurst(burst), gatherMs);
-      }
-      entry.arrival = { label: entry.label, group: g.group, at: arrivedAt, answeredAt: null };
+      entry.arrival = { label: entry.label, at: now(), answeredAt: null };
       g.arrivals.push(entry.arrival);
-      g.burst.entries.push(entry);
+      g.queue.push(entry);
+      if (!g.pumping) { g.pumping = true; pump(); }
     };
     g.close = () => {
       g.live = false;
       for (const t of g.timers) clearTimer(t);
       g.timers.clear();
-      const dropped = [...g.queue, ...(g.burst?.entries ?? [])];
-      g.queue.length = 0;
-      g.burst = null;
+      const dropped = g.queue.splice(0);
       for (const entry of dropped) entry.drop?.();
     };
     return g;
@@ -149,15 +108,22 @@ export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS
     submit: (answer, drop, label) => generation.submit({ answer, drop, label }),
     reset() { generation.close(); generation = open(); },
     /** What the current generation still holds (diagnostic and tests). */
-    pending: () => ({ queued: generation.queue.length, gathering: generation.burst?.entries.length ?? 0, timers: generation.timers.size }),
-    /** The current generation's requests in arrival order: when each arrived, the group it joined, when it was answered (diagnostic and tests). */
+    pending: () => ({ queued: generation.queue.length, timers: generation.timers.size }),
+    /** The current generation's requests in arrival order, with when each arrived and was answered (diagnostic and tests). */
     arrivals: () => generation.arrivals.map((a) => ({ ...a })),
   };
 }
 
-export function startServer({ distDir, fixtureDir, scenario, footage, textSpacing = () => false, responseOrder = 'natural' }) {
+/**
+ * @param {object} options
+ * @param {boolean} [options.requireIdentity]  under `forward`, every
+ *   schedulable request must carry its page-issued identity (admission.mjs
+ *   admits nothing else); one without it that is not an image is a harness
+ *   fault, refused before it can reach the fixtures.
+ */
+export function startServer({ distDir, fixtureDir, scenario, footage, textSpacing = () => false, responseOrder = 'natural', requireIdentity = false }) {
   if (!RESPONSE_ORDERS.includes(responseOrder)) throw new Error(`unknown response order "${responseOrder}" (${RESPONSE_ORDERS.join(', ')})`);
-  const scheduler = responseOrder === 'natural' ? null : createResponseScheduler({ order: responseOrder });
+  const scheduler = responseOrder === 'natural' ? null : createResponseScheduler();
   /** Bumped by resetSequences: a queued answer of an earlier epoch is dropped. */
   let epoch = 0;
   /**
@@ -201,15 +167,33 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
    * check settles on its own.
    */
   const network = { inflight: 0, started: 0 };
+  /** X3 (diagnostic): the `/api/` requests as this server saw them. */
+  const traffic = [];
+  /** X3: the identities that have arrived in this epoch, and who is waiting to hear of one. */
+  const identities = new Map();
+  const identityListeners = new Set();
+  const faults = [];
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
     if (process.env.MAVI_VQA_TRACE && path.startsWith('/api/')) process.stderr.write(`  [trace] ${Date.now() % 100000} ${req.method} ${path}
 `);
     // A video stream is media — the element asks for ranges for as long as it
-    // plays, and the overlay check settles it on its own. An artifact's content
-    // (a trajectory, an evidence crop) is data the page lays out: it is counted
-    // and, under a pinned order, ordered like any other answer (owner ruling 5).
-    const videoStream = /^\/api\/videos\/[^/]+\/content$/.test(path);
+    // plays, and the overlay check settles it on its own. The classification
+    // is the one the page-side identity uses (request-class.mjs).
+    const kind = classifyRequest(req.method, req.url ?? '/', ORIGIN_BASE);
+    const videoStream = kind === 'media';
+    // X3: the request's page-issued identity (request-identity.mjs), and
+    // whether the browser fetched it for an image (outside the order).
+    const order = parseOrder(req.headers[ORDER_HEADER]);
+    const image = req.headers['sec-fetch-dest'] === 'image';
+    // Recorded only (diagnostics): the request as this server saw it.
+    const seen = path.startsWith('/api/') ? { order: req.headers[ORDER_HEADER] ?? null, method: req.method, path: path + new URL(req.url ?? '/', ORIGIN_BASE).search, kind, image, arrivedAt: performance.now(), answeredAt: null, status: null, outcome: 'pending' } : null;
+    if (seen) {
+      traffic.push(seen);
+      res.__vqaSeen = seen;
+      res.on('finish', () => { seen.status = res.statusCode; if (seen.outcome === 'answering') seen.outcome = 'answered'; });
+      res.on('close', () => { if (!res.writableEnded && (seen.outcome === 'pending' || seen.outcome === 'answering')) seen.outcome = 'closed-unanswered'; });
+    }
     if (!videoStream && path !== '/__blank') {
       network.inflight += 1;
       network.started += 1;
@@ -226,8 +210,10 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
     res.on('close', () => { if (!res.writableEnded) abandoned = true; });
     const arrivedIn = epoch;
     const answer = () => {
-      if (abandoned) return;
-      if (arrivedIn !== epoch) { res.destroy(); return; }
+      if (seen) seen.answeredAt = performance.now();
+      if (abandoned) { if (seen) seen.outcome = 'abandoned'; return; }
+      if (arrivedIn !== epoch) { if (seen) seen.outcome = 'refused-epoch'; res.destroy(); return; }
+      if (seen) seen.outcome = 'answering';
       try {
         handle(req, res);
       } catch (error) {
@@ -236,10 +222,34 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         res.end();
       }
     };
-    if (responseOrder !== 'natural' && path.startsWith('/api/') && staleDocument(req)) { res.destroy(); return; }
-    if (responseOrder !== 'natural' && req.method === 'GET' && path.startsWith('/api/') && !videoStream) {
-      scheduler.submit(answer, () => res.destroy(), path);
-      return;
+    if (responseOrder !== 'natural' && path.startsWith('/api/') && staleDocument(req)) { if (seen) seen.outcome = 'refused-stale-document'; res.destroy(); return; }
+    if (responseOrder !== 'natural' && kind === 'schedulable') {
+      if (order) {
+        // One arrival per identity and epoch. A second one (a transport
+        // replay) is refused here — before the fixtures, their sequence
+        // counters or any mutation state can see it — and is a harness fault.
+        const key = `${order.docId}.${order.seq}`;
+        if (identities.has(key)) {
+          faults.push(`duplicate request identity ${key} (${req.method} ${path}) in epoch ${epoch}: refused before the fixtures`);
+          if (seen) seen.outcome = 'refused-duplicate';
+          res.destroy();
+          return;
+        }
+        identities.set(key, performance.now());
+        for (const listener of identityListeners) listener(key);
+        scheduler.submit(answer, () => { if (seen) seen.outcome = 'dropped-reset'; res.destroy(); }, path);
+        return;
+      }
+      // Images are delivered as they come, outside the order (an image never
+      // decides a layout here: every one sits in a box of its own size).
+      if (image) { answer(); return; }
+      if (requireIdentity) {
+        faults.push(`a schedulable request without a page-issued identity reached the server: ${req.method} ${path}`);
+        if (seen) seen.outcome = 'refused-unnumbered';
+        res.destroy();
+        return;
+      }
+      if (req.method === 'GET') { scheduler.submit(answer, () => res.destroy(), path); return; }
     }
     answer();
   });
@@ -319,6 +329,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         return;
       }
       if (value === 'hang') {
+        if (res.__vqaSeen) res.__vqaSeen.outcome = 'held';
         hung.add(res);
         res.on('close', () => hung.delete(res));
         res.__vqaFinish?.();
@@ -526,7 +537,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
          * failing at that width and is not.
          */
         resetSequences() {
-          sequenceCounts.clear(); requests.length = 0; received.clear();
+          sequenceCounts.clear(); requests.length = 0; received.clear(); traffic.length = 0; identities.clear(); faults.length = 0;
           // A pinned order's answers still queued belong to the scenario being
           // reset (a previous document's poll, say): answered after the reset
           // they would consume the next case's sequenced fixtures, which a
@@ -539,13 +550,22 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         /** X2: the API requests made since the last reset, oldest first. */
         requests: () => requests.map((r) => ({ ...r })),
         /**
-         * Under a pinned order, the data GETs scheduled since the last reset in
-         * the order they arrived, each with its arrival time, the release group
-         * it joined (its burst under `reverse`) and when it was answered
-         * (`performance.now()`, ms). A diagnostic: the self-tests derive from it
-         * the order and spacing the scheduler is defined to answer with.
+         * Under a pinned order, the data requests scheduled since the last
+         * reset in the order they arrived, each with its arrival time and when
+         * it was answered (`performance.now()`, ms). A diagnostic.
          */
         scheduled: () => scheduler?.arrivals() ?? [],
+        /** X3 (diagnostic): every `/api/` request since the last reset, in arrival order. */
+        traffic: () => traffic.map((r) => ({ ...r })),
+        /**
+         * X3 admission's acknowledgement: whether this exact identity
+         * (`<docId>.<seq>`) has arrived in the current epoch, and a listener
+         * told of each one as it does. Never a count of arrivals.
+         */
+        hasIdentity: (key) => identities.has(key),
+        onIdentity(listener) { identityListeners.add(listener); return () => identityListeners.delete(listener); },
+        /** Harness faults the server refused requests for since the last reset (duplicates, unnumbered). */
+        faults: () => faults.slice(),
         /** In-flight and started request counts, for the settle loop. */
         // `hung`: requests held open on purpose (a held loading state) — each is a
         // query the page reports as fetching for as long as the state lasts.

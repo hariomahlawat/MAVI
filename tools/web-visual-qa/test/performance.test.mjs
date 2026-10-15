@@ -9,7 +9,7 @@ import { describe, it } from 'node:test';
 import { PERFORMANCE_BUDGETS } from '../performance-budgets.mjs';
 import { DECISIONS, deriveBudgets } from '../performance-calibrate.mjs';
 import {
-  caseKey, clsUnits, evaluatePerformance, GATE_RESPONSE_ORDER, longTaskLimit, mergeOrdinaryShards, navigationLimit, ordinaryPlan, preparationLimit,
+  caseKey, clsUnits, evaluatePerformance, GATE_REQUEST_ADMISSION, GATE_RESPONSE_ORDER, longTaskLimit, navigationLimit, ordinaryPlan, preparationLimit,
   registerBlock, registerDisagreements, REGISTER_MARKERS, validateBudgets,
 } from '../performance.mjs';
 
@@ -51,8 +51,8 @@ function sweepCase({ state = 'search', viewport = '1366x768', tier = 'A', kind =
 function ltCase({ state = 'search-inspector-opened', viewport = '1366x768', tier = 'A', interaction = 'select a result to inspect it', count = 0, maxMs = 0, status = 'measured' } = {}) {
   return { state, viewport, tier, kind: 'anchor', surface: 'search', valid: true, reached: true, perf: { longTasks: { status, interaction, count, maxMs, totalMs: count * maxMs } } };
 }
-const sweepOf = (cases, extra = {}) => ({ head: 'h', fullSweep: true, responseOrder: 'forward', cases, ...extra });
-const lanesOf = (cases, extra = {}) => ({ head: 'h', longTaskLane: true, workers: 1, responseOrder: 'forward', cases, ...extra });
+const sweepOf = (cases, extra = {}) => ({ head: 'h', fullSweep: true, responseOrder: 'forward', requestAdmission: 'page-identity+cdp-pre-transport', cases, ...extra });
+const lanesOf = (cases, extra = {}) => ({ head: 'h', longTaskLane: true, workers: 1, responseOrder: 'forward', requestAdmission: 'page-identity+cdp-pre-transport', cases, ...extra });
 const judge = ({ sweep = [sweepCase()], lt = [ltCase()], sweepExtra, ltExtra, plan = null, budgets = BUDGETS } = {}) =>
   evaluatePerformance({ sweep: sweepOf(sweep, sweepExtra), longTasks: lanesOf(lt, ltExtra), plan, budgets });
 const rules = (v) => v.findings.map((f) => f.rule);
@@ -236,33 +236,20 @@ describe('the performance gate (X3)', () => {
     assert.ok(judge({ ltExtra: { head: 'other' } }).faults.some((f) => f.includes('different heads')));
   });
 
-  it('judges only a run whose data responses were answered in the gate’s pinned order', () => {
+  it('judges only a forward run ordered by page-issued identity with pre-transport admission, free of harness faults', () => {
     assert.equal(GATE_RESPONSE_ORDER, 'forward');
+    assert.equal(GATE_REQUEST_ADMISSION, 'page-identity+cdp-pre-transport');
     assert.ok(judge({ sweepExtra: { responseOrder: 'natural' } }).faults.some((f) => f.includes('the sweep answered its data requests in natural order')));
     assert.ok(judge({ ltExtra: { responseOrder: undefined } }).faults.some((f) => f.includes('the long-task run answered its data requests in natural order')));
+    // `reverse` is no order the gate knows (rejected: generic reverse ordering).
+    assert.ok(judge({ sweepExtra: { responseOrder: 'reverse' } }).faults.some((f) => f.includes('in reverse order')));
+    // Forward without admission is server-arrival order: not evidence.
+    assert.ok(judge({ sweepExtra: { requestAdmission: undefined } }).faults.some((f) => f.includes('the sweep was not ordered by page-issued identity with pre-transport admission')));
+    assert.ok(judge({ ltExtra: { requestAdmission: 'none' } }).faults.some((f) => f.includes('the long-task run was not ordered by page-issued identity')));
+    // A missing or duplicate identity is a harness fault in the run: the run is not evidence.
+    assert.ok(judge({ sweepExtra: { harnessErrors: ['videos @ 1366x768: duplicate request identity d.3 (GET /api/videos) in epoch 4: refused before the fixtures'] } }).faults.some((f) => f.includes('the sweep reported a harness error: videos @ 1366x768: duplicate request identity')));
+    assert.ok(judge({ ltExtra: { harnessErrors: ['x @ 1366x768: admission: a schedulable Fetch request without a page-issued identity: GET /api/x (failed, not admitted)'] } }).faults.some((f) => f.includes('without a page-issued identity')));
     assert.deepEqual(judge().faults, []);
-    // The adversarial lane is judged in its own order, against the same budgets.
-    const reverse = evaluatePerformance({ sweep: sweepOf([sweepCase()], { responseOrder: 'reverse' }), longTasks: lanesOf([ltCase()], { responseOrder: 'reverse' }), budgets: BUDGETS, responseOrder: 'reverse' });
-    assert.deepEqual(reverse.faults, []);
-  });
-
-  it('judges the adversarial lane: ordinary shards of one head and order, CLS only, complete by the plan', () => {
-    const shard = (cases, extra = {}) => ({ head: 'h', responseOrder: 'reverse', fullSweep: false, cases, ...extra });
-    const a = sweepCase({ viewport: '1366x768' });
-    const b = sweepCase({ viewport: '1024x768', tier: 'B' });
-    const plan = { sweep: new Set([caseKey(a), caseKey(b)]), longTasks: new Set() };
-    const lane = (shards) => evaluatePerformance({ sweep: mergeOrdinaryShards(shards), longTasks: null, plan, budgets: BUDGETS, responseOrder: 'reverse', ordinaryLane: true });
-    assert.deepEqual(lane([shard([a]), shard([b])]).faults, []);
-    // Over its limit in the adversarial order is a finding like any other.
-    assert.deepEqual(rules(lane([shard([{ ...a, perf: { ...a.perf, cls: measured(0.05) } }]), shard([b])])), ['perf.cls']);
-    // A shard missing, of another head or order, or a non-ordinary case: faults.
-    assert.ok(lane([shard([a])]).faults.some((f) => f.includes('planned but missing')));
-    assert.ok(lane([shard([a]), shard([b], { head: 'other' })]).faults.some((f) => f.includes('2 heads')));
-    assert.ok(lane([shard([a]), shard([b], { responseOrder: 'forward' })]).faults.some((f) => f.includes('orders')));
-    assert.ok(lane([shard([a, { ...b, kind: 'zoom' }])]).faults.some((f) => f.includes('not an anchor or a probe')));
-    assert.ok(lane([shard([a]), shard([b], { harnessErrors: ['x @ 1366x768: Chromium closed the connection'] })]).faults.some((f) => f.includes('reported a harness error')));
-    // Never judged as the blocking gate's evidence: the full sweep is still required there.
-    assert.ok(evaluatePerformance({ sweep: mergeOrdinaryShards([shard([a, b])]), longTasks: lanesOf([ltCase()]), budgets: BUDGETS, responseOrder: 'reverse' }).faults.some((f) => f.includes('not the full sweep')));
   });
 
   it('14. faults a planned case missing from the sweep or the long-task run, and an unplanned one present', () => {

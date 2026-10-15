@@ -10,17 +10,26 @@ import { join } from 'node:path';
 import { launch } from '../cdp.mjs';
 import { startServer } from '../server.mjs';
 import { OBSERVERS } from '../settle.mjs';
+import { createAdmission } from '../admission.mjs';
+import { REQUEST_IDENTITY_SCRIPT } from '../request-identity.mjs';
 
-export async function openBrowser({ responseOrder = 'natural' } = {}) {
+export async function openBrowser({ responseOrder = 'natural', admission = responseOrder === 'forward' } = {}) {
   const dist = mkdtempSync(join(tmpdir(), 'mavi-vqa-test-'));
   mkdirSync(join(dist, 'fixtures'), { recursive: true });
   const lane = { scenario: {} };
-  lane.server = await startServer({ distDir: dist, fixtureDir: join(dist, 'fixtures'), scenario: () => lane.scenario, footage: () => null, responseOrder });
+  lane.server = await startServer({ distDir: dist, fixtureDir: join(dist, 'fixtures'), scenario: () => lane.scenario, footage: () => null, responseOrder, requireIdentity: admission });
   // A browser that fails to start must not leave the server listening (it
   // would hold the test run open) or the temporary directory behind.
   try {
     lane.browser = await launch();
     await lane.browser.addInitScript(OBSERVERS);
+    // X3: under `forward`, as run.mjs: page-issued identity and pre-transport
+    // admission (admission.mjs).
+    if (admission) {
+      await lane.browser.addInitScript(REQUEST_IDENTITY_SCRIPT);
+      lane.browser.recordRequests(true);
+      lane.admission = createAdmission(lane.browser, lane.server);
+    }
   } catch (error) {
     await lane.browser?.close().catch(() => {});
     await lane.server.close().catch(() => {});
@@ -31,14 +40,22 @@ export async function openBrowser({ responseOrder = 'natural' } = {}) {
   lane.zoom = 1;
   lane.page = async (html, { width = 1366, height = 768, api = {}, zoom = 1 } = {}) => {
     lane.scenario = api;
+    if (lane.admission) {
+      const summary = await lane.admission.stop();
+      lane.admissionFaults.push(...(summary?.faults ?? []), ...lane.server.faults());
+    }
     lane.server.resetSequences();
     writeFileSync(join(dist, 'index.html'), `<!doctype html><html><head><meta charset="utf-8"></head><body>${html}</body></html>`);
     await lane.browser.viewport(width, height);
     if (lane.zoom !== zoom) lane.zoom = await lane.browser.pageZoom(zoom);
     await lane.browser.goto('about:blank');
+    if (lane.admission) { lane.browser.clearRequestEvents(); await lane.admission.start(); }
     await lane.browser.goto(lane.server.origin + '/case');
   };
+  /** Admission faults of the pages left so far (a test of fail-closed reads them). */
+  lane.admissionFaults = [];
   lane.close = async () => {
+    lane.admission?.close();
     await lane.browser.close();
     await lane.server.close();
     rmSync(dist, { recursive: true, force: true });
