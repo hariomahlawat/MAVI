@@ -619,7 +619,9 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   video stream; artifact content is data) one at a time, `RESPONSE_SPACING_MS` apart: `forward` in the order they
   arrive — the blocking sweep and long-task lane run it, and the judge faults
   any other order (`GATE_RESPONSE_ORDER`) — or `reverse`, each burst's
-  requests in the opposite order: the adversarial lane, the sweep's
+  requests (those arriving at the server within `BURST_GATHER_MS` of the
+  burst's first; requests a page issues together can arrive as several bursts
+  on a loaded host) in the opposite order: the adversarial lane, the sweep's
   ordinary cases again in its own four-shard CI job (`performance-reverse`),
   judged for CLS only (`performance.mjs --ordinary-lane
   --response-order reverse --sweep <shard>,…`). `natural` (the default for

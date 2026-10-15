@@ -47,6 +47,13 @@ export const TEXT_SPACING_CSS = '* { line-height: 1.5 !important; letter-spacing
  * - `forward` (the gate's, performance.mjs): in the order the requests arrive;
  * - `reverse` (the adversarial lane): the requests of one burst — those that
  *   arrive within BURST_GATHER_MS of its first — in the opposite order.
+ *   Bursts are formed by arrival at the server, not by when the page issued
+ *   the requests: requests a page issues together but that reach the server
+ *   more than BURST_GATHER_MS apart (a loaded host) are separate bursts, each
+ *   reversed in itself, the bursts answered in arrival order. Every request is
+ *   answered exactly once in either order, unless its generation is reset.
+ * The spacing is between the server's sends; a loaded host's network stack can
+ * still deliver answers to the page closer together.
  */
 export const RESPONSE_ORDERS = Object.freeze(['natural', 'forward', 'reverse']);
 export const RESPONSE_SPACING_MS = 120;
@@ -64,12 +71,16 @@ export const BURST_GATHER_MS = 100;
  * request), and a fresh generation begins with nothing pending and no spacing
  * owed. No closure of a closed generation can run — its timers are cleared and
  * guarded — so a previous case cannot shift the next case's grouping, order or
- * timing. `setTimer`/`clearTimer` are injectable for a virtual clock in tests.
+ * timing. `setTimer`/`clearTimer`/`now` are injectable for a virtual clock in tests.
  */
-export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS, gatherMs = BURST_GATHER_MS, setTimer = setTimeout, clearTimer = clearTimeout }) {
+export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS, gatherMs = BURST_GATHER_MS, setTimer = setTimeout, clearTimer = clearTimeout, now = () => performance.now() }) {
   if (order !== 'forward' && order !== 'reverse') throw new Error(`a scheduler pins forward or reverse, not "${order}"`);
   const open = () => {
-    const g = { queue: [], burst: null, timers: new Set(), pumping: false, live: true };
+    // `arrivals`: each request submitted in this generation, in arrival
+    // order, with when it arrived, the release group it joined (a burst under
+    // `reverse`; its own under `forward`) and when it was answered — a
+    // diagnostic, it decides nothing.
+    const g = { queue: [], burst: null, group: -1, arrivals: [], timers: new Set(), pumping: false, live: true };
     const later = (fn, ms) => {
       const t = setTimer(() => { g.timers.delete(t); if (g.live) fn(); }, ms);
       g.timers.add(t);
@@ -77,6 +88,7 @@ export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS
     const pump = () => {
       const entry = g.queue.shift();
       if (!entry) { g.pumping = false; return; }
+      entry.arrival.answeredAt = now();
       entry.answer();
       later(pump, spacingMs);
     };
@@ -85,11 +97,20 @@ export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS
       if (!g.pumping) { g.pumping = true; pump(); }
     };
     g.submit = (entry) => {
-      if (order === 'forward') { release([entry]); return; }
+      if (order === 'forward') {
+        g.group += 1;
+        entry.arrival = { label: entry.label, group: g.group, at: now(), answeredAt: null };
+        g.arrivals.push(entry.arrival);
+        release([entry]);
+        return;
+      }
       if (!g.burst) {
         g.burst = [];
+        g.group += 1;
         later(() => { const entries = g.burst.reverse(); g.burst = null; release(entries); }, gatherMs);
       }
+      entry.arrival = { label: entry.label, group: g.group, at: now(), answeredAt: null };
+      g.arrivals.push(entry.arrival);
       g.burst.push(entry);
     };
     g.close = () => {
@@ -105,10 +126,12 @@ export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS
   };
   let generation = open();
   return {
-    submit: (answer, drop) => generation.submit({ answer, drop }),
+    submit: (answer, drop, label) => generation.submit({ answer, drop, label }),
     reset() { generation.close(); generation = open(); },
     /** What the current generation still holds (diagnostic and tests). */
     pending: () => ({ queued: generation.queue.length, gathering: generation.burst?.length ?? 0, timers: generation.timers.size }),
+    /** The current generation's requests in arrival order: when each arrived, the group it joined, when it was answered (diagnostic and tests). */
+    arrivals: () => generation.arrivals.map((a) => ({ ...a })),
   };
 }
 
@@ -195,7 +218,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
     };
     if (responseOrder !== 'natural' && path.startsWith('/api/') && staleDocument(req)) { res.destroy(); return; }
     if (responseOrder !== 'natural' && req.method === 'GET' && path.startsWith('/api/') && !videoStream) {
-      scheduler.submit(answer, () => res.destroy());
+      scheduler.submit(answer, () => res.destroy(), path);
       return;
     }
     answer();
@@ -495,6 +518,14 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         },
         /** X2: the API requests made since the last reset, oldest first. */
         requests: () => requests.map((r) => ({ ...r })),
+        /**
+         * Under a pinned order, the data GETs scheduled since the last reset in
+         * the order they arrived, each with its arrival time, the release group
+         * it joined (its burst under `reverse`) and when it was answered
+         * (`performance.now()`, ms). A diagnostic: the self-tests derive from it
+         * the order and spacing the scheduler is defined to answer with.
+         */
+        scheduled: () => scheduler?.arrivals() ?? [],
         /** In-flight and started request counts, for the settle loop. */
         // `hung`: requests held open on purpose (a held loading state) — each is a
         // query the page reports as fetching for as long as the state lasts.
