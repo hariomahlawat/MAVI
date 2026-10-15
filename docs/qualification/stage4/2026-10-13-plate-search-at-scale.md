@@ -1,5 +1,183 @@
 # Stage 4 PR-4: plate search at 10^6 Tracks, and the index write cost
 
+**Updated 2026-10-16, owner decision: the PR-4 performance claim is bounded to v1.**
+
+- **The acceptance is unchanged:** p95 ≤ 300 ms on the frozen query set v1 at the governed 10^6-Track scale. It is **MET**.
+- **Query set v2 is a diagnostic set of declared limits.** It is unchanged (same hash, same queries), and its verdict stays **NOT MET**.
+- **No search capability or semantics changed.** Every v2 filter is supported and exact. MAVI makes no ≤ 300 ms claim for those combinations.
+- **The covering-index spike was rejected.**
+
+The sections that follow keep every earlier measurement unchanged.
+
+## Owner decision 2026-10-16: the performance claim is bounded
+
+### Chronology
+
+1. **v1 was frozen before it was measured, and it is met.** The query set `mavi-plate-search-queries-v1` was frozen in `b9cb50eb`. It was met on `ff4ac4ef` (2026-10-15), and again on the corrected heads below.
+2. **The cold review of PR #219 found cases v1 did not exercise.** These were a historical window, `minimumConfidence`, `minimumDurationMs`, the subclass filter and a combined analytic search. It also found the repeated-batch defect (correction round, below).
+3. **v2 was frozen before those cases were measured.** The query set `mavi-plate-search-skewed-queries-v2` (SHA-256 `b2d7d728…`) was frozen in `105b1dca`.
+4. **v2 was NOT MET** on `112299ab`, in two quiet runs (below).
+5. **Exact candidate prefilters removed the repeated-batch defect.** Every v2 first page now reads one candidate batch.
+6. **A bounded covering-index spike failed to bring every v2 case within 300 ms, and was rejected** (below).
+7. **The owner therefore bounded the PR-4 performance claim.** The threshold was not changed, and no speculative infrastructure was added.
+
+### The bounded claim
+
+| Set | Role | Criterion | Verdict |
+|---|---|---|---|
+| v1, Q01–Q14 (S1 is the stress probe, outside the bound) | **Budgeted**: the PR-4 Development performance acceptance | p95 ≤ 300 ms; no sequential scan of a 10^6-row relation | **MET** |
+| v2, V01–V10 | **Diagnostic**: declared limits | none; each query is reported against 300 ms | **NOT MET**. Limits: V04 and V06 (selective or reject-all `minimumConfidence` and `minimumDurationMs`), V05 (`minimumConfidence` at the admit-all boundary), and V02 (historical common-text window, over 300 ms in one run). V10's pre-existing combined-analytics coverage scan is also a limit. |
+
+**None of the v2 limits is described as passing.** They are measured, and their causes are recorded:
+
+- the first page's filtered plate coverage count, which scans `tracks` sequentially;
+- the probe of every match under a reject-all filter;
+- for V10, the analytics coverage's `SELECT DISTINCT` over the camera's Tracks, which also scans `tracks` sequentially.
+
+### The harness after the decision (`1360ddf1`)
+
+`PlateSearchScaleMeasurementTests.Evaluate` holds the classification in one place.
+
+- **`development` mode:**
+  - It fails on v1 above 300 ms and on any v1 plan-shape finding.
+  - It still runs every v2 query and reports a per-query MET / NOT MET against 300 ms, plus v2's plan-shape findings.
+  - Nothing about v2 fails the measurement.
+- **`ci` mode** (informational, `qualificationEvidence: false`):
+  - The 3 000 ms catastrophic bound fails on either set.
+  - v2's plan shape is reported only.
+- **JSON output:**
+  - `budgetedQuerySet` (v1), with `budgetMilliseconds` 300 in Development only;
+  - `diagnosticQuerySet` (v2);
+  - `diagnosticComparison`: the threshold compared against, the verdict, the per-query verdicts and the shape findings;
+  - `failures`.
+- `TheBudgetedAndDiagnosticSetsAreClassifiedAsDecided` pins this without a database.
+- V01–V10 and both frozen hashes are unchanged.
+
+**Final quiet run in the new report format** (Release `1360ddf1`, `corr-final-run1`, START 01:31:15, CPU 17.9 %, 5 of 5 in-run samples quiet):
+
+- **v1:** p50 / p95 ms.
+
+| Query | p50 / p95 ms |
+|---|---|
+| Q01 | 95.4 / 111.6 |
+| Q02 | 98.7 / 115.6 |
+| Q03 | 27.3 / 30.8 |
+| Q04 | 34.6 / 39.2 |
+| Q05 | 17.0 / 18.4 |
+| Q06 | 13.8 / 15.6 |
+| Q07 | 9.6 / 11.8 |
+| Q08 | 65.4 / 76.8 |
+| Q09 | 80.9 / 86.7 |
+| Q10 | 78.3 / 81.9 |
+| Q11 | 18.8 / 20.0 |
+| Q12 | 53.0 / 56.0 |
+| Q13 | 2.7 / 4.1 |
+| Q14 | 5.9 / 7.0 |
+| S1 (stress probe) | 33.0 / 34.7 |
+
+- **v2:** diagnostic verdict **NOT MET** against 300 ms.
+
+| Query | p50 / p95 ms | Verdict |
+|---|---|---|
+| V01 | 57.2 / 62.2 | MET |
+| V02 | 277.5 / 294.5 | MET in this run; 350.4 in `corr-run1`, so it is retained as a limit |
+| V03 | 39.2 / 53.2 | MET |
+| V04 | 327.4 / **374.7** | NOT MET |
+| V05 | 377.9 / **413.4** | NOT MET |
+| V06 | 297.2 / **318.7** | NOT MET |
+| V07 | 83.9 / 86.8 | MET |
+| V08 | 103.1 / 106.0 | MET |
+| V09 | 51.9 / 53.6 | MET |
+| V10 | 188.9 / 200.3 | MET on time; its sequential scan of `tracks` is reported |
+
+- **Plan-shape findings (reported):** V02, V04, V05, V06 and V10 each scan `tracks` sequentially.
+- **The measurement test passed.** v1 met its criterion, and v2 is reported.
+- **Cold first call:** 1 137 ms.
+
+### The rejected covering-index spike (2026-10-16; measurement only; nothing committed)
+
+**Elapsed time is uncertain.** The host clock read about 01:14–01:18 for the whole spike, which is not credible for two gated runs plus diagnostics.
+
+**Primary prototype:**
+
+```
+CREATE INDEX ix_proto_tracks_vehicle_run_start_cover ON tracks (processing_run_id, start_timestamp_utc, id)
+  INCLUDE (end_timestamp_utc, duration_ms, mean_confidence, object_subclass, object_subclass_source)
+  WHERE object_class = 'Vehicle'
+```
+
+- It is 90 MB. For comparison, the heap of `tracks` is 377 MB (757 MB total), `PK_tracks` is 60 MB and ADR-019's (b) index is 30 MB.
+- After it was built, `VACUUM (ANALYZE)` ran and all 48 256 heap pages were all-visible.
+- It was measured in two quiet-gated runs, `corr-spike-run1` and `corr-spike-run2`, each 0 non-quiet samples.
+
+**One alternate, diagnostic EXPLAIN only:** `(id) INCLUDE (processing_run_id, start_timestamp_utc, end_timestamp_utc, duration_ms, mean_confidence, object_subclass, object_subclass_source) WHERE object_class = 'Vehicle'`, also 90 MB.
+
+**Results with the primary index (p95 ms, run1 / run2):**
+
+- **v2, V01–V10:**
+  - V01 51.8 / 55.3;
+  - V02 162.9 / 153.1;
+  - V03 32.4 / 35.5;
+  - **V04 322.7 / 367.8**;
+  - V05 279.0 / 283.1;
+  - **V06 333.0 / 331.9**;
+  - V07 87.8 / 91.4;
+  - V08 236.5 / 103.1;
+  - V09 55.3 / 52.0;
+  - V10 217.7 / 216.6, still scanning `tracks` sequentially.
+- **v1** stayed within 300 ms in both runs:
+  - Q01 89.8 / 97.4;
+  - Q12 **183.8** / 55.0;
+  - every other v1 query ≤ 101.6 ms.
+
+**Plans** (run1, `EXPLAIN (ANALYZE, BUFFERS)`):
+
+| Query | Coverage count | Candidate statement |
+|---|---|---|
+| V02 | 104 ms; index-only, 0 heap fetches, 241 569 buffers (was 251 ms sequential) | 39 ms |
+| V04 | 149 ms; index-only, 480 014 buffers, 10^6 rows removed by filter | 218 ms; `PK_tracks` × 62 056 loops, 248 224 buffers |
+| V05 | 223 ms | 72 ms |
+| V06 | 140 ms | 180 ms |
+| V10 | — | analytics `SELECT DISTINCT` 245 ms; sequential scan of `tracks` (hit 28 853, read 19 474) |
+
+**Why it was rejected:**
+
+- **The counts became index-only but read about 480 k index pages.** Confidence and duration are INCLUDE columns, not search keys, so they cannot narrow the index scan.
+- **The candidate probe stays a heap-backed primary-key probe of every match.** The index's `id` is its third key column, so it cannot serve a by-id lookup.
+- **The by-id alternate is no better.** The planner did not choose it. When forced, it ran as a full index-only scan of about 480 k buffers and 220 ms, no better than the primary-key probe.
+- **The plan became unstable.** In run1 the planner served the windowed counts of Q12 and V08 from the new index (167 ms) instead of (b) (16 ms), which tripled Q12 to 184 ms. In run2, after `ANALYZE`, it went back to (b).
+- **Visibility-map caveat.** The zero heap fetches depend on all-visible pages immediately after `VACUUM`. A production database that is still writing Tracks has pages not yet marked all-visible, and for those an index-only scan falls back to heap fetches. The spike's numbers are a best case.
+- **The scale database was left as it was.** Both prototype indexes were dropped and `VACUUM (ANALYZE) tracks` was run.
+
+### Trigger write path with `FOR SHARE` (PR-3 worst-shape completion)
+
+The existing `PlateCompletionTimingTests` was run unchanged: `MAVI_PLATE_TIMING_TRACKS=10000`, 4 crops per Track, Debug `1360ddf1`, with the migration `LockTrackForPlateTextTrackStart` applied. Each run was quiet-gated with in-run samples.
+
+| Run | START | Completion wall | Publication (rows) | Within the 15 s budget |
+|---|---|---|---|---|
+| `corr-wc1` | 01:32:58 (3 of 3 samples quiet) | 10 480 ms | 6 484 ms (6 451) | yes |
+| `corr-wc2` | 01:33:54 (3 of 3 samples quiet) | 9 512 ms | 5 725 ms (5 699) | yes |
+
+The 2026-10-15 candidate without the lock measured a completion mean of 9 875 ms, with row writes at 6 239 ms. The lock's effect is within run-to-run noise. This was a check against the budget, not a new experiment.
+
+### Remaining recorded limits
+
+- the v2 limits above;
+- cold first call about 1.1–1.5 s;
+- p95 of 20 samples;
+- the timing boundary is the in-process repository call;
+- warm cache, after `VACUUM FULL`;
+- one host and one corpus with no confidence, duration or subclass variation;
+- the CI diagnostic has not run yet;
+- the HTTP.sys rejected-request log (ADR-013 item 20).
+
+**Raw output, outside Git:**
+
+- `E:\MAVI-Working\tmp\corr-final-run1*`;
+- `E:\MAVI-Working\tmp\corr-spike-run{1,2}*`;
+- `E:\MAVI-Working\tmp\corr-wc{1,2}*`;
+- the quietness log, `E:\MAVI-Working\tmp\corr-quiet.txt`.
+
 **Updated 2026-10-16 (cold review of PR #219; owner decisions 1–8):** the 2026-10-15 "budget MET" is scoped to the frozen query set v1. A new query set v2, frozen before it was measured, exercises the filter classes v1 did not, and **misses the budget on 3–4 of its 10 queries**, so the plan §2.8 budget is **NOT MET for v2**. The informational CI job is moved out of the Quality Gate. The 2026-10-15 and 2026-10-14 sections follow unchanged as historical evidence.
 
 ## Correction round (2026-10-16): scope of the v1 verdict, query set v2
