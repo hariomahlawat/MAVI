@@ -66,6 +66,15 @@ export const BURST_GATHER_MS = 100;
  * the next answer closer). Under `reverse` the requests that arrive within
  * gatherMs of a burst's first are released in the opposite order.
  *
+ * Burst membership is a function of arrival times alone: each request's
+ * arrival is read once, on submit, and a request arriving gatherMs or more
+ * after the open burst's first finds that burst expired — it is released
+ * there and then, before the new burst opens, whether or not its gather timer
+ * has run. The gather timer only wakes a burst no later request closes; a
+ * late or stale one (its burst already released, or its generation closed)
+ * does nothing, so it cannot release a burst twice or touch the next burst or
+ * generation.
+ *
  * reset() closes the generation: every timer it set is cancelled, its queue
  * and any burst being gathered are dropped (each entry's `drop` refuses its
  * request), and a fresh generation begins with nothing pending and no spacing
@@ -84,6 +93,7 @@ export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS
     const later = (fn, ms) => {
       const t = setTimer(() => { g.timers.delete(t); if (g.live) fn(); }, ms);
       g.timers.add(t);
+      return t;
     };
     const pump = () => {
       const entry = g.queue.shift();
@@ -96,28 +106,38 @@ export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS
       g.queue.push(...entries);
       if (!g.pumping) { g.pumping = true; pump(); }
     };
+    /** Release a burst once: only while it is still the generation's open burst. */
+    const releaseBurst = (burst) => {
+      if (g.burst !== burst) return;
+      g.burst = null;
+      if (g.timers.delete(burst.timer)) clearTimer(burst.timer);
+      release(burst.entries.reverse());
+    };
     g.submit = (entry) => {
+      const arrivedAt = now();
       if (order === 'forward') {
         g.group += 1;
-        entry.arrival = { label: entry.label, group: g.group, at: now(), answeredAt: null };
+        entry.arrival = { label: entry.label, group: g.group, at: arrivedAt, answeredAt: null };
         g.arrivals.push(entry.arrival);
         release([entry]);
         return;
       }
+      if (g.burst && arrivedAt >= g.burst.openedAt + gatherMs) releaseBurst(g.burst);
       if (!g.burst) {
-        g.burst = [];
         g.group += 1;
-        later(() => { const entries = g.burst.reverse(); g.burst = null; release(entries); }, gatherMs);
+        const burst = { openedAt: arrivedAt, entries: [], timer: null };
+        g.burst = burst;
+        burst.timer = later(() => releaseBurst(burst), gatherMs);
       }
-      entry.arrival = { label: entry.label, group: g.group, at: now(), answeredAt: null };
+      entry.arrival = { label: entry.label, group: g.group, at: arrivedAt, answeredAt: null };
       g.arrivals.push(entry.arrival);
-      g.burst.push(entry);
+      g.burst.entries.push(entry);
     };
     g.close = () => {
       g.live = false;
       for (const t of g.timers) clearTimer(t);
       g.timers.clear();
-      const dropped = [...g.queue, ...(g.burst ?? [])];
+      const dropped = [...g.queue, ...(g.burst?.entries ?? [])];
       g.queue.length = 0;
       g.burst = null;
       for (const entry of dropped) entry.drop?.();
@@ -129,7 +149,7 @@ export function createResponseScheduler({ order, spacingMs = RESPONSE_SPACING_MS
     submit: (answer, drop, label) => generation.submit({ answer, drop, label }),
     reset() { generation.close(); generation = open(); },
     /** What the current generation still holds (diagnostic and tests). */
-    pending: () => ({ queued: generation.queue.length, gathering: generation.burst?.length ?? 0, timers: generation.timers.size }),
+    pending: () => ({ queued: generation.queue.length, gathering: generation.burst?.entries.length ?? 0, timers: generation.timers.size }),
     /** The current generation's requests in arrival order: when each arrived, the group it joined, when it was answered (diagnostic and tests). */
     arrivals: () => generation.arrivals.map((a) => ({ ...a })),
   };
