@@ -481,3 +481,64 @@ order, CLS varied in 0 of 23 cases, quiet and loaded.
 reverse lane exposed stay (the shared layout hold, the analytics fixes and
 the rest of *Product fixes* above). No CLS, long-task, accessibility or
 qualification threshold changed.
+
+### Evidence (code head `c991b873`)
+
+**Head relationship.** All evidence below was produced from the code head
+`c991b87356bb910e25ceac8977b39870f9f20ffb`, with a clean working tree. The
+commit that adds this section is documentation only (this file): it changes
+nothing the evidence measured. The sweeps ran on a measurement copy of that
+head's `tools/web-visual-qa` (production bundle `d241f7b04105d527`), identical
+to it except for the local CI-font emulation injected into `run.mjs`; their
+result files carry the copy's own Git head (`d8944367`), not `c991b873`.
+Local, Windows host, quiet (each sweep started on a quiet-check; nothing else
+ran). With the font emulation every case has a `typography.resolved-font`
+finding (the injected face is not the platform's): the emulation's artefact,
+excluded below, as in the earlier evidence.
+
+| Run | Scope | Cases | Harness faults | CLS over limit | Long tasks |
+| --- | --- | --- | --- | --- | --- |
+| CF1: sweep + long-task lane, judged | full sweep, all lanes; long-task lane | 3800; 417 | 0; 0 (judge: 0 faults) | 0 of 1847 judged rows | 0 of 413 interactions with a long task |
+| CF2, CF3 | ordinary sweep | 1847 each | 0, 0 | — | — |
+
+Stability, CF1 + CF2 + CF3 on identical bytes: 1836 case-families measured in
+all three; **0 with any value variation**, 0 classification changes, 0 ever
+over a limit. Nearest to a limit: `review-geometry-unavailable@768x1024`
+0.1248 on 0.1267.
+
+Ordering diagnostics (every case's `requestTrace`; CF1 sweep, CF1 long-task
+lane, CF2, CF3):
+
+| | CF1 sweep | CF1 long tasks | CF2 | CF3 |
+| --- | --- | --- | --- | --- |
+| Numbered requests | 21 981 | 2 393 | 10 702 | 10 712 |
+| Admission or server faults (missing identity, unnumbered, duplicate, stale) | 0 | 0 | 0 | 0 |
+| Cases whose server arrival order ≠ page issue order | 0 | 0 | 0 | 0 |
+| Cases whose answer order ≠ issue order | 0 | 0 | 0 | 0 |
+| Cases whose browser completion order ≠ answer order | 0 | 0 | 0 | 0 |
+| Images / media continued outside the order | 3 741 / 1 892 | 232 / 180 | 1 822 / 961 | 1 822 / 1 297 |
+
+Across the three ordinary runs, the page's own issue trace differed in 176 of
+1847 cases, none causally: 163 (the analytics surfaces) only in query-string
+values (the analytics window is taken from the current time; same requests,
+same order), 13 (`videos-run-states`, `processing-detail-analytics-degraded`,
+`videos-narrow-band`) only in how many times a poll or retry repeated. In 9
+cases with an identical issue trace the response trace differed only in the
+outcome of a request the page itself cancels (`review-refresh-degraded`:
+answered or abandoned; `review-return-to-search@1024`: cancelled before
+admission once); the order was identical and CLS was identical.
+
+Other checks at `c991b873`: harness unit tests 369/369 three times (22
+end-to-end skipped by group); harness end-to-end groups 0, 1, 2: 275, 273 and
+269 passed, 0 failed; frontend tests 1595/1595 (86 files); keyboard journeys
+18/18; `src/vision/tests/test_runtime_metadata.py`,
+`tools/qualification/tests/test_s1_evidence.py` and
+`tools/ci/tests/test_quality_scope.py` 679/679; `verify_repo` PASSED.
+
+**Limitations.** Images are delivered outside the order (fixed-size boxes;
+the Overview and Search-list thumbnails are not exercised by any fixture).
+A load's answers reach the page about one CDP round trip later than on
+server-arrival order. Analytics issue traces carry a time-derived window, so
+issue-trace identity across runs holds only up to query values. The backstop
+reports a fault for a number the browser never reports; Chromium reporting
+every pre-validated request is observed, not documented.
