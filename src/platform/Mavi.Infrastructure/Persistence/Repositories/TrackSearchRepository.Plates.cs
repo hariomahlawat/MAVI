@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Mavi.Application.Modules.Intelligence;
@@ -183,8 +184,10 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
         int take,
         CancellationToken cancellationToken)
     {
-        if (fingerprint is null)
+        if (fingerprint is null || !AnalyticsCanMatch(scope, analyticsCoverage))
         {
+            // No plate capability, or the analytic half provably matches nothing: the conjunction is empty, and
+            // both coverage blocks say why. No plate candidate batch is read (cold review P2-1).
             return new TrackPlateSearchRepositoryPage(
                 [], snapshotUtc, snapshotVisibilitySequence, plateCoverage, new Dictionary<Guid, TrackItemPlate>(),
                 identity, analyticsCoverage, new Dictionary<Guid, TrackItemAnalytics>());
@@ -205,6 +208,16 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
             rows, snapshotUtc, snapshotVisibilitySequence, plateCoverage, itemPlates, identity, analyticsCoverage,
             itemAnalytics ?? new Dictionary<Guid, TrackItemAnalytics>());
     }
+
+    /// <summary>
+    /// Whether the pinned analytic scope can produce a matching fact at all. It cannot when there is no
+    /// evaluable revision or analytics is disabled (<see cref="FetchPageAsync"/> returns nothing for either), or
+    /// when the pinned coverage counts no evaluated run: coverage is computed over the same base candidate runs,
+    /// identity and snapshot as the page's fact join, so zero evaluated runs means that join is empty. On a
+    /// continuation the coverage is the first page's, pinned with the same snapshot, so the same holds.
+    /// </summary>
+    private static bool AnalyticsCanMatch(ResolvedScope scope, TrackAnalyticsCoverage coverage) =>
+        scope.Revision is not null && scope.AnalyticsEnabled && coverage.EvaluatedRuns > 0;
 
     // --- Predicate ---------------------------------------------------------------------------
 
@@ -303,7 +316,7 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
         while (rows.Count < take)
         {
             var candidates = await CandidateBatchAsync(
-                plate, fingerprint, snapshotVisibilitySequence, eligibleRuns, position, batch, cancellationToken);
+                query, plate, fingerprint, snapshotVisibilitySequence, eligibleRuns, position, batch, cancellationToken);
             if (candidates.Length == 0)
                 break;
 
@@ -342,11 +355,23 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
     /// materialised) of the visible analyses of the pinned identity in the eligible runs.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Raw SQL because the text match must be materialised before the join: without it the planner re-ran the
     /// trigram bitmap once per analysis (measured on the scratch prototype (c), 4.8 s). Every value is a bound
     /// parameter; the fragments chosen here are fixed SQL text.
+    /// </para>
+    /// <para>
+    /// <b>Pushed Track predicates (cold review P1-2).</b> The ordinary Track-level filters are repeated here in
+    /// exactly the base chain's form (<see cref="AnalyticsScopeQuery.BaseCandidates"/>), so a batch is not spent on
+    /// Tracks the base chain certainly rejects: <c>toUtc</c> on the denormalised start (equal to the Track's by
+    /// ADR-018), the others on <c>tracks</c>, joined only when one of them is present. Each is the base chain's own
+    /// comparison on a NOT NULL column (or, for the subclass, an equality that is false on NULL in both), so it can
+    /// only remove a Track the base chain removes. The base chain still applies every predicate to every candidate
+    /// afterwards; this is an accelerator, never the semantic authority.
+    /// </para>
     /// </remarks>
     private Task<PlateTextCandidate[]> CandidateBatchAsync(
+        TrackSearchQuery query,
         TrackPlateQuery plate,
         string fingerprint,
         long snapshotVisibilitySequence,
@@ -358,36 +383,74 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
         var exact = plate.Match == TrackPlateMatch.Exact;
         var text = exact ? plate.Text : TrackPlateQueryRules.LikePattern(plate);
         var arguments = new List<object> { text, fingerprint, snapshotVisibilitySequence, eligibleRuns, batch };
-        var keysetBound = string.Empty;
+        string Parameter(object value)
+        {
+            arguments.Add(value);
+            return $"{{{arguments.Count - 1}}}";
+        }
+
+        var textBounds = new System.Text.StringBuilder();
         if (after is not null)
         {
-            keysetBound = " AND (x.track_start_timestamp_utc, x.track_id) < ({5}, {6})";
-            arguments.Add(after.StartTimestampUtc.ToUniversalTime());
-            arguments.Add(after.TrackId);
+            textBounds.Append(CultureInfo.InvariantCulture,
+                $" AND (x.track_start_timestamp_utc, x.track_id) < ({Parameter(after.StartTimestampUtc.ToUniversalTime())}, {Parameter(after.TrackId)})");
         }
+
+        var scope = AnalyticsScopeRequest.From(query);
+        // Base chain: track.StartTimestampUtc < toUtc. The denormalised start equals it (ADR-018 item 2).
+        if (scope.ToUtc is { } toUtc)
+            textBounds.Append(CultureInfo.InvariantCulture, $" AND x.track_start_timestamp_utc < {Parameter(toUtc.ToUniversalTime())}");
+
+        var trackBounds = new System.Text.StringBuilder();
+        if (scope.FromUtc is { } fromUtc)
+            trackBounds.Append(CultureInfo.InvariantCulture, $" AND t.end_timestamp_utc >= {Parameter(fromUtc.ToUniversalTime())}");
+        if (scope.MinimumDurationMs is { } minimumDurationMs)
+            trackBounds.Append(CultureInfo.InvariantCulture, $" AND t.duration_ms >= {Parameter(minimumDurationMs)}");
+        if (scope.MinimumConfidence is { } minimumConfidence)
+            trackBounds.Append(CultureInfo.InvariantCulture, $" AND t.mean_confidence >= {Parameter(minimumConfidence)}");
+        if (scope.ObjectSubclass is { } subclass)
+        {
+            // The base chain refuses a subclass the exposure policy hides; so does its accelerator, rather than
+            // letting an empty candidate set skip the refusal.
+            if (!VehicleSubclassExposurePolicy.IsExposable(subclass))
+                throw new ArgumentException("The subclass is not operator-exposable.", nameof(query));
+            trackBounds.Append(CultureInfo.InvariantCulture,
+                $" AND t.object_class = '{nameof(Domain.Intelligence.ObjectClass.Vehicle)}' AND t.object_subclass = {Parameter(subclass)}" +
+                $" AND t.object_subclass_source = {Parameter(VehicleSubclassExposurePolicy.ApprovedSource)}");
+        }
+
+        // The object class alone never justifies the join (every plate text is a Vehicle Track's); when the join is
+        // made anyway, it is repeated too.
+        if (trackBounds.Length > 0 && scope.ObjectClass is { } objectClass)
+            trackBounds.Append(CultureInfo.InvariantCulture, $" AND t.object_class = {Parameter(objectClass.ToString())}");
 
         var match = exact ? "x.normalised_text = {0}" : "x.normalised_text LIKE {0} ESCAPE ''";
         var sql = CandidateSql
             .Replace("<match>", match, StringComparison.Ordinal)
-            .Replace("<keyset>", keysetBound, StringComparison.Ordinal);
+            .Replace("<text-bounds>", textBounds.ToString(), StringComparison.Ordinal)
+            .Replace("<tracks>", trackBounds.Length > 0 ? "\n    JOIN tracks t ON t.id = m.track_id" : string.Empty, StringComparison.Ordinal)
+            .Replace("<track-bounds>", trackBounds.ToString(), StringComparison.Ordinal);
         return db.Database
             .SqlQuery<PlateTextCandidate>(FormattableStringFactory.Create(sql, [.. arguments]))
             .ToArrayAsync(cancellationToken);
     }
 
-    /// <summary>The candidate statement; <c>&lt;match&gt;</c> and <c>&lt;keyset&gt;</c> are replaced by fixed fragments.</summary>
+    /// <summary>
+    /// The candidate statement; <c>&lt;match&gt;</c>, <c>&lt;text-bounds&gt;</c>, <c>&lt;tracks&gt;</c> and
+    /// <c>&lt;track-bounds&gt;</c> are replaced by fixed fragments whose values are all bound parameters.
+    /// </summary>
     private static readonly string CandidateSql = $$"""
         WITH matched AS MATERIALIZED (
             SELECT x.analysis_id, x.track_id, x.track_start_timestamp_utc
             FROM plate_track_texts x
-            WHERE <match><keyset>)
+            WHERE <match><text-bounds>)
         SELECT m.track_id AS "{{nameof(PlateTextCandidate.TrackId)}}", m.track_start_timestamp_utc AS "{{nameof(PlateTextCandidate.TrackStartTimestampUtc)}}"
         FROM matched m
-        JOIN plate_analyses a ON a.id = m.analysis_id
+        JOIN plate_analyses a ON a.id = m.analysis_id<tracks>
         WHERE a.identity_fingerprint = {1}
           AND a.status IN ('{{nameof(PlateAnalysisStatus.Completed)}}', '{{nameof(PlateAnalysisStatus.Superseded)}}')
           AND a.visibility_sequence IS NOT NULL AND a.visibility_sequence <= {2}
-          AND a.processing_run_id = ANY ({3})
+          AND a.processing_run_id = ANY ({3})<track-bounds>
         ORDER BY m.track_start_timestamp_utc DESC, m.track_id DESC
         LIMIT {4}
         """;
