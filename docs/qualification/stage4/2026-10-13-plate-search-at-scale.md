@@ -1,10 +1,151 @@
 # Stage 4 PR-4: plate search at 10^6 Tracks, and the index write cost
 
+**Updated 2026-10-16 (cold review of PR #219; owner decisions 1–8):** the 2026-10-15 "budget MET" is scoped to the frozen query set v1. A new query set v2, frozen before it was measured, exercises the filter classes v1 did not, and **misses the budget on 3–4 of its 10 queries**, so the plan §2.8 budget is **NOT MET for v2**. The informational CI job is moved out of the Quality Gate. The 2026-10-15 and 2026-10-14 sections follow unchanged as historical evidence.
+
+## Correction round (2026-10-16): scope of the v1 verdict, query set v2
+
+### What the 2026-10-15 verdict did and did not cover
+
+- **"Budget MET" (2026-10-15) holds for the frozen query set `mavi-plate-search-queries-v1` (Q01–Q14, S1) only.** It still holds on the corrected head (below). It is not a claim about every filter combination the API accepts.
+- **Filter classes v1 did not measure.** v1's only Track-level filter was Q12's one-day window over the newest day. It had no historical upper bound (`toUtc` far in the past), no `minimumConfidence`, no `minimumDurationMs`, no `objectSubclass`, no lower bound alone, and no combined analytic + plate search.
+- **The repeated-batch mechanism (cold review P1-2).** On the 2026-10-15 head only the run, camera and video filters (and the latest-run scope) reached the candidate statement. The time window, confidence, duration, subclass and analytic predicates were applied only by the base chain, after each batch. Every candidate those predicates rejected therefore cost a batch slot, and every batch re-read the whole text match: the keyset is a heap filter after the trigram scan, not an index condition, so a page needing b batches cost about b full matches (≈ M²/4096 rows read for M matches). The reviewer's probe at 50 runs × 1 000 Tracks, `contains KA0`: 45–106 ms unfiltered; 524–538 ms with `toUtc` at the end of the oldest run; 491–525 ms with `minimumConfidence` 0.95 (`Rows Removed by Filter: 48896`). A combined analytic + plate search whose analytic scope could not be evaluated also walked every candidate batch, because each restricted analytic page returned nothing (P2-1).
+
+### What changed (owner decisions 2, 4, 6)
+
+- **Pushed Track predicates** (`TrackSearchRepository.Plates.cs`, `CandidateBatchAsync`). The candidate statement now applies the base chain's own Track-level predicates, in its exact form: `toUtc` as `track_start_timestamp_utc < toUtc` inside the text match (ADR-018: the column equals the Track's start); `fromUtc` (`end_timestamp_utc >= fromUtc`), `minimumDurationMs`, `minimumConfidence` (`>=`) and the exposed subclass with its approved source as an EXISTS on `tracks`, probed in page order under `ORDER BY … LIMIT`. Each can only remove Tracks the base chain removes; the base chain still applies every predicate. Result semantics, order, cursor, snapshot and plate matching are unchanged; no work cap was added. A first form joined `tracks` to every match; a diagnostic EXPLAIN on this corpus (not evidence) showed `minimumConfidence` 0.8 taking 0.8–0.9 s that way, so the probe was moved after the page-order sort before anything was measured.
+- **Analytic short-circuit.** A combined search returns the empty page with both coverage blocks, reading no candidate batch, when the pinned scope has no evaluable revision, analytics is disabled, or the pinned coverage counts zero evaluated runs.
+- **Trigger lock.** Migration `20261016120000_LockTrackForPlateTextTrackStart` reads the Track row `FOR SHARE` in the start derivation (ADR-018 item 2).
+
+### Query set v2 (frozen before measuring)
+
+`mavi-plate-search-skewed-queries-v2`, SHA-256 `b2d7d728a4ae23f5241864e55aa56a5a8a17f558c303941bdb06d09f6b0e92fa`. It was committed in `105b1dca` before any v2 timing existed. v1 is unchanged and pinned (SHA-256 `93bcebaabd402917fc44f946dc18714f8c0d0e9744e26016610c0ff6da7fee98`). `TheFrozenQuerySetsArePinned` checks both hashes without a database.
+
+The corpus is unchanged. Every Track in it has mean confidence 0.8, duration 4 000 ms and no subclass. So the meaningful selective thresholds are reject-all ones (0.95, 4 001 ms, `car`), with 0.8 as the inclusive boundary that admits every Track. The budget (300 ms p95), the samples (3 warm-ups, 20 samples), the mode and the host are unchanged, and every v2 query is budgeted.
+
+| Id | Query |
+|---|---|
+| V01 | contains `KA0`, `toUtc` day 1 (historical: the oldest 3 %) |
+| V02 | contains `KA0`, `toUtc` day 15 (historical: the older half) |
+| V03 | contains `KA01`, `toUtc` day 1 (historical, selective) |
+| V04 | contains `KA0`, `minimumConfidence` 0.95 (rejects every Track) |
+| V05 | contains `KA0`, `minimumConfidence` 0.8 (inclusive boundary, admits every Track) |
+| V06 | contains `KA0`, `minimumDurationMs` 4 001 (rejects every Track) |
+| V07 | contains `KA0`, `objectSubclass` `car` (rejects every Track) |
+| V08 | contains `KA0`, `fromUtc` day 29 (lower bound only) |
+| V09 | contains `KA0`, `toUtc` day 15, page 2 |
+| V10 | contains `KA0` + camera 1 + loitering (camera never configured; the analytic short-circuit) |
+
+### Method
+
+- Release build of `112299ab`. Each run's head file records the docs-only working-tree changes of this record.
+- Scale database `mavi_perf_skewed` (cluster on port 5499, PostgreSQL 18.6). It is in the state left by the 2026-10-15 measurement: after the 10^6 backfill and `VACUUM FULL plate_track_texts`. The harness's `MigrateAsync` applied the lock migration (1.6–2.3 s; drift 0).
+- The same quiet gate as 2026-10-15:
+
+| Run | START (local) | CPU at START | In-run samples | Non-quiet | Valid |
+|---|---|---|---|---|---|
+| run1 | 00:51:57 | 18.6 % | 5 | 0 | yes |
+| run2 | 00:56:13 | 17.1 % | 4 | 0 | yes |
+
+### Results (ms, p50 / p95; Development host, warm; corrected head `112299ab`)
+
+**v1 (unchanged criterion).** Every budgeted query is within 300 ms in both runs.
+
+| Query | Rows | run1 | run2 | 2026-10-15 run1 p95 |
+|---|---|---|---|---|
+| Q01 contains `KA0` | 51 | 118.0 / **196.3** | 95.0 / 148.1 | 150.3 |
+| Q02 prefix `KA0` | 51 | 93.9 / 102.6 | 101.6 / 140.0 | 120.9 |
+| Q03 contains `KA01` | 51 | 31.4 / 41.8 | 29.7 / 32.0 | 38.0 |
+| Q04 prefix `KA01` | 51 | 37.4 / 46.6 | 36.0 / 37.9 | 39.0 |
+| Q05 contains `1234` | 51 | 24.2 / 29.4 | 17.8 / 21.8 | 19.9 |
+| Q06 exact | 1 | 15.4 / 17.9 | 13.3 / 14.7 | 14.5 |
+| Q07 no match | 0 | 12.6 / 16.7 | 9.7 / 11.2 | 12.9 |
+| Q08 + `processingRunId` | 51 | 68.8 / 106.4 | 62.9 / 73.1 | 69.1 |
+| Q09 page 2 | 51 | 93.3 / 106.0 | 83.9 / 91.7 | 87.4 |
+| Q10 page 5 | 51 | 75.8 / 82.5 | 78.5 / 81.4 | 84.4 |
+| Q11 contains `MH12` | 51 | 19.9 / 22.6 | 20.7 / 22.5 | 26.7 |
+| Q12 + one-day window | 51 | 54.5 / 58.1 | 55.3 / 57.2 | 49.7 |
+| Q13 NotConfigured | 0 | 2.1 / 2.7 | 2.3 / 2.7 | 2.8 |
+| Q14 no run Ready | 0 | 6.0 / 7.1 | 5.9 / 7.0 | 7.3 |
+| S1 stress probe (outside the bound) | 51 | 26.4 / 27.4 | 28.5 / 29.0 | 31.2 |
+
+**v2. NOT MET.** V04, V05 and V06 miss the budget in both runs, and V02 misses it in run1.
+
+| Query | Rows | run1 | run2 | Budget |
+|---|---|---|---|---|
+| V01 `toUtc` day 1 | 51 | 56.7 / 60.1 | 56.3 / 59.7 | met |
+| V02 `toUtc` day 15 | 51 | 263.7 / **350.4** | 229.8 / 251.1 | **missed in run1** |
+| V03 `KA01`, `toUtc` day 1 | 51 | 38.2 / 51.0 | 35.8 / 39.3 | met |
+| V04 `minimumConfidence` 0.95 | 0 | 313.9 / **404.1** | 298.7 / **327.6** | **missed** |
+| V05 `minimumConfidence` 0.8 | 51 | 355.3 / **488.4** | 348.2 / **362.9** | **missed** |
+| V06 `minimumDurationMs` 4 001 | 0 | 298.9 / **362.9** | 313.7 / **348.1** | **missed** |
+| V07 `objectSubclass` `car` | 0 | 81.1 / 92.8 | 82.8 / 86.8 | met |
+| V08 `fromUtc` day 29 | 51 | 108.6 / 128.3 | 99.7 / 105.5 | met |
+| V09 `toUtc` day 15, page 2 | 51 | 55.3 / 63.0 | 52.5 / 56.7 | met |
+| V10 analytic, unconfigured camera | 0 | 174.9 / 206.4 | 182.0 / 225.4 | met (shape failure below) |
+
+- **Cold first call** (Q01, first search of the process): 1 479 ms and 1 391 ms (see the limits below).
+- **Coverage** is identical to the 2026-10-15 run for every v1 query.
+
+### Where the v2 time goes (run1 plans; `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)` of the real statements)
+
+| Query | Plate coverage count (first page) | Candidate statement |
+|---|---|---|
+| V02 | **251 ms**, sequential scan of `tracks` (500 k Tracks counted) | 48 ms |
+| V04 | **110 ms**, sequential scan of `tracks` | **196 ms**: PK probe of all 62 056 matches, none kept |
+| V05 | **318 ms**, sequential scan of `tracks` | 84 ms: 256 PK probes, then LIMIT |
+| V06 | **120 ms**, sequential scan of `tracks` | **196 ms**: as V04 |
+| V10 | — | none (short-circuit); the analytics coverage's `SELECT DISTINCT` run list over camera 1 is 288 ms, with a sequential scan of `tracks` |
+
+- **The candidate read is no longer the repeated-batch cost.** Every v2 first page reads one candidate batch. A filter that keeps most matches costs about a batch of probes (V05: 84 ms). The worst candidate statement is a reject-all filter on an unindexed Track column, which probes every match: 196 ms for 62 k matches. That is bounded by the matching texts, not by the page.
+- **The dominant remaining cost is the first page's plate coverage.** With a Track-level filter, `ComputePlateCoverageAsync` counts the scope's Vehicle Tracks per run under that filter (`VehicleTrackCounts`). For `minimumConfidence`, `minimumDurationMs`, and an upper time bound that admits half the Tracks, no index serves the count, so it scans 10^6 Tracks (110–318 ms). Q12 and V08 do not, because ADR-019's (b) index serves a recent lower bound.
+- **Shape assertions** (frozen with v2: no sequential scan of a 10^6-row relation) fail for:
+  - V02, V04, V05 and V06, all in the coverage count;
+  - V10, in the analytics coverage.
+
+### Verdict and stop
+
+- **v1:** within its unchanged criterion on the corrected head.
+- **v2:** **NOT MET.** The exact-prefilter correction removed the repeated-batch mechanism. V01, V03 and V07–V09 are now 39–128 ms, against the reviewer's 0.5 s class.
+- **Why v2 still misses:**
+  - V04–V06 and V02 still miss, by up to 1.6×. The miss comes mainly from the filtered coverage count, which owner decision 2 did not address.
+  - It also comes from the reject-all probe of every match.
+- **Stopped.** Per the owner's stop condition, no further optimisation architecture was started.
+- **Open for owner decision:**
+  - a supporting index or other bound for the filtered coverage count;
+  - for confidence and duration, a denormalised or indexed path;
+  - declaring these filter classes outside plan §2.8.
+
+### CI (owner decision 1)
+
+The plate search at scale now runs in its own informational workflow, `plate-search-scale-informational.yml`:
+
+- It is not a Quality Gate lane, not in `quality.needs` and not a required check.
+- Its checkout is verified against the exact head.
+- Its artifact is `plate-search-scale-informational-ci-diagnostic`, outside `qualification-evidence/`.
+- Its files are `plate-search-scale-ci-diagnostic{.json,-plans.txt}`. They state `qualificationEvidence: false` and carry only the 3 000 ms catastrophic bound, never the 300 ms budget.
+
+**Nothing from that workflow is Development or qualification evidence.** The CI JSON previously published with `budgetMilliseconds: 300` under the same file names as the Development run (P2-3) can no longer be produced.
+
+### Recorded limits of this round
+
+- **Cold first call.** The first search of a process takes about 1.2–1.5 s (1 156–1 264 ms on 2026-10-15; 1 391–1 479 ms here). It includes building the EF model, opening the first connection and counting the 1 000 runs' Vehicle Tracks into an empty process cache. No requirement makes cold-start latency blocking, so no IIS or application-pool warm-up was added.
+- **p95 of 20 samples** is the 19th-ranked sample. One slow sample moves it, as Q01 run1 (196 ms) against run2 (148 ms) and V02 (350 ms against 251 ms) show. Two runs are reported, not more.
+- **Timing boundary.** The time is that of the repository call (`SearchPlatesAsync`: transaction, barrier, coverage, page and explanation) in-process. It excludes HTTP, authentication, serialisation and the client.
+- **Database condition.** The scale database was last compacted with `VACUUM FULL plate_track_texts` (2026-10-15), and the cache was warm. A production database without that step carries the backfill's dead row versions until autovacuum.
+- **Not re-measured in this round:**
+  - the write cost of the trigger's new `FOR SHARE` row lock on PR-3's completion;
+  - the CI diagnostic (it runs when the branch is pushed).
+- **One host, one corpus.** The v2 thresholds are reject-all or admit-all because the corpus has no confidence, duration or subclass variation. Intermediate selectivities lie between those measured.
+- **Raw output, outside Git:**
+  - `E:\MAVI-Working\tmp\corr-run{1,2}.txt`, with `.quiet.txt` and `.head.txt` beside each;
+  - `E:\MAVI-Working\tmp\corr-run{1,2}\plate-search-scale{.json,-plans.txt}`;
+  - the quietness log, `E:\MAVI-Working\tmp\corr-quiet.txt`.
+
 **Updated 2026-10-15:** re-measured on the candidate head of ADR-018/ADR-019 (budget met); the 2026-10-14 walk-design record follows as superseded evidence.
 
 **Kind.** Development evidence record (engineering measurement, plan §2.8 and register rows P10–P11). It is not a qualification, a scale qualification or a CI gate.
 
-**Verdict on the candidate head `ff4ac4ef` (2026-10-15; ADR-018 (c2), ADR-019 (b) and (d)).** The plan §2.8 budget, p95 ≤ 300 ms, is **MET** on every budgeted query (Q01–Q14), in three quiet runs. The worst budgeted p95 is 150.3 ms (Q01). The declared stress probe S1 is 31–34 ms, against about 63 s for the walk. The corpus, the query set, the sample counts and the budget are the frozen ones (`b9cb50eb`), unchanged. The owner chose the design from the options packet (2026-10-14) before this measurement, and nothing was tuned after it.
+**Verdict on the candidate head `ff4ac4ef` (2026-10-15; ADR-018 (c2), ADR-019 (b) and (d)).** The plan §2.8 budget, p95 ≤ 300 ms, is **MET** on every budgeted query (Q01–Q14), in three quiet runs. *[Scope note added 2026-10-16: this verdict is for the frozen query set v1 only; see the correction round above for the filter classes v1 did not measure and for v2.]* The worst budgeted p95 is 150.3 ms (Q01). The declared stress probe S1 is 31–34 ms, against about 63 s for the walk. The corpus, the query set, the sample counts and the budget are the frozen ones (`b9cb50eb`), unchanged. The owner chose the design from the options packet (2026-10-14) before this measurement, and nothing was tuned after it.
 
 The 2026-10-14 verdict below, NOT MET, describes the superseded walk design (`23dc85d5`). It is kept as superseded evidence.
 
@@ -102,7 +243,7 @@ The opt-in `PlateCompletionTimingTests` was run with `MAVI_PLATE_TIMING_TRACKS=1
 
 - One host, one corpus, warm cache, after `VACUUM FULL`.
 - Run1 had a single in-run quietness sample. Its START was quiet, and runs 2 and 3 agree within ±25 ms.
-- The S1-like case of a window far in the past under a common text is not in the frozen query set. Under ADR-018 its cost is bounded by the matching texts newer than the window: several batches of about 100 ms each. It is not measured.
+- The S1-like case of a window far in the past under a common text is not in the frozen query set. Under ADR-018 its cost is bounded by the matching texts newer than the window: several batches of about 100 ms each. It is not measured. *[2026-10-16: measured as v2 V01–V03 and V09 after the predicates were pushed; see above.]*
 - Raw output, kept outside Git:
   - `E:\MAVI-Working\tmp\c2bd-cand-{m0,run1,run2,run3}.txt`, with `.quiet.txt` and `.head.txt` beside each;
   - `E:\MAVI-Working\tmp\c2bd-cand-run*\plate-search-scale{.json,-plans.txt}`;

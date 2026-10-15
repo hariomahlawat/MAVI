@@ -2,7 +2,7 @@
 
 **Status:** Accepted owner decision for Stage 4 PR-4, 2026-10-15 (option (c2) of the PR-4 options packet; implemented together with ADR-019).
 
-**Date:** 2026-10-15
+**Date:** 2026-10-15; amended 2026-10-16 (cold review of PR #219: pushed Track predicates, row lock, scoped claims)
 
 **Related:** ADR-013 implementation amendment 2026-10-13 (Stage 4 plate search), items 16–19; plan `docs/superpowers/plans/2026-10-12-stage4-anpr-ocr.md` §2.7, §2.8; evidence `docs/qualification/stage4/2026-10-13-plate-search-at-scale.md`; ADR-019.
 
@@ -30,6 +30,8 @@ The options packet measured four candidate designs, each on a quiet host. Option
 
    No committed path can leave a text with a missing value, since the column is NOT NULL. Nor can any committed path leave a text with a value other than its Track's, short of disabling triggers.
 
+   **Amended 2026-10-16 (row lock).** Migration `20261016120000_LockTrackForPlateTextTrackStart` replaces the derivation function so that it reads the Track row `FOR SHARE`. Without it, under READ COMMITTED a text insert could read a start that a concurrent, uncommitted transaction had already changed, while that transaction's carry trigger could not see the uncommitted text: both commit and the text keeps the old start. A start change takes `FOR NO KEY UPDATE`, which conflicts with `FOR SHARE` (`FOR KEY SHARE` would not), so the two writers are serialised on the Track row in either order: an insert that comes second derives the new start, and an update that comes second carries its start to the committed text. Under REPEATABLE READ or SERIALIZABLE the second writer fails with a serialization error instead. `TrackPlateSearchRepositoryTests.TheTrackStartDerivationCannotRaceAConcurrentTrackStartChange` drives both orders on two connections and observes the lock wait; without the lock it fails. The cost is a shared row lock on the Track of each inserted or updated text (PostgreSQL records it in the Track's row header, so the Track's page is written); its effect on PR-3's completion was not re-measured in this round and is recorded as an open limit.
+
 3. **The run invariant is enforced.** The same insert trigger refuses a text whose Track is not of its analysis's run (`check_violation`, constraint name `tr_plate_track_texts_track_start`). This is PR-3's completion invariant: its lease lists exactly the run's Tracks. Until now it was enforced only by the application. The candidate read relies on it, as item 6 explains.
 
 4. **Backfill and atomicity.** The migration does all of the following in one transaction:
@@ -49,6 +51,7 @@ The options packet measured four candidate designs, each on a quiet host. Option
      - the CTE is joined to the visible analyses of the pinned identity in those runs;
      - the rows are ordered `track_start_timestamp_utc DESC, track_id DESC` with a `LIMIT`.
    - Each batch's Tracks go through the page's own query, restricted to them. That query applies every other predicate, the keyset and the order, all over `tracks` itself.
+   - **Amended 2026-10-16 (pushed Track predicates; owner decision on cold review P1-2).** The candidate statement also applies the base chain's ordinary Track-level predicates, in exactly the base chain's form, so a batch is not spent on Tracks the base chain certainly rejects: `toUtc` as `track_start_timestamp_utc < toUtc` inside the text match (the column equals the Track's start, item 2), and `fromUtc` (`end_timestamp_utc >= fromUtc`), `minimumDurationMs`, `minimumConfidence` (`>=`) and the exposed subclass with its approved source as an EXISTS on `tracks`, probed in page order under the statement's `ORDER BY … LIMIT` (a subquery fenced by `OFFSET 0` sorts the matched candidates first), so a filter that keeps most matches stops after about a batch of primary-key probes. Each pushed predicate compares a NOT NULL column (or, for the subclass, is an equality false on NULL in the base chain too), so it can only remove Tracks the base chain removes; the base chain still applies every predicate afterwards and remains the semantic authority. Run, camera, video and latest-run scope were already pushed (the eligible runs). No work cap was introduced.
    - It stops when the page is full or the candidates are exhausted.
 
    The v4 HMAC cursor, its keyset `(StartTimestampUtc, Id)`, its pins and the wire contracts frozen at `0150627b` are unchanged.
@@ -73,7 +76,7 @@ The options packet measured four candidate designs, each on a quiet host. Option
 
 ### Positive
 
-- Page cost is bounded by the matching texts and the page, not by the scope.
+- Page cost is bounded by the matching texts and the page, not by the scope. *Scoped 2026-10-16:* that holds for the candidate read. A Track filter that rejects nearly every match still examines every match (it is bounded by the matching texts, about 62 k for `contains KA0` at 10^6), and the first page's plate coverage counts the scope's Tracks under the same filter, which has no index for confidence or duration. Neither is bounded by the page. The frozen query set v1 did not exercise these filter classes; v2 measures them (evidence record).
 - The stress probe that took about 63 s with the walk takes tens of milliseconds.
 - The walk, the sparse path and their density probe are removed: there is one candidate path instead of three.
 - The run invariant that PR-3 enforced in code is now also enforced by the database.
@@ -92,9 +95,8 @@ The options packet measured four candidate designs, each on a quiet host. Option
   - The backfill rewrites every text row, ≈ 38 s at 10^6 rows on the Development host in the prototype, under an exclusive lock on `plate_track_texts`.
   - It leaves dead row versions to autovacuum. Run `VACUUM (ANALYZE) plate_track_texts` after the upgrade to reclaim them at once.
 - **Statement cost per batch.**
-  - A batch recomputes the full text match, so a broad text costs about 100 ms per batch at 10^6 rows (`contains KA0`: 69 k matches).
-  - A page whose base-chain filters reject most candidates, such as an old time window under a common text, reads several batches. This case is not in the frozen query set and is recorded as a limit, not measured.
-  - A window's upper bound could be pushed into the candidate statement as `track_start_timestamp_utc < toUtc`. That would be a later, separately measured change.
+  - A batch recomputes the full text match, so a broad text costs about 100 ms per batch at 10^6 rows (`contains KA0`: 69 k matches). The keyset bound is a filter after the text-index scan, not an index condition, so each further batch of the same page, and each continuation page, re-reads the whole match: a page that needs b batches costs about b times one match.
+  - *Corrected 2026-10-16.* Until the predicates were pushed (item 5), a page whose base-chain filters rejected most candidates read many batches: the cold review measured 0.49–0.54 s for `contains KA0` with a historical `toUtc` or `minimumConfidence` 0.95 at 50 runs × 1 000 Tracks, with 48 896 rows removed by the base-chain filter. The frozen query set v1 did not contain these cases, so the 2026-10-15 "budget met" is scoped to v1. With the predicates pushed, the candidates a batch holds are the ones the base chain keeps (Tracks with several matching texts aside), so such a page reads one batch; its cost is the one match plus, for a reject-most filter on an unindexed Track column, a probe of every match.
 - **Raw SQL.** One statement is raw SQL, because the materialised CTE is not expressible in LINQ. Every value is a bound parameter.
 
 ## Alternatives rejected
