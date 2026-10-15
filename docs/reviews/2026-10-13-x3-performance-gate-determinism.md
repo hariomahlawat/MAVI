@@ -556,3 +556,37 @@ server-arrival order. Analytics issue traces carry a time-derived window, so
 issue-trace identity across runs holds only up to query values. The backstop
 reports a fault for a number the browser never reports; Chromium reporting
 every pre-validated request is observed, not documented.
+
+### Cold-review correction (code head `c2a513b2`)
+
+**P1-1.** A request of a document two cases old reached the server after the
+next case's admission had opened, carrying the shared cookie jar's *new*
+epoch, and was answered from the current case's fixtures at the head of its
+queue; admission never saw it and nothing faulted (reviewer: 12 of 42, 1 of
+14 and 2 of 42 loaded cases). The epoch cookie cannot separate documents
+that share a cookie jar. Corrected (`c2a513b2`): the fixture server is bound
+to the one document admission accepted as current, before that document's
+first request is released, and refuses every other document's
+identity-bearing request before any fixture, sequence, mutation, scheduler
+or acknowledgement state (recorded, not a fault); the bound document's
+numbers must arrive strictly increasing (gaps allowed; an out-of-order
+number is refused and is a fault); admission's acknowledgement reads its
+own run's document (a `stop()` during a release no longer throws); one
+document per admission window (a second is a fault); only the artifact
+image (`/api/artifacts/{id}/content`) bypasses the order. The admission
+window now spans the case document's life.
+
+**Evidence at code head `c2a513b2`** (this section is added by a later,
+documentation-only commit):
+
+| Check | Result |
+| --- | --- |
+| Focused tests (`admission.test.mjs`) | 18/18; 8 of them fail on `8cac86e8` |
+| Loaded reproduction: `run.mjs` forward, `overview-analytics` and `videos-run-states`, all lanes, 3 repetitions, 3 workers, CPU burners | 108 cases, 0 harness errors; 509 requests of other or no bound document refused (465 other, 44 unbound), every one carrying the current epoch cookie; 0 answered; 0 cases with arrival or answer out of issue order |
+| CC1: quiet forward sweep + long-task lane, judged | 3800 + 417 cases, 0 harness errors; judge 0 faults, 0 of 1847 CLS rows over a limit, 0 of 413 interactions with a long task (only the font emulation's `typography.resolved-font`, as before); 22 502 + 2 420 numbered requests, 0 out of issue order at arrival, answer or browser completion; 688 stale or unbound arrivals refused, 0 answered |
+| CC1 against CF1 (`c991b873`) | 1836 case-families: 0 with any value variation |
+| Harness unit ×3; end-to-end groups; frontend; journeys; Python guards; `verify_repo` | 376/376 ×3; 275 / 273 / 269 passed, 0 failed; 1595/1595; 18/18; 679/679; PASSED |
+
+The CC1 sweep ran on the measurement copy as before (result head `d8944367`,
+bundle `d241f7b04105d527`); it was re-run because the server change can
+alter what a measured case is answered.
