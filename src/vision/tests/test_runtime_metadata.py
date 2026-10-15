@@ -637,6 +637,8 @@ def test_the_plate_search_scale_workflow_is_informational_and_outside_the_qualit
     harness = (Path(__file__).parents[3] / "tests" / "Mavi.IntegrationTests" / "PlateSearchScaleMeasurementTests.cs").read_text(encoding="utf-8")
     assert "qualificationEvidence = false" in harness
     assert 'prefix = "plate-search-scale-ci-diagnostic";' in harness
+    # Owner decision 2026-10-16: v1 is the budgeted set, v2 the diagnostic (declared-limits) set.
+    assert "budgetedQuerySet = BudgetedQuerySet" in harness and "diagnosticQuerySet = DiagnosticQuerySet" in harness
     assert "budgetMilliseconds" not in harness.split('prefix = "plate-search-scale-ci-diagnostic";', 1)[1].split("else", 1)[0]
 
 

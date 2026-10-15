@@ -79,8 +79,10 @@ public sealed class PlateSearchScaleFactAttribute : FactAttribute
 /// historical upper time bound, and under a minimum confidence, duration or subclass that rejects every Track of
 /// the corpus (whose Tracks are all 0.8 mean confidence, 4 000 ms and without a subclass, so a reject-all
 /// threshold is the meaningful selective case; 0.8 itself is the inclusive boundary); a lower bound alone; a
-/// historical continuation; and a combined analytic search on a never-configured camera. Same samples and
-/// bounds; every v2 query is budgeted.
+/// historical continuation; and a combined analytic search on a never-configured camera. Same samples.
+/// <b>Owner decision 2026-10-16:</b> v2 is a diagnostic set of declared limits, not an acceptance set. It is always executed
+/// and reported with a per-query verdict against the budget (development) or the catastrophic bound (ci), and its plan-shape
+/// findings are reported; only v1 is budgeted and shape-enforced (<see cref="Evaluate"/>). v2 measured NOT MET and stays so.
 /// </para>
 /// </remarks>
 [Collection(DatabaseIntegrationGroup.Name)]
@@ -223,6 +225,47 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
         Assert.DoesNotContain(FrozenQueriesV2, item => item.Stress);
     }
 
+    /// <summary>
+    /// The owner classification (2026-10-16) is pinned: v1 is the budgeted set and fails on its criterion and its plan
+    /// shape; v2 is the diagnostic set, always reported with a per-query verdict, and in <c>development</c> never fails
+    /// the measurement, neither on the 300 ms budget nor on a sequential scan. In <c>ci</c> v2's plan shape is reported
+    /// only, while the catastrophic bound still fails on either set. The stress probe never fails.
+    /// </summary>
+    [Fact]
+    public void TheBudgetedAndDiagnosticSetsAreClassifiedAsDecided()
+    {
+        Assert.Equal("mavi-plate-search-queries-v1", BudgetedQuerySet);
+        Assert.Equal("mavi-plate-search-skewed-queries-v2", DiagnosticQuerySet);
+        var coverage = TrackPlateCoverage.Empty(Fingerprint);
+        Result Sample(string set, string name, double p95, bool stress = false) => new(set, name, stress, 51, 6, p95, p95, p95, coverage);
+        Result[] measured =
+        [
+            Sample(QuerySetId, "Q01", 290), Sample(QuerySetId, "S1", 60_000, stress: true),
+            Sample(QuerySetV2Id, "V01", 60), Sample(QuerySetV2Id, "V04", 404.1), Sample(QuerySetV2Id, "V05", 488.4),
+        ];
+        ShapeFinding[] v2Scan = [new(QuerySetV2Id, "V04: a statement scans tracks sequentially")];
+
+        var development = Evaluate("development", measured, v2Scan);
+        Assert.Empty(development.Failures);
+        Assert.Equal(300, development.DiagnosticComparisonMilliseconds);
+        Assert.Equal("NOT MET", development.DiagnosticVerdict);
+        Assert.Equal(["MET", "NOT MET", "NOT MET"], development.DiagnosticVerdicts.Select(verdict => verdict.Verdict));
+        Assert.Equal(["V04: a statement scans tracks sequentially"], development.DiagnosticShapeFindings);
+
+        // v1 over the budget, or with a plan-shape finding, fails the measurement.
+        Assert.Single(Evaluate("development", [.. measured, Sample(QuerySetId, "Q02", 300.1)], v2Scan).Failures);
+        Assert.Single(Evaluate("development", measured, [.. v2Scan, new(QuerySetId, "Q12: a statement scans tracks sequentially")]).Failures);
+
+        // CI: the same v2 is within the catastrophic bound and its scan is reported only; the bound still fails either set.
+        var ci = Evaluate("ci", measured, v2Scan);
+        Assert.Empty(ci.Failures);
+        Assert.Equal(3_000, ci.DiagnosticComparisonMilliseconds);
+        Assert.Equal("MET", ci.DiagnosticVerdict);
+        Assert.Single(Evaluate("ci", [.. measured, Sample(QuerySetV2Id, "V06", 3_000.1)], v2Scan).Failures);
+        Assert.Single(Evaluate("ci", [.. measured, Sample(QuerySetId, "Q03", 3_000.1)], v2Scan).Failures);
+        Assert.Empty(Evaluate("ci", [.. measured, Sample(QuerySetId, "Q03", 2_999)], v2Scan).Failures);
+    }
+
     [PlateSearchScaleFact]
     public async Task PlateSearchAtTheFrozenSkewedScaleIsMeasured()
     {
@@ -298,11 +341,12 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
 
         // The real statements of a warm call, replayed under EXPLAIN (ANALYZE, BUFFERS).
         var plans = new StringBuilder();
-        var shapeFailures = new List<string>();
+        var shapeFindings = new List<ShapeFinding>();
         var explained = ExplainedQueries.Select(prefix => FrozenQueries.Single(item => item.Name.StartsWith(prefix + " ", StringComparison.Ordinal)))
             .Concat(ExplainedQueriesV2.Select(prefix => FrozenQueriesV2.Single(item => item.Name.StartsWith(prefix + " ", StringComparison.Ordinal))));
         foreach (var frozen in explained)
         {
+            var querySet = FrozenQueries.Contains(frozen) ? QuerySetId : QuerySetV2Id;
             var search = SearchFor(frozen, frozen.Plate, newestReadyRun, firstCamera);
             var capture = new SqlCapture();
             await using (var db = CreateContext(connectionString, capture))
@@ -321,7 +365,7 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
                 foreach (var relation in LargeRelations)
                 {
                     if (plan.Contains($"Seq Scan on public.{relation} ", StringComparison.Ordinal))
-                        shapeFailures.Add($"{frozen.Name}: a statement scans {relation} sequentially");
+                        shapeFindings.Add(new(querySet, $"{frozen.Name}: a statement scans {relation} sequentially"));
                 }
             }
 
@@ -329,7 +373,7 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
             if (frozen.Name.StartsWith("Q07 ", StringComparison.Ordinal) || frozen.Name.StartsWith("Q11 ", StringComparison.Ordinal))
             {
                 if (!queryPlans.Any(plan => plan.Contains("ix_plate_track_texts_normalised_text_trgm", StringComparison.Ordinal)))
-                    shapeFailures.Add($"{frozen.Name}: no statement reads ix_plate_track_texts_normalised_text_trgm");
+                    shapeFindings.Add(new(querySet, $"{frozen.Name}: no statement reads ix_plate_track_texts_normalised_text_trgm"));
             }
         }
 
@@ -349,16 +393,80 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
                 $"{coverage.Ready}/{coverage.Pending}/{coverage.Failed}/{coverage.Stale}/{coverage.NotConfigured} of {coverage.VehicleTracksInScope}");
         }
 
+        var evaluation = Evaluate(mode, results, shapeFindings);
+        report.AppendLine(CultureInfo.InvariantCulture,
+            $"budgeted query set: {BudgetedQuerySet} (criterion p95 <= {bound} ms{(mode == "ci" ? ", the catastrophic bound" : string.Empty)}; plan shape enforced)");
+        report.AppendLine(CultureInfo.InvariantCulture,
+            $"diagnostic query set: {DiagnosticQuerySet} (declared limits, owner decision 2026-10-16; reported, never failing on the plan shape" +
+            $"{(mode == "ci" ? string.Empty : " or the budget")}): {evaluation.DiagnosticVerdict} against {evaluation.DiagnosticComparisonMilliseconds} ms");
+        foreach (var verdict in evaluation.DiagnosticVerdicts)
+            report.AppendLine(CultureInfo.InvariantCulture, $"  {verdict.Name}: p95 {verdict.P95:F1} ms -> {verdict.Verdict}");
+        foreach (var finding in evaluation.DiagnosticShapeFindings)
+            report.AppendLine(CultureInfo.InvariantCulture, $"  plan shape (diagnostic, reported): {finding}");
+
         output.WriteLine(report.ToString());
         output.WriteLine(plans.ToString());
-        await WriteOutputsAsync(mode, v1Sha256, v2Sha256, coldFirstCall!.Value, results, report.ToString(), plans.ToString(), shapeFailures);
+        await WriteOutputsAsync(mode, v1Sha256, v2Sha256, coldFirstCall!.Value, results, report.ToString(), plans.ToString(), evaluation);
 
+        Assert.True(evaluation.Failures.Count == 0, string.Join(Environment.NewLine, evaluation.Failures));
+    }
+
+    /// <summary>The query set whose criterion is the PR-4 performance acceptance (v1; owner decision 2026-10-16).</summary>
+    public const string BudgetedQuerySet = QuerySetId;
+
+    /// <summary>The query set measured and reported as declared limits, never failing the measurement on the budget (v2).</summary>
+    public const string DiagnosticQuerySet = QuerySetV2Id;
+
+    private sealed record ShapeFinding(string QuerySet, string Message)
+    {
+        public override string ToString() => Message;
+    }
+
+    private sealed record DiagnosticVerdict(string Name, double P95, string Verdict);
+
+    private sealed record Evaluation(
+        IReadOnlyList<string> Failures,
+        double DiagnosticComparisonMilliseconds,
+        IReadOnlyList<DiagnosticVerdict> DiagnosticVerdicts,
+        string DiagnosticVerdict,
+        IReadOnlyList<string> DiagnosticShapeFindings);
+
+    /// <summary>
+    /// The classification (owner decision 2026-10-16), in one place so a test pins it. The budgeted set (v1) fails the
+    /// measurement on its criterion (the 300 ms budget in <c>development</c>, the catastrophic bound in <c>ci</c>) and on
+    /// any plan-shape finding. The diagnostic set (v2) is always executed and reported: each query is compared with the
+    /// budget in <c>development</c> (MET / NOT MET) or with the catastrophic bound in <c>ci</c>, and its plan-shape
+    /// findings are reported. In <c>ci</c> the catastrophic bound still fails on v2 too (a change of complexity class);
+    /// nothing else about v2 ever fails, and in <c>development</c> nothing about v2 fails. The stress probe never fails.
+    /// </summary>
+    private static Evaluation Evaluate(string mode, IReadOnlyList<Result> results, IReadOnlyList<ShapeFinding> shapeFindings)
+    {
+        var ci = mode == "ci";
+        var budgetedBound = ci ? CatastrophicMilliseconds : BudgetMilliseconds;
         var failures = results
-            .Where(result => !result.Stress && result.P95 > bound)
-            .Select(result => $"{result.Name}: p95 {result.P95:F1} ms exceeds {bound} ms")
-            .Concat(shapeFailures)
+            .Where(result => result.QuerySet == BudgetedQuerySet && !result.Stress && result.P95 > budgetedBound)
+            .Select(result => string.Create(CultureInfo.InvariantCulture, $"{result.Name}: p95 {result.P95:F1} ms exceeds {budgetedBound} ms"))
+            .Concat(shapeFindings.Where(finding => finding.QuerySet == BudgetedQuerySet).Select(finding => finding.Message))
             .ToList();
-        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
+        if (ci)
+        {
+            failures.AddRange(results
+                .Where(result => result.QuerySet == DiagnosticQuerySet && result.P95 > CatastrophicMilliseconds)
+                .Select(result => string.Create(CultureInfo.InvariantCulture,
+                    $"{result.Name}: p95 {result.P95:F1} ms exceeds the catastrophic bound {CatastrophicMilliseconds} ms")));
+        }
+
+        var comparison = ci ? CatastrophicMilliseconds : BudgetMilliseconds;
+        var verdicts = results
+            .Where(result => result.QuerySet == DiagnosticQuerySet)
+            .Select(result => new DiagnosticVerdict(result.Name, result.P95, result.P95 <= comparison ? "MET" : "NOT MET"))
+            .ToList();
+        return new Evaluation(
+            failures,
+            comparison,
+            verdicts,
+            verdicts.All(verdict => verdict.Verdict == "MET") ? "MET" : "NOT MET",
+            [.. shapeFindings.Where(finding => finding.QuerySet == DiagnosticQuerySet).Select(finding => finding.Message)]);
     }
 
     private static TrackSearchQuery SearchFor(Frozen frozen, TrackPlateQuery plate, Guid newestReadyRun, Guid firstCamera)
@@ -418,7 +526,7 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
     /// catastrophic bound only, its own file names, and <c>qualificationEvidence = false</c>): never both in one file.
     /// </summary>
     private async Task WriteOutputsAsync(
-        string mode, string v1Sha256, string v2Sha256, double coldFirstCall, List<Result> results, string report, string plans, List<string> shapeFailures)
+        string mode, string v1Sha256, string v2Sha256, double coldFirstCall, List<Result> results, string report, string plans, Evaluation evaluation)
     {
         if (Environment.GetEnvironmentVariable(OutputVariable) is not { Length: > 0 } directory)
             return;
@@ -452,9 +560,19 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
                 corpus = CorpusId,
                 mode,
                 catastrophicBoundMilliseconds = CatastrophicMilliseconds,
+                budgetedQuerySet = BudgetedQuerySet,
+                diagnosticQuerySet = DiagnosticQuerySet,
+                diagnosticComparison = new
+                {
+                    againstMilliseconds = evaluation.DiagnosticComparisonMilliseconds,
+                    against = "the catastrophic bound",
+                    verdict = evaluation.DiagnosticVerdict,
+                    perQuery = evaluation.DiagnosticVerdicts,
+                    shapeFindings = evaluation.DiagnosticShapeFindings,
+                },
                 coldFirstCallMilliseconds = coldFirstCall,
                 querySets,
-                shapeFailures,
+                failures = evaluation.Failures,
             }, Indented);
         }
         else
@@ -465,10 +583,20 @@ public sealed class PlateSearchScaleMeasurementTests(ITestOutputHelper output)
                 kind = "Development-host measurement (plan §2.8 budget)",
                 corpus = CorpusId,
                 mode,
+                budgetedQuerySet = BudgetedQuerySet,
                 budgetMilliseconds = BudgetMilliseconds,
+                diagnosticQuerySet = DiagnosticQuerySet,
+                diagnosticComparison = new
+                {
+                    againstMilliseconds = evaluation.DiagnosticComparisonMilliseconds,
+                    against = "the v1 budget (declared limits; no 300 ms claim is made for v2)",
+                    verdict = evaluation.DiagnosticVerdict,
+                    perQuery = evaluation.DiagnosticVerdicts,
+                    shapeFindings = evaluation.DiagnosticShapeFindings,
+                },
                 coldFirstCallMilliseconds = coldFirstCall,
                 querySets,
-                shapeFailures,
+                failures = evaluation.Failures,
             }, Indented);
         }
 
