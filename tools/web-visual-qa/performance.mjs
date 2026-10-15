@@ -16,7 +16,7 @@
  * rounding), long tasks in whole milliseconds — so a value at its limit
  * passes and one unit over fails, with no floating-point ambiguity.
  *
- *   node tools/web-visual-qa/performance.mjs --sweep <results.json> --long-tasks <results.json> [--out <dir>] [--qualification <file>]
+ *   node tools/web-visual-qa/performance.mjs --sweep <results.json> --long-tasks <results.json> [--out <dir>]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -202,6 +202,11 @@ const measurementFault = (key, what, m) => `${key}: ${what} ${m?.status ?? 'miss
  *
  * @param {{ sweep: object, longTasks: object, plan?: { sweep: Set<string>, longTasks: Set<string> }, budgets?: object }} input
  */
+/** The data-response order the gate judges (server.mjs RESPONSE_ORDERS). */
+export const GATE_RESPONSE_ORDER = 'forward';
+/** How that order is established (admission.mjs ADMISSION_METHOD). */
+export const GATE_REQUEST_ADMISSION = 'page-identity+cdp-pre-transport';
+
 export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = PERFORMANCE_BUDGETS }) {
   const faults = [];
   const findings = [];
@@ -223,6 +228,19 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
   if (!sweep) faults.push('no sweep results to judge');
   else if (sweep.fullSweep !== true) faults.push('the sweep results are not the full sweep: X3 is judged on the whole product');
   if (sweep && !sweep.head) faults.push('the sweep results name no head');
+  // X3 determinism: the gate judges runs whose data responses were answered
+  // one at a time in the page's own issue order — numbered in the page and
+  // admitted before transport (admission.mjs) — so every intermediate layout
+  // is painted and a case's CLS is a function of the bundle alone. Any other
+  // run leaves that to scheduling: it is not evidence. A run that reported a
+  // harness fault (a missing or duplicate identity among them) is not either.
+  for (const [what, r] of [['sweep', sweep], ['long-task run', longTasks]]) {
+    if (!r) continue;
+    const order = r.responseOrder ?? 'natural';
+    if (order !== GATE_RESPONSE_ORDER) faults.push(`the ${what} answered its data requests in ${order} order: the gate judges a ${GATE_RESPONSE_ORDER}-order run, where every intermediate layout is painted`);
+    else if (r.requestAdmission !== GATE_REQUEST_ADMISSION) faults.push(`the ${what} was not ordered by page-issued identity with pre-transport admission (requestAdmission ${r.requestAdmission ?? 'absent'})`);
+    for (const e of r.harnessErrors ?? []) faults.push(`the ${what} reported a harness error: ${String(e).split(String.fromCharCode(10))[0]}`);
+  }
   const ordinary = (sweep?.cases ?? []).filter(isOrdinary);
   const seen = new Map();
   for (const c of ordinary) seen.set(caseKey(c), (seen.get(caseKey(c)) ?? 0) + 1);

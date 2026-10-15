@@ -79,6 +79,11 @@ function installObservers(transient) {
         vqa.shifts.push({
           value: entry.value, startTime: entry.startTime, hadRecentInput: entry.hadRecentInput,
           sources: (entry.sources || []).slice(0, 3).map((source) => describe(source.node)),
+          // Diagnostic only (never judged): where each source moved from and
+          // to, [x, y, width, height] — what a shift was, read from the
+          // artifact without re-running it.
+          moves: (entry.sources || []).slice(0, 3).map((source) => [source.previousRect, source.currentRect]
+            .map((r) => (r ? [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] : null))),
         });
       }
     };
@@ -90,6 +95,44 @@ function installObservers(transient) {
     const handle = (entries) => { for (const entry of entries) vqa.longTasks.push({ startTime: entry.startTime, duration: entry.duration }); };
     const observer = new PerformanceObserver((list) => handle(list.getEntries()));
     observer.observe({ type: 'longtask', buffered: true });
+    vqa.observers.push({ observer, handle });
+  }
+  // Diagnostic attribution (never judged, never a measurement): which data
+  // responses landed when, and what ran in each long animation frame — the
+  // scripts by entry point and source position, and the frame's style and
+  // layout — so a CLS or long-task finding says from its own artifact whether
+  // it followed a late response or was the page's script or rendering work.
+  vqa.responses = [];
+  vqa.frames = [];
+  const supported = (type) => typeof PerformanceObserver !== 'undefined' && (PerformanceObserver.supportedEntryTypes || []).includes(type);
+  if (supported('resource')) {
+    const handle = (entries) => {
+      for (const entry of entries) {
+        let path = entry.name;
+        try { path = new URL(entry.name).pathname; } catch { /* keep the name */ }
+        if (path.startsWith('/api/')) vqa.responses.push({ path, startTime: entry.startTime, responseEnd: entry.responseEnd });
+      }
+    };
+    const observer = new PerformanceObserver((list) => handle(list.getEntries()));
+    observer.observe({ type: 'resource', buffered: true });
+    vqa.observers.push({ observer, handle });
+  }
+  if (supported('long-animation-frame')) {
+    const handle = (entries) => {
+      for (const entry of entries) {
+        vqa.frames.push({
+          startTime: entry.startTime, duration: entry.duration, blockingDuration: entry.blockingDuration,
+          styleAndLayoutMs: entry.styleAndLayoutStart ? entry.startTime + entry.duration - entry.styleAndLayoutStart : 0,
+          scripts: (entry.scripts || []).slice(0, 6).map((script) => ({
+            invoker: String(script.invoker || '').slice(0, 80), type: script.invokerType,
+            source: String(script.sourceURL || '').replace(/^.*\//, ''), at: script.sourceCharPosition,
+            ms: Math.round(script.duration), forcedLayoutMs: Math.round(script.forcedStyleAndLayoutDuration || 0),
+          })),
+        });
+      }
+    };
+    const observer = new PerformanceObserver((list) => handle(list.getEntries()));
+    observer.observe({ type: 'long-animation-frame', buffered: true });
     vqa.observers.push({ observer, handle });
   }
   vqa.mark = (name) => { vqa.marks[name] = performance.now(); return vqa.marks[name]; };
@@ -155,9 +198,14 @@ export async function settleProbe(input) {
   const videos = Array.from(document.querySelectorAll('video')).filter((video) => visible(video)
     && video.currentSrc && !video.error && video.networkState !== 3 && (video.readyState < 1 || video.seeking));
   if (videos.length) why.push(videos.length + ' video(s) still loading or seeking');
+  // The application's own record of its data requests (registered on the
+  // harness's handle when the harness is present): a query waiting to retry
+  // has no request in flight, so the network alone would read its backoff as
+  // quiet. The engine compares it with the requests held open on purpose.
+  const queries = vqa && typeof vqa.queryActivity === 'function' ? vqa.queryActivity() : null;
   const at = performance.now();
   if (vqa) vqa.probeSpans.push([started, at]);
-  return { why, mutations: vqa ? vqa.mutations : null, at };
+  return { why, mutations: vqa ? vqa.mutations : null, queries, at };
 }
 
 /**
@@ -193,9 +241,14 @@ export function perfCollect(input) {
       value: r4(counted.reduce((sum, entry) => sum + entry.value, 0)),
       window: { from: Math.round(span[0]), loadingCleared: Math.round(episodes[episodes.length - 1].goneAt), to: Math.round(span[1]) },
       episodes: episodes.length,
-      entries: counted.map((entry) => ({ value: r4(entry.value), at: Math.round(entry.startTime), sources: entry.sources })),
+      entries: counted.map((entry) => ({ value: r4(entry.value), at: Math.round(entry.startTime), sources: entry.sources, moves: entry.moves })),
       excludedForInput: entries.length - counted.length,
       outsideWindow: vqa.shifts.length - entries.length,
+      // Diagnostic: the data responses that landed in the window, in order —
+      // a shift right after one is the page re-laying out for late data.
+      responses: (vqa.responses || []).filter((r) => r.responseEnd >= span[0] && r.responseEnd <= span[1])
+        .sort((a, b) => a.responseEnd - b.responseEnd).slice(0, 24)
+        .map((r) => ({ path: r.path, at: Math.round(r.responseEnd) })),
     };
   };
   const cls = transition(0, input.settledAt, 'no loading presentation was observed while the page loaded, so there was no loading-to-content transition');
@@ -247,6 +300,11 @@ export function perfCollect(input) {
       totalMs: Math.round(tasks.reduce((sum, task) => sum + task.duration, 0)),
       maxMs: Math.round(tasks.reduce((max, task) => Math.max(max, task.duration), 0)),
       window: { from: Math.round(from), to: Math.round(input.confirmedAt) },
+      // Diagnostic: the long animation frames overlapping the window, with
+      // what ran in them (scripts by entry point; style and layout) — the
+      // product's script, its rendering, or neither (unattributed time).
+      frames: (vqa.frames || []).filter((f) => f.startTime + f.duration >= from && f.startTime <= input.confirmedAt).slice(0, 8)
+        .map((f) => ({ at: Math.round(f.startTime), ms: Math.round(f.duration), blockingMs: Math.round(f.blockingDuration), styleAndLayoutMs: Math.round(f.styleAndLayoutMs), scripts: f.scripts })),
     };
   }
 

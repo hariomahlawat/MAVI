@@ -1,16 +1,18 @@
 # MAVI UI/UX Design Specification
 
-**Version:** 2.1 (capability-interface amendment, 2026-10-12; v2.0 remains the Stage 3.5 architecture freeze)
+**Version:** 2.2 (visual-QA observability amendment, 2026-10-14; 2.1 capability-interface amendment, 2026-10-12; v2.0 remains the Stage 3.5 architecture freeze)
 **Status:** Adopted. Normative for all frontend work. Stage 3.5 closed on 2026-10-12 (PR #209 + closure PR #210, `main@1468286d`); full conformance (§34 items 1–17) is the normal frontend baseline. The Stage 3.5 staged-conformance rule §34.2 has expired, and the UI-1 → UI-5 transitional clause (§34.1) is closed.
 **Design baseline (v1.0):** `main@b99ce26f041b3fff25094b8a5ac6a84f7305fc87`
 **Audit baseline (v2.0):** `main@98e5cd3f3ae8ca636ffbe2115c6b74b4ebcb2b16` (Stage 3 closed; UI-1 → UI-5 and Scene Analytics Slices 0–7 merged)
 **Scope of authority:** the MAVI operator UI (`src/web/mavi-web`).
-**Decision record:** `docs/decisions/ADR-012-operator-interface-design-architecture.md` accepts the architecture this document specifies; its **Amendment 2026-10-07 (Stage 3.5)** accepts v2.0 and its **Amendment 2026-10-12 (Capability query interfaces)** accepts the v2.1 Ask MAVI/Advanced Search boundary. The ADR records the decisions and trade-offs; this document is the normative detail.
+**Decision record:** `docs/decisions/ADR-012-operator-interface-design-architecture.md` accepts the architecture this document specifies; its **Amendment 2026-10-07 (Stage 3.5)** accepts v2.0 and its **Amendment 2026-10-12 (Capability query interfaces)** accepts the v2.1 Ask MAVI/Advanced Search boundary; its **Amendment 2026-10-14 (Visual-QA harness observability)** accepts v2.2's narrow §26 exception. The ADR records the decisions and trade-offs; this document is the normative detail.
 **Programme record:** the Stage 3.5 audit, decisions and slice sequence are in `docs/superpowers/plans/2026-10-07-stage3-5-ui-ux-professionalisation.md`; the exit gate is `docs/reviews/2026-10-07-stage3-5-ui-ux-professionalisation-acceptance.md`.
 
 **What changed in 2.0.** Version 1.0 froze the architecture (archetypes, tokens, colour roles, state taxonomy, accessibility, visual QA) and the UI-1 → UI-5 programme that built it. Every surface now sits on that architecture, and the Stage 3.5 audit of the real application found that the architecture holds but the *product quality* on top of it does not yet: containment that reads as empty frames, a primary-action accent repeated on every row, four different placements of the same "unavailable" state, drawers that move no focus, native confirms still in use, responsive behaviour defined only at desktop snapshots, and a visual-QA method with no automated layout assertions beyond overflow and overlap. Version 2.0 therefore adds a quality direction (§2), the **product craftsmanship standard** (§36), the **edge-state and progressive-disclosure catalogue** (§37), **performance as UX** (§38), explicit **support tiers** replacing the v1.0 viewport table (§25), a revised **visual-regression strategy** (§26), a WCAG 2.2 AA target with harness-asserted obligations (§23), amended archetype, colour, state, shell, interaction, table, search, inspector and component rules where the audit found them insufficient (each marked *Amended in v2.0*), a conformance definition (§34) under which a surface is not complete merely because its functional tests pass, a staged-conformance rule for the programme that implements v2.0 (§34.2), and the programme pointer (§39). The UI-1 → UI-5 roadmap (§33) and its transitional clause (§34.1) are marked **Historical**, the mobile deferral (§31) is clarified, and v1.0 text that is no longer normative is kept rather than rewritten out of the record.
 
 **What changed in 2.1.** The capability roadmap now distinguishes the expert/evidence query builder from the future ordinary-language operator surface. §17 freezes **Advanced Search** as the existing precise, reproducible query builder and **Ask MAVI** as a separate future top-level Investigation surface. Ask MAVI translates an operator question into the Stage-8 whitelisted structured query/aggregation contract; factual counts, rows and charts come only from deterministic query results, never from language-model generation. §29 records Face Intelligence (Stage 5A), Structured Intelligence Query (Stage 8) and Ask MAVI (Stage 9) as future capability integrations. No existing Stage-3.5 surface or component is redesigned by v2.1.
+
+**What changed in 2.2.** One narrow amendment to §26: the visual-QA harness may read a harness-only passive observability hook, under four conditions stated there, so that it can tell a query waiting out a retry's backoff from a settled page. No surface, component, token or budget changes.
 
 Status markers used throughout:
 
@@ -743,6 +745,17 @@ Centralised in shared formatters. Per ADR-004, the browser or operating-system t
 - bright footage, dark footage, letterboxed and pillarboxed sources, and overlay visibility over each.
 
 **Method:** a scripted browser pass against the real application with intercepted API fixtures. The harness and its fixtures **MUST NOT require production code to be altered to make inspection easier**. Generated screenshots are working artefacts and **MUST NOT be committed**.
+
+**Amended in v2.2 — harness-only passive observability (2026-10-14, narrow).** The rule above stands: the harness MUST NOT require production code to be altered to make inspection easier. One exception is permitted, for observability the harness cannot obtain from outside the page — today, whether the query client is fetching or waiting out a retry's backoff, which has no request in flight and so reads as a settled page to a network-only view. Such a hook is permitted **only when all of the following hold**:
+
+1. it is **dormant in normal operation**: nothing is created, registered or subscribed unless the harness's own handle (`window.__vqa`) already exists before the application starts;
+2. it **exposes no payload or data**: counts and flags only — never a query key, a response, an identifier or a reference to the client;
+3. it **cannot alter rendering, query configuration or scheduling**: it reads, and has no write path back into the query client or the page;
+4. it is **activated only by the harness preinstalling its handle**, never by the application, a URL, a setting or a build flag.
+
+A contract test binds the four conditions (`src/web/mavi-web/src/app/harnessObservability.test.tsx`). This is not a production test API and MUST NOT be generalised into one; any further hook needs its own amendment.
+
+**Cross-reference — X3 request identity and admission (2026-10-15; no version change).** Under the performance gate's `forward` order the harness numbers the page's data requests as they are issued and admits them to the network in that order before transport (ADR-012 Decision 15). That is harness interception of the page — like the intercepted API fixtures above — not a production hook: it alters no production code and is part of the X3 measurement contract, bound by the conditions of Decision 15.
 
 **Automated assertions the harness SHOULD make:** no horizontal page overflow; no uncaught page errors; no element overlap in the checked states; and, on a surface that declares an archetype, the §4 geometry and scroll-ownership rules only a rendered page can settle.
 

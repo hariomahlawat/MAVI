@@ -1,7 +1,7 @@
 import type { UseInfiniteQueryResult, UseQueryResult } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../api/client';
-import { combineStates, type AsyncState } from './asyncState';
+import { combineStates, holdUntilSettled, type AsyncState } from './asyncState';
 import { describeError, fromInfiniteQuery, fromQuery } from './fromQuery';
 
 /**
@@ -107,5 +107,18 @@ describe('describeError', () => {
     expect(describeError(new ApiError({ status: 503, code: 'store_down', detail: 'Store unavailable.' }), 'Videos could not be loaded.'))
       .toBe('Videos could not be loaded. Store unavailable. (store_down)');
     expect(describeError(new Error('network'), 'Videos could not be loaded.')).toBe('Videos could not be loaded.');
+  });
+});
+
+describe('holdUntilSettled (§38: a region is drawn once, in its final layout)', () => {
+  const ready: AsyncState<number> = { kind: 'ready', data: 1 };
+  it('keeps ready content loading until its supporting answers settle', () => {
+    expect(holdUntilSettled(ready, false)).toEqual({ kind: 'loading' });
+    expect(holdUntilSettled(ready, true)).toBe(ready);
+  });
+  it('never hides a failure or invents content', () => {
+    const failed: AsyncState<number> = { kind: 'unavailable', error: new Error('x') };
+    expect(holdUntilSettled(failed, false)).toBe(failed);
+    expect(holdUntilSettled({ kind: 'loading' }, true)).toEqual({ kind: 'loading' });
   });
 });

@@ -9,7 +9,7 @@ import { describe, it } from 'node:test';
 import { PERFORMANCE_BUDGETS } from '../performance-budgets.mjs';
 import { DECISIONS, deriveBudgets } from '../performance-calibrate.mjs';
 import {
-  caseKey, clsUnits, evaluatePerformance, longTaskLimit, navigationLimit, ordinaryPlan, preparationLimit,
+  caseKey, clsUnits, evaluatePerformance, GATE_REQUEST_ADMISSION, GATE_RESPONSE_ORDER, longTaskLimit, navigationLimit, ordinaryPlan, preparationLimit,
   registerBlock, registerDisagreements, REGISTER_MARKERS, validateBudgets,
 } from '../performance.mjs';
 
@@ -51,8 +51,8 @@ function sweepCase({ state = 'search', viewport = '1366x768', tier = 'A', kind =
 function ltCase({ state = 'search-inspector-opened', viewport = '1366x768', tier = 'A', interaction = 'select a result to inspect it', count = 0, maxMs = 0, status = 'measured' } = {}) {
   return { state, viewport, tier, kind: 'anchor', surface: 'search', valid: true, reached: true, perf: { longTasks: { status, interaction, count, maxMs, totalMs: count * maxMs } } };
 }
-const sweepOf = (cases, extra = {}) => ({ head: 'h', fullSweep: true, cases, ...extra });
-const lanesOf = (cases, extra = {}) => ({ head: 'h', longTaskLane: true, workers: 1, cases, ...extra });
+const sweepOf = (cases, extra = {}) => ({ head: 'h', fullSweep: true, responseOrder: 'forward', requestAdmission: 'page-identity+cdp-pre-transport', cases, ...extra });
+const lanesOf = (cases, extra = {}) => ({ head: 'h', longTaskLane: true, workers: 1, responseOrder: 'forward', requestAdmission: 'page-identity+cdp-pre-transport', cases, ...extra });
 const judge = ({ sweep = [sweepCase()], lt = [ltCase()], sweepExtra, ltExtra, plan = null, budgets = BUDGETS } = {}) =>
   evaluatePerformance({ sweep: sweepOf(sweep, sweepExtra), longTasks: lanesOf(lt, ltExtra), plan, budgets });
 const rules = (v) => v.findings.map((f) => f.rule);
@@ -234,6 +234,22 @@ describe('the performance gate (X3)', () => {
     assert.ok(judge({ ltExtra: { workers: 3 } }).faults.some((f) => f.includes('measured on 3 lanes')));
     assert.ok(judge({ ltExtra: { longTaskLane: false } }).faults.some((f) => f.includes('not the long-task lane')));
     assert.ok(judge({ ltExtra: { head: 'other' } }).faults.some((f) => f.includes('different heads')));
+  });
+
+  it('judges only a forward run ordered by page-issued identity with pre-transport admission, free of harness faults', () => {
+    assert.equal(GATE_RESPONSE_ORDER, 'forward');
+    assert.equal(GATE_REQUEST_ADMISSION, 'page-identity+cdp-pre-transport');
+    assert.ok(judge({ sweepExtra: { responseOrder: 'natural' } }).faults.some((f) => f.includes('the sweep answered its data requests in natural order')));
+    assert.ok(judge({ ltExtra: { responseOrder: undefined } }).faults.some((f) => f.includes('the long-task run answered its data requests in natural order')));
+    // `reverse` is no order the gate knows (rejected: generic reverse ordering).
+    assert.ok(judge({ sweepExtra: { responseOrder: 'reverse' } }).faults.some((f) => f.includes('in reverse order')));
+    // Forward without admission is server-arrival order: not evidence.
+    assert.ok(judge({ sweepExtra: { requestAdmission: undefined } }).faults.some((f) => f.includes('the sweep was not ordered by page-issued identity with pre-transport admission')));
+    assert.ok(judge({ ltExtra: { requestAdmission: 'none' } }).faults.some((f) => f.includes('the long-task run was not ordered by page-issued identity')));
+    // A missing or duplicate identity is a harness fault in the run: the run is not evidence.
+    assert.ok(judge({ sweepExtra: { harnessErrors: ['videos @ 1366x768: duplicate request identity d.3 (GET /api/videos) in epoch 4: refused before the fixtures'] } }).faults.some((f) => f.includes('the sweep reported a harness error: videos @ 1366x768: duplicate request identity')));
+    assert.ok(judge({ ltExtra: { harnessErrors: ['x @ 1366x768: admission: a schedulable Fetch request without a page-issued identity: GET /api/x (failed, not admitted)'] } }).faults.some((f) => f.includes('without a page-issued identity')));
+    assert.deepEqual(judge().faults, []);
   });
 
   it('14. faults a planned case missing from the sweep or the long-task run, and an unplanned one present', () => {

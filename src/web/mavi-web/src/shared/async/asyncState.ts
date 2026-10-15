@@ -42,3 +42,21 @@ export function combineStates<A, B>(a: AsyncState<A>, b: AsyncState<B>): AsyncSt
 export function hasFailure<T>(state: AsyncState<T>): boolean {
   return state.kind === 'unavailable' || (state.kind === 'ready' && state.degraded !== undefined);
 }
+
+/**
+ * A region is content only once every answer that decides its final layout
+ * has arrived (§38, X3 determinism review 2026-10-13). A Ledger's rows are
+ * laid out by more than their own request: the display timezone formats their
+ * timestamps, camera metadata names their cameras, a row's run lookup adds its
+ * progress or failure detail. Drawn before those answers, the rows are drawn
+ * twice — first in a provisional layout (an explicit-UTC timestamp, a camera
+ * identifier, a status line without its run) and then in the final one — and
+ * the second drawing moves every row beneath. Held in its loading presentation
+ * until the supporting answers have *settled* (answered or failed), the region
+ * goes from loading to its final layout once, whatever order the answers
+ * arrive in. A supporting failure is not the region's: it settles the hold
+ * and is reported by its own notice, as before.
+ */
+export function holdUntilSettled<T>(state: AsyncState<T>, supportingSettled: boolean): AsyncState<T> {
+  return state.kind === 'ready' && !supportingSettled ? { kind: 'loading' } : state;
+}

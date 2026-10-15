@@ -121,12 +121,51 @@ describe('deterministic settling', () => {
     lane.server.releaseHung();
   });
 
+  // Owner ruling 4: a failed request waiting out its retry's backoff has no
+  // request in flight. The page's own query activity (as MAVI registers it on
+  // the harness's handle) says it is still fetching, and settling waits.
+  const RETRY_PAGE = `
+    <div id="region"><p>Ready shell</p></div>
+    <script>
+      let fetching = 1;
+      window.__vqa.queryActivity = () => ({ fetching, mutating: 0 });
+      fetch('/api/first-attempt').then((r) => { if (!r.ok) throw new Error('first attempt fails'); })
+        .catch(() => new Promise((resolve) => setTimeout(resolve, 900))) // the backoff: nothing in flight
+        .then(() => fetch('/api/thing'))
+        .then(() => { document.getElementById('region').insertAdjacentHTML('beforeend', '<p>Answered after the retry</p>'); fetching = 0; window.__answeredAt = performance.now(); });
+    </script>`;
+
+  it('does not settle while a query waits out its retry, though no request is in flight', async () => {
+    await lane.page(RETRY_PAGE, { api: { '/api/first-attempt': 'unavailable', '/api/thing': { ok: true } } });
+    const result = await settle(lane, {}, { timeoutMs: 8000 });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.match(await lane.browser.evaluate('document.body.innerText'), /Answered after the retry/);
+    // On the page's own clock (the backoff began while the page loaded, before
+    // settle() was called, so the harness's elapsed time says nothing): the
+    // probe that confirmed the state came after the retry answered.
+    const answeredAt = await lane.browser.evaluate('window.__answeredAt');
+    assert.ok(typeof result.confirmedAt === 'number' && result.confirmedAt >= answeredAt, `confirmed at ${result.confirmedAt}, before the retry answered at ${answeredAt}`);
+  });
+
+  it('settles a held loading state although its held query still counts as fetching', async () => {
+    await lane.page(`<div class="skeleton"><div style="height:40px">.</div></div>
+      <script>window.__vqa.queryActivity = () => ({ fetching: 1, mutating: 0 }); fetch('/api/thing');</script>`, { api: { '/api/thing': 'hang' } });
+    const result = await settle(lane, { holds: 'loading' }, { timeoutMs: 8000 });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    lane.server.releaseHung();
+  });
+
   it('waits out a running transition instead of capturing it mid-way', async () => {
     await lane.page(`<div id="box" style="width:10px;height:10px;transition:width 600ms linear"></div>
-      <script>requestAnimationFrame(() => requestAnimationFrame(() => { document.getElementById('box').style.width = '300px'; }));</script>`);
+      <script>document.getElementById('box').addEventListener('transitionend', () => { window.__endedAt = performance.now(); });
+        requestAnimationFrame(() => requestAnimationFrame(() => { document.getElementById('box').style.width = '300px'; }));</script>`);
     const result = await settle(lane, {}, { timeoutMs: 5000 });
     assert.equal(result.ok, true, JSON.stringify(result));
-    assert.ok(result.ms >= 400, `settled after ${result.ms}ms, before the 600ms transition ended`);
+    // On the page's clock: the confirming probe came after the transition ended
+    // (the harness's elapsed time from settle() is not that: the transition can
+    // start before settle() is called on a loaded host).
+    const endedAt = await lane.browser.evaluate('window.__endedAt');
+    assert.ok(typeof endedAt === 'number' && result.confirmedAt >= endedAt, `confirmed at ${result.confirmedAt}, before the transition ended at ${endedAt}`);
     assert.equal(await lane.browser.evaluate("document.getElementById('box').getBoundingClientRect().width"), 300);
   });
 });

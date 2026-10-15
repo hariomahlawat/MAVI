@@ -303,7 +303,12 @@ export default function EvidencePlayer({
       {notices}
 
       <EvidenceTimeline
-        durationMs={durationMs}
+        // The record's declared duration lays the timeline out (owner ruling 5,
+        // §38): the evidence's offsets are the record's, and laid out on the
+        // element's duration the rail re-packed — and moved what is below it —
+        // when the media's metadata landed. The element's own duration is used
+        // only where the record declares none.
+        durationMs={declaredDurationMs > 0 ? declaredDurationMs : durationMs}
         currentOffsetMs={currentOffsetMs}
         intervals={intervals}
         markers={markers}
