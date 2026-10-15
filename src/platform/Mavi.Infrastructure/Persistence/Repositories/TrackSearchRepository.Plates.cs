@@ -364,10 +364,19 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
     /// <b>Pushed Track predicates (cold review P1-2).</b> The ordinary Track-level filters are repeated here in
     /// exactly the base chain's form (<see cref="AnalyticsScopeQuery.BaseCandidates"/>), so a batch is not spent on
     /// Tracks the base chain certainly rejects: <c>toUtc</c> on the denormalised start (equal to the Track's by
-    /// ADR-018), the others on <c>tracks</c>, joined only when one of them is present. Each is the base chain's own
-    /// comparison on a NOT NULL column (or, for the subclass, an equality that is false on NULL in both), so it can
-    /// only remove a Track the base chain removes. The base chain still applies every predicate to every candidate
-    /// afterwards; this is an accelerator, never the semantic authority.
+    /// ADR-018) inside the text match, the others as an EXISTS on <c>tracks</c>, issued only when one of them is
+    /// present. Each is the base chain's own comparison on a NOT NULL column (or, for the subclass, an equality that
+    /// is false on NULL in both), so it can only remove a Track the base chain removes. The base chain still applies
+    /// every predicate to every candidate afterwards; this is an accelerator, never the semantic authority.
+    /// </para>
+    /// <para>
+    /// <b>Shape of the Track-filtered statement.</b> The matched candidates are sorted in page order first (a
+    /// subquery fenced by <c>OFFSET 0</c>), and the EXISTS is applied to them in that order under the outer
+    /// <c>ORDER BY … LIMIT</c>, so the planner can stop probing <c>tracks</c> once the batch is full: a filter that
+    /// keeps most matches costs about a batch of primary-key probes, not a join of every match (a plain join of
+    /// all 62 k matches took 0.8–0.9 s on the skewed corpus for <c>minimumConfidence</c> 0.8). A filter that rejects
+    /// nearly every match still examines every match: its cost is bounded by the matching texts, not by the page
+    /// (ADR-018, recorded).
     /// </para>
     /// </remarks>
     private Task<PlateTextCandidate[]> CandidateBatchAsync(
@@ -425,33 +434,60 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
             trackBounds.Append(CultureInfo.InvariantCulture, $" AND t.object_class = {Parameter(objectClass.ToString())}");
 
         var match = exact ? "x.normalised_text = {0}" : "x.normalised_text LIKE {0} ESCAPE ''";
-        var sql = CandidateSql
+        var sql = (trackBounds.Length > 0 ? TrackFilteredCandidateSql : CandidateSql)
             .Replace("<match>", match, StringComparison.Ordinal)
             .Replace("<text-bounds>", textBounds.ToString(), StringComparison.Ordinal)
-            .Replace("<tracks>", trackBounds.Length > 0 ? "\n    JOIN tracks t ON t.id = m.track_id" : string.Empty, StringComparison.Ordinal)
             .Replace("<track-bounds>", trackBounds.ToString(), StringComparison.Ordinal);
         return db.Database
             .SqlQuery<PlateTextCandidate>(FormattableStringFactory.Create(sql, [.. arguments]))
             .ToArrayAsync(cancellationToken);
     }
 
-    /// <summary>
-    /// The candidate statement; <c>&lt;match&gt;</c>, <c>&lt;text-bounds&gt;</c>, <c>&lt;tracks&gt;</c> and
-    /// <c>&lt;track-bounds&gt;</c> are replaced by fixed fragments whose values are all bound parameters.
-    /// </summary>
-    private static readonly string CandidateSql = $$"""
+    /// <summary>The materialised text match; shared by both candidate statements.</summary>
+    private const string MatchedCandidates = """
         WITH matched AS MATERIALIZED (
             SELECT x.analysis_id, x.track_id, x.track_start_timestamp_utc
             FROM plate_track_texts x
             WHERE <match><text-bounds>)
-        SELECT m.track_id AS "{{nameof(PlateTextCandidate.TrackId)}}", m.track_start_timestamp_utc AS "{{nameof(PlateTextCandidate.TrackStartTimestampUtc)}}"
-        FROM matched m
-        JOIN plate_analyses a ON a.id = m.analysis_id<tracks>
+        """;
+
+    /// <summary>The visible analyses of the pinned identity in the eligible runs; shared by both candidate statements.</summary>
+    private const string VisibleAnalysisJoin = $$"""
+        JOIN plate_analyses a ON a.id = m.analysis_id
         WHERE a.identity_fingerprint = {1}
           AND a.status IN ('{{nameof(PlateAnalysisStatus.Completed)}}', '{{nameof(PlateAnalysisStatus.Superseded)}}')
           AND a.visibility_sequence IS NOT NULL AND a.visibility_sequence <= {2}
-          AND a.processing_run_id = ANY ({3})<track-bounds>
+          AND a.processing_run_id = ANY ({3})
+        """;
+
+    /// <summary>
+    /// The candidate statement without a Track-level filter; <c>&lt;match&gt;</c> and <c>&lt;text-bounds&gt;</c> are
+    /// replaced by fixed fragments whose values are all bound parameters.
+    /// </summary>
+    private static readonly string CandidateSql = $$"""
+        {{MatchedCandidates}}
+        SELECT m.track_id AS "{{nameof(PlateTextCandidate.TrackId)}}", m.track_start_timestamp_utc AS "{{nameof(PlateTextCandidate.TrackStartTimestampUtc)}}"
+        FROM matched m
+        {{VisibleAnalysisJoin}}
         ORDER BY m.track_start_timestamp_utc DESC, m.track_id DESC
+        LIMIT {4}
+        """;
+
+    /// <summary>
+    /// The candidate statement with Track-level filters: the same candidates in page order, then the base chain's
+    /// Track predicates (<c>&lt;track-bounds&gt;</c>) as an EXISTS probed in that order up to the batch.
+    /// </summary>
+    private static readonly string TrackFilteredCandidateSql = $$"""
+        {{MatchedCandidates}}
+        SELECT c.track_id AS "{{nameof(PlateTextCandidate.TrackId)}}", c.track_start_timestamp_utc AS "{{nameof(PlateTextCandidate.TrackStartTimestampUtc)}}"
+        FROM (
+            SELECT m.track_id, m.track_start_timestamp_utc
+            FROM matched m
+            {{VisibleAnalysisJoin}}
+            ORDER BY m.track_start_timestamp_utc DESC, m.track_id DESC
+            OFFSET 0) c
+        WHERE EXISTS (SELECT 1 FROM tracks t WHERE t.id = c.track_id<track-bounds>)
+        ORDER BY c.track_start_timestamp_utc DESC, c.track_id DESC
         LIMIT {4}
         """;
 
