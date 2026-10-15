@@ -512,7 +512,6 @@ SHARDED_JOBS = {
     ("quality-gate.yml", "guard-coverage"),
     ("quality-gate.yml", "qualification-tests"),
     ("quality-gate.yml", "visual-sweep"),
-    ("quality-gate.yml", "performance-reverse"),
     ("quality-gate.yml", "keyboard-journeys"),
     ("qualification-tooling-windows.yml", "qualification-tests"),
 }
@@ -547,25 +546,18 @@ def test_qualification_lanes_shard_by_test_and_never_vacuously() -> None:
         assert "@shard-tests.txt" in block and "set -euo pipefail" in block
 
 
-def test_the_reverse_order_lane_is_the_sweeps_shards_judged_whole() -> None:
-    """X3 determinism: the reverse-order lane is its own job (not a step of the
-    sweep, so neither shares the other's time budget), over the same shards of
-    the one plan as the sweep; `performance` judges it after it, requires every
-    shard (the same count), and fails closed: no step of it continues on error,
-    and its harness faults fail the job `quality` requires."""
-    import re
-
-    blocks = _job_blocks((_WORKFLOWS / "quality-gate.yml").read_text(encoding="utf-8"))
-    reverse, sweep, performance = blocks["performance-reverse"], blocks["visual-sweep"], blocks["performance"]
-    count = re.findall(r"SHARD_COUNT: '(\d+)'", sweep)
-    assert count and re.findall(r"SHARD_COUNT: '(\d+)'", reverse) == count
-    assert re.findall(r"SHARD_COUNT: '(\d+)'", performance) == count
-    assert "MAVI_VQA_RESPONSE_ORDER: reverse" in reverse and "--keep" in reverse
-    assert "MAVI_VQA_RESPONSE_ORDER: reverse" not in sweep
-    assert "      - performance-reverse\n" in performance
-    assert "needs.performance-reverse.result != 'cancelled' && needs.performance-reverse.result != 'skipped'" in performance
-    assert 'test "${#files[@]}" = "$SHARD_COUNT"' in performance
-    assert "--ordinary-lane --response-order reverse" in performance
+def test_the_performance_lanes_run_the_forward_admitted_order_and_no_reverse_lane() -> None:
+    """X3 determinism: the sweep and the long-task lane measure in `forward`
+    order (page-issued identity, pre-transport admission: admission.mjs), the
+    order performance.mjs judges; generic reverse ordering is not a method, so
+    there is no reverse lane, and the judge has no reverse path."""
+    workflow = (_WORKFLOWS / "quality-gate.yml").read_text(encoding="utf-8")
+    blocks = _job_blocks(workflow)
+    assert "MAVI_VQA_RESPONSE_ORDER: forward" in blocks["visual-sweep"]
+    assert "MAVI_VQA_RESPONSE_ORDER: forward" in blocks["performance-long-tasks"]
+    assert "performance-reverse" not in blocks and "performance-reverse" not in workflow
+    assert "MAVI_VQA_RESPONSE_ORDER: reverse" not in workflow
+    assert "--ordinary-lane" not in workflow and "--response-order" not in workflow
 
 
 def test_the_quality_aggregate_accounts_for_every_lane() -> None:
