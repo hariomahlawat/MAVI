@@ -351,15 +351,73 @@ Noted, not changed: a harness test process can take from about 15 s
 (unloaded) to several minutes (heavily loaded) to exit after its tests
 finish; the loops above ran with `--test-force-exit`.
 
-**Search long task (recorded, not in this round's scope).** In the same run,
-job `performance budgets` (115992758664) judged the long-task lane of
-`f622dbc7` (`results.json` head checked against `MAVI_EXPECTED_SOURCE_SHA`)
-and blocked on `search-field-errors-above|1366x768|anchor`, "submit an
-inverted time range with the rail scrolled to its foot": one long task,
-62 ms frame, 57 ms long task, a 53 ms `DIV#root.onsubmit` event listener;
-its class permits none. The `performance long tasks` job only collects, and
-passed. At `991a4aa1` (run 38571678485, job 115893340776) the same case was
-measured clean (0 long tasks; 413 interaction cases, none with a long task).
-Between the two code heads `VisualSearchPage.tsx` and `AppProviders.tsx`
-changed (`95fde4c6`, `45c4570c`); whether that or runner variance explains
-the 57 ms task is not established here.
+**Search long task: a variance observation, not a defect of the current
+head.** In the same run, job `performance budgets` (115992758664) judged the
+long-task lane of `f622dbc7` and blocked on
+`search-field-errors-above|1366x768|anchor` ("submit an inverted time range
+with the rail scrolled to its foot"): one 57 ms long task (a 53 ms
+`DIV#root.onsubmit` listener in a 62 ms frame), where its class permits none.
+It did not recur: the same case was measured clean at `991a4aa1` (run
+38571678485) and at `4eb0d96f` (run 38658137652: `performance long tasks` and
+`performance budgets` passed; the case 0 long tasks, 0 of 413 interaction
+cases with one). It is recorded as runner variance observed once; no Search
+product change was made.
+
+## Owner review of `4eb0d96f`, P1: burst membership by arrival time
+
+**Finding.** A `reverse` burst stayed open until its gather `setTimeout`
+callback ran. Under event-loop delay, a request processed after the burst's
+100 ms window, but before that callback, still joined the burst: membership
+depended on when the timer ran, not only on arrival times as the frozen rule
+says.
+
+**Fix (`7d1e0ead`, `tools/web-visual-qa/server.mjs`, `createResponseScheduler`).**
+Each request's arrival is read once, on submit. A request arriving
+`BURST_GATHER_MS` or more after the open burst's first releases that expired
+burst there and then, before opening its own burst, whether or not the gather
+timer has run. The gather timer only wakes a burst that no later request
+closes. A late or stale callback does nothing: it releases only while its
+burst is still the generation's open burst, runs only while its generation is
+live, and an early release clears it. `BURST_GATHER_MS`, the spacing, budgets
+and reverse semantics are unchanged; `server.scheduled()` remains a
+diagnostic.
+
+**Tests** (`scheduler.test.mjs`, on a virtual clock that can move time on
+without running due timers, run timers late, and run a cleared callback
+anyway):
+
+- *delayed-timer split*: the first request at 0 ms, the clock moved to 150 ms
+  with the gather timer unrun, the second request opens a new burst; the late
+  callback then runs and changes neither grouping, answers nor spacing, nor
+  the next generation;
+- *the 99/100 ms boundary with a late timer*: +99 joins, +100 opens the next
+  burst, with the gather timer 400 ms late;
+- *a reset with a stale callback pending*: no effect on the new generation;
+- *2000 seeded patterns of arrivals and late gather and pump timers*, against
+  an independent model of the rule: the model's grouping and answer times,
+  each request answered once, sends at least 120 ms apart, nothing pending.
+
+On the previous code (`4eb0d96f`) all four fail (the first three on the
+grouping: the late request joined the expired burst). After the fix all pass;
+removing the burst-identity check makes three of them fail again.
+
+**Effect on measured runs.** `forward`, the blocking gate's order, is
+unchanged. Under `reverse` the grouping now differs from the previous code
+only when a request is processed at or after its burst's window closed but
+before the gather callback ran: a delayed event loop, or a request handled in
+the same loop turn the timer falls due. Without such delay the timer has
+released the burst before any later request is handled, and grouping, order
+and timing are what they were. A loaded reverse run can therefore group a
+late request differently from before, now as the rule defines. No sweep was
+re-run here; the reverse lane runs in CI on the exact head
+(`performance-reverse`), which judges this behaviour.
+
+**Evidence at code head `7d1e0ead`** (this section is added by a later,
+documentation-only commit):
+
+| Check | Result |
+| --- | --- |
+| Scheduler virtual-clock tests | 17/17 (4 new; all 4 fail on `4eb0d96f`) |
+| Pinned-order browser tests (`forward`, `reverse`, artifact content), 30 runs beside 36 busy threads | 30/30 pass (90 reverse, 90 forward loads; 1 forward load arrived out of issue order and spread 110 ms; no reverse load split) |
+| Harness unit suite (`MAVI_VQA_TEST_GROUP=unit`, ffmpeg on PATH), 3 runs | 372/372 each (22 end-to-end skipped by group) |
+| `verify_repo` | PASSED |
