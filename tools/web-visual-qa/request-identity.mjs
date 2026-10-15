@@ -144,7 +144,7 @@ export function buildRequestTrace({ pageLog, admission = null, transport, server
   const issueRows = [...issued.values()].map((r) => ({ ...r, docOrdinal: doc(r.doc) })).sort((a, b) => a.docOrdinal - b.docOrdinal || a.seq - b.seq);
   const idOf = (order) => { const o = parseOrder(order); return o ? `${doc(o.docId)}.${o.seq}` : null; };
   const issue = issueRows.map((r) => ({ id: `${r.docOrdinal}.${r.seq}`, run: r.run, method: r.method, key: r.key, body: r.body, api: r.api }));
-  const serverRows = server.map((s) => ({ id: idOf(s.order), method: s.method, key: s.path, kind: s.kind, image: s.image ?? false, outcome: s.outcome, status: s.status ?? null, arrivedAt: s.arrivedAt, answeredAt: s.answeredAt ?? null }));
+  const serverRows = server.map((s) => ({ id: idOf(s.order), method: s.method, key: s.path, kind: s.kind, image: s.image ?? false, outcome: s.outcome, ...(s.currentEpochCookie !== undefined ? { currentEpochCookie: s.currentEpochCookie } : {}), status: s.status ?? null, arrivedAt: s.arrivedAt, answeredAt: s.answeredAt ?? null }));
   const answered = serverRows.filter((s) => s.id && s.answeredAt !== null).sort((a, b) => a.answeredAt - b.answeredAt);
   return {
     issue,

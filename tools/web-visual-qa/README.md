@@ -624,14 +624,20 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   - the browser holds every `/api/` request before connection-pool admission
     (CDP Fetch) and `admission.mjs` admits the numbered ones in issue order,
     the next only on the server's exact acknowledgement of the previous
-    identity or Chromium's report that it failed; images and video streams
-    continue at once, outside the order; any other unnumbered request, and a
-    duplicate identity at the server, is a harness fault;
-  - the fixture server answers them in that order, `RESPONSE_SPACING_MS`
-    apart; each case is one scheduler generation (a reset cancels the
-    previous one's timers and drops its queue), a document carries the epoch
-    it was served in (a cookie), and a request of a document the harness has
-    left is refused, so it cannot take the next case's sequenced answers.
+    identity or Chromium's report that it failed; the qualified artifact
+    image (`/api/artifacts/{id}/content`) and video streams continue at once,
+    outside the order; any other unnumbered request is a harness fault, and
+    a second document becoming current within one admission window is too;
+  - admission binds the fixture server to the case's document before its
+    first request is released; the server refuses any other document's
+    identity-bearing requests (a document the harness left, whatever epoch
+    cookie it sends) before any fixture state, recorded but not a fault, and
+    refuses a duplicate or out-of-order number of the bound document (a
+    fault);
+  - the fixture server answers the accepted ones in that order,
+    `RESPONSE_SPACING_MS` apart; each case is one scheduler generation (a
+    reset cancels the previous one's timers, drops its queue and clears the
+    binding), and the epoch cookie remains a redundant defence.
 
   Each case's `requestTrace` (diagnostic) keeps the page's issue order, the
   admission order, the browser's transport outcome, the server's arrival and

@@ -13,20 +13,24 @@
  *   onIdentity — never a count of arrivals), or Chromium has reported N
  *   failed or cancelled (Network.loadingFailed). The server then answers in
  *   arrival order with its spacing: the page's issue order.
- * - an image (`resourceType: Image`, positively identified) and a media
- *   stream (request-class.mjs) are continued at once, outside the order;
+ * - a qualified artifact image (`resourceType: Image` on
+ *   `/api/artifacts/{id}/content`, request-class.mjs) and a media stream are
+ *   continued at once, outside the order;
  * - any other request without an identity is a harness fault: it is failed,
  *   never admitted.
- * - a request of a document other than the current one is failed: work of a
- *   document the harness has left can never order the current one. The
- *   current document is the page's own (`window.__vqaRequestLog.docId`).
+ * - the current document is the page's own (`window.__vqaRequestLog.docId`);
+ *   before its first request is released the fixture server is bound to it
+ *   (server.bindDocument), and the server refuses identity-bearing traffic of
+ *   any other document before any fixture state — the final isolation
+ *   authority. A request of another document seen here is failed; a second
+ *   document becoming current within one window is a harness fault.
  *
  * Nothing waits on a timer to decide an order. A backstop timer only detects
  * and reports a harness fault (a released request that neither arrives nor
  * fails; a number the browser never reports), after which admission
  * continues in `seq` order so the case ends — and the case is invalid.
  */
-import { classifyRequest } from './request-class.mjs';
+import { classifyRequest, isQualifiedArtifactImage } from './request-class.mjs';
 import { ORDER_HEADER, parseOrder } from './request-identity.mjs';
 
 export const ADMISSION_METHOD = 'page-identity+cdp-pre-transport';
@@ -35,7 +39,7 @@ const PATTERNS = [{ urlPattern: '*/api/*', requestStage: 'Request' }];
 
 /**
  * @param {object} browser  cdp.mjs page handle
- * @param {object} server  server.mjs handle (origin, hasIdentity, onIdentity)
+ * @param {object} server  server.mjs handle (origin, bindDocument, unbindDocument, hasIdentity, onIdentity)
  * @param {{ backstopMs?: number }} [options]
  */
 export function createAdmission(browser, server, { backstopMs = ADMISSION_BACKSTOP_MS } = {}) {
@@ -46,7 +50,9 @@ export function createAdmission(browser, server, { backstopMs = ADMISSION_BACKST
   });
   const cont = (requestId) => browser.cdp('Fetch.continueRequest', { requestId });
   const fail = (requestId) => browser.cdp('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
-  const ack = (seq) => server.hasIdentity(`${s.docId}.${seq}`);
+  // The acknowledgement reads the run's own document, never the controller's
+  // current state (a stop during a wait leaves that null).
+  const ack = (st, seq) => server.hasIdentity(`${st.docId}.${seq}`);
 
   /** The page's own document identity (the authority), read from the page. */
   async function pageDocId() {
@@ -69,7 +75,7 @@ export function createAdmission(browser, server, { backstopMs = ADMISSION_BACKST
         const requestId = st.paused.get(seq); st.paused.delete(seq);
         try { await cont(requestId); } catch { /* cancelled while paused: Network.loadingFailed resolves it */ }
         // Exact acknowledgement: this identity at the server, or its failure.
-        if (!ack(seq) && !st.failed.has(seq)) {
+        if (!ack(st, seq) && !st.failed.has(seq)) {
           await new Promise((resolve) => {
             const started = Date.now();
             let off = () => {};
@@ -83,10 +89,10 @@ export function createAdmission(browser, server, { backstopMs = ADMISSION_BACKST
             function done() { off(); clearInterval(timer); if (st.waiting?.seq === seq) st.waiting = null; resolve(); }
             st.waiting = { seq, done };
             off = server.onIdentity((key) => { if (key === `${st.docId}.${seq}`) done(); });
-            if (ack(seq) || st.failed.has(seq)) done();
+            if (ack(st, seq) || st.failed.has(seq)) done();
           });
         }
-        st.released.push(st.failed.has(seq) && !ack(seq) ? `${seq}:failed` : String(seq));
+        st.released.push(st.failed.has(seq) && !ack(st, seq) ? `${seq}:failed` : String(seq));
         st.next += 1;
         st.lastProgress = Date.now();
       }
@@ -115,7 +121,9 @@ export function createAdmission(browser, server, { backstopMs = ADMISSION_BACKST
     if (kind !== 'schedulable') { st.bypassed.push(`${kind}:${where}`); cont(p.requestId).catch(() => {}); return; }
     const order = parseOrder(p.request.headers[ORDER_HEADER] ?? Object.entries(p.request.headers).find(([k]) => k.toLowerCase() === ORDER_HEADER)?.[1]);
     if (!order) {
-      if (p.resourceType === 'Image') {
+      // Only the qualified artifact image (an evidence crop in a fixed-size
+      // box: request-class.mjs) is delivered outside the order.
+      if (p.resourceType === 'Image' && isQualifiedArtifactImage(p.request.url, server.origin)) {
         st.bypassed.push(`image:${where}`);
         st.images.add(p.networkId);
         cont(p.requestId).catch(() => {});
@@ -134,13 +142,20 @@ export function createAdmission(browser, server, { backstopMs = ADMISSION_BACKST
       if (st.staleDocs.has(order.docId) || current !== order.docId) { st.staleDocs.add(order.docId); st.bypassed.push(`stale-document:${where}`); fail(p.requestId).catch(() => {}); return; }
     }
     if (order.docId !== st.docId) {
-      // A new current document: what the previous one still holds is failed.
       if (st.docId !== null) {
-        st.staleDocs.add(st.docId);
-        for (const id of st.paused.values()) fail(id).catch(() => {});
-        Object.assign(st, { paused: new Map(), failed: new Set(), next: 1 });
+        // One document per admission window: a second one becoming current is
+        // a harness fault, and none of the first one's sequencing state is
+        // carried over to it — its requests are failed.
+        st.faults.push(`admission: a second document (${order.docId}) became current within one admission window (after ${st.docId}); its requests were failed`);
+        st.staleDocs.add(order.docId);
+        st.bypassed.push(`second-document:${where}`);
+        fail(p.requestId).catch(() => {});
+        return;
       }
+      // The current document: the fixture server is bound to it before its
+      // first request is released (server.bindDocument) and refuses any other.
       st.docId = order.docId;
+      server.bindDocument(st.docId);
     }
     st.netSeq.set(p.networkId, order.seq);
     st.paused.set(order.seq, p.requestId);
@@ -171,6 +186,7 @@ export function createAdmission(browser, server, { backstopMs = ADMISSION_BACKST
     method: ADMISSION_METHOD,
     /** Begin admitting for a case (before its document is requested). */
     async start() {
+      server.unbindDocument();
       s = fresh();
       await browser.cdp('Fetch.enable', { patterns: PATTERNS });
     },
@@ -187,10 +203,11 @@ export function createAdmission(browser, server, { backstopMs = ADMISSION_BACKST
       // the browser's network layer, is given the time to be admitted.
       for (let waited = 0; (st.paused.size || st.waiting) && waited < 2000; waited += 20) await new Promise((r) => setTimeout(r, 20));
       s = null;
+      server.unbindDocument();
       if (st.paused.size) st.faults.push(`admission: ${st.paused.size} numbered request(s) were still held when the case ended (${[...st.paused.keys()].sort((a, b) => a - b).map((n) => `${st.docId}.${n}`).join(', ')})`);
       try { await browser.cdp('Fetch.disable'); } catch { /* the browser is closing */ }
       return { method: ADMISSION_METHOD, released: st.released, bypassed: st.bypassed, faults: st.faults };
     },
-    close() { clearInterval(watchdog); s = null; },
+    close() { clearInterval(watchdog); s = null; server.unbindDocument(); },
   };
 }

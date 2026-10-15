@@ -30,13 +30,14 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 const settleTicks = async (n = 10) => { for (let i = 0; i < n; i += 1) await tick(); };
 
 /** A browser that records what admission asks of it, and an acknowledging server. */
-function rig({ pageDocId = 'doc', backstopMs = 15_000 } = {}) {
+function rig({ pageDocId = 'doc', backstopMs = 15_000, continueDelayMs = 0 } = {}) {
+  const page = { docId: pageDocId };
   const handlers = new Map();
   const calls = [];
   const browser = {
-    cdp: async (method, params) => { calls.push([method, params?.requestId ?? null]); return {}; },
+    cdp: async (method, params) => { calls.push([method, params?.requestId ?? null]); if (continueDelayMs && method === 'Fetch.continueRequest') await new Promise((r) => setTimeout(r, continueDelayMs)); return {}; },
     onEvent: (method, fn) => { handlers.set(method, fn); return () => handlers.delete(method); },
-    evaluate: async () => pageDocId,
+    evaluate: async () => page.docId,
   };
   const identities = new Set(); const listeners = new Set();
   const server = {
@@ -44,6 +45,9 @@ function rig({ pageDocId = 'doc', backstopMs = 15_000 } = {}) {
     hasIdentity: (key) => identities.has(key),
     onIdentity: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
     arrive: (key) => { identities.add(key); for (const fn of listeners) fn(key); },
+    bound: null, bindings: [],
+    bindDocument(docId) { this.bound = docId; this.bindings.push(docId); },
+    unbindDocument() { this.bound = null; this.bindings.push(null); },
   };
   const admission = createAdmission(browser, server, { backstopMs });
   const emit = (method, params) => handlers.get(method)?.(params);
@@ -53,7 +57,7 @@ function rig({ pageDocId = 'doc', backstopMs = 15_000 } = {}) {
   });
   const continued = () => calls.filter(([m]) => m === 'Fetch.continueRequest').map(([, id]) => id);
   const failed = () => calls.filter(([m]) => m === 'Fetch.failRequest').map(([, id]) => id);
-  return { admission, server, emit, pause, continued, failed, close: () => admission.close() };
+  return { admission, server, page, emit, pause, continued, failed, close: () => admission.close() };
 }
 
 describe('X3 admission (pre-transport, page-issued identity)', unitBlock(), () => {
@@ -79,18 +83,19 @@ describe('X3 admission (pre-transport, page-issued identity)', unitBlock(), () =
     r.close();
   });
 
-  it('continues a positively identified image at once, outside the order; any other unnumbered schedulable request is a fault, failed and never admitted', async () => {
+  it('continues only the qualified artifact image at once, outside the order; an arbitrary API image, and any other unnumbered schedulable request, is a fault, failed and never admitted', async () => {
     const r = rig();
     await r.admission.start();
     r.pause('img', { path: '/api/artifacts/a/content', type: 'Image' });
+    r.pause('thumb', { path: '/api/videos/v1/thumbnail', type: 'Image' });
     r.pause('rogue', { path: '/api/items', type: 'Fetch' });
     r.pause('rogue-xhr', { path: '/api/items', type: 'XHR', method: 'POST' });
     r.pause('other', { path: '/api/items', type: 'Other' });
     await settleTicks();
     assert.deepEqual(r.continued(), ['img']);
-    assert.deepEqual(r.failed(), ['rogue', 'rogue-xhr', 'other']);
+    assert.deepEqual(r.failed(), ['thumb', 'rogue', 'rogue-xhr', 'other']);
     const summary = await r.admission.stop();
-    assert.equal(summary.faults.length, 3);
+    assert.equal(summary.faults.length, 4);
     assert.ok(summary.faults.every((f) => /without a page-issued identity/.test(f)), JSON.stringify(summary.faults));
     r.close();
   });
@@ -156,6 +161,58 @@ describe('X3 admission (pre-transport, page-issued identity)', unitBlock(), () =
     assert.match(summary.faults[0], /doc\.1 was released but neither reached the server nor failed/);
     r.close();
   });
+
+  it('binds the fixture server to the current document before releasing its first request, and unbinds it when the window ends', async () => {
+    const r = rig();
+    await r.admission.start();
+    r.pause('r1', { seq: 1 });
+    await settleTicks();
+    assert.equal(r.server.bound, 'doc');
+    assert.deepEqual(r.server.bindings, [null, 'doc'], 'unbound at start, bound to the page document');
+    assert.deepEqual(r.continued(), ['r1']);
+    r.server.arrive('doc.1');
+    await r.admission.stop();
+    assert.equal(r.server.bound, null);
+    r.close();
+  });
+
+  it('a stop() during an outstanding release or acknowledgement wait ends cleanly (no TypeError from the cleared state)', async () => {
+    const errors = [];
+    const onRejection = (error) => errors.push(error);
+    process.on('unhandledRejection', onRejection);
+    try {
+      // The browser is slow to confirm the release: stop() lands while the
+      // controller is still awaiting Fetch.continueRequest for doc.1.
+      const r = rig({ continueDelayMs: 100 });
+      await r.admission.start();
+      r.pause('r1', { seq: 1 });
+      await settleTicks();
+      assert.deepEqual(r.continued(), ['r1'], 'releasing doc.1');
+      const summary = await r.admission.stop();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.ok(summary);
+      assert.deepEqual(errors, []);
+      r.close();
+    } finally { process.off('unhandledRejection', onRejection); }
+  });
+
+  it('a second document becoming current within one admission window is a harness fault; nothing of the first carries over to it', async () => {
+    const r = rig({ pageDocId: 'a' });
+    await r.admission.start();
+    r.pause('a1', { seq: 1, doc: 'a' });
+    await settleTicks(20);
+    r.server.arrive('a.1');
+    r.page.docId = 'b';
+    r.pause('b1', { seq: 1, doc: 'b' });
+    await settleTicks(20);
+    assert.deepEqual(r.continued(), ['a1']);
+    assert.deepEqual(r.failed(), ['b1']);
+    assert.equal(r.server.bound, 'a', 'the server stays bound to the first document');
+    const summary = await r.admission.stop();
+    assert.equal(summary.faults.length, 1);
+    assert.match(summary.faults[0], /a second document \(b\) became current within one admission window/);
+    r.close();
+  });
 });
 
 /** A raw HTTP request to the fixture server (a transport the test controls). */
@@ -185,6 +242,7 @@ describe('X3 server: one arrival per identity; identity required under admission
     server.resetSequences();
     const cookie = 'vqa-epoch=' + /vqa-epoch=(\d+)/.exec((await new Promise((resolve) => httpRequest(server.origin + '/case', { agent: false }, (res) => { res.resume(); resolve(res.headers['set-cookie']?.[0] ?? ''); }).end())))?.[1];
     const id = (n) => ({ [ORDER_HEADER]: `d1.${n}.1`, cookie });
+    server.bindDocument('d1');
     assert.deepEqual(await raw(server.origin, '/api/seq', { headers: id(1) }), { status: 200, body: '{"n":1}' });
     assert.equal((await raw(server.origin, '/api/seq', { headers: id(1) })).status, 'refused');
     // The sequence did not advance on the duplicate: the next identity gets the second answer.
@@ -203,10 +261,66 @@ describe('X3 server: one arrival per identity; identity required under admission
     scenario = { '/api/items': { ok: 1 } };
     server.resetSequences();
     assert.equal((await raw(server.origin, '/api/items')).status, 'refused');
-    assert.equal((await raw(server.origin, '/api/items', { headers: { 'sec-fetch-dest': 'image' } })).status, 200);
+    scenario = { '/api/items': { ok: 1 }, '/api/artifacts': { ok: 'crop' } };
+    assert.equal((await raw(server.origin, '/api/artifacts/a1/content', { headers: { 'sec-fetch-dest': 'image' } })).status, 200);
     assert.equal(server.faults().length, 1);
     assert.match(server.faults()[0], /without a page-issued identity/);
     assert.deepEqual(server.scheduled(), [], 'the image was not ordered');
+  });
+
+  /** The current epoch's cookie, as the shared jar would send it. */
+  const epochCookie = async () => 'vqa-epoch=' + /vqa-epoch=(\d+)/.exec(await new Promise((resolve) => httpRequest(server.origin + '/case', { agent: false }, (res) => { res.resume(); resolve(res.headers['set-cookie']?.[0] ?? ''); }).end()))?.[1];
+
+  it('refuses an old document carrying the new epoch cookie before any fixture state: no sequence, mutation or scheduler slot consumed; recorded, not a fault', async () => {
+    scenario = { '/api/seq': { sequence: [{ n: 1 }, { n: 2 }] }, 'POST /api/act': { status: 201, body: { ok: true } }, '/api/state': { after: 'POST /api/act', before: { done: false }, then: { done: true } } };
+    server.resetSequences();
+    const cookie = await epochCookie();
+    server.bindDocument('cur');
+    // A document two cases old, its request still on its way, sends the
+    // shared jar's new epoch cookie: the cookie does not make it current.
+    assert.equal((await raw(server.origin, '/api/seq', { headers: { [ORDER_HEADER]: '1avsqzr7a3z5v.13.6', cookie } })).status, 'refused');
+    assert.equal((await raw(server.origin, '/api/act', { method: 'POST', headers: { [ORDER_HEADER]: '1avsqzr7a3z5v.14.7', cookie, 'content-type': 'application/json' }, body: '{}' })).status, 'refused');
+    const started = Date.now();
+    assert.deepEqual(await raw(server.origin, '/api/seq', { headers: { [ORDER_HEADER]: 'cur.1.1', cookie } }), { status: 200, body: '{"n":1}' }, 'the sequence was not consumed');
+    assert.ok(Date.now() - started < 100, 'the current request was answered at once: no scheduler slot was taken by the stale one');
+    assert.deepEqual(await raw(server.origin, '/api/state', { headers: { [ORDER_HEADER]: 'cur.2.1', cookie } }), { status: 200, body: '{"done":false}' }, 'the stale mutation did not flip state');
+    assert.deepEqual(server.requests().map((r) => `${r.method} ${r.path}`), ['GET /api/seq', 'GET /api/state']);
+    assert.deepEqual(server.scheduled().map((a) => a.label), ['/api/seq', '/api/state']);
+    assert.deepEqual(server.faults(), [], 'a correctly refused stale request is not a harness fault');
+    assert.deepEqual(server.traffic().filter((t) => t.order?.startsWith('1avsqzr7a3z5v.')).map((t) => [t.outcome, t.currentEpochCookie]), [['refused-other-document', true], ['refused-other-document', true]]);
+    assert.equal(server.hasIdentity('1avsqzr7a3z5v.13'), false, 'never acknowledged');
+  });
+
+  it('refuses identity-bearing traffic while no document is bound (outside an admission window)', async () => {
+    scenario = { '/api/items': { ok: 1 } };
+    server.resetSequences();
+    const cookie = await epochCookie();
+    assert.equal((await raw(server.origin, '/api/items', { headers: { [ORDER_HEADER]: 'x.1.1', cookie } })).status, 'refused');
+    assert.deepEqual(server.traffic().map((t) => t.outcome), ['refused-unbound-document']);
+    assert.deepEqual(server.faults(), []);
+  });
+
+  it('the bound document’s numbers fail closed out of order (1, 3, 2: 2 refused before any state), while a gap (1, 3, 4) is allowed', async () => {
+    scenario = { '/api/seq': { sequence: [{ n: 1 }, { n: 2 }, { n: 3 }] } };
+    server.resetSequences();
+    const cookie = await epochCookie();
+    server.bindDocument('cur');
+    const get = (seq) => raw(server.origin, '/api/seq', { headers: { [ORDER_HEADER]: `cur.${seq}.1`, cookie } });
+    assert.deepEqual(await get(1), { status: 200, body: '{"n":1}' });
+    assert.deepEqual(await get(3), { status: 200, body: '{"n":2}' }, 'a gap is valid: 2 was cancelled on its way');
+    assert.equal((await get(2)).status, 'refused');
+    assert.deepEqual(await get(4), { status: 200, body: '{"n":3}' }, 'nothing advanced on the refused one');
+    assert.equal(server.faults().length, 1);
+    assert.match(server.faults()[0], /out-of-order request identity cur\.2 .* after cur\.3/);
+    assert.equal(server.hasIdentity('cur.2'), false);
+  });
+
+  it('delivers only the qualified artifact image outside the order; an arbitrary API image fails closed', async () => {
+    scenario = { '/api/thumbs': { ok: 1 } };
+    server.resetSequences();
+    assert.equal((await raw(server.origin, '/api/thumbs/1', { headers: { 'sec-fetch-dest': 'image' } })).status, 'refused');
+    assert.equal(server.faults().length, 1);
+    assert.match(server.faults()[0], /without a page-issued identity/);
   });
 });
 

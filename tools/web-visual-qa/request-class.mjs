@@ -33,3 +33,21 @@ export function classifyRequest(method, href, documentOrigin) {
   if (/^\/api\/videos\/[^/]+\/content$/.test(url.pathname)) return 'media';
   return 'schedulable';
 }
+
+/**
+ * The one image class delivered outside the X3 response order: an artifact's
+ * content fetched by an `<img>` (`/api/artifacts/{id}/content`, same origin) —
+ * the evidence crops, which sit in fixed-size boxes, so when one arrives
+ * changes no layout (the CDP closure evidence: early vs late delivery changed
+ * nothing in 97 image-bearing cases). Admission (for an image request) and the
+ * fixture server (for a `Sec-Fetch-Dest: image` request) use this one rule;
+ * any other unnumbered image under `/api/` fails closed until it is qualified.
+ *
+ * @param {string} href
+ * @param {string} documentOrigin
+ */
+export function isQualifiedArtifactImage(href, documentOrigin) {
+  let url;
+  try { url = new URL(String(href), documentOrigin); } catch { return false; }
+  return url.origin === documentOrigin && /^\/api\/artifacts\/[^/]+\/content$/.test(url.pathname);
+}

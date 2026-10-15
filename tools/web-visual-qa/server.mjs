@@ -12,7 +12,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { basename, dirname, extname, join, normalize } from 'node:path';
 import { encodeTrajectory } from './msgpack.mjs';
-import { classifyRequest } from './request-class.mjs';
+import { classifyRequest, isQualifiedArtifactImage } from './request-class.mjs';
 import { ORDER_HEADER, parseOrder } from './request-identity.mjs';
 
 const TYPES = {
@@ -172,6 +172,9 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
   /** X3: the identities that have arrived in this epoch, and who is waiting to hear of one. */
   const identities = new Map();
   const identityListeners = new Set();
+  /** X3: the page document admission accepted as current (null: none), and its highest number seen. */
+  let boundDocument = null;
+  let highestSeq = 0;
   const faults = [];
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
@@ -222,7 +225,21 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         res.end();
       }
     };
-    if (responseOrder !== 'natural' && path.startsWith('/api/') && staleDocument(req)) { if (seen) seen.outcome = 'refused-stale-document'; res.destroy(); return; }
+    // Under admission the server is the final document-isolation authority:
+    // it is bound to the one page document admission accepted as current
+    // (bindDocument), and identity-bearing traffic of any other document — a
+    // document the harness left, whose requests can still be on their way and
+    // carry the shared cookie jar's new epoch — is refused here, before the
+    // fixtures, their sequence counters, the mutation state, the scheduler or
+    // the acknowledgement see it. Recorded (traffic), not a harness fault:
+    // leftover browser traffic is expected; it must only never count.
+    if (requireIdentity && order && kind === 'schedulable' && order.docId !== boundDocument) {
+      if (seen) { seen.outcome = boundDocument === null ? 'refused-unbound-document' : 'refused-other-document'; seen.currentEpochCookie = !staleDocument(req); }
+      res.destroy();
+      return;
+    }
+    // The epoch cookie (redundant under admission; the defence without it).
+    if (responseOrder !== 'natural' && path.startsWith('/api/') && staleDocument(req)) { if (seen) seen.outcome = 'refused-stale-epoch'; res.destroy(); return; }
     if (responseOrder !== 'natural' && kind === 'schedulable') {
       if (order) {
         // One arrival per identity and epoch. A second one (a transport
@@ -235,14 +252,26 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
           res.destroy();
           return;
         }
+        // The bound document's numbers arrive strictly increasing (gaps are
+        // requests cancelled or failed on the way): one arriving below the
+        // highest already seen is out of the page's issue order — refused
+        // before any state advances, and a harness fault.
+        if (requireIdentity && order.seq <= highestSeq) {
+          faults.push(`out-of-order request identity ${key} (${req.method} ${path}) after ${order.docId}.${highestSeq}: refused before the fixtures`);
+          if (seen) seen.outcome = 'refused-out-of-order';
+          res.destroy();
+          return;
+        }
+        highestSeq = Math.max(highestSeq, order.seq);
         identities.set(key, performance.now());
         for (const listener of identityListeners) listener(key);
         scheduler.submit(answer, () => { if (seen) seen.outcome = 'dropped-reset'; res.destroy(); }, path);
         return;
       }
-      // Images are delivered as they come, outside the order (an image never
-      // decides a layout here: every one sits in a box of its own size).
-      if (image) { answer(); return; }
+      // The qualified artifact image (request-class.mjs) is delivered as it
+      // comes, outside the order: an evidence crop sits in a box of its own
+      // size. Any other unnumbered image fails closed below.
+      if (image && isQualifiedArtifactImage(req.url ?? '/', ORIGIN_BASE)) { answer(); return; }
       if (requireIdentity) {
         faults.push(`a schedulable request without a page-issued identity reached the server: ${req.method} ${path}`);
         if (seen) seen.outcome = 'refused-unnumbered';
@@ -538,6 +567,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
          */
         resetSequences() {
           sequenceCounts.clear(); requests.length = 0; received.clear(); traffic.length = 0; identities.clear(); faults.length = 0;
+          boundDocument = null; highestSeq = 0;
           // A pinned order's answers still queued belong to the scenario being
           // reset (a previous document's poll, say): answered after the reset
           // they would consume the next case's sequenced fixtures, which a
@@ -563,6 +593,14 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
          * told of each one as it does. Never a count of arrivals.
          */
         hasIdentity: (key) => identities.has(key),
+        /**
+         * X3 admission binds the server to the page document it accepted as
+         * current, before that document's first request is released, and
+         * clears it at the end of the window (and at every reset).
+         */
+        bindDocument(docId) { if (boundDocument !== docId) { boundDocument = docId; highestSeq = 0; } },
+        unbindDocument() { boundDocument = null; highestSeq = 0; },
+        boundDocument: () => boundDocument,
         onIdentity(listener) { identityListeners.add(listener); return () => identityListeners.delete(listener); },
         /** Harness faults the server refused requests for since the last reset (duplicates, unnumbered). */
         faults: () => faults.slice(),

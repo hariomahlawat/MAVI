@@ -725,15 +725,16 @@ async function runCase(lane, c) {
       confirmedAt: afterPrepare?.confirmedAt ?? null, interaction: state.interaction ?? null,
     }))
     : { cls: notReached, clsPreparation: notReached, longTasks: notReached };
-  // X3 (diagnostic): the case's request trace — issue, admission, browser
-  // transport, server arrival and answer, page completion — read where its
-  // CLS was. Admission closes here: what follows measures nothing.
-  let requestTrace;
+  // X3 (diagnostic): the page's side of the case's request trace — its issue
+  // log and when it saw each response complete — read where its CLS was.
+  // Admission stays open until the case ends (the document's whole life in
+  // the case); the trace is completed then.
+  let tracePage = null;
   if (lane.admission) {
-    const pageLog = await browser.evaluate('window.__vqaRequestLog ? { docId: window.__vqaRequestLog.docId, log: window.__vqaRequestLog.log.slice() } : null').catch(() => null);
-    const page = await browser.evaluate(`performance.getEntriesByType('resource').filter((e) => e.name.includes('/api/')).map((e) => { const u = new URL(e.name); return [u.pathname + u.search, Math.round(e.responseEnd * 10) / 10]; }).sort((a, b) => a[1] - b[1])`).catch(() => null);
-    await closeAdmission();
-    requestTrace = buildRequestTrace({ pageLog, admission: admissionRuns.at(-1) ?? null, transport: browser.requestEvents(), server: lane.server.traffic(), page });
+    tracePage = {
+      pageLog: await browser.evaluate('window.__vqaRequestLog ? { docId: window.__vqaRequestLog.docId, log: window.__vqaRequestLog.log.slice() } : null').catch(() => null),
+      page: await browser.evaluate(`performance.getEntriesByType('resource').filter((e) => e.name.includes('/api/')).map((e) => { const u = new URL(e.name); return [u.pathname + u.search, Math.round(e.responseEnd * 10) / 10]; }).sort((a, b) => a[1] - b[1])`).catch(() => null),
+    };
   }
   // The platform fonts are read per text-bearing element: Chromium reports the
   // fonts of a node's own text, so the probe is the first element that holds
@@ -863,6 +864,13 @@ async function runCase(lane, c) {
   // document is gone (above); releasing them here, with this page alive,
   // would make it retry into the next case's scenario.
 
+  // The case ends: admission closes (the server is unbound), and the trace is
+  // completed — admission, browser transport, server arrival and answer.
+  let requestTrace;
+  if (lane.admission) {
+    await closeAdmission();
+    requestTrace = buildRequestTrace({ ...tracePage, admission: admissionRuns.at(-1) ?? null, transport: browser.requestEvents(), server: lane.server.traffic() });
+  }
   const result = {
     state: state.name, viewport: viewport.label, tier: viewport.tier, kind: viewport.kind, attempt: c.attempt, lane: lane.index,
     settled: { ok: loaded.ok, ms: loaded.ms, probes: loaded.probes, why: loaded.ok ? undefined : loaded.why },

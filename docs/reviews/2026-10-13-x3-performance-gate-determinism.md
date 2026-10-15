@@ -461,17 +461,31 @@ order, CLS varied in 0 of 23 cases, quiet and loaded.
   request at the CDP Fetch Request stage, before connection-pool admission.
   Numbered requests of the page's own document are admitted in `seq` order:
   N+1 only when the fixture server has acknowledged the exact identity N, or
-  Chromium has reported N failed or cancelled. Positively identified images
-  (`resourceType: Image`) and media streams continue at once, outside the
-  order (images sit in fixed-size boxes; early vs late delivery changed no
-  CLS, state, finding or signature in 97 of 97 image-bearing cases). Any other
-  unnumbered request is a harness fault and is failed; a request of a
-  document the harness left is failed.
-- *Server* (`server.mjs`). Every identity-bearing request goes through the
-  existing forward queue: one answer at a time, 120 ms from the previous
-  send. A duplicate `{epoch, identity}` is refused before the fixtures,
-  their sequence counters or mutation state see it, and is a harness fault;
-  under admission, an unnumbered non-image request is refused (a fault).
+  Chromium has reported N failed or cancelled. The qualified artifact image
+  (`resourceType: Image` on `/api/artifacts/{id}/content`, one predicate in
+  `request-class.mjs`) and media streams continue at once, outside the order
+  (the evidence crops sit in fixed-size boxes; early vs late delivery changed
+  no CLS, state, finding or signature in 97 of 97 image-bearing cases); any
+  other unnumbered request, an image included, is a harness fault and is
+  failed. One document per admission window: a second one becoming current
+  is a harness fault.
+- *Server-bound document authority* (`server.mjs`). Before the current
+  document's first request is released, admission binds the fixture server
+  to it; the binding is cleared when the window ends and at every reset. The
+  server refuses identity-bearing traffic of any other document — a document
+  the harness has left can still have requests on their way, carrying the
+  shared cookie jar's *new* epoch — before the fixtures, their sequence
+  counters, the mutation state, the scheduler or the acknowledgement see it.
+  Such a refusal is recorded (`requestTrace`), not a fault: leftover browser
+  traffic is expected; it must never count. The epoch cookie remains as a
+  redundant defence.
+- *Monotonic forward scheduler* (`server.mjs`). The bound document's numbers
+  must arrive strictly increasing (a gap is a request cancelled or failed on
+  its way); one arriving below the highest seen, and a duplicate
+  `{epoch, identity}`, is refused before any state advances and is a harness
+  fault. Every accepted request goes through the existing forward queue: one
+  answer at a time, 120 ms from the previous send. Under admission an
+  unnumbered request that is not the qualified image is refused (a fault).
 - *Judge* (`performance.mjs`). Only `forward` runs with
   `requestAdmission: page-identity+cdp-pre-transport` and no harness error
   are evidence. No timer decides an order: a backstop only reports a fault.
