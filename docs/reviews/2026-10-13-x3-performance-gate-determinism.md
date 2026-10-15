@@ -293,3 +293,73 @@ tests 359/359 three times; harness end-to-end 110/110; keyboard journeys 18/18;
 `src/vision/tests/test_runtime_metadata.py`,
 `tools/qualification/tests/test_s1_evidence.py` and
 `tools/ci/tests/test_quality_scope.py` 679/679; `verify_repo` PASSED.
+
+## Owner fix round: the reverse-burst test failure (CI run 38601805584)
+
+At `f622dbc7` (code head `dfb1f873`), GitHub's `visual harness unit` job
+failed one test, `perf.test.mjs:249` "answers one burst in the opposite order
+under `reverse`, a spacing apart, on every load": the page never showed
+`third,second,first` (`ms 8025`, 239 probes); the other 358 passed.
+
+**Root cause: the test's assumption, not the scheduler.** The frozen rule
+(`server.mjs`, `RESPONSE_ORDERS`; "Gate and harness" above) reverses each
+burst, a burst being the requests that *arrive* within `BURST_GATHER_MS`
+(100 ms) of its first. The test page issues its three requests together and
+assumed they always arrive as one burst. Under CPU load on this host
+(36 busy threads, Chromium CPU-throttled 20x, the previous head's code), 7 of
+25 loads failed exactly that way; in every one the three requests had reached
+the server more than 100 ms apart (spreads 0/29/207, 0/73/151, 0/24/114,
+0/162/336, 0/71/167, 0/0/124, 0/67/147 ms), every request was answered, and
+the order shown was the rule's for the bursts formed (`second,first,third`
+for two bursts, `first,second,third` for three). The 18 loads within 100 ms
+showed `third,second,first`. No request was stranded. The scheduler's
+grouping, order, spacing and generation handling were not changed.
+
+Two more assumptions of the same tests surfaced under load: the page's
+resource timing was used for the spacing (the server sends 120 ms apart; one
+loaded run's page saw the three land within 85 ms), and the `forward` test
+assumed arrival order equals issue order (one loaded run's requests arrived
+`third, first, second`).
+
+**Fix (`fd38826b`, harness only).** The scheduler records, per generation,
+each request's arrival, the release group it joined and when it was answered
+(a diagnostic; it decides nothing), exposed as `server.scheduled()`. The
+`forward`, `reverse` and artifact-content tests take the arrivals the server
+saw and assert what the rule owes for them: every request answered; sent in
+the owed order (bursts in arrival order, each reversed under `reverse`);
+consecutive sends at least `RESPONSE_SPACING_MS` apart, server side (to the
+millisecond of libuv's timer clock); and received by the page in that order.
+On the scheduler's virtual clock: the observed arrival spreads, the exact
+burst boundary (a request at +99 ms joins, at +100 ms opens the next burst),
+and 2000 seeded arrival patterns in both orders against an independent model
+of the rule, each request answered exactly once at the model's time with
+nothing left pending (a scheduler that fails to restart its pump fails it).
+No budget, tolerance, class, burst window or reverse semantics changed;
+measured ordering is unchanged, so no sweep was re-run.
+
+**Evidence at code head `fd38826b`** (this section is added by a later,
+documentation-only commit; a commit cannot name its own SHA):
+
+| Check | Result |
+| --- | --- |
+| Pinned-order browser tests (`forward`, `reverse`, artifact content), 60 runs beside 12 busy threads | 60/60 pass (180 reverse loads; arrival spreads at most 47 ms, so no split) |
+| Same, 30 runs beside 36 busy threads | 30/30 pass; 2 reverse loads split into two bursts (0/0/185, 0/1/134 ms), 1 forward load arrived `third, first, second`, each passed on the rule's order |
+| Scheduler virtual-clock tests | 13/13 |
+| Harness unit suite (`MAVI_VQA_TEST_GROUP=unit`, ffmpeg on PATH), 3 runs | 368/368 each (22 end-to-end skipped by group) |
+
+Noted, not changed: a harness test process can take from about 15 s
+(unloaded) to several minutes (heavily loaded) to exit after its tests
+finish; the loops above ran with `--test-force-exit`.
+
+**Search long task (recorded, not in this round's scope).** In the same run,
+job `performance budgets` (115992758664) judged the long-task lane of
+`f622dbc7` (`results.json` head checked against `MAVI_EXPECTED_SOURCE_SHA`)
+and blocked on `search-field-errors-above|1366x768|anchor`, "submit an
+inverted time range with the rail scrolled to its foot": one long task,
+62 ms frame, 57 ms long task, a 53 ms `DIV#root.onsubmit` event listener;
+its class permits none. The `performance long tasks` job only collects, and
+passed. At `991a4aa1` (run 38571678485, job 115893340776) the same case was
+measured clean (0 long tasks; 413 interaction cases, none with a long task).
+Between the two code heads `VisualSearchPage.tsx` and `AppProviders.tsx`
+changed (`95fde4c6`, `45c4570c`); whether that or runner variance explains
+the 57 ms task is not established here.
