@@ -194,9 +194,15 @@ def model_selection_history(repo: Path) -> History:
     """Exactly one ``git log --full-history --sparse --diff-merges=separate --root --raw --no-renames --no-abbrev -z``
     walk of ``docs/qualification/model-selection`` from HEAD, plus the HEAD tree of that directory. Requires full
     history (``git_history_state``)."""
+    return path_history(repo, MODEL_SELECTION_DIR.as_posix())
+
+
+def path_history(repo: Path, folder: str) -> History:
+    """The same single reachable-history walk for one repository path (a directory or a file), under the isolated
+    profile. ``model_selection_history`` is this walk of the model-selection directory; the Stage-4 plate harness uses
+    it for its committed freeze record (an add-only precondition, not an authority). Requires full history."""
     repo = Path(repo)
     git_history_state(repo)
-    folder = MODEL_SELECTION_DIR.as_posix()
     out = _git(repo, "log", "--full-history", "--sparse", "--diff-merges=separate", "--root", "--raw",
                "--no-renames", "--no-abbrev", "-z", "--format=@@%H", "HEAD", "--", folder)
     history = History()
