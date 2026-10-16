@@ -63,20 +63,28 @@ fixed at freeze.
 Field rules:
 - `methodCode` is present only for `method` candidates. Their `identity` is the **backbone** checkpoint.
 - A `mavi-baseline` identity is `{"repository": "MAVI", "revision": "<commit | UNKNOWN>"}` with no evidence and no claims.
-- **M3 only** (`methodRevision: msr-v1-m3`, computed class `reference-only`, reason class `technical`): a `BENCHMARK_BASELINE` entry carries
+- **M3 only** (`methodRevision: msr-v1-m3`). Every M3 ledger is a composition-group member and carries the frozen
+  block, identical in both group events (`../candidate-credibility.md` §4.4, README §14.3):
+  `"compositionUniverse": {"componentEvents": [{"eventId": "msr-…", "subTask": "T-…", "rankingLayer": "A | B", "k": 3,
+  "rankingGateIds": ["<sorted gate ids>"], "rankingRule": {"rule": "lexicographic-v1", "keys": [{"metric": "…",
+  "direction": "max | min"}]}}, {…the other event…}], "compositionGateIds": ["baseline", "<sorted gate ids>"],
+  "mpid": 0.02, "includePackageableBaselines": true}`. A revision of a STOPPED group adds
+  `"supersedes": {"eventId": "<stopped event>", "frozenLedgerSha256": "…", "stoppedSealSha256s": ["…"]}`.
+  A `BENCHMARK_BASELINE` entry (computed class `reference-only`, reason class `technical`; at most one per group) carries
   `"benchmarkBaseline": {"purpose": "…", "protocolSection": "…", "configurationSha256": "…", "adapterSha256": "…",
   "hostManifests": {"<target-profile-id>": [{"path": "…", "kind": "executable | runtime-library | data", "sha256": "…", "size": 1}]},
   "evaluationPermissions": [{"artefactKind": "executable | runtime-libraries | model-data", "sha256s": ["<sorted exact hashes>"],
   "decidedBy": "…", "decidedOn": "YYYY-MM-DD", "primarySourceSha256": "…"}],
-  "compositions": [{"compositionId": "…", "partnerEventId": "msr-…", "eligiblePartners": [{"candidateId": "…", "identitySha256": "<canonical SHA-256 of the partner's identity block>"}],
+  "compositions": [{"compositionId": "…", "partnerEventId": "<the other group event>",
+  "eligiblePartners": [{"candidateId": "…", "identitySha256": "<canonical SHA-256 of the partner's identity block>"}],
   "excludedPartners": [{"candidateId": "…", "identitySha256": "…", "reason": "…"}],
-  "partnerRankingRuleSha256": "…", "layerAGatesSha256": "…", "layerAGateIds": ["<sorted gate ids>"],
   "derivationRule": "highest-ranked-partner-passing-every-layer-a-gate",
-  "gateScope": "all-ordinary-compositions"}]}` (`listed-compositions` is disabled)
-  (`../candidate-credibility.md` §4.4). No other entry may carry it. `hostManifests` has one key per decision target
-  profile. One permission per artefact kind, covering exactly the manifest files of that kind (`model-data`: the pinned
-  identity files plus every `data` file). `eligiblePartners` and `excludedPartners` together are exactly the partner
-  event's shortlist. At least one composition is required.
+  "gateScope": "all-ordinary-compositions"}]}` (exactly one composition; `listed-compositions` is disabled).
+  No other entry may carry it. `hostManifests` has one key per decision target profile; each profile lists at least one
+  `executable`, every pinned identity file as `data`, and one kind per hash. One permission per artefact kind, covering
+  exactly the manifest files of that kind (`model-data`: the pinned identity files plus every `data` file).
+  `eligiblePartners` and `excludedPartners` together are exactly the partner event's shortlist. No shortlisted ordinary
+  candidate of either group event may pin a benchmark-only executable, model, data or identity file.
 - `derivation` is required when the publisher is `recognised-framework-maintainer`: `{"fromRepository", "fromRevision", "fromSha256", "conversionDocumentedBy": "<evidenceId>"}`.
 - `integrityConflict` is null or `{"at": "YYYY-MM-DD", "reason": "…"}`, for example retrieved bytes that differ from the published hash. From its date the candidate is `excluded-discovery`.
 - An `emerging` candidate is normally `REFERENCE_ONLY` with reason class `credibility`. Shortlisting it needs `emergingShortlistBasis` and a `reviewedBy` different from `decidedBy`.
@@ -177,43 +185,54 @@ The validator checks `candidate-credibility.md` §8:
 - the derived "strongest" outputs;
 - implementation eligibility;
 - under M3, the benchmark-only baseline rules and the mandatory block below (`../candidate-credibility.md` §8);
-- the outcome, by the unchanged M1 rules with every benchmark-only entity removed.
+- the outcome, by the unchanged M1 rules over the composition-derived rows, with every benchmark-only entity removed.
 
-**M3 only.** A benchmark-only row also carries `"baselineSealSha256s": {"<compositionId>": "<seal SHA-256>"}`, and the
-decision carries the mandatory block:
+**M3 only.** A benchmark-only row also carries `"baselineSealSha256s": {"<compositionId>": "<seal SHA-256>"}`; every
+ordinary row's `technicalGates` and `comparativeScore` are the composition-derived values; and each group event's
+decision carries the identical mandatory block (`../candidate-credibility.md` §8):
 
 ```json
-"benchmarkOnlyBaselines": {
-  "baselineSeals": [{"compositionId": "…", "sealSha256": "<canonical SHA-256 of the committed seal>", "status": "RESOLVED | STOPPED",
-                     "sealCommit": "<Git commit holding the seal bytes>"}],
-  "dExecutionStartedAt": "YYYY-MM-DDThh:mm:ssZ (no decision summary exists while any seal is STOPPED)",
-  "incumbent": "<ranked candidateId> | null",
-  "topK": ["<ranked candidateId>"], "componentFinalists": ["<ranked candidateId>"],
-  "compositionCandidates": [{"compositionId": "…",
+"compositionAuthority": {
+  "groupId": "<canonical SHA-256 of compositionUniverse>",
+  "anchorCommit": "<the anchor recorded by open_protected_d and a committed D manifest>",
+  "baselineSeals": [{"compositionId": "…", "sealSha256": "…", "status": "RESOLVED", "sealCommit": "<S0: first add of the seal>"}],
+  "dExecutionStartedAt": "YYYY-MM-DDThh:mm:ssZ",
+  "incumbent": "<compositionId of U> | null",
+  "baseline": {"compositionId": "<gate-only compositionId>", "compositionSha256": "<from the seal>", "dScore": 0.0,
+               "dResultSha256": "…"},
+  "topK": {"<eventId>": ["<derived top-K, rank order>"]},
+  "componentFinalists": {"<eventId>": ["<components of passing compositions, sorted>"]},
+  "compositionCandidates": [{"compositionId": "C-<candidate>--<candidate>",
                              "components": [{"eventId": "msr-…", "candidateId": "…", "identitySha256": "…"}],
-                             "gates": {"<gate-only compositionId>": "passed | failed"},
-                             "technicalGates": "passed | failed", "comparativeScore": 0.0,
+                             "gates": {"baseline": "passed | failed", "<other composition gate>": "passed | failed"},
+                             "dScore": 0.0, "technicalGates": "passed | failed", "comparativeScore": 0.0,
                              "dResultSha256": "…", "baselineSealSha256s": {"<gate-only compositionId>": "<seal SHA-256>"}}],
-  "rankedCompositions": ["<passing compositionId, non-increasing score>"],
-  "frontier": ["<passing compositionId or candidateId>"],
-  "strongestEvaluatedComposition": "<compositionId> | null"}
+  "rankedCompositions": ["<passing compositionId, non-increasing D-score>"],
+  "frontier": ["<ranked compositionId>"],
+  "strongestEvaluatedComposition": "<compositionId> | null",
+  "implementationComposition": "<ranked compositionId> | null"}
 ```
 
-## Layer-A result and baseline seal (M3 only)
+`compositionCandidates` lists exactly the sealed set U, and every derived field is recomputed by the validator.
 
-Committed canonical JSON beside the event's MSR files, before any protected D data is read, and never modified
-afterwards; the event record cites each seal on exactly one line `Baseline seal <compositionId> SHA-256: <hash>`. Build and verify them with `tools/qualification/model_selection/baseline_seal.py`
-(`layer_a_result_document`, `derive_baseline_seal`, `verify_baseline_seal`). Shape contracts:
-`tools/qualification/model_selection/schemas/mavi-model-selection-layer-a-result-v1.schema.json` and
-`…/mavi-model-selection-baseline-seal-v1.schema.json`.
+## Component rankings, baseline seal and D manifests (M3 only)
+
+Committed canonical JSON beside the event's MSR files, each in its own commit in the order ranking ≺ seal ≺ D manifest,
+never modified afterwards, and cited on exactly one record line (`Component ranking <event-id> SHA-256: <hash>`,
+`Baseline seal <compositionId> SHA-256: <hash>`). Build and verify them with `m3_universe.component_ranking_document`,
+`baseline_seal.derive_baseline_seal` and `m3_authority.open_protected_d` / `d_manifest_document` (README §14.3). Shape
+contracts: `tools/qualification/model_selection/schemas/mavi-model-selection-component-ranking-v1.schema.json`,
+`…-baseline-seal-v1.schema.json` and `…-d-manifest-v1.schema.json`.
 
 ```json
-{"schema": "mavi-model-selection-layer-a-result-v1", "eventId": "…", "compositionId": "…",
- "partnerEventId": "msr-…", "partnerFrozenLedgerSha256": "…", "layerAGatesSha256": "…", "layerAGateIds": ["…"],
- "partnerRankingRuleSha256": "…", "evidenceSha256": "<raw Layer-A evidence>",
- "results": [{"candidateId": "…", "identitySha256": "…", "gates": {"<gate id>": "passed | failed"},
-              "rankKey": ["<booleans, numbers or strings; lexicographic, lower ranks higher>"], "measurementSha256": "…"}]}
+{"schema": "mavi-model-selection-component-ranking-v1", "eventId": "…", "frozenLedgerSha256": "…",
+ "compositionUniverseSha256": "…", "rankingLayer": "A | B", "rankingGateIds": ["…"], "rankingRuleSha256": "…",
+ "evidenceSha256": "<raw layer evidence>",
+ "rows": [{"candidateId": "…", "identitySha256": "…", "gates": {"<gate id>": "passed | failed"},
+           "metrics": {"<metric of the frozen rule>": 0.0}, "measurementSha256": "…"}]}
 ```
+
+The rows are exactly the frozen shortlist; there is no rank key field, because the validator derives it.
 
 ```json
 {"schema": "mavi-model-selection-baseline-seal-v1", "status": "RESOLVED",
@@ -221,19 +240,23 @@ afterwards; the event record cites each seal on exactly one line `Baseline seal 
  "benchmarkComponentIdentitySha256": "…", "protocolSha256": "…", "frozenLedgerSha256": "…", "stage1RuleSha256": "…",
  "eligibleUniverseSha256": "…", "layerAGatesSha256": "…", "partnerRankingRuleSha256": "…",
  "gateScope": "all-ordinary-compositions", "partnerEventId": "…", "partnerFrozenLedgerSha256": "…",
- "layerAResultSha256": "…", "partnerCandidateId": "…", "partnerIdentitySha256": "…", "compositionSha256": "…",
+ "compositionUniverseSha256": "…", "componentRankingSha256s": {"<eventId>": "…", "<eventId>": "…"},
+ "partnerCandidateId": "…", "partnerIdentitySha256": "…", "compositionSha256": "…", "ordinaryCompositionsSha256": "…",
  "protectedDState": "NOT_STARTED", "recordedAt": "YYYY-MM-DDThh:mm:ssZ", "recordedBy": "…"}
 ```
 
-A protected-D manifest binding, committed in a commit after the seal's (`d_manifest_document`):
+A protected-D manifest, committed on a commit descending from the anchor (`d_manifest_document`):
 
 ```json
-{"schema": "mavi-model-selection-d-manifest-v1", "eventId": "…", "manifestId": "…", "resultSha256": "…",
- "baselineSeals": [{"compositionId": "…", "sealSha256": "…", "sealCommit": "<strict ancestor of this file's first commit>"}]}
+{"schema": "mavi-model-selection-d-manifest-v1", "eventId": "<the benchmark-only baseline's event>",
+ "manifestId": "RUN-1", "groupId": "…", "resultSha256": "…", "anchorCommit": "…", "ordinaryCompositionsSha256": "…",
+ "baselineSeals": [{"compositionId": "…", "sealSha256": "…", "sealCommit": "<S0>"}]}
 ```
 
-A STOPPED seal has the same common fields (`partnerFrozenLedgerSha256` and `layerAResultSha256` may be `null`),
-`"status": "STOPPED"`, `"protectedDAccessedAt"` (an instant for a `protected-d-accessed` stop, else `null`), `"stopReason"` (one of `no-partner-passed-layer-a`, `partner-event-missing`,
+A STOPPED seal has the same common fields (`partnerFrozenLedgerSha256` and a `componentRankingSha256s` value may be
+`null` when that input is absent), `"status": "STOPPED"`, `"protectedDAccessedAt"` (an instant for a
+`protected-d-accessed` stop, else `null`), `"stopReason"` (one of `no-partner-passed-layer-a`, `partner-event-missing`,
 `partner-event-inconsistent`, `partner-universe-inconsistent`, `identity-mismatch`, `resolution-ambiguous`,
-`protected-d-accessed`, `prerequisite-failed`), `"stopDetail"` and `"stopEvidenceSha256s"`, and no partner or composition
-field.
+`component-rank-ambiguous`, `component-ranking-inconsistent`, `protected-d-accessed`, `prerequisite-failed`),
+`"stopDetail"` and `"stopEvidenceSha256s"`, and no partner, composition or U field. A STOPPED group is terminal
+(README §14.3).
