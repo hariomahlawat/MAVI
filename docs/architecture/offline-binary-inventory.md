@@ -10,6 +10,7 @@ The JSON catalog is authoritative for automation. The generated `mavi-offline-bi
 | --- | --- | --- |
 | PostgreSQL | 18.x | exact patch + every file SHA-256 recorded by the staged PostgreSQL runtime-pack manifest |
 | pgvector | PostgreSQL-18-compatible approved build | exact version + every file SHA-256 recorded inside the PostgreSQL runtime-pack manifest |
+| pg_trgm (Stage 4 PR-4) | PostgreSQL 18 contrib, shipped with PostgreSQL itself | `share/extension/pg_trgm.control` and `lib/pg_trgm.dll` required at staging; version (`pgTrgmVersion`) and every file SHA-256 recorded inside the PostgreSQL runtime-pack manifest; no separate payload or licence (PostgreSQL licence) |
 | FFmpeg / ffprobe | 9.0.1 Windows x64 essentials build | pinned source archive SHA-256 + exact FFmpeg version + executable SHA-256 recorded by the staged FFmpeg pack manifest |
 | ASP.NET Core Hosting Bundle | 10.0.11 baseline; compatible 10.0 servicing line | observed installer file/product version + installer SHA-256 in the binary-kit manifest; installed ASP.NET Core 10/ANCM rechecked by Setup |
 | .NET SDK | 10.0.100 repository baseline | `global.json` baseline + observed installer file/product version + installer SHA-256 + post-install `dotnet --list-sdks` check |

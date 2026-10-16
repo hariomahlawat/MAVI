@@ -26,6 +26,7 @@ import { countByStatus } from '../videos/videoRows';
 import { attentionLookupIds, evaluateAttention } from './attention';
 import AttentionRegion from './AttentionRegion';
 
+/** The rows Recent tracks shows — and reserves (features.css `.overview-recent-frame`). */
 const RECENT_LIMIT = 8;
 
 /**
@@ -221,6 +222,11 @@ export default function OverviewPage() {
               title="Recent tracks"
               actions={<ButtonLink size="sm" to="/search">All results</ButtonLink>}
             >
+              {/* The panel keeps the skeleton's height (RECENT_LIMIT rows) in
+                  every state: an empty or short answer arriving under a
+                  stacked grid (Tier B) otherwise pulls the panel below it up
+                  by the difference (§38). */}
+              <div className="overview-recent-frame">
               <StateRegion
                 kind="column"
                 state={fromQuery(recent)}
@@ -259,6 +265,7 @@ export default function OverviewPage() {
                 </div>
                 )}
               </StateRegion>
+              </div>
             </Panel>
 
             <Panel title="Media by status">

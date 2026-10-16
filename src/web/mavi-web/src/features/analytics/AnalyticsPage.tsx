@@ -16,6 +16,7 @@ import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
 import { combineStates } from '../../shared/async/asyncState';
 import { fromQuery } from '../../shared/async/fromQuery';
+import { useLayoutHold } from '../../shared/async/layoutHold';
 import Panel from '../../shared/components/Panel';
 import { SHELL_QUERIES, useMediaQuery } from '../../shared/overlay/useMediaQuery';
 import StateRegion from '../../shared/async/StateRegion';
@@ -196,6 +197,29 @@ export default function AnalyticsPage() {
     && active.error instanceof ApiError
     && active.error.code === ANALYTICS_CAMERA_NOT_FOUND;
 
+  // The Workbench is drawn once per camera (§38, the shared layout hold): its
+  // window band and every figure state times in the display timezone, and its
+  // bands name the camera. Drawn before those answers, the bands re-wrap and
+  // the stage moves when they land. Until this camera's answer and the
+  // configuration have settled (answered or failed) the page is one loading
+  // presentation; once drawn, a later refresh updates its regions in place,
+  // and another camera on the same route is held again for its own answers.
+  // The scene keeps its own region in the stage (an unconfirmed answer says it
+  // is reading the scene, as designed).
+  const held = useLayoutHold(cameraId, cameraId ? [fromQuery(camera), fromQuery(systemConfig)] : []);
+  if (held) {
+    return (
+      <section className="page page--full page--workspace">
+        <ContextBar
+          surface="analytics"
+          object={isGuid(cameraId) ? { label: `Camera ${cameraId.toLowerCase().slice(0, 8)}…`, to: `/cameras/${cameraId}/scene` } : undefined}
+        />
+        <StateRegion kind="page" state={{ kind: 'loading' }} label="camera analytics" loadingLabel="Loading camera analytics…">
+          {() => null}
+        </StateRegion>
+      </section>
+    );
+  }
 
   return (
     // One `.page` surface like every routed surface (§4, D9): full width, and a

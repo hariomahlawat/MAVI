@@ -408,3 +408,17 @@ describe('OverviewPage', () => {
     });
   });
 });
+
+describe('Recent tracks reserve (§38, X3 determinism)', () => {
+  // The panel's reserve is CSS (a page cannot set a custom property the token
+  // check resolves), so the two numbers are bound here: the reserve is the
+  // skeleton's RECENT_LIMIT rows at the recent-row pitch.
+  const page = import.meta.glob('./OverviewPage.tsx', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+  const css = import.meta.glob('../../styles/features.css', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+  it('reserves exactly the rows the skeleton draws', () => {
+    const limit = /const RECENT_LIMIT = (\d+);/.exec(Object.values(page)[0])?.[1];
+    const reserve = /\.overview-recent-frame \{ min-height: calc\((\d+) \* var\(--c-recent-row-h\)\); \}/.exec(Object.values(css)[0])?.[1];
+    expect(limit).toBeDefined();
+    expect(reserve).toBe(limit);
+  });
+});

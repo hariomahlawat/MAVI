@@ -516,8 +516,16 @@ const FILL_IMPORT = ({ cameraValue, fileName, submit = false, until }) => `(asyn
     Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, value);
     element.dispatchEvent(new Event(element.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
   };
+  // X3 long tasks: an operator makes these three inputs as three events, each
+  // its own task with frames between them. Dispatched back to back they ran
+  // as ONE task, so the long-task lane measured three inputs' work (and this
+  // script's own) as a single task no operator causes. Each input now runs in
+  // its own task, a frame after the previous one, and each is measured in full.
+  const nextInput = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
   set(select, ${JSON.stringify(cameraValue)});
+  await nextInput();
   set(document.querySelector('input[type="datetime-local"]'), '2026-09-14T08:30');
+  await nextInput();
   const file = document.querySelector('input[type="file"]');
   const transfer = new DataTransfer();
   transfer.items.add(new File(['mp4'], ${JSON.stringify(fileName)}, { type: 'video/mp4' }));
@@ -3570,15 +3578,17 @@ export const STATES = [
       const zone = await until(() => Array.from(document.querySelectorAll('[aria-label="Drawing tools"] button')).find((b) => b.textContent.trim() === 'Zone'), 'the Zone tool');
       zone.click();
       const surface = await until(() => document.querySelector('.scene-stage__surface.tool-zone'), 'the armed drawing surface');
-      const rect = surface.getBoundingClientRect();
-      const at = (fx, fy) => ({ clientX: rect.left + rect.width * fx, clientY: rect.top + rect.height * fy, bubbles: true, pointerId: 1, isPrimary: true });
+      // The rect is read at each click: the first vertex may change the stage.
+      const at = (fx, fy) => { const rect = surface.getBoundingClientRect(); return { clientX: rect.left + rect.width * fx, clientY: rect.top + rect.height * fy, bubbles: true, pointerId: 1, isPrimary: true }; };
+      const click = (fx, fy) => { const point = at(fx, fy); surface.dispatchEvent(new PointerEvent('pointerdown', point)); surface.dispatchEvent(new PointerEvent('pointerup', point)); };
       // In the frame's vertical middle: a portrait stage letterboxes the frame,
       // and a click on a letterbox bar is (rightly) not a vertex.
       window.__vqa.mark('interaction-start');
-      surface.dispatchEvent(new PointerEvent('pointerdown', at(0.55, 0.44)));
-      surface.dispatchEvent(new PointerEvent('pointerup', at(0.55, 0.44)));
-      surface.dispatchEvent(new PointerEvent('pointerdown', at(0.8, 0.52)));
-      surface.dispatchEvent(new PointerEvent('pointerup', at(0.8, 0.52)));
+      // X3 long tasks: the two vertices are two operator clicks, so each is its
+      // own task a frame apart (as the Import inputs are), never one task.
+      click(0.55, 0.44);
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      click(0.8, 0.52);
       return Boolean(await until(() => Array.from(document.querySelectorAll('button')).some((b) => b.textContent.trim() === 'Finish zone'), 'Finish zone in the mode strip'));
     })()`,
     expectText: ['Finish zone', 'Cancel', 'Click to add a vertex'],
@@ -4061,8 +4071,9 @@ export const STATES = [
     prepare: `(async () => {
       ${UNTIL}
       await ${OPEN_FILTERS};
-      // First read: the zone resolves to its name from the active scene.
-      if (!document.body.innerText.includes('Loading bay')) return false;
+      // First read: the zone resolves to its name from the active scene. Waited
+      // for, not assumed: at Tier C the drawer's geometry is read when it opens.
+      await until(() => document.body.innerText.includes('Loading bay'), 'the zone named from the active scene');
       // The scene must be older than its 30s stale time. Rather than sleep for
       // it, the page's clock is moved past it: staleness is judged against
       // Date.now(), so this is the same condition the operator reaches by

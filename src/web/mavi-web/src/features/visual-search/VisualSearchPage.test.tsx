@@ -16,6 +16,9 @@ import { OVERLAY_QUERIES, SHELL_QUERIES } from '../../shared/overlay/useMediaQue
 import { SEARCH_SHORTCUTS } from './searchShortcuts';
 import VisualSearchPage from './VisualSearchPage';
 
+/** The workspace is drawn once its supporting answers settle (§38): wait for the rail. */
+const searchDrawn = () => screen.findByLabelText('Object class', undefined, { timeout: 3000 });
+
 vi.mock('../../api/cameras', () => ({
   listCameras: vi.fn(),
 }));
@@ -150,6 +153,7 @@ describe('VisualSearchPage', () => {
 
   it('loads the default unfiltered first page', async () => {
     renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
 
     expect(await screen.findByRole('link', { name: 'Review evidence' })).toBeInTheDocument();
     await waitFor(() => expect(searchTracks).toHaveBeenCalledWith(
@@ -210,6 +214,7 @@ describe('VisualSearchPage', () => {
   it('keeps draft edits local until Search commits them', async () => {
     const user = userEvent.setup();
     renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
     await screen.findByRole('link', { name: 'Review evidence' });
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
 
@@ -228,6 +233,7 @@ describe('VisualSearchPage', () => {
   it('resets uncommitted draft even when the committed route is already /search', async () => {
     const user = userEvent.setup();
     renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
     await screen.findByRole('link', { name: 'Review evidence' });
 
     await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
@@ -247,6 +253,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?minimumConfidence=0.0007',
     });
+    await searchDrawn();
 
     await screen.findByRole('link', { name: 'Review evidence' });
     expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('0.07');
@@ -266,6 +273,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?minimumConfidence=0.00075',
     });
+    await searchDrawn();
 
     await screen.findByRole('link', { name: 'Review evidence' });
     expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('0.075');
@@ -282,6 +290,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?minimumConfidence=0.00075',
     });
+    await searchDrawn();
 
     await screen.findByRole('link', { name: 'Review evidence' });
     const confidence = screen.getByLabelText('Minimum confidence (%)');
@@ -298,6 +307,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?minimumDurationMs=1251',
     });
+    await searchDrawn();
 
     await screen.findByRole('link', { name: 'Review evidence' });
     expect(screen.getByLabelText('Minimum duration (seconds)')).toHaveValue('1.251');
@@ -315,6 +325,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?fromUtc=2026-09-14T02%3A30%3A00Z&toUtc=2026-09-14T03%3A30%3A00Z',
     });
+    await searchDrawn();
 
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
     // Without the configured zone the chip states the instant explicitly in
@@ -335,6 +346,7 @@ describe('VisualSearchPage', () => {
 
   it('converts an edited configured-zone wall time to UTC', async () => {
     renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
     await screen.findByRole('link', { name: 'Review evidence' });
 
     fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-14T08:00:00' } });
@@ -352,6 +364,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?cameraId=' + camera.id,
     });
+    await searchDrawn();
 
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
     expect(vi.mocked(searchTracks).mock.calls[0][0]).toEqual(expect.objectContaining({
@@ -373,6 +386,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?objectClass=Person&objectClass=Vehicle',
     });
+    await searchDrawn();
 
     expect(await screen.findByText(/must occur exactly once/i)).toBeInTheDocument();
     expect(screen.queryByText('Searching…')).not.toBeInTheDocument();
@@ -404,6 +418,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?fromUtc=2026-09-14T02%3A30%3A00Z',
     });
+    await searchDrawn();
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry display config' })).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
@@ -430,6 +445,7 @@ describe('VisualSearchPage', () => {
       });
 
     renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
     await screen.findByRole('button', { name: 'Load more' });
 
     await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
@@ -461,6 +477,7 @@ describe('VisualSearchPage', () => {
       });
 
     renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
     const loadMore = await screen.findByRole('button', { name: 'Load more' });
     // The notice's region is in the foot before there is anything to say (§23).
     const live = document.querySelector('.results__foot .status-slot__announcer') as HTMLElement;
@@ -484,6 +501,7 @@ describe('VisualSearchPage', () => {
     vi.mocked(listCameras).mockResolvedValueOnce([{ ...camera, isActive: false }]);
 
     renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
 
     await screen.findByRole('link', { name: 'Review evidence' });
     expect(screen.getByRole('option', { name: /CAM-01.*North Gate.*Inactive/ })).toBeInTheDocument();
@@ -492,6 +510,7 @@ describe('VisualSearchPage', () => {
   it('renders empty and first-page API error states distinctly', async () => {
     vi.mocked(searchTracks).mockResolvedValueOnce({ items: [], nextCursor: null });
     const empty = renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
     expect(await screen.findByText(/No Tracks matched/i)).toBeInTheDocument();
     empty.unmount();
 
@@ -507,6 +526,7 @@ describe('VisualSearchPage', () => {
     }));
 
     renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
     expect(await screen.findByText(/Invalid search.*track_search_invalid/i)).toBeInTheDocument();
     expect(screen.queryByText(/No Tracks matched/i)).not.toBeInTheDocument();
   });
@@ -519,6 +539,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?videoAssetId=' + videoScope + '&processingRunId=' + runScope,
     });
+    await searchDrawn();
 
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
     // The rail has no control for either scope, so the chip is the only place
@@ -549,6 +570,7 @@ describe('VisualSearchPage', () => {
       });
 
     renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
     await screen.findByRole('button', { name: 'Load more' });
     await user.click(screen.getByRole('button', { name: 'Load more' }));
 
@@ -564,6 +586,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?fromUtc=2026-09-14T02%3A30%3A00Z',
     });
+    await searchDrawn();
     await screen.findByRole('link', { name: 'Review evidence' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove from filter' }));
@@ -659,6 +682,7 @@ describe('VisualSearchPage', () => {
 
     it('reports an inverted range on the To field and clears it when corrected', async () => {
       renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await searchDrawn();
       await screen.findByRole('link', { name: 'Review evidence' });
 
       fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-14T10:00:00' } });
@@ -678,6 +702,7 @@ describe('VisualSearchPage', () => {
     it('states a malformed search link in the results column with its recovery, never on a field', async () => {
       const user = userEvent.setup();
       renderWithApp(<VisualSearchPage />, { route: '/search?objectClass=Person&objectClass=Vehicle' });
+      await searchDrawn();
 
       const notice = await screen.findByText(/This search link cannot be used\. .*must occur exactly once/i);
       // §10: the URL is not a field, so its refusal is not a field error. F3,
@@ -701,6 +726,7 @@ describe('VisualSearchPage', () => {
     it('is clean again when a field is edited back to the committed value', async () => {
       const user = userEvent.setup();
       renderWithApp(<VisualSearchPage />, { route: '/search?objectClass=Person' });
+      await searchDrawn();
       await screen.findByRole('link', { name: 'Review evidence' });
       expect(screen.queryByText('Unapplied filters')).not.toBeInTheDocument();
 
@@ -739,6 +765,7 @@ describe('VisualSearchPage', () => {
       renderWithApp(<VisualSearchPage />, {
         route: `/search?cameraId=${camera.id}&objectClass=Person`,
       });
+      await searchDrawn();
       await screen.findByRole('link', { name: 'Review evidence' });
 
       await user.type(screen.getByLabelText('Minimum confidence (%)'), '80');
@@ -756,6 +783,7 @@ describe('VisualSearchPage', () => {
       // here, but reconverting at all is what a "was touched" flag forces; the
       // committed number must survive untouched either way.
       renderWithApp(<VisualSearchPage />, { route: '/search?minimumConfidence=0.00075' });
+      await searchDrawn();
       await screen.findByRole('link', { name: 'Review evidence' });
       const confidence = screen.getByLabelText('Minimum confidence (%)');
       expect(confidence).toHaveValue('0.075');
@@ -778,6 +806,7 @@ describe('VisualSearchPage', () => {
     it('clears the indication on Reset', async () => {
       const user = userEvent.setup();
       renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await searchDrawn();
       await screen.findByRole('link', { name: 'Review evidence' });
 
       await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
@@ -789,6 +818,7 @@ describe('VisualSearchPage', () => {
     it('clears the indication after a successful Search', async () => {
       const user = userEvent.setup();
       renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await searchDrawn();
       await screen.findByRole('link', { name: 'Review evidence' });
 
       await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
@@ -799,24 +829,27 @@ describe('VisualSearchPage', () => {
   });
 
   describe('wall-time input (§24)', () => {
-    it('says the timezone is loading rather than unavailable while it loads', async () => {
+    it('draws the workspace once the timezone has answered, never the rail without it (§38)', async () => {
       let release: (value: { displayTimeZoneId: string }) => void = () => {};
       vi.mocked(getSystemConfig).mockReturnValue(new Promise((resolve) => { release = resolve; }));
       renderWithApp(<VisualSearchPage />, { route: '/search' });
 
-      // §14: pending is not failed. The operator waits rather than retrying.
-      // Both time fields say it, because the operator fills them one at a time.
-      await waitFor(() => expect(screen.getAllByText(/Loading the display timezone/i)).toHaveLength(2));
+      // §14: pending is not failed — the page loads; it does not offer a retry.
+      // §38: and it does not draw the rail or chips in a layout the timezone
+      // would then re-wrap.
+      expect(await screen.findByText('Loading search…')).toBeInTheDocument();
+      expect(screen.queryByLabelText('From')).not.toBeInTheDocument();
       expect(screen.queryByText(/Display timezone is unavailable/i)).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Retry display config' })).not.toBeInTheDocument();
-      expect(screen.getByLabelText('From')).toBeDisabled();
 
       release({ displayTimeZoneId: 'Asia/Kolkata' });
       await waitFor(() => expect(screen.getByLabelText('From')).toBeEnabled());
+      expect(screen.queryByText(/Loading the display timezone/i)).not.toBeInTheDocument();
     });
 
     it('states the expected format and the operative timezone on both time fields', async () => {
       renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await searchDrawn();
       await screen.findByRole('link', { name: 'Review evidence' });
 
       for (const label of ['From', 'To']) {
@@ -834,6 +867,7 @@ describe('VisualSearchPage', () => {
       renderWithApp(<VisualSearchPage />, {
         route: '/search?fromUtc=2026-09-14T02%3A30%3A00Z',
       });
+      await searchDrawn();
 
       await waitFor(() => expect(screen.getByRole('button', { name: 'Retry display config' })).toBeInTheDocument());
       expect(screen.getAllByText(/Display timezone is unavailable, so times cannot be edited/i)).toHaveLength(2);
@@ -898,13 +932,13 @@ describe('VisualSearchPage', () => {
       renderWithApp(<VisualSearchPage />, {
         route: `/search?cameraId=${camera.id}&videoAssetId=${unknown}&objectClass=Person&minimumConfidence=0.075`,
       });
+      await searchDrawn();
 
       const chips = await screen.findByRole('group', { name: 'Committed filters' });
-      // The chip is drawn before the inventory that names the camera arrives,
-      // and states the identifier until it does rather than waiting.
-      expect(within(chips).getByTitle(/^Camera:/)).toHaveTextContent(camera.id.slice(0, 8));
-      await waitFor(() => expect(within(chips).getByTitle(/^Camera:/))
-        .toHaveTextContent('CAM-01 · North Gate'));
+      // The chips are drawn once the inventory that names the camera has
+      // answered (§38): drawn first by identifier, the chip re-wrapped when the
+      // name arrived and moved the results beneath it.
+      expect(within(chips).getByTitle(/^Camera:/)).toHaveTextContent('CAM-01 · North Gate');
       // No video inventory resolves this one, so it shortens rather than vanishing.
       expect(within(chips).getByTitle(/^Video:/)).toHaveTextContent(unknown.slice(0, 8));
       expect(within(chips).getByTitle(/^Class:/)).toHaveTextContent('Person');
@@ -1080,6 +1114,7 @@ describe('VisualSearchPage', () => {
     it('returns focus to the result it was opened from when it closes', async () => {
       const user = userEvent.setup();
       renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await searchDrawn();
       const rows = within(await screen.findByRole('list', { name: 'Track results' })).getAllByRole('listitem');
       const control = within(rows[0]).getByRole('button', { name: /^Select / });
 
@@ -1095,6 +1130,7 @@ describe('VisualSearchPage', () => {
     it('falls back to the results region when the result it was opened from is gone', async () => {
       const user = userEvent.setup();
       renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await searchDrawn();
       await screen.findByRole('list', { name: 'Track results' });
 
       // A deep-linked Track that is not in this snapshot has no control to
@@ -1116,6 +1152,7 @@ describe('VisualSearchPage', () => {
       Element.prototype.scrollIntoView = scrollIntoView;
       try {
         renderWithApp(<VisualSearchPage />, { route: '/search' });
+        await searchDrawn();
         await screen.findByRole('list', { name: 'Track results' });
         await user.click(screen.getByRole('button', { name: 'Grid view' }));
         scrollIntoView.mockClear();
@@ -1163,6 +1200,7 @@ describe('VisualSearchPage', () => {
     it('leaves the shortcuts alone while the operator is typing a filter', async () => {
       const user = userEvent.setup();
       renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await searchDrawn();
       await screen.findByRole('list', { name: 'Track results' });
       await user.click(within(within(screen.getByRole('list', { name: 'Track results' }))
         .getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / }));
@@ -1287,6 +1325,7 @@ describe('VisualSearchPage', () => {
       vi.mocked(getTrack).mockImplementation(async (id) => detail([first, second, third].find((item) => item.id === id) ?? first, 9));
 
       renderWithApp(<VisualSearchPage />, { route: '/search?track=' + second.id });
+      await searchDrawn();
       await screen.findByRole('heading', { name: 'Vehicle · Track 9' });
 
       await user.click(screen.getByRole('button', { name: 'Next result' }));
@@ -1331,6 +1370,7 @@ describe('VisualSearchPage', () => {
     async function open() {
       const user = userEvent.setup();
       renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await searchDrawn();
       const results = await screen.findByRole('list', { name: 'Track results' });
       const control = within(within(results).getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / });
       await user.click(control);
@@ -1373,6 +1413,7 @@ describe('VisualSearchPage', () => {
     async function openFromFirstRow() {
       const user = userEvent.setup();
       renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await searchDrawn();
       const results = await screen.findByRole('list', { name: 'Track results' });
       const control = within(within(results).getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / });
       await user.click(control);
@@ -1445,6 +1486,7 @@ describe('VisualSearchPage', () => {
       try {
         const user = userEvent.setup();
         renderWithApp(<VisualSearchPage />, { route: '/search' });
+        await searchDrawn();
         const results = await screen.findByRole('list', { name: 'Track results' });
         const control = within(within(results).getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / });
         await user.click(control);

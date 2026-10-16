@@ -41,6 +41,23 @@
       "dependencyPolicyId": "postgresql-pgvector-win-x64"
     },
     {
+      "id": "pg-trgm-pg18-win-x64",
+      "role": "database-extension",
+      "profiles": [
+        "Development",
+        "Production"
+      ],
+      "versionPolicy": "exact-observed",
+      "baselineVersion": "from-staged-runtime",
+      "exactVersionSource": "PostgreSQL runtime-pack manifest field pgTrgmVersion (PostgreSQL contrib; packs staged before Stage 4 PR-4 do not record it)",
+      "binaryKitPath": "vendor/postgresql/pg18/win-x64",
+      "releasePath": "prerequisites/postgresql/pg18/win-x64",
+      "verification": "staging requires share/extension/pg_trgm.control and lib/pg_trgm.dll inside the nested SHA-256 runtime-pack manifest; Setup runs CREATE EXTENSION; platform startup checks pg_available_extensions; Test-MaviEnvironment checks pg_extension",
+      "licence": "LICENSE-POSTGRESQL.txt",
+      "dependencyPolicyId": "postgresql-pgvector-win-x64",
+      "purpose": "Trigram GIN index for plate-text contains search (Stage 4 PR-4, migration AddPlateSearchIndexes). Part of the PostgreSQL distribution itself, so it adds no new binary payload to the kit."
+    },
+    {
       "id": "ffmpeg-win-x64",
       "role": "application-native-media-tool",
       "profiles": [

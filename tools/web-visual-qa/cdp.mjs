@@ -181,6 +181,31 @@ async function connect(child, profile) {
    */
   let problems = [];
   let resourceErrors = [];
+  /**
+   * X3 (diagnostic, recorded only): each `/api/` request as the browser reports
+   * it — its harness identity header, when it was sent, and how it ended
+   * (finished with a status, failed, or cancelled). Off unless asked for.
+   */
+  let recordingRequests = false;
+  let requestEvents = new Map();
+  const ORDER = 'x-vqa-order';
+  listeners.add((message) => {
+    if (!recordingRequests || message.sessionId !== sessionId) return;
+    const p = message.params;
+    if (message.method === 'Network.requestWillBeSent') {
+      let path;
+      try { const u = new URL(p.request.url); if (!u.pathname.startsWith('/api/')) return; path = u.pathname + u.search; } catch { return; }
+      const headers = p.request.headers ?? {};
+      const order = headers[ORDER] ?? headers[Object.keys(headers).find((k) => k.toLowerCase() === ORDER)] ?? null;
+      requestEvents.set(p.requestId, { order, method: p.request.method, path, type: p.type ?? null, headerNames: Object.keys(headers).map((k) => k.toLowerCase()).sort(), sentAt: p.timestamp * 1000, status: null, outcome: 'pending', error: null, endAt: null });
+    } else if (message.method === 'Network.responseReceived') {
+      const e = requestEvents.get(p.requestId); if (e) e.status = p.response.status;
+    } else if (message.method === 'Network.loadingFinished') {
+      const e = requestEvents.get(p.requestId); if (e) { e.outcome = 'finished'; e.endAt = p.timestamp * 1000; }
+    } else if (message.method === 'Network.loadingFailed') {
+      const e = requestEvents.get(p.requestId); if (e) { e.outcome = p.canceled ? 'canceled' : 'failed'; e.error = p.errorText ?? null; e.endAt = p.timestamp * 1000; }
+    }
+  });
   listeners.add((message) => {
     if (message.sessionId !== sessionId) return;
     // A native dialog would halt the page and every call after it, so none is
@@ -321,6 +346,11 @@ async function connect(child, profile) {
       const { data } = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, optimizeForSpeed: true });
       return Buffer.from(data, 'base64');
     },
+    /** X3 (diagnostic): start recording `/api/` requests (see requestEvents). */
+    recordRequests(on = true) { recordingRequests = on; },
+    /** The `/api/` requests recorded since the last clear, in the order the browser announced them. */
+    requestEvents: () => [...requestEvents.values()].map((e) => ({ ...e })),
+    clearRequestEvents() { requestEvents = new Map(); },
     /** A script run in every new document before any of the page's own. */
     async addInitScript(source) {
       await call('Page.addScriptToEvaluateOnNewDocument', { source });

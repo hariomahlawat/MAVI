@@ -257,7 +257,8 @@ public sealed partial class TrackSearchRepository
         long snapshotVisibilitySequence,
         TrackCursorPosition? cursor,
         int take,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<IQueryable<TrackCandidate>, IQueryable<TrackCandidate>>? narrow = null)
     {
         var empty = new Dictionary<Guid, TrackItemAnalytics>();
         if (scope.Revision is null || !scope.AnalyticsEnabled)
@@ -270,7 +271,13 @@ public sealed partial class TrackSearchRepository
         var revisionId = scope.Revision.Id;
         var algorithmVersion = identity.AlgorithmVersion;
 
-        var evaluated = BaseCandidates(query, snapshotVisibilitySequence)
+        // A derived-capability predicate (Stage 4: plates) narrows the candidates before the
+        // analytic join, so it combines with every analytic predicate by AND. Null: unchanged.
+        var candidates = BaseCandidates(query, snapshotVisibilitySequence);
+        if (narrow is not null)
+            candidates = narrow(candidates);
+
+        var evaluated = candidates
             .Join(
                 db.SceneAnalyses.AsNoTracking().Where(unit =>
                     unit.RevisionId == revisionId

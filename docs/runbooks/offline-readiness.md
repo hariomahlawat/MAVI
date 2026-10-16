@@ -20,7 +20,7 @@ Verify that:
 Before any disconnected acceptance run, the canonical offline media must contain all prerequisites needed by the target profile, including:
 
 - the qualified MAVI application artifact with its app-local, hash-manifested FFmpeg/ffprobe pack;
-- the approved MAVI-owned PostgreSQL 18 runtime pack containing pgvector and retained PostgreSQL/pgvector notices;
+- the approved MAVI-owned PostgreSQL 18 runtime pack containing pgvector, the PostgreSQL contrib extension pg_trgm (plate-text search) and retained PostgreSQL/pgvector notices;
 - the ASP.NET Core 10 Hosting Bundle required by the Windows/IIS operational plane;
 - the exact Python/runtime/model bundles required by the qualified vision profile; and
 - Development SDK installers/caches when validating the disconnected Development profile.

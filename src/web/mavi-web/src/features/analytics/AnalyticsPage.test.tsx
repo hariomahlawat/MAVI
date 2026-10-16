@@ -575,7 +575,9 @@ describe('Analytics Workbench', () => {
     vi.mocked(getSystemConfig).mockRejectedValue(new Error('config unavailable'));
     render();
 
-    expect(await alertSaying(/display timezone is unavailable/i)).toHaveTextContent(/display timezone is unavailable/i);
+    // The stage's alert (the window band says, apart, that its times cannot be
+    // edited: both arrive together now the Workbench is drawn once, §38).
+    expect(await alertSaying(/configured display timezone is unavailable/i)).toHaveTextContent(/configured display timezone is unavailable/i);
     expect(screen.queryByRole('figure')).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Retry' })).toBeInTheDocument();
@@ -590,5 +592,33 @@ describe('Analytics Workbench', () => {
 
     await waitFor(() => expect(screen.getByText(/may no longer be current/i)).toBeInTheDocument());
     expect(screen.getByRole('table')).toBeInTheDocument();
+  });
+});
+
+describe('the layout hold is per camera (§38; owner review 2026-10-14)', () => {
+  it('holds another camera on the same route until its own camera answer has settled', async () => {
+    const otherId = '018f3f5a-2f70-7a2b-8a12-2d02f4c214ff';
+    let answerOther: (value: typeof camera) => void = () => {};
+    vi.mocked(getCamera).mockImplementation((id: string) => (id === otherId
+      ? new Promise((done) => { answerOther = done; })
+      : Promise.resolve(camera)));
+    const { router } = renderWithApp(<AnalyticsPage />, {
+      route: `/cameras/${cameraId}/analytics`,
+      routePath: '/cameras/:cameraId/analytics',
+      dataRouter: true,
+    });
+    expect(await screen.findByText('CAM-01 · North Gate')).toBeInTheDocument();
+    expect(screen.queryByText('Loading camera analytics…')).not.toBeInTheDocument();
+
+    await act(async () => { await router.navigate(`/cameras/${otherId}/analytics`); });
+    // The first camera's drawing does not carry over: the new camera is one
+    // loading presentation until its own answer settles.
+    expect(await screen.findByText('Loading camera analytics…')).toBeInTheDocument();
+    expect(screen.queryByText('CAM-01 · North Gate')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Activity' })).not.toBeInTheDocument();
+
+    await act(async () => { answerOther({ ...camera, id: otherId, code: 'CAM-02', name: 'South Yard' }); });
+    expect(await screen.findByText('CAM-02 · South Yard')).toBeInTheDocument();
+    expect(screen.queryByText('Loading camera analytics…')).not.toBeInTheDocument();
   });
 });

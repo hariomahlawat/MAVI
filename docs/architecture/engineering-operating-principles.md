@@ -10,7 +10,7 @@ About 20% goes to the documentation that engineering actually needs. This sets p
 
 These principles apply alongside the binding rules in `AGENTS.md` and the accepted ADRs, which they do not replace.
 
-1. **Implementation first.** Prefer working, tested capability over process artefacts. Research and architecture work should lead to implementation and measured results.
+1. **Implementation first.** Prefer working, tested capability over process artefacts. Research and architecture work should lead to implementation and measured results. Implementation-first does not mean code before decisions: see principle 10.
 2. **Document only what materially helps engineering.** Keep:
    - the architecture and important ADRs;
    - implementation plans and interfaces/contracts;
@@ -41,3 +41,11 @@ These principles apply alongside the binding rules in `AGENTS.md` and the accept
 
    Do not add process for its own sake. For consequential evidence-producing work, scientific validity is reviewed before execution as well as after it: see `docs/architecture/experimental-methodology.md`.
 9. **Anti-drift rule.** Before proposing a documentation-only task, ask whether code, tests, automation, an existing authoritative document, or established research or implementations would meet the objective better. If they would, take that route.
+10. **Delivery discipline.** Deliver real capability without trading away quality:
+    - Settle architecture and source-of-truth decisions before substantial implementation.
+    - Use bounded spikes to falsify risky assumptions before building infrastructure around them.
+    - Prefer a thin, real end-to-end capability early over completing isolated support machinery first.
+    - Reassess when infrastructure or debugging work approaches half a day. Going beyond one working day requires explicit owner approval, unless the work protects security, safety, data integrity, an irreversible contract, or a genuine qualification or release blocker.
+    - Two materially similar defects that arise from one assumption require an architectural reassessment, not another local patch.
+    - When a timebox expires, reassess the approach. Never weaken an acceptance criterion because a timebox expired.
+    - Capability, correctness, security, provenance, offline operation, reproducibility and qualification standards are not reduced for schedule. Reduce scope or redesign before reducing quality.

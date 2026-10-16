@@ -42,6 +42,19 @@ public static class TrackSearchContractRules
     public const string ObjectSubclassKey = "objectSubclass";
 
     /// <summary>
+    /// The plate-text predicate (Stage 4, plan §5.4): a literal match on the
+    /// <c>mavi-plate-normalisation-v1</c> text of a Vehicle Track's default plate analysis. An
+    /// ordinary cross-camera filter, not an analytic one; it implies <c>objectClass=Vehicle</c>.
+    /// </summary>
+    public const string PlateTextKey = "plateText";
+
+    /// <summary>How <see cref="PlateTextKey"/> matches; valid only beside it.</summary>
+    public const string PlateMatchKey = "plateMatch";
+
+    /// <summary>The plate predicate keys, in canonical order.</summary>
+    public static readonly IReadOnlyList<string> PlateQueryKeys = [PlateTextKey, PlateMatchKey];
+
+    /// <summary>
     /// The keys whose presence makes a Track query analytics-dependent. Any one of
     /// them turns an ordinary search into one that resolves a scene identity and
     /// reports coverage.
@@ -98,6 +111,46 @@ public static class TrackSearchContractRules
     /// </summary>
     public static readonly IReadOnlyList<string> TrackAnalyticsStatusValues =
         ["Analysed", "Unavailable", "Pending", "Failed", "Stale", "NotConfigured", "Disabled"];
+
+    /// <summary>
+    /// <c>plateMatch</c>: a substring, a prefix or the whole normalised text. Literal in every mode:
+    /// no confusable expansion (O/0, I/1, B/8, …) and no edit distance (plan B5).
+    /// </summary>
+    public static readonly IReadOnlyList<string> PlateMatchValues = ["contains", "prefix", "exact"];
+
+    public const string DefaultPlateMatch = "contains";
+
+    /// <summary>
+    /// The normalised query text's bounds. Three is the shortest text a trigram index can serve
+    /// (plan §2.8); fifteen is longer than any Indian registration in either advisory format.
+    /// </summary>
+    public const int MinimumPlateTextLength = 3;
+
+    public const int MaximumPlateTextLength = 15;
+
+    /// <summary>
+    /// The raw <c>plateText</c> bound, before normalisation removes separators. Bounded so a
+    /// request cannot make the parser normalise an arbitrarily long string.
+    /// </summary>
+    public const int MaximumRawPlateTextLength = 64;
+
+    /// <summary>
+    /// A Vehicle Track's plate readiness on the detail surface and the bucket words of the search
+    /// coverage block: the run-level readiness words (ADR-013 §12) a Vehicle Track can be in.
+    /// <c>NotApplicable</c> is absent on purpose: a run with a Vehicle Track is always applicable.
+    /// </summary>
+    public static readonly IReadOnlyList<string> PlateReadinessValues = ["NotConfigured", "Pending", "Ready", "Failed", "Stale"];
+
+    /// <summary>The persisted Track-level plate outcome kinds.</summary>
+    public static readonly IReadOnlyList<string> PlateTrackOutcomeValues = ["Analysed", "Unavailable"];
+
+    /// <summary>
+    /// How a Vehicle Track's searchable readings relate (plan §2.7): derived from its Track texts,
+    /// never asserted. No value means "confirmed".
+    /// </summary>
+    public static readonly IReadOnlyList<string> PlateAgreementValues = ["none", "single", "consistent", "conflicting"];
+
+    public static bool IsPlateMatch(string? value) => Contains(PlateMatchValues, value);
 
     // --- Algorithm version shape -------------------------------------------
 

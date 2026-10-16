@@ -8,6 +8,7 @@ import { isFinalizationFailure, isFinalizing, listVideos, queueProcessing } from
 import { queryKeys } from '../../app/queryClient';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
 import { hasFailure } from '../../shared/async/asyncState';
+import { useHeldState } from '../../shared/async/layoutHold';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
@@ -94,6 +95,16 @@ export default function VideosPage() {
     [rows],
   );
   const processing = useVideoProcessing(runStatusIds);
+  // The rows are drawn once, in their final layout: their timestamps need the
+  // display timezone and their camera cells the camera metadata. Drawn before
+  // either answer, a row re-wraps when it lands and every row beneath moves
+  // (§38). A row's own run lookup never holds the table: the row is drawn at
+  // once and its run cell holds its final geometry while the lookup is out.
+  // Only the first drawing waits (cold review P1): once drawn, a refetch that
+  // adds a row, a queued row's new lookup or a widened filter updates the
+  // table in place — the new row shows its own loading — and never blanks it.
+  const ledgerState = useHeldState('videos', fromQuery(videos), [fromQuery(cameras), fromQuery(systemConfig)]);
+  const ledgerReady = ledgerState.kind !== 'loading';
 
   // One mutation serves every row, so which rows are being queued, and which
   // one failed, is tracked per video: the mutation's own `variables` name only
@@ -144,9 +155,9 @@ export default function VideosPage() {
       // While the inventory loads the count's place is held by what is
       // happening, so a band that wraps its count to a second row (Tier B,
       // §25: two rows at most) does not move the rows when they arrive.
-      hint={videos.data
+      hint={videos.data && ledgerReady
         ? `${formatCount(rows.length)} of ${formatCount(total)} video${total === 1 ? '' : 's'}${filtered ? ' match the filters' : ''}`
-        : videos.isPending ? 'Loading videos…' : undefined}
+        : videos.isPending || !ledgerReady ? 'Loading videos…' : undefined}
     >
       <label className="visually-hidden" htmlFor="videos-text">Filter by file or camera</label>
       <input
@@ -217,10 +228,11 @@ export default function VideosPage() {
         actions={<ButtonLink to="/import" variant="primary" icon="upload">Import video</ButtonLink>}
       />
 
-      <LedgerLayout toolbar={toolbar} notices={hasNotices ? notices : null}>
+      {/* The notices arrive with the rows, not above a loading region they would push down. */}
+      <LedgerLayout toolbar={toolbar} notices={hasNotices && ledgerReady ? notices : null}>
         <StateRegion
           kind="column"
-          state={fromQuery(videos)}
+          state={ledgerState}
           label="videos"
           skeleton={LEDGER_SKELETON}
           isEmpty={(all) => all.length === 0}
@@ -300,6 +312,12 @@ export default function VideosPage() {
                             {row.processingStatus === 'Failed' && run?.failureCode ? (
                               <code><TruncatedText text={run.failureCode} className="cap-sm" /></code>
                             ) : null}
+                            {/* Owner ruling 3 (§38): while the row's run is out, the
+                                status line holds, unseen, the inline value its
+                                status will carry, so the column is already as
+                                wide as it will be when the run lands. */}
+                            {!run && liveState.kind === 'loading' && active ? <span className="queue-reserve" aria-hidden="true"><Progress value={0} inline /></span> : null}
+                            {!run && liveState.kind === 'loading' && row.processingStatus === 'Failed' ? <code className="queue-reserve" aria-hidden="true"><span className="truncate cap-sm">vision_job_attempts_exhausted</span></code> : null}
                           </span>
                           {/* The run's phase, where it says more than the badge (§16). */}
                           {active && isFinalizing(run) ? <span className="run-cell__line"><TruncatedText text="Run: Finalizing" /></span> : null}

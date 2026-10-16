@@ -35,6 +35,8 @@
  * Captures are diagnostic working artefacts (`.captures/`, gitignored): §26
  * forbids committing them, and no pixel baseline exists (V5).
  */
+import { ADMISSION_METHOD, createAdmission } from './admission.mjs';
+import { REQUEST_IDENTITY_SCRIPT, buildRequestTrace } from './request-identity.mjs';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { cpus } from 'node:os';
@@ -77,7 +79,7 @@ const [
   { caseKey, createLedger, exitStatus, HarnessError, partitionCases, planCases, settle, sweepChecks, zoomQualification },
   { CONDITIONS, ensureFootage },
   { manifestSummary, OPERATOR_SURFACES, REDUCED_MOTION_CONDITION, RULES, TEXT_SPACING_CONDITION, TIERS, validateManifest, ZOOM_CONDITION },
-  { startServer },
+  { RESPONSE_ORDERS, startServer },
   { OBSERVERS, perfCollect, TRANSIENT },
   { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf, ZOOM },
   { tierCLedgerSemantics },
@@ -152,6 +154,16 @@ const completeSelection = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom 
 // A shard is never the full sweep by itself; aggregate.mjs is, over every shard.
 const fullSweep = completeSelection && !shard;
 const workers = longTaskLane ? 1 : positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
+// X3 determinism: the data-response order this run pins (server.mjs). The
+// gate's lanes run `forward` (MAVI_VQA_RESPONSE_ORDER=forward): each case's
+// data requests are numbered in the page as issued (request-identity.mjs),
+// admitted to the network in that order before the connection pool
+// (admission.mjs) and answered one at a time, so every intermediate layout of
+// a load is painted in the page's own order. Unset means `natural`, for local
+// runs only: performance.mjs faults a run that is not `forward` with admission.
+const responseOrder = process.env.MAVI_VQA_RESPONSE_ORDER || 'natural';
+if (!RESPONSE_ORDERS.includes(responseOrder)) fatal(`HARNESS ERROR: MAVI_VQA_RESPONSE_ORDER must be one of ${RESPONSE_ORDERS.join(', ')}, not "${responseOrder}"
+`);
 
 const manifestProblems = validateManifest();
 if (manifestProblems.length) {
@@ -219,12 +231,19 @@ async function openLane(index) {
     scenario: () => lane.scenario,
     footage: () => ensureFootage(MEDIA, lane.footage),
     textSpacing: () => lane.textSpacing,
+    responseOrder,
+    requireIdentity: responseOrder === 'forward',
   });
   // A lane that fails part-way closes what it opened: a listening server left
   // behind would keep the process alive past the harness fault it reports.
   try {
     lane.browser = await launch();
     await lane.browser.addInitScript(OBSERVERS);
+    if (responseOrder === 'forward') {
+      await lane.browser.addInitScript(REQUEST_IDENTITY_SCRIPT);
+      lane.browser.recordRequests(true);
+      lane.admission = createAdmission(lane.browser, lane.server);
+    }
     lane.environment = await lane.browser.environment();
   } catch (error) {
     await lane.browser?.close().catch(() => {});
@@ -268,6 +287,23 @@ async function runCase(lane, c) {
   // The harness could not establish the declared state. Not a finding: a
   // fault at every tier (engine.unreachedFaults), first cause kept.
   const browser = lane.browser;
+  // X3 admission (forward): opened before each load of the state's document,
+  // closed before the fixtures are rewound or the case ends; its faults and
+  // the server's (a duplicate or unnumbered request) are the case's harness
+  // errors.
+  const admissionFaults = new Set();
+  const admissionRuns = [];
+  const openAdmission = async () => {
+    if (!lane.admission) return;
+    browser.clearRequestEvents();
+    await lane.admission.start();
+  };
+  const closeAdmission = async () => {
+    if (!lane.admission) return;
+    const summary = await lane.admission.stop();
+    if (summary) { admissionRuns.push(summary); for (const f of summary.faults) admissionFaults.add(f); }
+    for (const f of lane.server.faults()) admissionFaults.add(f);
+  };
 
   // The previous document goes first, then its held requests: a page whose
   // held request is destroyed while it is still alive retries it, and that
@@ -324,6 +360,7 @@ async function runCase(lane, c) {
     if (lane.zoom !== 1) { lane.zoom = null; lane.zoom = await browser.pageZoom(1); }
     // The baseline begins as the case will.
     await freshDocument();
+    await openAdmission();
     await browser.goto(lane.server.origin + baseView.path);
     const baseLoaded = await settle(lane, baseView, { timeoutMs: SETTLE_TIMEOUT_MS, beforePreparation: Boolean(baseView.prepare) });
     if (!baseLoaded.ok) unreach('zoom text baseline', `the state at 100% did not settle within ${SETTLE_TIMEOUT_MS}ms: ${baseLoaded.why.join('; ')}`);
@@ -348,6 +385,7 @@ async function runCase(lane, c) {
     // released and sequenced fixtures rewound, and the stored preferences it
     // may have written cleared with the state's own put back, so the 200%
     // load begins as it would alone.
+    await closeAdmission();
     await browser.goto('about:blank');
     lane.server.releaseHung();
     lane.server.resetSequences();
@@ -357,6 +395,7 @@ async function runCase(lane, c) {
     lane.zoom = await browser.pageZoom(startZoom);
   }
   await freshDocument();
+  await openAdmission();
   await browser.goto(lane.server.origin + state.path);
 
   // V3: the state is reached when the page and the server say so.
@@ -686,6 +725,17 @@ async function runCase(lane, c) {
       confirmedAt: afterPrepare?.confirmedAt ?? null, interaction: state.interaction ?? null,
     }))
     : { cls: notReached, clsPreparation: notReached, longTasks: notReached };
+  // X3 (diagnostic): the page's side of the case's request trace — its issue
+  // log and when it saw each response complete — read where its CLS was.
+  // Admission stays open until the case ends (the document's whole life in
+  // the case); the trace is completed then.
+  let tracePage = null;
+  if (lane.admission) {
+    tracePage = {
+      pageLog: await browser.evaluate('window.__vqaRequestLog ? { docId: window.__vqaRequestLog.docId, log: window.__vqaRequestLog.log.slice() } : null').catch(() => null),
+      page: await browser.evaluate(`performance.getEntriesByType('resource').filter((e) => e.name.includes('/api/')).map((e) => { const u = new URL(e.name); return [u.pathname + u.search, Math.round(e.responseEnd * 10) / 10]; }).sort((a, b) => a[1] - b[1])`).catch(() => null),
+    };
+  }
   // The platform fonts are read per text-bearing element: Chromium reports the
   // fonts of a node's own text, so the probe is the first element that holds
   // text in the Context Bar and in the surface.
@@ -814,6 +864,13 @@ async function runCase(lane, c) {
   // document is gone (above); releasing them here, with this page alive,
   // would make it retry into the next case's scenario.
 
+  // The case ends: admission closes (the server is unbound), and the trace is
+  // completed — admission, browser transport, server arrival and answer.
+  let requestTrace;
+  if (lane.admission) {
+    await closeAdmission();
+    requestTrace = buildRequestTrace({ ...tracePage, admission: admissionRuns.at(-1) ?? null, transport: browser.requestEvents(), server: lane.server.traffic() });
+  }
   const result = {
     state: state.name, viewport: viewport.label, tier: viewport.tier, kind: viewport.kind, attempt: c.attempt, lane: lane.index,
     settled: { ok: loaded.ok, ms: loaded.ms, probes: loaded.probes, why: loaded.ok ? undefined : loaded.why },
@@ -837,7 +894,13 @@ async function runCase(lane, c) {
     findings: caseFindings.map(({ rule, severity, message }) => ({ rule, severity, message })),
     ...(diagnostics.length ? { diagnostics } : {}),
     pressed: page?.pressed ?? null,
+    ...(requestTrace ? { requestTrace } : {}),
   };
+  if (lane.admission) {
+    for (const f of lane.server.faults()) admissionFaults.add(f);
+    for (const f of admissionFaults) harnessErrors.push(`${state.name} @ ${viewport.label}: ${f}`);
+    if (admissionFaults.size) result.admissionFaults = [...admissionFaults];
+  }
   writeFileSync(join(OUT, `${name}.json`), JSON.stringify(result, null, 2));
   results.push(result);
   const blocking = caseFindings.filter((f) => f.severity === 'blocking').length;
@@ -868,7 +931,7 @@ try {
 } catch (error) {
   harnessErrors.push(String(error.message || error));
 } finally {
-  await Promise.all(lanes.map(async (lane) => { await lane.browser.close(); await lane.server.close(); }));
+  await Promise.all(lanes.map(async (lane) => { lane.admission?.close(); await lane.browser.close(); await lane.server.close(); }));
 }
 const durationMs = Date.now() - started;
 
@@ -933,6 +996,10 @@ const report = {
   // evidence of long tasks (performance.mjs refuses any other).
   longTaskLane,
   fullSweep,
+  // The data-response order the run pinned (server.mjs): `forward` is the gate's.
+  responseOrder,
+  // How that order was established (admission.mjs): the gate requires it.
+  requestAdmission: responseOrder === 'forward' ? ADMISSION_METHOD : null,
   // A shard says which of how many it is and lists the whole plan beside its
   // own selection, so the aggregate can prove the plan ran exactly once.
   shard: shard ? { ...shard, completeSelection, planned: partition.planned, selected: partition.selectedKeys } : null,

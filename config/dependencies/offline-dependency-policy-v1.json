@@ -205,8 +205,12 @@
       "stagingPath": "vendor/postgresql/pg18/win-x64",
       "packagedAs": "prerequisites/postgresql/pg18/win-x64",
       "setupIntegration": "tools/setup/Setup-MAVI.ps1",
-      "verification": "SHA-256 manifest, PostgreSQL 18 executable version, pgvector availability/extension check",
-      "licenceHandling": "LICENSE-POSTGRESQL.txt and LICENSE-PGVECTOR.txt retained in the runtime pack"
+      "verification": "SHA-256 manifest, PostgreSQL 18 executable version, pgvector availability/extension check, pg_trgm contrib presence at staging and availability/extension check at Setup, startup and Test-MaviEnvironment",
+      "licenceHandling": "LICENSE-POSTGRESQL.txt and LICENSE-PGVECTOR.txt retained in the runtime pack; pg_trgm is PostgreSQL contrib under LICENSE-POSTGRESQL.txt",
+      "extensions": [
+        "vector (pgvector)",
+        "pg_trgm (PostgreSQL contrib; plate-text trigram index, Stage 4 PR-4)"
+      ]
     },
     {
       "id": "ffmpeg-win-x64",

@@ -264,3 +264,37 @@ describe('Review fails closed on a geometry problem', () => {
     expect(ANALYSED_REVISION_ID).not.toBe(OTHER_REVISION_ID);
   });
 });
+
+describe('a geometry failure that lands before the display timezone (§38 drawn once; §23 live regions)', () => {
+  // The visual-QA rule (a11y.live-regions, tools/web-visual-qa/a11y.mjs) judges
+  // the status regions present after an operator's action: each must have been
+  // mounted before that action (or populated in a later frame). Review now draws
+  // its evidence once the timezone has answered, so a revision failure that
+  // lands first is drawn with the page, pre-filled: that is the page's first
+  // drawing, before any action, and the same node must then survive the action.
+  it('draws the revision alert with the page, and keeps the same region through the operator\'s first action', async () => {
+    let releaseConfig: (value: { displayTimeZoneId: string }) => void = () => {};
+    vi.mocked(getSystemConfig).mockReturnValue(new Promise((resolve) => { releaseConfig = resolve; }) as never);
+    vi.mocked(getCameraSceneRevision).mockRejectedValue(new Error('offline'));
+    open();
+
+    // The revision has failed while the timezone is still out: nothing of the
+    // evidence, the alert included, is drawn yet.
+    await waitFor(() => expect(getCameraSceneRevision).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText(/could not be loaded, so no zone or line geometry/)).not.toBeInTheDocument();
+
+    releaseConfig({ displayTimeZoneId: 'Asia/Kolkata' });
+    const message = await screen.findByText(/could not be loaded, so no zone or line geometry/);
+    const region = message.closest('[role="status"], [role="alert"], [aria-live]') as HTMLElement;
+    expect(region).not.toBeNull();
+
+    // The operator's first action on the page (the harness's SEEK: jump to the
+    // evidence) re-renders the rail; the region is the same node, so the rule
+    // finds it was mounted before the action rather than inserted pre-filled.
+    const jump = screen.getAllByRole('button').find((button) => /Evidence/.test(button.textContent ?? ''));
+    jump?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText(/could not be loaded, so no zone or line geometry/).closest('[role="status"], [role="alert"], [aria-live]')).toBe(region);
+  });
+});
