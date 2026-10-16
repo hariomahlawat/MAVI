@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from model_selection.canonical import canonical, parse, sha256
-from model_selection_fixtures import baseline, ledger, settle
+from model_selection_fixtures import baseline, commit_tree, ledger, settle
 from test_s2c_operational import capability, candidate, gates, matrix
 from test_s2c_replay import job, service, policy, T0
 
@@ -475,7 +475,7 @@ def test_v2_active_repository_binding_cannot_bypass_m1(artefacts, tmp_path, muta
     docs = decisions(artefacts, tmp_path, state='QUALIFICATION_PENDING')
     artefacts.retain_event_pair(tmp_path, docs)
     install_active_ledgers(artefacts, tmp_path, docs)
-    cred.validate_repository(tmp_path)
+    cred.validate_repository(commit_tree(tmp_path))
     d = docs['person']; directory = tmp_path/artefacts.ROOT/'person-attributes'
     if mutation == 'scope':
         d['eventId'] = docs['vehicle']['eventId']
@@ -486,7 +486,7 @@ def test_v2_active_repository_binding_cannot_bypass_m1(artefacts, tmp_path, muta
         path = directory/(d['eventId']+suffix)
         value = parse(path.read_bytes()); value['candidates'][0]['maviRevision'] = 'rewritten'
         path.write_bytes(canonical(value))
-    with pytest.raises(ValueError): cred.validate_repository(tmp_path)
+    with pytest.raises(ValueError): cred.validate_repository(commit_tree(tmp_path))
 
 
 def test_host_profile_reference_must_resolve_and_match_class(artefacts, tmp_path):

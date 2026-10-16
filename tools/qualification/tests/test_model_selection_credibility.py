@@ -27,6 +27,7 @@ from model_selection.credibility import (
     validate_repository,
 )
 from model_selection_fixtures import (
+    commit_tree,
     baseline,
     claim,
     commit,
@@ -1087,6 +1088,14 @@ def test_committed_ledgers_and_decisions_validate():
     validate_repository(REPO)
 
 
+def test_repository_verification_requires_full_git_history(tmp_path):
+    """MSR M3 invariant A6: without a repository (or with a shallow clone) the sticky audit domain cannot be computed,
+    so repository verification refuses even an event set with no M3 content."""
+    complete_event(tmp_path)
+    refused("model_selection_history_unavailable", validate_repository, tmp_path)
+    assert len(validate_repository(commit_tree(tmp_path))) == 4
+
+
 def complete_event(tmp_path, current=None):
     folder, _ = write_event(tmp_path, frozen=full(), snapshot=full(), current=current)
     summary = decision(full())
@@ -1102,7 +1111,7 @@ def complete_event(tmp_path, current=None):
 
 def test_repository_scan_accepts_a_complete_event(tmp_path):
     complete_event(tmp_path)
-    assert len(validate_repository(tmp_path)) == 4
+    assert len(validate_repository(commit_tree(tmp_path))) == 4
 
 
 def test_nothing_added_after_the_decision_is_dated_before_it(tmp_path):
@@ -1112,7 +1121,7 @@ def test_nothing_added_after_the_decision_is_dated_before_it(tmp_path):
                                        scope="exact-checkpoint", reproducedArtefact=exact("emg")))
     settle(entry, at="2026-08-02")
     complete_event(tmp_path, current=current)
-    refused("appended_before_freeze", validate_repository, tmp_path)
+    refused("appended_before_freeze", validate_repository, commit_tree(tmp_path))
 
 
 def test_record_carries_decision_and_snapshot_hashes(tmp_path):
@@ -1121,12 +1130,12 @@ def test_record_carries_decision_and_snapshot_hashes(tmp_path):
     rewritten = json.loads(snapshot_path.read_text())
     entry_of(rewritten, "VC-EXC")["caveats"].append("rewritten after the decision")
     snapshot_path.write_text(json.dumps(rewritten))
-    refused("decision_hash_not_recorded_in_record", validate_repository, tmp_path)
+    refused("decision_hash_not_recorded_in_record", validate_repository, commit_tree(tmp_path))
 
 
 def test_orphan_snapshot_is_refused(tmp_path):
     folder, _ = write_event(tmp_path, frozen=full(), snapshot={})
-    refused("snapshot_without_decision", validate_repository, tmp_path)
+    refused("snapshot_without_decision", validate_repository, commit_tree(tmp_path))
 
 
 def test_working_ledger_and_snapshot_need_not_carry_frozen_on(tmp_path):
@@ -1141,13 +1150,13 @@ def test_working_ledger_and_snapshot_need_not_carry_frozen_on(tmp_path):
     snapshot_path = folder / "msr-synthetic-colour-2026-01-evidence-ledger-decided.json"
     record_path.write_text(record_path.read_text() + f"{lf_normalised_sha256(decision_path)}\n"
                            f"{lf_normalised_sha256(snapshot_path)}\n")
-    assert len(validate_repository(tmp_path)) == 4
+    assert len(validate_repository(commit_tree(tmp_path))) == 4
 
 
 def test_decision_requires_its_ledger_snapshot(tmp_path):
     folder = complete_event(tmp_path)
     (folder / "msr-synthetic-colour-2026-01-evidence-ledger-decided.json").unlink()
-    refused("decision_without_snapshot", validate_repository, tmp_path)
+    refused("decision_without_snapshot", validate_repository, commit_tree(tmp_path))
 
 
 def test_frozen_on_cannot_predate_the_frozen_contents():
@@ -1187,36 +1196,36 @@ def test_shared_bytes_are_checked_against_every_earlier_entry():
 
 def test_repository_scan_binds_the_protocol_hash(tmp_path):
     write_event(tmp_path, frozen=full(), snapshot=full(), decision_doc=decision(full()))
-    refused("decision_protocol_hash_mismatch", validate_repository, tmp_path)
+    refused("decision_protocol_hash_mismatch", validate_repository, commit_tree(tmp_path))
 
 
 def test_repository_scan_requires_protocol_to_cite_frozen_ledger(tmp_path):
     folder, _ = write_event(tmp_path, frozen=full())
     (folder / "msr-synthetic-colour-2026-01-protocol.md").write_text("no hash here\n")
-    refused("frozen_ledger_not_cited_by_protocol", validate_repository, tmp_path)
+    refused("frozen_ledger_not_cited_by_protocol", validate_repository, commit_tree(tmp_path))
 
 
 def test_repository_scan_refuses_decision_without_frozen_ledger(tmp_path):
     write_event(tmp_path, protocol=False, decision_doc={})
-    refused("decision_without_frozen_ledger", validate_repository, tmp_path)
+    refused("decision_without_frozen_ledger", validate_repository, commit_tree(tmp_path))
 
 
 def test_protocol_requires_frozen_ledger_and_record_citation(tmp_path):
     folder, _ = write_event(tmp_path)
-    refused("protocol_without_frozen_ledger", validate_repository, tmp_path)
+    refused("protocol_without_frozen_ledger", validate_repository, commit_tree(tmp_path))
     folder, _ = write_event(tmp_path / "b", frozen=full(), record=False)
-    refused("protocol_hash_not_recorded_in_record", validate_repository, tmp_path / "b")
+    refused("protocol_hash_not_recorded_in_record", validate_repository, commit_tree(tmp_path / "b"))
     folder = tmp_path / "c" / "docs" / "qualification" / "model-selection" / "synthetic-colour"
     folder.mkdir(parents=True)
     (folder / "msr-synthetic-colour-2026-01-protocol.md").write_text("protocol without any ledger\n")
-    refused("protocol_without_frozen_ledger", validate_repository, tmp_path / "c")
+    refused("protocol_without_frozen_ledger", validate_repository, commit_tree(tmp_path / "c"))
 
 
 def test_repository_scan_refuses_misplaced_ledger(tmp_path):
     folder = tmp_path / "docs" / "qualification" / "model-selection" / "person-attributes"
     folder.mkdir(parents=True)
     (folder / "msr-synthetic-colour-2026-01-evidence-ledger.json").write_text(json.dumps(full()))
-    refused("ledger_location_mismatch", validate_repository, tmp_path)
+    refused("ledger_location_mismatch", validate_repository, commit_tree(tmp_path))
 
 
 def test_cli_reports_classes_and_refusals(tmp_path):
@@ -1236,3 +1245,314 @@ def test_module_imports_no_network_library():
     source = (REPO / "tools/qualification/model_selection/credibility.py").read_text()
     for name in ("urllib", "http", "socket", "requests"):
         assert f"import {name}" not in source and f"from {name}" not in source
+
+
+# ------------------------------------------------- plate domain term: exact whole value only (M3 final round)
+
+U = chr
+
+
+def fw(text):
+    return "".join(U(0xff00 + ord(ch) - 0x20) if ch != " " else " " for ch in text)
+
+
+# The only values exempt from the licence scan: the whole field is the plate domain term, after normalisation.
+EXEMPT_WHOLE_VALUES = [
+    "license plate", "license plates", "licence plate", "licence plates", "License Plate", "LICENCE PLATES",
+    "  license plate  ", "license" + U(0xa0) + "plate", "license" + U(0x3000) + "plates", "license" + U(9) + "plate",
+    "lic" + U(0x200b) + "ense plate", "LICEN" + U(0xad) + "CE PLATE", fw("license plate"), fw("licence plates"),
+]
+
+OWNER_REFUSED = [
+    "License plate weights to anyone", "Vendors: license plate weights to OEMs", "build & license plate models",
+    "buy / license plate software", "vehicle and license plate crops", "applied to license plate recognition",
+    "multi-line license plates", "license-plate", "licence-plate", "license plate.", '"license plate"',
+    "(license plate)", "[license plate]", "license plate...", "license plate" + U(0x2026), "- license plate",
+    "* license plate", "1. license plate", "a) license plate", "license plate:", "the license plate",
+    "license plate detector", "license plates and licence plates", "license plate license plate",
+    "https://huggingface.co/example-org/yolo-license-plate-detection", "yolo-license-plates.onnx",
+]
+
+COLD_B_CASES = [
+ # must refuse (owner)
+ "build and license plate models","permission to license plate weights","buy or license plate software",
+ # punctuation conjunctions
+ "build & license plate models","build + license plate models","buy / license plate software","buy | license plate software",
+ "buy \u00b7 license plate software","copy, license plate weights","copy; license plate weights",
+ "build &license plate models","build and/or license plate models","build and / license plate models",
+ "we copy\u2026 license plate weights","Vendors: license plate weights to OEMs","Vendors. License plate weights to OEMs!",
+ "the \"vendors\" license plate weights","the 'vendors' license plate weights","vendors' license plate weights",
+ "(we) license plate weights","we (license plate weights)","*license plate weights*","we * license plate weights",
+ "we\u3000& license plate weights", "build \uff06 license plate models", "build ＆license plate",
+ # allowlist entry as verb context
+ "makers of ALPR license plate weights commercially","firms that sell OCR license plate models","the car license plate models",
+ "any license plate weights you want","License plate weights to anyone","License plates under MIT",
+ "who per license plate", "per license plate weights",
+ # prefixes
+ "sub-license plate","sublicense plate","re-license plate","re license plate","open-license plate","the sub\u00adlicense plate",
+ "the sub\u200blicense plate","the sub\u2011license plate","x-license plate","the-license plate","sub_license plate",
+ "sub\u2010license plate", "sub\u2e3alicense plate", "sub~license plate", "sub~ license plate", "sub ~ license plate",
+ "sub\u02d7license plate", "sub\u2027license plate", "sub\u2022license plate", "sub \u2022 license plate",
+ "sub\u00a0license plate", "sub\u2063license plate", "sub\u034flicense plate", "sub\u180elicense plate", "sub\u3164license plate",
+ "sub\u115flicense plate", "sub\u2800license plate", "sub\uffa0license plate",
+ # look-alikes
+ "the l\u0456cense plate weights","the \u217cicense plate","\u0430nd license plate","\uff41nd license plate","the licen\u0455e plate",
+ "\u0430nd license plate", "th\u0435 license plate", "and\u0301 license plate", "\u24d0nd license plate", "\U0001d41a\U0001d427\U0001d41d license plate",
+ "the license plate license","the license plate, licensed under MIT","the license plates; re-licensed",
+ "the l1cense plate", "the lic\u0435nse", "the \u029fi\u1d04\u1d07\u0274se",
+ # benign expected
+ "the license plate detector","indian licence-plate dataset","number plate","yolov11-license-plate-detection",
+ "https://huggingface.co/foo/yolov11-license-plate-detection","license_plate_detector.pt","ALPR / license plate",
+ "Vehicle license plate","a licence plate","LICENSE PLATE","license-plates", "keremberke/yolov8n-license-plate-extraction",
+ "license plate", "plates (license plate)",
+]
+
+COLD_B_LIST = [
+    "Owners of the car license plate data to insurers",
+    "Makers of every vehicle license plate weights for a fee",
+    "We require that each LPR license plate weights separately",
+    "Suppliers to the front license plate models",
+    "Vendors who sell to ALPR license plate models commercially",
+    "We build \"and\" license plate models",
+    "weights (license plate models to OEMs)",
+    "The authors [license plate weights] under CC-BY",
+    "a) license plate weights to third parties",
+    "1. License plate weights to anyone",
+    "build > license plate", "buy = license plate", "build ... license plate", "build \u2026license plate",
+]
+
+COLD_A_REFUSE = [
+ "sub-license plate weights", "sub license plate weights", "sublicense plate weights", "Sub-Licence-plate",
+ "re-licence plates", "relicense plate", "cross-license plate", "un-licensed plate", "unlicense plate",
+ "sub\u2010license plate", "sub\u2014license plate", "sub\u00a0license plate", "sub\u200blicense plate",
+ "sub\u200b-\u200blicense plate", "sub-\u200blicense plate", "SUB\uff0dLICENSE PLATE", fw("sub-license plate"),
+ "sub/license plate", "sub.license plate", "(sub)license plate", "sub_license plate",
+ "you may license plate weights", "we license plates", "To license plate data", "freely license plate data",
+ "license plate licensed under MIT", "licence-plate weights; licence: CC-BY-NC",
+ "license plate sublicensable", "licence plate (licensed)",
+ "l\u0456cense", "lic\u0435nse plate", "\u217cicense", "lice\u0578se",
+ "\uff2c\uff49\uff43\uff45\uff4e\uff53\uff45", "LICENSE", "license-free", "licensor", "licensee", "licensing",
+ "open-license plate weights", "open license plate weights", "free-license plate weights",
+ "commercial-license plate weights", "permissive license plate weights", "research-license plate weights",
+ "royalty-free license plate weights", "MIT license plate weights", "apache license plate weights",
+ "GPL-license plate weights", "proprietary license plate weights", "trans-license plate", "post-license plate",
+ "super-license plate", "semi-license plate", "para-license plate", "all-license plate",
+ "Vendors license plate weights commercially", "Authors license plate models under AGPL",
+ "They will license plate models", "Ultralytics license plate weights under AGPL-3.0",
+ "users can't license plate models", "the right to sub-license plate", "the right to sub- license plate",
+ "license\u2060plate", "license\u00adplate",
+ "re\u0301-license plate", "\u0455ub-license plate", "s\u0075\u0062-license plate",
+ "sub\u2028license plate", "sub\u3000license plate", "sub\ufe63license plate", "sub\u2212license plate",
+ "sub\u00b7license plate", "sub\u2022license plate", "sub\u30fclicense plate",
+]
+
+COLD_A_PLATE_TEXT = [
+ "license plate", "licence plate", "License Plate", "LICENCE-PLATE", "license-plates", "licence plates",
+ "Licence-plate detector", "license\u2011plate", "license\u00a0plate", "lic\u200bense plate",
+ "\uff4c\uff49\uff43\uff45\uff4e\uff53\uff45 \uff50\uff4c\uff41\uff54\uff45",
+ "the license plate", "vehicle license plate", "detects license plates in images", "reads licence-plate text",
+ "a license plate reader", "Indian license plates", "license plate recognition (LPR)", "car's license plate",
+ "license plate, number plate", "ALPR / license plate", "\"license plate\"", "on license plates.", "license-plate OCR",
+ "CCPD license plate dataset", "multi-line license plates", "dual-row licence plates", "double-line license plate",
+ "non-standard license plates", "under-exposed license plates", "self-driving license plate dataset",
+ "over-exposed license plates", "pre-processed license plates", "re-identification license plate",
+ "license plates and licence plates", "number/license plate", "license plate/ number plate",
+ "OCR to license plate text", "Applied to license plate images", "and license plates", "license\tplate",
+ "trained on CCPD and license plates", "license plates or vehicles", "cars, trucks and license plates",
+ "license  plate",
+]
+
+
+def _in_scan(value):
+    from model_selection.credibility import has_licence_wording
+    return has_licence_wording(value)
+
+
+@pytest.mark.parametrize("value", EXEMPT_WHOLE_VALUES)
+def test_only_the_whole_plate_domain_value_is_exempt(value):
+    entry = established()
+    entry["caveats"] = [value]
+    validate_ledger(ledger(entry))
+
+
+ALL_PROBES = sorted(set(OWNER_REFUSED + COLD_B_CASES + COLD_B_LIST + COLD_A_REFUSE + COLD_A_PLATE_TEXT))
+
+
+@pytest.mark.parametrize("value", [v for v in ALL_PROBES if " ".join(v.split()).casefold() not in
+                                   ("license plate", "license plates", "licence plate", "licence plates")
+                                   and "licen" in v.casefold()])
+def test_every_other_value_containing_licence_letters_is_refused(value):
+    entry = established()
+    entry["caveats"] = [value]
+    refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
+
+
+def test_probe_values_with_obfuscated_letters_are_refused_too():
+    """Values whose "licen" is hidden by look-alikes, format characters or full-width letters are refused unless the
+    whole value normalises to the plate domain term."""
+    from model_selection.credibility import _normalise_text, _skeleton
+    exempt = {"license plate", "license plates", "licence plate", "licence plates"}
+    for value in ALL_PROBES:
+        normal = _normalise_text(value)
+        if "licen" in _skeleton(normal) and normal not in exempt:
+            assert _in_scan(value), ascii(value)
+
+
+def test_no_positional_noun_inference_remains():
+    import model_selection.credibility as module
+    for name in ("_NOUN_CONTEXT", "_plate_phrase_is_noun", "_PLATE_PHRASE_RE", "_CLAUSE_ENDS"):
+        assert not hasattr(module, name), name
+    assert module._PLATE_DOMAIN_VALUES == {"license plate", "license plates", "licence plate", "licence plates"}
+
+
+def test_licence_keys_never_take_the_exemption():
+    for key in ("license plate", "license_plate", "licensePlate", "plateLicence", "l" + U(0x456) + "cense"):
+        document = ledger(established())
+        document["candidates"][0][key] = 1
+        refused("licence_field_in_ledger", validate_ledger, document)
+
+
+def test_pure_non_latin_words_never_fold_to_licence():
+    cyrillic = "".join(map(U, (0x43b, 0x438, 0x446, 0x435, 0x43d, 0x437, 0x438, 0x44f)))
+    greek = "".join(map(U, (0x3bb, 0x3b9, 0x3ba, 0x3b5, 0x3bd, 0x3c3, 0x3b5)))
+    assert not _in_scan(cyrillic) and not _in_scan(greek)
+
+
+
+# ------------------------------------------------- typed exact identifier exemptions (M3 final round, item 3)
+
+REPO_URL = "https://huggingface.co/example-org/yolov11-license-plate-detection"
+FILE_NAME = "yolo-v9-s-608-license-plates-end2end.onnx"
+SOURCE_URL = "https://example.invalid/example-org/License-Plate-Detection/README.md"
+
+
+def identified_entry():
+    entry = established()
+    entry["identity"]["repository"] = REPO_URL
+    entry["identity"]["files"][0]["path"] = FILE_NAME
+    entry["evidence"][0]["source"] = SOURCE_URL
+    return entry
+
+
+def exemptions(*items):
+    return [dict(zip(("candidateId", "fieldKind", "value", "reason"), item)) for item in items]
+
+
+DECLARED = exemptions(("VC-EST", "repository-url", REPO_URL, "upstream repository name"),
+                      ("VC-EST", "artefact-filename", FILE_NAME, "upstream release asset name"),
+                      ("VC-EST", "source-url", SOURCE_URL, "upstream README location"))
+
+
+def identified_ledger(declared=None, entry=None):
+    document = ledger(entry or identified_entry())
+    if declared is not None:
+        document["identifierExemptions"] = declared
+    return document
+
+
+def test_declared_exact_identifiers_are_exempt_in_their_declared_fields_only():
+    validate_ledger(identified_ledger(DECLARED))
+    refused("licence_reasoning_in_ledger", validate_ledger, identified_ledger())  # undeclared: refused
+
+
+@pytest.mark.parametrize("field", ["caveat", "summary", "locator", "candidateName", "reason"])
+def test_the_same_literal_in_prose_is_refused(field):
+    entry = identified_entry()
+    if field == "caveat":
+        entry["caveats"] = [REPO_URL]
+    elif field == "summary":
+        entry["evidence"][0]["summary"] = REPO_URL
+    elif field == "locator":
+        entry["evidence"][0]["locator"] = FILE_NAME
+    elif field == "candidateName":
+        entry["candidateName"] = REPO_URL
+    else:
+        declared = [dict(DECLARED[0], reason=f"named {REPO_URL}")] + DECLARED[1:]
+        refused("licence_reasoning_in_ledger", validate_ledger, identified_ledger(declared, entry))
+        return
+    refused("licence_reasoning_in_ledger", validate_ledger, identified_ledger(DECLARED, entry))
+
+
+@pytest.mark.parametrize("value", [REPO_URL + "x", REPO_URL[:-1], REPO_URL.rsplit("/", 1)[0] + "/",
+                                   "https://huggingface.co/example-org/", "license-plate-detection",
+                                   REPO_URL.upper(), REPO_URL + "/", " " + REPO_URL, "*license-plate*",
+                                   ".*license-plate.*", "https://huggingface.co/*"])
+def test_only_whole_value_equality_matches(value):
+    declared = [dict(DECLARED[0], value=value)] + DECLARED[1:]
+    with pytest.raises(CredibilityError):
+        validate_ledger(identified_ledger(declared))
+
+
+def test_wrong_kind_missing_reason_unknown_candidate_and_prose_values_are_refused():
+    for item in (("VC-EST", "artefact-filename", REPO_URL, "kind does not hold this value"),
+                 ("VC-EST", "source-url", REPO_URL, "kind does not hold this value"),
+                 ("VC-EST", "repository-url", REPO_URL, " "),
+                 ("VC-EST", "repository-url", REPO_URL, None),
+                 ("VC-ZZZ", "repository-url", REPO_URL, "unknown candidate"),
+                 ("VC-EST", "any-text", REPO_URL, "kind outside the closed set"),
+                 ("VC-EST", "repository-url", "license plate weights", "prose is never an identifier")):
+        declared = exemptions(item) + DECLARED[1:]
+        with pytest.raises(CredibilityError):
+            validate_ledger(identified_ledger(declared))
+    duplicate = DECLARED + [DECLARED[0]]
+    refused("identifier_exemption_duplicate", validate_ledger, identified_ledger(duplicate))
+    extra = [dict(DECLARED[0], pattern="*")] + DECLARED[1:]
+    with pytest.raises(CredibilityError):
+        validate_ledger(identified_ledger(extra))
+
+
+def test_exemptions_are_fixed_by_the_freeze():
+    frozen = identified_ledger(DECLARED)
+    frozen["frozenOn"] = "2026-06-10"
+    later = copy.deepcopy(frozen)
+    later["identifierExemptions"] = [dict(DECLARED[0], reason="a different reason")] + DECLARED[1:]
+    refused("identifier_exemptions_changed_after_freeze", validate_evolution, frozen, later)
+    unfrozen = copy.deepcopy(frozen)
+    del unfrozen["identifierExemptions"]
+    later = copy.deepcopy(unfrozen)
+    later["identifierExemptions"] = DECLARED
+    with pytest.raises(CredibilityError):  # the frozen copy, without exemptions, is refused on its own scan
+        validate_evolution(unfrozen, later)
+    unfrozen_clean = ledger(established())
+    unfrozen_clean["frozenOn"] = "2026-06-10"
+    added = copy.deepcopy(unfrozen_clean)
+    added["identifierExemptions"] = exemptions(("VC-EST", "model-identifier", "Synthetic-est", "name"))
+    added["candidates"][0]["candidateName"] = "Synthetic-est"
+    with pytest.raises(CredibilityError):
+        validate_evolution(unfrozen_clean, added)
+
+
+
+@pytest.mark.parametrize("value", ["the l1cense plate", "".join(map(U, (0x29f, 0x26a, 0x1d04, 0x1d07, 0x274))) + "se"])
+def test_digit_and_small_capital_look_alikes_are_refused(value):
+    assert _in_scan(value)
+
+
+MODEL_ID = "acme-license-plate-yolo-v2"
+
+
+def test_model_identifier_exempts_only_the_exact_frozen_candidate_name():
+    """Owner decision: `model-identifier` maps to `candidateName` only, by exact whole-value, frozen declaration."""
+    entry = established()
+    entry["candidateName"] = MODEL_ID
+    declared = exemptions(("VC-EST", "model-identifier", MODEL_ID, "upstream model identifier"))
+    validate_ledger(identified_ledger(declared, copy.deepcopy(entry)))
+    refused("licence_reasoning_in_ledger", validate_ledger, identified_ledger(None, copy.deepcopy(entry)))
+    for near_miss in (MODEL_ID + "x", MODEL_ID[:-1], MODEL_ID.upper(), "acme-license-plate", "*license-plate*"):
+        with pytest.raises(CredibilityError):
+            validate_ledger(identified_ledger(exemptions(("VC-EST", "model-identifier", near_miss, "r")),
+                                              copy.deepcopy(entry)))
+    for field in ("caveats", "summary", "repository"):
+        prose = copy.deepcopy(entry)
+        if field == "caveats":
+            prose["caveats"] = [MODEL_ID]
+        elif field == "summary":
+            prose["evidence"][0]["summary"] = MODEL_ID
+        else:
+            prose["identity"]["repository"] = MODEL_ID  # a repository field needs its own repository-url exemption
+        with pytest.raises(CredibilityError):
+            validate_ledger(identified_ledger(declared, prose))
+    spaced = copy.deepcopy(entry)
+    spaced["candidateName"] = "Acme license plate YOLO"
+    refused("licence_reasoning_in_ledger", validate_ledger, identified_ledger(
+        exemptions(("VC-EST", "model-identifier", "Acme license plate YOLO", "a name with spaces is prose")), spaced))

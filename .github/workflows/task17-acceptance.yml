@@ -46,7 +46,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
+          # Full history: verify_repo walks the reachable model-selection history (MSR M3 invariant A6)
+          # and refuses a shallow clone.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Verify exact checked-out source head
