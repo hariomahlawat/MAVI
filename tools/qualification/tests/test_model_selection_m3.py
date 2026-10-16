@@ -210,14 +210,15 @@ def group(document=None, partner=None, rankings=None, seal="derive", s0=S0):
                                  rankings, seal, s0=s0)
 
 
-def authority_block(state, *, scores=None, base=BASE_D, anchor=ANCHOR, implementation="C-PD-A--VC-EST"):
+def authority_block(state, *, scores=None, base=BASE_D, anchor=ANCHOR, implementation="C-PD-A--VC-EST",
+                    mpid=MPID):
     scores = D_SCORES if scores is None else scores
     rows, passing = [], {}
     for item in state.ordinary:
         cid = item["compositionId"]
         score = scores.get(cid)
         baseline_passed = score is not None and base is not None and \
-            Decimal(str(score)) - Decimal(str(base)) >= Decimal(str(MPID))
+            Decimal(str(score)) - Decimal(str(base)) >= Decimal(str(mpid))
         gates = {"baseline": "passed" if baseline_passed else "failed", "consistent-wrong": "passed"}
         technical = "passed" if all(v == "passed" for v in gates.values()) else "failed"
         if technical == "passed":
@@ -2247,3 +2248,353 @@ LICENCE_PROBE = {
 def test_probe_licence_cases_are_pinned(value):
     from model_selection.credibility import has_licence_wording
     assert has_licence_wording(value) is LICENCE_PROBE[value], repr(value)
+
+
+# ================================================================== final convergence review (#220): permanent regressions
+
+
+# ---- P2-1: every M3 event file is add-only by default; decisions are versioned, never erased
+
+
+def _erase(built: Built, *, events=(EVENT, PARTNER_EVENT), decision=True, decided=True):
+    for e in events:
+        folder = folder_of(built.path, e)
+        if decision:
+            (folder / f"{e}-decision.json").unlink()
+        if decided:
+            (folder / f"{e}-evidence-ledger-decided.json").unlink()
+
+
+def _decided(tmp_path):
+    built, auth, manifest = full_flow(tmp_path / "r")
+    commit_decisions(built, auth)
+    validate_repository(built.path)
+    return built, auth, manifest
+
+
+def _abandon(built: Built, manifest: Path):
+    evidence = json.loads(manifest.read_text())["resultSha256"]
+    for e in (EVENT, PARTNER_EVENT):
+        append(built.record(e), ma.abandonment_line("baseline-d-unavailable", evidence))
+
+
+def test_p2_1_the_reviewers_two_step_escape_is_refused(tmp_path):
+    """probe2: delete the decision and the decided ledger, then abandon the group."""
+    built, _auth, manifest = _decided(tmp_path)
+    _erase(built)
+    commit(built.path, "step 1: erase the recorded decisions")
+    refused("m3_versioned_file_deleted", validate_repository, built.path)
+    _abandon(built, manifest)
+    commit(built.path, "step 2: abandon the group")
+    assert code_of(validate_repository, built.path) in ("m3_versioned_file_deleted", "abandonment_after_decision")
+
+
+def test_p2_1_abandonment_is_refused_whenever_a_decision_was_ever_committed(tmp_path):
+    built, _auth, manifest = _decided(tmp_path)
+    _abandon(built, manifest)
+    commit(built.path, "abandon after a recorded decision")
+    refused("abandonment_after_decision", validate_repository, built.path)
+
+
+ERASURES = {
+    "decision-only": lambda b: _erase(b, decided=False),
+    "decided-ledger-only": lambda b: _erase(b, decision=False),
+    "one-event": lambda b: _erase(b, events=(PARTNER_EVENT,)),
+}
+
+
+@pytest.mark.parametrize("mode", ["direct", "merge-resolution", "side-branch"])
+@pytest.mark.parametrize("erasure", sorted(ERASURES))
+def test_p2_1_erasing_a_recorded_decision_is_refused_in_every_shape(tmp_path, erasure, mode):
+    built, _auth, _manifest = _decided(tmp_path)
+    _apply(built, ERASURES[erasure], mode)
+    refused("m3_versioned_file_deleted", validate_repository, built.path)
+
+
+def test_p2_1_delete_and_recreate_or_rename_of_a_decision_is_refused(tmp_path):
+    built, _auth, _manifest = _decided(tmp_path)
+    path = built.folder / f"{EVENT}-decision.json"
+    data = path.read_bytes()
+    path.unlink()
+    commit(built.path, "delete the decision")
+    path.write_bytes(data)
+    commit(built.path, "re-create the same decision")
+    refused("m3_versioned_file_deleted", validate_repository, built.path)
+    built, _auth, _manifest = _decided(tmp_path / "rename")
+    rel = (built.folder / f"{EVENT}-decision.json").relative_to(built.path).as_posix()
+    git(built.path, "mv", rel, rel + ".bak")
+    commit(built.path, "rename the decision away")
+    git(built.path, "mv", rel + ".bak", rel)
+    commit(built.path, "and back")
+    assert code_of(validate_repository, built.path) in ("m3_versioned_file_deleted", "m3_unclassified_event_file")
+
+
+def test_p2_1_legitimate_pre_decision_abandonment_still_passes(tmp_path):
+    built, _auth, manifest = full_flow(tmp_path / "r")
+    _abandon(built, manifest)
+    commit(built.path, "ABANDONED before any decision")
+    validate_repository(built.path)
+
+
+def test_p2_1_an_unclassified_file_in_an_event_namespace_is_refused(tmp_path):
+    for name in (f"{EVENT}-notes.txt", f"{EVENT}-decision-v2.json", f"{EVENT}-baseline-seal.json"):
+        built = build(tmp_path / name.replace(".", "-"))
+        write(built.folder / name, "{}")
+        commit(built.path, "a file the registry does not know")
+        refused("m3_unclassified_event_file", validate_repository, built.path)
+
+
+def test_p2_1_every_historical_decision_block_must_agree():
+    state = group()
+    one = authority_block(state, implementation=None)
+    chosen = authority_block(state)
+    ma._check_blocks_agree([one, chosen, chosen], "d")  # null, then the chosen composition: allowed
+    refused("composition_authority_rewritten", ma._check_blocks_agree,
+            [chosen, authority_block(state, implementation="C-PD-A--VC-EMG")], "d")
+    other = copy.deepcopy(chosen)
+    other["frontier"] = other["rankedCompositions"][:2]
+    refused("composition_authority_rewritten", ma._check_blocks_agree, [chosen, other], "d")
+
+
+def test_p2_1_the_registry_classifies_every_event_file_and_every_policy_is_justified():
+    names = {f"{EVENT}-evidence-ledger.json": "working-ledger", f"{EVENT}-evidence-ledger-frozen.json": "frozen-ledger",
+             f"{EVENT}-evidence-ledger-decided.json": "decided-ledger", f"{EVENT}-protocol.md": "protocol",
+             f"{EVENT}.md": "record", f"{EVENT}-addenda.md": "addenda", f"{EVENT}-decision.json": "decision",
+             f"{EVENT}-component-ranking.json": "component-ranking", f"{EVENT}-baseline-seal-{GATE}.json": "seal",
+             f"{EVENT}-d-manifest-RUN-1.json": "d-manifest", f"{EVENT}-layer-a-{GATE}.json": "legacy-layer-a"}
+    for name, cls in names.items():
+        assert ma.classify_event_file(name) == [(EVENT, cls)], name
+    for cls, _suffix, policy, why in ma.EVENT_FILE_CLASSES:
+        assert policy == ma.IMMUTABLE or why, cls  # every exception to add-only states its rationale
+
+
+# ---- P2-2: the canonical remote is verified outside the repository's configuration
+
+
+def _redirected(tmp_path):
+    """The canonical stand-in holds history WITHOUT the seal; a fake holds the seal; the repository's own config
+    rewrites the canonical URL to the fake (probe1)."""
+    built = build(tmp_path / "r", stages=("freeze", "rank"))
+    canonical = publish(built)
+    write_seal(built)
+    built.commits["S0"] = commit(built.path, "S0, never published")
+    fake = tmp_path / "fake.git"
+    git(tmp_path, "init", "-q", "--bare", str(fake))
+    git(built.path, "push", "-q", str(fake), "HEAD:refs/heads/main")
+    canonical_url = Path(canonical).as_uri()
+    git(built.path, "config", f"url.{fake.as_uri()}.insteadOf", canonical_url)
+    return built, canonical_url
+
+
+def test_p2_2_insteadof_redirect_is_reproduced_and_can_no_longer_open_d(tmp_path):
+    built, canonical_url = _redirected(tmp_path)
+    # reproduction: ordinary Git inside the repository follows the rewrite to the fake, which holds the seal
+    advertised = git(built.path, "ls-remote", canonical_url, "refs/heads/main").split()[0]
+    assert advertised == built.commits["S0"]
+    refused("seal_not_published", open_d, built, remote=canonical_url)
+
+
+def test_p2_2_global_config_and_environment_cannot_redirect_either(tmp_path, monkeypatch):
+    built, canonical_url = _redirected(tmp_path)
+    git(built.path, "config", "--unset-all", f"url.{(tmp_path / 'fake.git').as_uri()}.insteadOf")
+    global_config = tmp_path / "global.gitconfig"
+    global_config.write_text(f'[url "{(tmp_path / "fake.git").as_uri()}"]\n\tinsteadOf = {canonical_url}\n')
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{(tmp_path / 'fake.git').as_uri()}.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", canonical_url)
+    refused("seal_not_published", open_d, built, remote=canonical_url)
+
+
+def test_p2_2_the_production_check_refuses_the_file_transport(tmp_path, monkeypatch):
+    built = build(tmp_path / "r")
+    local = publish(built)
+    monkeypatch.setattr(ma, "_canonical", lambda: (local, False))  # a local path standing in for the canonical URL
+    with pytest.raises(CredibilityError) as error:
+        ma.open_protected_d(built.path, EVENT, github_api=protected_api())
+    assert str(error.value).startswith("anchor_unavailable") and "rc=" in str(error.value)
+
+
+def test_p2_2_legitimate_canonical_anchoring_still_works_through_the_isolated_path(tmp_path):
+    built = build(tmp_path / "r")
+    auth = open_d(built)  # the test seam: same isolated profile, temporary directory and checks
+    assert auth.anchor_commit == built.commits["S0"]
+
+
+# ---- P2-3: one isolated Git profile; fail-closed work-tree checks (Windows MAX_PATH)
+
+
+def test_p2_3_one_isolated_profile_for_every_m3_git_call(monkeypatch):
+    for name, value in (("GIT_CONFIG_COUNT", "1"), ("GIT_CONFIG_KEY_0", "core.longpaths"), ("GIT_CONFIG_VALUE_0", "false"),
+                        ("GIT_CONFIG_PARAMETERS", "'url.x.insteadof'='y'"), ("GIT_CONFIG_GLOBAL", "/tmp/evil"),
+                        ("GIT_CONFIG_SYSTEM", "/tmp/evil"), ("GIT_ALTERNATE_OBJECT_DIRECTORIES", "/tmp/o"),
+                        ("GIT_OBJECT_DIRECTORY", "/tmp/o"), ("GIT_NAMESPACE", "n"), ("GIT_CEILING_DIRECTORIES", "/"),
+                        ("GIT_SSH", "evil"), ("GIT_SSH_COMMAND", "evil"), ("GIT_ASKPASS", "evil"), ("GIT_EXEC_PATH", "/x"),
+                        ("GIT_DIR", "/x"), ("GIT_WORK_TREE", "/x"), ("GIT_TRACE2_PERF", "/tmp/t")):
+        monkeypatch.setenv(name, value)
+    environment = mg.git_environment()
+    leaked = sorted(k for k in environment if k.upper().startswith("GIT_") and k.upper() not in mg._KEPT
+                    and k not in mg._FIXED)
+    assert leaked == [], leaked
+    assert environment["GIT_CONFIG_NOSYSTEM"] == "1" and environment["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert environment["GIT_TRACE2_PERF"] == "/tmp/t"  # tracing is kept
+    assert "core.longpaths=true" in mg.ISOLATION_OPTIONS and "core.fsmonitor=false" in mg.ISOLATION_OPTIONS
+
+
+def test_p2_3_system_and_global_configuration_are_not_read(tmp_path, monkeypatch):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    global_config = tmp_path / "global.gitconfig"
+    global_config.write_text("[alias]\n\tmavitest = status\n[core]\n\tlongpaths = false\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    assert mg._run(repo, ("config", "--get", "alias.mavitest")).returncode == 1
+    assert mg._run(repo, ("config", "--get", "core.longpaths")).stdout.decode().strip() == "true"
+
+
+def test_p2_3_a_modified_committed_file_beyond_max_path_is_detected(tmp_path):
+    if os.name != "nt":
+        assert "core.longpaths=true" in mg.ISOLATION_OPTIONS
+        pytest.skip("MAX_PATH (260 characters) is a Windows limit; on this platform only the profile is checked")
+    # the repository root stays short enough for Git's own .git paths; the work-tree files exceed MAX_PATH
+    root = tmp_path / ("p" * max(1, 190 - len(str(tmp_path)) - 1))
+    built = build(root)
+    frozen = built.folder / f"{EVENT}-evidence-ledger-frozen.json"
+    record = built.record()
+    assert len(str(frozen)) > 260 and len(str(record)) > 260
+    bare = tmp_path / "c.git"  # the canonical stand-in at a short path
+    git(tmp_path, "init", "-q", "--bare", str(bare))
+    git(built.path, "push", "-q", str(bare), "HEAD:refs/heads/main")
+    built.remote = str(bare)
+    rel = record.relative_to(built.path).as_posix()
+    record.write_text(record.read_text() + "a committed record edited in a path beyond MAX_PATH\n")
+    # the reviewer's evidence: without core.longpaths, status exits 0 with an empty answer and a stderr complaint
+    plain = subprocess.run(["git", "-c", "core.longpaths=false", "-C", str(built.path), "status", "--porcelain", "--",
+                            rel], capture_output=True, text=True, env=mg.git_environment())
+    assert plain.returncode == 0 and plain.stdout == "" and plain.stderr.strip()
+    assert mg.worktree_status(built.path, [rel]) == {rel: " M"}
+    refused("group_state_not_clean", open_d, built)
+    git(built.path, "checkout", "-q", "--", rel)
+    frozen.write_text(frozen.read_text() + " ")
+    refused("m3_frozen_file_rewritten", validate_repository, built.path)
+
+
+def test_p2_3_status_stderr_with_exit_zero_is_refused(tmp_path, monkeypatch):
+    built = build(tmp_path / "r")
+    original = mg._run
+
+    def noisy(repo, args, data=None, **kwargs):
+        completed = original(repo, args, data, **kwargs)
+        if args and args[0] == "status":
+            return subprocess.CompletedProcess(completed.args, 0, completed.stdout, b"error: could not stat a file")
+        return completed
+    monkeypatch.setattr(mg, "_run", noisy)
+    with pytest.raises(mg.GitCommandError) as error:
+        mg.worktree_status(built.path, [built.record().relative_to(built.path).as_posix()])
+    assert error.value.returncode == 0 and "could not stat" in error.value.stderr
+
+
+@pytest.mark.parametrize("flag", ["--skip-worktree", "--assume-unchanged"])
+def test_p2_3_index_flags_cannot_hide_a_work_tree_edit(tmp_path, flag):
+    built = build(tmp_path / "r")
+    publish(built)
+    frozen = built.folder / f"{EVENT}-evidence-ledger-frozen.json"
+    git(built.path, "update-index", flag, frozen.relative_to(built.path).as_posix())
+    frozen.write_text(frozen.read_text() + " ")
+    refused("worktree_index_flags_hide_changes", open_d, built)
+    refused("worktree_index_flags_hide_changes", validate_repository, built.path)
+
+
+# ---- P3-A: the baseline gate compares exact decimals
+
+
+@pytest.mark.parametrize("score, base, mpid, passes", [
+    (0.7, 0.5, 0.2, True), (0.6, 0.4, 0.2, True), (0.9, 0.8, 0.1, True), (0.12, 0.10, 0.02, True),
+    (0.69, 0.5, 0.2, False), (0.59, 0.4, 0.2, False), (0.89, 0.8, 0.1, False), (0.11, 0.10, 0.02, False),
+])
+def test_p3_a_exactly_baseline_plus_mpid_passes_and_below_fails(score, base, mpid, passes):
+    if passes:
+        assert not score - base >= mpid  # the reviewer's cases: binary floating point gets these wrong
+    block_ = universe(mpid=mpid)
+    state = group(m3_ledger(block_=block_), partner_ledger(block=block_))
+    scores = {cid: (score if cid == "C-PD-A--VC-EMG" else None) for cid in D_SCORES}
+    summary = group_decision(state, block_=authority_block(state, scores=scores, base=base, mpid=mpid,
+                                                           implementation=None),
+                             state_name="TECHNICAL_DECISION_RECORDED", implementation=None)
+    row = next(r for r in summary["compositionAuthority"]["compositionCandidates"]
+               if r["compositionId"] == "C-PD-A--VC-EMG")
+    assert row["gates"]["baseline"] == ("passed" if passes else "failed")
+    check(summary, state)
+    flipped = copy.deepcopy(summary)
+    target = next(r for r in flipped["compositionAuthority"]["compositionCandidates"]
+                  if r["compositionId"] == "C-PD-A--VC-EMG")
+    target["gates"]["baseline"] = "failed" if passes else "passed"
+    refused("composition_baseline_gate_not_derived", check, flipped, state)
+
+
+# ---- P3-B: gate-only composition ids never enter the ordinary-id namespace
+
+
+@pytest.mark.parametrize("composition_id, valid", [
+    ("GATE-BASE", True), ("BASELINE-OC5", True), ("C-PD-A--VC-EST", False), ("C-X", False), ("C-GATE", False),
+])
+def test_p3_b_gate_only_composition_ids_cannot_collide_with_ordinary_ids(composition_id, valid):
+    entry = bob()
+    entry["benchmarkBaseline"]["compositions"][0]["compositionId"] = composition_id
+    document = m3_ledger(baseline(), established(), emerging(), entry)
+    if valid:
+        validate_ledger(document)
+    else:
+        refused("gate_only_composition_id_reserved", validate_ledger, document)
+    assert bool(mu.COMPOSITION_ID_RE.match("C-PD-A--VC-EST"))
+
+
+# ---- P3-C: artefact names are parsed by suffix after a full event id
+
+
+def test_p3_c_capability_ids_containing_artefact_words_parse_correctly(tmp_path):
+    for capability in ("plate-layer-a-detector", "ocr-baseline-seal-reader", "x-d-manifest-y",
+                       "plate-component-ranking"):
+        event = f"msr-{capability}-2026-01"
+        assert ma.artefact_event(f"{event}-evidence-ledger.json") is None
+        assert ma.artefact_event(f"{event}-baseline-seal-GATE.json") == event
+        assert ma.artefact_event(f"{event}-component-ranking.json") == event
+        assert ma.classify_event_file(f"{event}.md") == [(event, "record")]
+    refused("m3_artefact_name_ambiguous", ma.artefact_event,
+            "msr-x-2026-01-baseline-seal-y-2026-01-baseline-seal-Z.json")
+    # a non-M3 event of such a capability validates exactly as an ordinary M1 event
+    document = ledger(baseline(), established(), emerging(), capability="plate-layer-a-detector")
+    write_event(tmp_path, document)
+    commit_tree_for_m1(tmp_path)
+    validate_repository(tmp_path)
+
+
+def commit_tree_for_m1(repo: Path):
+    git(repo, "init", "-q")
+    commit(repo, "M1 event")
+
+
+# ---- P3-D: only the EXACT refs/heads/main counts
+
+
+def test_p3_d_an_ambiguous_ls_remote_tail_match_neither_breaks_nor_misleads(tmp_path):
+    built = build(tmp_path / "r")
+    remote = publish(built)
+    git(built.path, "push", "-q", remote, f"{built.commits['F']}:refs/heads/x/refs/heads/main")
+    listing = git(built.path, "ls-remote", remote, "refs/heads/main")
+    assert len(listing.splitlines()) == 2  # git's tail match returns both
+    assert open_d(built, remote=remote).anchor_commit == built.commits["S0"]
+
+
+def test_p3_d_duplicate_or_missing_exact_ref_lines_refuse(tmp_path, monkeypatch):
+    built = build(tmp_path / "r")
+    remote = publish(built)
+    original = ma._run
+    for stdout in (f"{built.commits['S0']}\trefs/heads/main\n{built.commits['F']}\trefs/heads/main\n",
+                   f"{built.commits['F']}\trefs/heads/x/refs/heads/main\n"):
+        def fake(repo, args, data=None, _out=stdout, **kwargs):
+            if args and args[0] == "ls-remote":
+                return subprocess.CompletedProcess(["git", *args], 0, _out.encode(), b"")
+            return original(repo, args, data, **kwargs)
+        monkeypatch.setattr(ma, "_run", fake)
+        refused("anchor_unavailable", open_d, built, remote=remote)
