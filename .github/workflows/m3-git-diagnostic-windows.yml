@@ -6,10 +6,12 @@ name: M3 Git Diagnostic Windows (informational)
 #   `qualification tooling windows` aggregate, and a failure here blocks nothing. The Windows
 #   qualification shards (qualification-tooling-windows.yml) run every test, including these.
 # - Why it exists: an earlier head failed on Windows in production `git show <commit>:<path>` (Git for
-#   Windows 2.55). The redesign reads history by blob id and turns every Git failure into a typed refusal
+#   Windows 2.56.0.windows.2 on the runner). The redesign reads history by blob id and turns every Git failure into a typed refusal
 #   carrying the return code and stderr. This workflow additionally captures Git traces for the M3
 #   chronology tests, once with the default configuration and once with automatic gc/maintenance disabled.
-#   The maintenance-race hypothesis stays unproven unless the two variants differ.
+#   The maintenance-race hypothesis stays unproven unless the two variants differ. The production M3 Git
+#   profile ignores inherited GIT_CONFIG_* variables, so the no-maintenance variant changes only the test
+#   helper's own Git commands (which are the ones that can trigger automatic gc).
 # - Not qualification evidence: it uploads Git traces only, named `m3-git-diagnostic-*`.
 # - Bound to the exact head: the checkout is verified against the pull request head (or pushed) SHA.
 # - Remove this workflow once the traces have been reviewed.
