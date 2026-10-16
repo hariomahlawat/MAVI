@@ -77,6 +77,7 @@ import json
 import math
 import os
 import re
+import typing
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -85,7 +86,16 @@ from pathlib import Path
 from types import MappingProxyType
 from uuid import UUID
 
-from mavi_vision.plates.contracts import is_raw_text
+from mavi_vision.evidence.roles import REPRESENTATIVE_CAP_BYTES, ROLE_ORDER, SUPPLEMENTAL_CAP_BYTES, EvidenceRole
+from mavi_vision.plates.contracts import (
+    MAXIMUM_CROP_DIMENSION,
+    MAXIMUM_PREDICTION_ARTIFACT_BYTES,
+    MAXIMUM_TRACK_OBSERVATIONS,
+    LeaseObservation,
+    LeaseTrack,
+    is_raw_text,
+)
+from mavi_vision.plates.inference import CropDecodeError, decode_crop
 from mavi_vision.plates.normalisation import OK, normalise
 
 from tools.benchmarks.capabilities.plates.queries import QueryParameters
@@ -109,8 +119,30 @@ DETECTOR_RANKING_RULE = ("mavi-plate-detector-rank-v2: Layer-A gate pass require
                          "passing detectors STOP the event (ambiguous; no id tie-break)")
 DETECTOR_RANKING_RULE_SHA256 = hashlib.sha256(DETECTOR_RANKING_RULE.encode("utf-8")).hexdigest()
 
-EVIDENCE_ROLES = ("near-view", "far-view", "best-plate", "representative")
-PLATE_IMAGE_ROLE = "gt-plate-crop"
+# Corpus admission = the existing evidence contracts (cold review of c70b03f8, P2-1; owner checks). Every value is
+# imported from an existing contract, never a second list. Two different limits apply, for different reasons:
+# - the SOURCE-EXPORT contract of a MAVI Track's evidence (``contracts/schemas/vision-job-complete-v3.3.schema.json``
+#   ``trackObservation``/``crop``, mirrored by ``mavi_vision.common.control_plane.VisionCompletionObservation`` and
+#   ``VisionCompletionTrackV3``; the role caps of ADR-013 §5 in ``mavi_vision.evidence.roles``): unique roles, ranks
+#   contiguous from 0 in canonical role order with ``representative`` at rank 0, at most 4 observations, the
+#   representative crop at most 64 KiB and a supplemental crop at most 160 KiB. It is binding here because the corpus
+#   evidence of a MAVI Track IS that Track's exported evidence (the D Tracks are scored on exactly it);
+# - the PR-3 LEASE contract (``mavi_vision.plates.contracts.LeaseObservation``/``LeaseTrack``): the four roles, rank
+#   0-3, ``sizeBytes`` at most 64 MiB (``MAXIMUM_PREDICTION_ARTIFACT_BYTES``, a lease-field bound, far looser than the
+#   export caps) and at most ``MAXIMUM_TRACK_OBSERVATIONS``. It is enforced by building the exact lease at admission.
+# The export contract's "distinct source frames" rule cannot be checked: the index carries no frame numbers.
+EVIDENCE_ROLES = typing.get_args(LeaseObservation.model_fields["role"].annotation)   # PR-3 lease roles
+
+
+def _lease_bound(field: str, name: str) -> int:
+    return next(getattr(m, name) for m in LeaseObservation.model_fields[field].metadata if hasattr(m, name))
+
+
+EVIDENCE_RANK_MIN, EVIDENCE_RANK_MAX = _lease_bound("evidence_rank", "ge"), _lease_bound("evidence_rank", "le")
+REPRESENTATIVE_ROLE = EvidenceRole.REPRESENTATIVE.value   # job-complete: representative <=> rank 0, <= 64 KiB
+PLATE_IMAGE_ROLE = "gt-plate-crop"                      # B plate images only: a separate vocabulary
+if set(EVIDENCE_ROLES) != {role.value for role in EvidenceRole} or PLATE_IMAGE_ROLE in EVIDENCE_ROLES:
+    raise ImportError("plate_harness_evidence_vocabulary_differs_from_pr3")
 SELECTION, D_CAPTURE, PROTECTED = "SELECTION", "D_CAPTURE", "PROTECTED_D"   # bundle stages
 DISJOINT = "DISJOINT"
 DISJOINTNESS_CHECKS = ("site", "trackId", "maviTrackUuid", "observationId", "contentSha256")
@@ -313,6 +345,7 @@ class _Track:
     state: TruthState | None          # None: the D truth is not loaded at the selection stage
     text: str | None
     supported: str | None             # the v1-normalised TEXT truth (TEXT only)
+    lease: LeaseTrack | None = None   # the exact PR-3 lease the run uses, validated at admission (frozen model)
 
     @property
     def has_mavi_evidence(self) -> bool:
@@ -618,10 +651,64 @@ def _parse_record(data: bytes) -> tuple[_Protocol, _Roster, dict[str, Partition]
 
 def _image(value: object, roles: tuple[str, ...], code: str) -> _Image:
     v = _obj(value, ("observationId", "role", "rank", "sha256", "sizeBytes"), code)
-    if v["role"] not in roles:
+    if type(v["role"]) is not str or v["role"] not in roles:
         _fail(code)
-    return _Image(_uuid(v["observationId"], code), v["role"], _int(v["rank"], code, 0), _sha(v["sha256"], code),
-                  _int(v["sizeBytes"], code, 1))
+    image = _Image(_uuid(v["observationId"], code), v["role"], _int(v["rank"], code, 0), _sha(v["sha256"], code),
+                   _int(v["sizeBytes"], code, 1))
+    if image.size_bytes > MAXIMUM_PREDICTION_ARTIFACT_BYTES:
+        _fail(f"{code}:size_exceeds_pr3_limit")
+    return image
+
+
+def _evidence_image(value: object) -> _Image:
+    """Track evidence: PR-3's role vocabulary, rank range and size limit, and the job-complete pairing
+    (``representative`` <=> rank 0, at most ``REPRESENTATIVE_CAP_BYTES``; every other role rank >= 1)."""
+    image = _image(value, EVIDENCE_ROLES, "index_evidence_malformed")
+    if not EVIDENCE_RANK_MIN <= image.rank <= EVIDENCE_RANK_MAX:
+        _fail("index_evidence_malformed:rank_out_of_pr3_range")
+    if (image.role == REPRESENTATIVE_ROLE) != (image.rank == 0):
+        _fail("index_evidence_malformed:representative_must_be_rank_0_and_only_rank_0")
+    cap = REPRESENTATIVE_CAP_BYTES if image.role == REPRESENTATIVE_ROLE else SUPPLEMENTAL_CAP_BYTES
+    if image.size_bytes > cap:
+        _fail(f"index_evidence_malformed:{image.role}_crop_exceeds_its_export_cap")
+    return image
+
+
+def _check_evidence_set(evidence: tuple[_Image, ...]) -> None:
+    """The job-complete Track rules (``VisionCompletionTrackV3.validate_track_semantics``): roles unique, ranks
+    contiguous 0..n-1 in canonical role order, the representative present (at rank 0)."""
+    roles = [e.role for e in evidence]
+    if len(set(roles)) != len(roles):
+        _fail("index_evidence_malformed:roles_not_unique")
+    ordered = sorted(evidence, key=lambda e: [r.value for r in ROLE_ORDER].index(e.role))
+    if [e.rank for e in ordered] != list(range(len(ordered))):
+        _fail("index_evidence_malformed:ranks_not_contiguous_in_role_order")
+    if ordered and ordered[0].role != REPRESENTATIVE_ROLE:
+        _fail("index_evidence_malformed:representative_required")
+
+
+def build_lease(mavi_track_uuid: str, evidence: tuple[_Image, ...]) -> LeaseTrack:
+    """The exact PR-3 ``LeaseTrack`` a run of this Track uses (PR-3's own ``model_validate``)."""
+    observations = tuple(LeaseObservation.model_validate({"observationId": UUID(e.observation_id), "role": e.role,
+                                                          "evidenceRank": e.rank, "sizeBytes": e.size_bytes,
+                                                          "sha256": e.sha256}) for e in evidence)
+    return LeaseTrack.model_validate({"trackId": UUID(mavi_track_uuid), "objectClass": "vehicle",
+                                      "observations": observations})
+
+
+def admit_image(images: Callable[[str, str], bytes], ref: _Image) -> None:
+    """Corpus admission of one image: the exact frozen bytes, decodable by PR-3's own decoder, within PR-3's crop
+    dimension bound. A corpus that fails here is refused, so no run can meet a corpus-borne decode fault."""
+    content = images(ref.observation_id, ref.sha256)
+    if type(content) is not bytes or len(content) != ref.size_bytes \
+            or hashlib.sha256(content).hexdigest() != ref.sha256:
+        _fail(f"corpus_image_integrity_failed:{ref.observation_id}")
+    try:
+        width, height = decode_crop(content).size
+    except CropDecodeError:
+        _fail(f"corpus_image_undecodable:{ref.observation_id}")
+    if not (1 <= width <= MAXIMUM_CROP_DIMENSION and 1 <= height <= MAXIMUM_CROP_DIMENSION):
+        _fail(f"corpus_image_dimensions_out_of_pr3_range:{ref.observation_id}")
 
 
 def _read_document(directory: Path, key: str, expected_sha256: str) -> object:
@@ -646,15 +733,24 @@ def _index(value: object, partition: Partition, sites: dict[str, Partition]) -> 
         site = _str(t["site"], "index_track_malformed")
         if sites.get(site) is not partition:
             _fail("index_site_not_in_this_partition")   # site-disjoint partitions (protocol §3.1)
-        evidence = tuple(_image(e, EVIDENCE_ROLES, "index_evidence_malformed")
-                         for e in _list(t["evidence"], "index_evidence_malformed"))
+        rows_ = _list(t["evidence"], "index_evidence_malformed")
+        if len(rows_) > MAXIMUM_TRACK_OBSERVATIONS:
+            _fail("index_evidence_malformed:more_observations_than_pr3_allows")
+        evidence = tuple(_evidence_image(e) for e in rows_)
+        _check_evidence_set(evidence)
         ranks = [e.rank for e in evidence]
         if ranks != sorted(set(ranks)):
             _fail("index_evidence_ranks_not_strictly_ordered")
         uuid = None if t["maviTrackUuid"] is None else _uuid(t["maviTrackUuid"], "index_track_malformed")
         if bool(evidence) != (uuid is not None):
             _fail("index_mavi_track_and_evidence_disagree")
-        out.append({"trackId": track_id, "site": site, "uuid": uuid, "evidence": evidence})
+        lease = None
+        if uuid is not None:
+            try:
+                lease = build_lease(uuid, evidence)
+            except Exception:  # noqa: BLE001 - any PR-3 lease refusal is a corpus refusal, never a run fault
+                _fail("index_evidence_not_a_pr3_lease")
+        out.append({"trackId": track_id, "site": site, "uuid": uuid, "evidence": evidence, "lease": lease})
     _sorted_unique([t["trackId"] for t in out], "index_tracks_not_in_canonical_order")
     if not out:
         _fail("index_without_tracks")
@@ -730,7 +826,7 @@ def _part(partition: Partition, digest: str, index: list[dict] | None, truth) ->
     for t in index or ():
         state, text, supported = truths.get(t["trackId"], (None, None, None))
         tracks[t["trackId"]] = _Track(t["trackId"], t["site"], partition, t["uuid"], t["evidence"], state, text,
-                                      supported)
+                                      supported, t["lease"])
     return _Part(partition, digest, MappingProxyType(tracks), MappingProxyType({c.crop_id: c for c in crops}),
                  MappingProxyType({p.plate_id: p for p in plates if p.image is not None}),
                  MappingProxyType({p.plate_id: p for p in plates if p.observation_id is not None}),
@@ -752,8 +848,21 @@ def partition_digest(record_sha256: str, partition: Partition) -> str:
     return document_sha256(canonical_bytes({"freezeRecordSha256": record_sha256, "partition": partition.value}))
 
 
+def admit_images(images: object, index: list[dict], plates: list[_Plate] = ()) -> None:
+    """Decode-check every Track evidence image of ``index`` and every GT plate crop of ``plates`` (PR-3 decoder)."""
+    if not callable(images):
+        _fail("corpus_image_source_required")
+    for track in index:
+        for ref in track["evidence"]:
+            admit_image(images, ref)
+    for plate in plates:
+        if plate.image is not None:
+            admit_image(images, plate.image)
+
+
 def _load(corpus_dir: object, repo_root: object, stage: str,
-          resolution_check: Callable[[_State], object] | None = None, authorization: object = None) -> Bundle:
+          resolution_check: Callable[[_State], object] | None = None, authorization: object = None, *,
+          images: object = None) -> Bundle:
     """Open ONLY what the stage needs (owner point 2). ``SELECTION``: the record and the two A/B documents; no D path
     is constructed or opened. ``D_CAPTURE`` adds the D index; ``PROTECTED_D`` adds the D truth. For a D stage,
     ``resolution_check(selection_state)`` (the evaluator's verified Stage-2 resolution) runs, and then
@@ -773,6 +882,7 @@ def _load(corpus_dir: object, repo_root: object, stage: str,
     directory = Path(os.fspath(corpus_dir))
     ab_index = _index(_read_document(directory, "abIndex", documents["abIndex"]), Partition.AB_SELECTION, sites)
     ab_truth = _truth(_read_document(directory, "abTruth", documents["abTruth"]), Partition.AB_SELECTION, ab_index)
+    admit_images(images, ab_index, ab_truth[2])   # A/B evidence and GT plate crops: decodable, in PR-3's bounds
     ab = _part(Partition.AB_SELECTION, partition_digest(record_sha, Partition.AB_SELECTION), ab_index, ab_truth)
     d_digest = partition_digest(record_sha, Partition.PROTECTED_D)
 
@@ -791,6 +901,7 @@ def _load(corpus_dir: object, repo_root: object, stage: str,
             _fail("protected_d_truth_load_during_candidate_execution")
         _D_DATA_LOADED.add(record_sha)
         d_index = _index(_read_document(directory, "dIndex", documents["dIndex"]), Partition.PROTECTED_D, sites)
+        admit_images(images, d_index)   # D evidence is decode-checked only here, once D is authorised (never earlier)
         check_disjoint(ab_index, ab_truth[2], d_index)   # the recorded attestation, re-verified on the real D index
         d_truth = None
         if stage == PROTECTED:
@@ -802,7 +913,9 @@ def _load(corpus_dir: object, repo_root: object, stage: str,
     return Bundle(state.bundle_id, stage, record_sha, commit, ab.digest, d_digest, plan_digest)
 
 
-def load_selection_bundle(corpus_dir, *, repo_root=None) -> Bundle:
+def load_selection_bundle(corpus_dir, *, images, repo_root=None) -> Bundle:
     """The selection stage (Layer A/B/C, top-K, the Stage-2 resolution): the frozen record and the A/B documents ONLY.
-    No D index or D truth is opened or needed; the D partition digest is the record's commitment."""
-    return _load(corpus_dir, repo_root, SELECTION)
+    No D index or D truth is opened or needed; the D partition digest is the record's commitment. ``images`` is the
+    image byte source (verified by SHA-256 and size): every A/B evidence image and GT plate crop is decode-checked at
+    admission."""
+    return _load(corpus_dir, repo_root, SELECTION, images=images)

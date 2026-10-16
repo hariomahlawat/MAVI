@@ -155,7 +155,9 @@ CLUSTER_UNIT = "physical-capture-site"        # owner item 4 / C2
 
 PASS, FAIL, INSUFFICIENT = "PASS", "FAIL", "INSUFFICIENT_EVIDENCE"
 MEASURED, CONTRACT_FAIL, COMPLETED = "MEASURED", "CONTRACT_FAIL", "COMPLETED"
-HARNESS_FAULT = "HARNESS_FAULT"   # a run the harness could not account for: never COMPLETED, never scored (N9 rerun)
+# A run the harness could not account for: never COMPLETED and never scored. It only refuses scoring; it does NOT
+# authorise a rerun. Whether a rerun is allowed is decided procedurally under N9 by the event integration.
+HARNESS_FAULT = "HARNESS_FAULT"
 
 _UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _CANDIDATE_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$")
@@ -405,8 +407,11 @@ class _Guard:
 #
 # THE CANDIDATE BOUNDARY (``_guarded``; cold reviews of 5735c63c P2-1 and df921fa6 P2, one root cause: the harness
 # assumed its own handling of candidate-controlled values never raises, and PR-3's broad product handler turned any
-# such exception into a silent, scored abstention). One boundary encloses everything that touches candidate-controlled
-# values: the call, the output validation and the copy into harness-owned values. Any BaseException anywhere inside it
+# such exception into a silent, scored abstention). One boundary encloses the candidate call, the validation of its
+# output and the copy of that output into fresh harness-built values (``PlateBox``/``Reading`` lists, A proposals, the B
+# ranked plate); PR-3 and the recogniser only ever see those copies, never a candidate-held object. It does not cover
+# the shared inputs a candidate receives (the decoded image, ``VerifiedCrop``), which PR-3 hands to both components.
+# Any BaseException anywhere inside it
 # flags the guard FIRST, so it is a CONTRACT_FAIL (decision record, Contract row), never a COMPLETED run. Behind it,
 # the validators are total (they never raise), and a backstop refuses to call a run COMPLETED unless every crop was
 # scored with nothing flagged: anything PR-3 did not score without a harness flag is HARNESS_FAULT, never scored.
@@ -458,6 +463,20 @@ def _guarded(guard: _Guard, component: str, where: str, call: Callable[[], objec
         raise
 
 
+def _fresh_box(box: PlateBox) -> PlateBox:
+    """A harness-built copy of a VALIDATED box (exact ints and a probability), sharing nothing with the candidate."""
+    return PlateBox(int(box.x), int(box.y), int(box.width), int(box.height), float(box.score))
+
+
+def _fresh_boxes(boxes) -> list[PlateBox]:
+    return [_fresh_box(box) for box in boxes]
+
+
+def _fresh_readings(readings) -> list[Reading]:
+    """Harness-built copies of VALIDATED readings (exact ``str`` text, a probability)."""
+    return [Reading(reading.raw_text, float(reading.confidence)) for reading in readings]
+
+
 class _CheckedDetector:
     """The candidate detector behind the boundary; PR-3 sees ONE harness-owned copy of valid output, else ``[]``."""
 
@@ -468,7 +487,7 @@ class _CheckedDetector:
         width, height = crop.size   # the harness-decoded image
         out = _guarded(self.guard, "detector", f"obs={verified.observation_id}",
                        lambda: self.inner.detect(crop, verified),
-                       lambda boxes: detector_output_violation(boxes, width, height, self.bound), list)
+                       lambda boxes: detector_output_violation(boxes, width, height, self.bound), _fresh_boxes)
         return [] if out is _NO_OUTPUT else out
 
 
@@ -477,9 +496,10 @@ class _CheckedRecogniser:
         self.inner, self.guard, self.bound = inner, guard, bound
 
     def read(self, region, verified: VerifiedCrop, box: PlateBox):
+        own = _fresh_box(box)   # the recogniser never holds the box PR-3 re-reads afterwards
         out = _guarded(self.guard, "recogniser", f"obs={verified.observation_id}",
-                       lambda: self.inner.read(region, verified, box),
-                       lambda readings: recogniser_output_violation(readings, self.bound), list)
+                       lambda: self.inner.read(region, verified, own),
+                       lambda readings: recogniser_output_violation(readings, self.bound), _fresh_readings)
         return [] if out is _NO_OUTPUT else out
 
 
@@ -542,6 +562,13 @@ class TrackRun:
     result_id: str = ""
 
 
+def _lease_of(track) -> LeaseTrack:
+    """The admission-built, PR-3-validated lease of a Track (harness-owned, frozen)."""
+    if track.lease is None:
+        raise ValueError("track_has_no_admitted_lease")
+    return track.lease
+
+
 def lease_observation(observation_id, role: str, evidence_rank: int, size_bytes: int, sha256: str) -> LeaseObservation:
     return LeaseObservation.model_validate({"observationId": observation_id, "role": role,
                                             "evidenceRank": evidence_rank, "sizeBytes": size_bytes, "sha256": sha256})
@@ -577,10 +604,6 @@ def _run_track(bundle, track_id, detector, recogniser, detector_identity, recogn
         _fail("run_track_has_no_mavi_evidence")  # NO_RUN is derived from the bundle, never executed
     parameters = ranking_parameters(_floor(state, det))
     contents = [_image_bytes(images, ref) for ref in track.evidence]
-    observations = tuple(lease_observation(UUID(e.observation_id), e.role, e.rank, e.size_bytes, e.sha256)
-                         for e in track.evidence)
-    lease = LeaseTrack.model_validate({"trackId": UUID(track.mavi_track_uuid), "objectClass": "vehicle",
-                                       "observations": observations})
     guard = _Guard()
     checked_detector = _CheckedDetector(detector, guard, parameters.max_detections_per_crop)
     checked_recogniser = _CheckedRecogniser(recogniser, guard, parameters.max_readings_per_plate)
@@ -593,9 +616,21 @@ def _run_track(bundle, track_id, detector, recogniser, detector_identity, recogn
     def unaccounted(where: str, what: str):
         return result(HARNESS_FAULT, None, f"harness_fault@{where}:{what}")
 
+    try:   # the lease was built and validated at admission; any residual setup fault is recorded, never leaked
+        lease = _lease_of(track)
+        observations = lease.observations
+        verifieds = [VerifiedCrop(ref.observation_id, ref.role, ref.rank, ref.sha256, content)
+                     for ref, content in zip(track.evidence, contents)]
+        if len(observations) != len(verifieds):
+            raise ValueError("lease_does_not_match_the_evidence")
+    except BaseException as exc:  # noqa: BLE001
+        failed = unaccounted("track", f"setup:{_exception_evidence(exc)}")
+        if isinstance(exc, _ABORTS):
+            raise
+        return failed
+
     records = []
-    for ref, content, observation in zip(track.evidence, contents, observations):
-        verified = VerifiedCrop(ref.observation_id, ref.role, ref.rank, ref.sha256, content)
+    for ref, verified, observation in zip(track.evidence, verifieds, observations):
         where = f"obs={ref.observation_id}"
         try:
             record = analyse_crop(observation, verified, checked_detector, checked_recogniser, parameters)
@@ -857,7 +892,7 @@ def _require_complete(runs: list, kind: str, id_of: Callable, expected_ids: Iter
     for run in runs:
         stored = _lookup(kind, run, f"{code}_result_not_from_the_harness")
         if getattr(stored, "state", None) == HARNESS_FAULT:
-            _fail(f"{code}_harness_fault_run_cannot_be_scored")   # unaccounted: rerun under N9, never scored
+            _fail(f"{code}_harness_fault_run_cannot_be_scored")   # refuses scoring only; grants no rerun
         if stored.partition_digest != digest:
             _fail(f"{code}_result_of_another_partition_or_bundle")
         key = id_of(stored)
@@ -1784,18 +1819,22 @@ def _pre_d(resolution: object, layer_a_results: object) -> Callable:
     return check
 
 
-def load_d_capture_bundle(corpus_dir, *, resolution, layer_a_results, authorization, repo_root=None) -> Bundle:
+def load_d_capture_bundle(corpus_dir, *, resolution, layer_a_results, authorization, images,
+                          repo_root=None) -> Bundle:
     """The D-capture stage: the selection documents plus the D INDEX (evidence, no truth), for candidate execution on
     protected-D evidence. Requires the verified Stage-2 resolution and the protected-D authority (fails closed in
     #218: ``protected_d_not_authorised:m3_authority_not_integrated``)."""
-    return sb._load(corpus_dir, repo_root, sb.D_CAPTURE, _pre_d(resolution, layer_a_results), authorization)
+    return sb._load(corpus_dir, repo_root, sb.D_CAPTURE, _pre_d(resolution, layer_a_results), authorization,
+                    images=images)
 
 
-def load_protected_d_bundle(corpus_dir, *, resolution, layer_a_results, authorization, repo_root=None) -> Bundle:
+def load_protected_d_bundle(corpus_dir, *, resolution, layer_a_results, authorization, images,
+                            repo_root=None) -> Bundle:
     """The protected-D stage: adds the D TRUTH, for scoring. Same precondition as the D-capture stage. Loading it ends
     candidate execution in this process (owner point 5), so every candidate output on D evidence is captured on the
     D-capture bundle first; it is refused while a candidate callable is running."""
-    return sb._load(corpus_dir, repo_root, sb.PROTECTED, _pre_d(resolution, layer_a_results), authorization)
+    return sb._load(corpus_dir, repo_root, sb.PROTECTED, _pre_d(resolution, layer_a_results), authorization,
+                    images=images)
 
 
 def assert_resolution_unchanged(sealed, current) -> None:

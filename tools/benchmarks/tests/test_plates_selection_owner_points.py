@@ -16,6 +16,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import os
+import pathlib
 import shutil
 import sys
 from decimal import Decimal
@@ -125,7 +126,7 @@ def _good():
 
 
 def _load(repo, corpus):
-    return ev.load_selection_bundle(corpus.directory, repo_root=repo)
+    return ev.load_selection_bundle(corpus.directory, images=fx.images, repo_root=repo)
 
 
 def _commit_file(repo: Path, data: bytes, message: str, path: str = sb.FREEZE_RECORD_PATH) -> None:
@@ -267,7 +268,7 @@ def _without_d(corpus, name, how):
 def _layer_a_path(corpus, directory):
     """The whole Layer-A path: selection load, every detector on every crop, A, components, top-K, the Layer-A
     artefact and the Stage-2 resolution; plus B on the GT plate crops."""
-    bundle = ev.load_selection_bundle(directory, repo_root=corpus.repo)
+    bundle = ev.load_selection_bundle(directory, images=fx.images, repo_root=corpus.repo)
     scores = []
     behaviour = {"PD1-X": fx.Detector([fx.PlateBox(1, 1, 20, 10, 0.9)]),                       # the best detector
                  "PD2-N": fx.Detector([fx.PlateBox(1, 1, 20, 10, 0.9), fx.PlateBox(30, 1, 20, 10, 0.8)]),
@@ -313,7 +314,7 @@ def test_point2_disjointness_is_established_at_freeze_construction_and_recorded(
     assert record["disjointness"] == sb.disjointness_attestation(record["documents"])
     assert record["disjointness"]["result"] == sb.DISJOINT
     assert record["disjointness"]["checks"] == list(sb.DISJOINTNESS_CHECKS)
-    assert sf.construct_freeze_record(corpus.directory, protocol=record["protocol"], roster=record["roster"],
+    assert sf.construct_freeze_record(corpus.directory, images=fx.images, protocol=record["protocol"], roster=record["roster"],
                                       partition_plan=record["partitionPlan"]) == sb.canonical_bytes(record)
     assert sb.protected_truth_resident()   # the tool read D truth: this process may no longer execute candidates
     with pytest.raises(ValueError, match="candidate_execution_after_protected_d_truth_loaded"):
@@ -380,7 +381,7 @@ def test_point4_no_value_opens_protected_d_without_the_integrated_authority(auth
         for loader in (ev.load_d_capture_bundle, ev.load_protected_d_bundle):
             with pytest.raises(ValueError, match="protected_d_not_authorised:m3_authority_not_integrated"):
                 loader(corpus.directory, resolution=corpus.resolution, layer_a_results=corpus.layer_a,
-                       authorization=authorization, repo_root=corpus.repo)
+                       authorization=authorization, images=fx.images, repo_root=corpus.repo)
     assert opened.touched(*D_FILES) == [] and not sb.d_data_loaded(corpus.sel.record_sha256)
 
 
@@ -391,7 +392,7 @@ def test_point4_gates_passed_true_without_evidence_cannot_open_d_or_change_scori
     assert forged_resolution.pd_base_id == "PD1-X" != corpus.resolution.pd_base_id   # a different harness record
     with Opens() as opened, pytest.raises(ValueError, match="m3_authority_not_integrated"):
         ev.load_d_capture_bundle(corpus.directory, resolution=forged_resolution, layer_a_results=forged,
-                                 authorization=fx.TEST_AUTHORITY, repo_root=corpus.repo)
+                                 authorization=fx.TEST_AUTHORITY, images=fx.images, repo_root=corpus.repo)
     assert opened.touched(*D_FILES) == []
     # Even where a (test-stubbed) authority admits D, the frozen gate binds the harness's OWN resolution: scores of the
     # forged derivation are refused under the genuine one and vice versa (no mixing).
@@ -500,7 +501,7 @@ def test_point5_d_truth_is_unreachable_from_inside_a_candidate_callable():
                 try:
                     with fx.authorised():
                         loader(corpus.directory, resolution=corpus.resolution, layer_a_results=corpus.layer_a,
-                               authorization=fx.TEST_AUTHORITY, repo_root=corpus.repo)
+                               authorization=fx.TEST_AUTHORITY, images=fx.images, repo_root=corpus.repo)
                     seen.setdefault("loaded", []).append(loader.__name__)
                 except ValueError as exc:
                     seen.setdefault("refused", []).append(str(exc))
@@ -751,11 +752,11 @@ def test_cold_p3_1_the_private_loader_cannot_skip_the_authority():
     with Opens() as opened:
         for stage in (sb.D_CAPTURE, sb.PROTECTED):
             with pytest.raises(ValueError, match="m3_authority_not_integrated"):
-                sb._load(corpus.directory, corpus.repo, stage, lambda s: None)
+                sb._load(corpus.directory, corpus.repo, stage, lambda s: None, images=fx.images)
             with pytest.raises(ValueError, match="m3_authority_not_integrated"):
-                sb._load(corpus.directory, corpus.repo, stage, lambda s: None, fx.TEST_AUTHORITY)
+                sb._load(corpus.directory, corpus.repo, stage, lambda s: None, fx.TEST_AUTHORITY, images=fx.images)
             with pytest.raises(ValueError, match="no_stage_2_resolution"):
-                sb._load(corpus.directory, corpus.repo, stage)
+                sb._load(corpus.directory, corpus.repo, stage, images=fx.images)
     assert opened.touched(*D_FILES) == [] and not sb.d_data_loaded(corpus.sel.record_sha256)
 
 
@@ -939,3 +940,237 @@ def test_cold2_backstop_covers_every_pr3_non_scored_outcome(monkeypatch, status,
     result = ev.run_track(corpus.sel, "x0", detector=GOOD_BOX, recogniser=fx.Recogniser(["KA01AB1234"]),
                           detector_identity=DET, recogniser_identity=REC, images=images)
     assert result.state == ev.HARNESS_FAULT and f"crop_{status}:{reason}" in result.contract_violation
+
+
+# ---------------------------------------------------------------------------------------------- cold review c70b03f8
+#
+# Corpus admission = the existing evidence contracts: no admitted corpus can fail PR-3 lease validation, and MAVI Track
+# evidence matches its export contract. Plus the owner's checks: D isolation of the new decode path, fault classes.
+
+
+def _ev(tid, k, role, **changes):
+    row = fx.evidence_row(tid, k, role)
+    row.update(changes)
+    return row
+
+
+def _ab_track(tid, evidence):
+    track = T(tid, f"{tid}-site", "KA01AB1234", n=0)
+    track.evidence, track.mavi = evidence, fx.tuuid(tid)
+    return track
+
+
+def _admission(evidence, *, forge=False, plates=(), tid="ad0"):
+    track = _ab_track(tid, evidence)
+    crops = [crop(f"c-{tid}", tid, 0, POLY)] if evidence else []
+    return fx.build([track], crops, list(plates), forge_record=forge, twin=[T(f"{tid}-d", f"{tid}-dsite", "KA02AB1234")])
+
+
+BAD_EVIDENCE = {
+    "far-view role": lambda t: [_ev(t, 0, "representative"), _ev(t, 1, "far-view")],
+    "best-plate role": lambda t: [_ev(t, 0, "representative"), _ev(t, 1, "best-plate")],
+    "gt-plate-crop as Track evidence": lambda t: [_ev(t, 0, "representative"), _ev(t, 1, "gt-plate-crop")],
+    "rank 4": lambda t: [_ev(t, 0, "representative"), _ev(t, 4, "near-view")],
+    "five observations": lambda t: [_ev(t, k, r) for k, r in enumerate(("representative", "near-view",
+                                                                        "early-diverse", "late-diverse"))]
+    + [_ev(t, 4, "near-view")],
+    "sizeBytes above 64 MiB": lambda t: [_ev(t, 0, "representative"),
+                                         _ev(t, 1, "near-view", sizeBytes=64 * 1024 * 1024 + 1)],
+    "supplemental above 160 KiB": lambda t: [_ev(t, 0, "representative"), _ev(t, 1, "near-view", sizeBytes=163841)],
+    "representative above 64 KiB": lambda t: [_ev(t, 0, "representative", sizeBytes=65537)],
+    "representative not rank 0": lambda t: [_ev(t, 0, "near-view"), _ev(t, 1, "representative")],
+    "supplemental at rank 0": lambda t: [_ev(t, 0, "early-diverse")],
+    "no representative": lambda t: [_ev(t, 1, "near-view")],
+    "duplicate role": lambda t: [_ev(t, 0, "representative"), _ev(t, 1, "near-view"), _ev(t, 2, "near-view")],
+    "ranks not contiguous": lambda t: [_ev(t, 0, "representative"), _ev(t, 2, "near-view")],
+    "ranks not in role order": lambda t: [_ev(t, 0, "representative"), _ev(t, 1, "late-diverse"),
+                                          _ev(t, 2, "near-view")],
+}
+
+
+@pytest.mark.parametrize("case", sorted(BAD_EVIDENCE))
+def test_cold3_inadmissible_evidence_is_refused_by_the_tool_and_the_loader(case):
+    """(i) (ii) (iii) (vii) and the owner's export-contract checks: refused at freeze construction AND, for a
+    hand-assembled record, at the loader, with a stable code; never a run fault."""
+    evidence = BAD_EVIDENCE[case](f"bad{abs(hash(case)) % 10**6}")
+    with pytest.raises(ValueError, match="index_evidence_malformed|index_evidence_ranks_not_strictly_ordered"):
+        _admission(evidence)
+    with pytest.raises(ValueError, match="index_evidence_malformed|index_evidence_ranks_not_strictly_ordered"):
+        _admission(evidence, forge=True)
+
+
+def test_cold3_the_64_mib_lease_bound_and_the_export_caps_are_distinct():
+    assert sb.REPRESENTATIVE_CAP_BYTES == 64 * 1024 and sb.SUPPLEMENTAL_CAP_BYTES == 160 * 1024
+    assert sb.MAXIMUM_PREDICTION_ARTIFACT_BYTES == 64 * 1024 * 1024
+    assert sb.EVIDENCE_ROLES == ("representative", "near-view", "early-diverse", "late-diverse")
+    assert (sb.EVIDENCE_RANK_MIN, sb.EVIDENCE_RANK_MAX) == (0, 3) and sb.PLATE_IMAGE_ROLE not in sb.EVIDENCE_ROLES
+
+
+@pytest.mark.parametrize("roles", [("representative", "early-diverse"), ("representative", "late-diverse"),
+                                   ("representative", "near-view", "early-diverse", "late-diverse"),
+                                   ("representative", "early-diverse", "late-diverse")])
+def test_cold3_real_mavi_roles_load_and_run_completed(roles):
+    """(iv) ``early-diverse``/``late-diverse`` at ranks 1-3 (refused before this round) load and run COMPLETED."""
+    tid = "rr" + "".join(r[0] for r in roles)
+    corpus = _admission([_ev(tid, k, r) for k, r in enumerate(roles)], tid=tid)
+    result = ev.run_track(corpus.sel, tid, detector=GOOD_BOX, recogniser=fx.Recogniser(["KA01AB1234"] * len(roles)),
+                          detector_identity=DET, recogniser_identity=REC, images=images)
+    assert result.state == ev.COMPLETED and len(result.record.crops) == len(roles)
+
+
+def test_cold3_every_admitted_track_has_a_pr3_valid_lease_used_by_the_run():
+    """(v) Property: every admitted Track's lease validates under PR-3's ``LeaseTrack.model_validate``, and it is the
+    lease the run uses."""
+    corpus = _admission([_ev("pl0", k, r) for k, r in enumerate(sb.EVIDENCE_ROLES)], tid="pl0")
+    for state in (sb._state_of(corpus.sel), sb._state_of(corpus.capture)):
+        for part in (state.ab, state.d):
+            for track in part.tracks.values():
+                if track.has_mavi_evidence:
+                    again = plate_contracts.LeaseTrack.model_validate(track.lease.model_dump(by_alias=True))
+                    assert again == track.lease
+                    assert [o.role for o in track.lease.observations] == [e.role for e in track.evidence]
+    for population_ in (fx.population(4), _exception_corpus()):
+        for track in sb._state_of(population_.sel).ab.tracks.values():
+            assert track.lease is None or plate_contracts.LeaseTrack.model_validate(
+                track.lease.model_dump(by_alias=True)) == track.lease
+
+
+def test_cold3_a_track_role_as_a_plate_image_is_refused():
+    """(vi) The two vocabularies are disjoint: a Track role cannot be a B plate image."""
+    for role in sb.EVIDENCE_ROLES:
+        image = dict(fx.plate_image(30), role=role)
+        with pytest.raises(ValueError, match="truth_plate_image_malformed"):
+            fx.build([T("pi0", "pi-site", "KA01AB1234")], plates=[dict(plate("p", "pi0", b=30), plateImage=image)])
+
+
+def _stored_image(content):
+    return fx._stored(content)
+
+
+@pytest.mark.parametrize("kind", ["evidence undecodable", "evidence 4097 px", "plate undecodable", "plate 4097 px"])
+def test_cold3_undecodable_and_oversized_images_are_refused_at_admission(kind):
+    """(viii) Corpus-borne decode faults are refused at admission (PR-3's decoder and crop bound), never a run."""
+    content = b"not a jpeg at all" if "undecodable" in kind else fx._jpeg((4097, 8))
+    sha, size = _stored_image(content)
+    code = "corpus_image_undecodable" if "undecodable" in kind else "corpus_image_dimensions_out_of_pr3_range"
+    tid = f"img{abs(hash(kind)) % 10**6}"
+    if kind.startswith("evidence"):
+        evidence = [_ev(tid, 0, "representative", sha256=sha, sizeBytes=size)]
+        for forge in (False, True):
+            with pytest.raises(ValueError, match=code):
+                _admission(evidence, forge=forge, tid=tid)
+    else:
+        bad = dict(fx.plate_image(31), sha256=sha, sizeBytes=size)
+        for forge in (False, True):
+            with pytest.raises(ValueError, match=code):
+                fx.build([T(tid, f"{tid}-s", "KA01AB1234")], plates=[dict(plate("p", tid, b=31), plateImage=bad)],
+                         forge_record=forge)
+
+
+def test_cold3_a_forced_lease_failure_in_run_track_is_a_recorded_harness_fault(monkeypatch):
+    """(ix) Any residual lease/PR-3-setup failure inside ``run_track`` is a recorded HARNESS_FAULT, never raised."""
+    corpus = _exception_corpus()
+
+    def broken(track):
+        raise RuntimeError("lease gone")
+
+    monkeypatch.setattr(ev, "_lease_of", broken)
+    result = ev.run_track(corpus.sel, "x0", detector=GOOD_BOX, recogniser=fx.Recogniser(["KA01AB1234"]),
+                          detector_identity=DET, recogniser_identity=REC, images=images)
+    assert result.state == ev.HARNESS_FAULT and "setup:RuntimeError:lease gone" in result.contract_violation
+
+
+class _MutatingRecogniser:
+    def __init__(self, value):
+        self.value = value
+
+    def read(self, region, verified, box):
+        object.__setattr__(box, "score", self.value)   # tamper with the box it was handed
+        return [Reading("KA01AB1234", 0.9)]
+
+
+@pytest.mark.parametrize("value", [7.0, "abc", float("nan"), -1])
+def test_cold3_p3a_a_recogniser_cannot_change_the_box_pr3_records(value):
+    """P3-A (probe p_mutate): the recogniser gets a fresh harness copy; PR-3 records the detector's validated score."""
+    corpus = _exception_corpus()
+    result = ev.run_track(corpus.sel, "x0", detector=fx.Detector([fx.PlateBox(1, 1, 20, 10, 0.9)]),
+                          recogniser=_MutatingRecogniser(value), detector_identity=DET, recogniser_identity=REC,
+                          images=images)
+    assert result.state == ev.COMPLETED
+    assert [d.score for c in result.record.crops for d in c.detections] == [0.9]
+
+
+def test_cold3_owner2_the_new_decode_path_reads_no_d_evidence_or_truth_before_its_gate():
+    """Owner check 2: selection admission decodes A/B images only (D files absent AND no D image requested); D
+    evidence images are requested only at the authorised D_CAPTURE load; the D truth only at PROTECTED_D."""
+    corpus = _ab_corpus()
+    d_observations = {e["observationId"] for t in corpus.docs["dIndex"]["tracks"] for e in t["evidence"]}
+    requested: list[str] = []
+
+    def source(observation_id, sha256):
+        requested.append(observation_id)
+        return fx.images(observation_id, sha256)
+
+    directory = _without_d(corpus, "decode-isolation", "absent")
+    with Opens() as opened:
+        bundle = ev.load_selection_bundle(directory, images=source, repo_root=corpus.repo)
+        ev.resolve_baseline(bundle, corpus.layer_a, d_rows_read=0, resolved_at_utc=WHEN)
+    assert opened.touched(*D_FILES) == [] and requested and not set(requested) & d_observations
+    requested.clear()
+    with Opens() as opened:
+        with fx.authorised():
+            ev.load_d_capture_bundle(corpus.directory, resolution=corpus.resolution, layer_a_results=corpus.layer_a,
+                                     authorization=fx.TEST_AUTHORITY, images=source, repo_root=corpus.repo)
+    assert set(requested) >= d_observations and opened.touched(sb.DOCUMENT_FILES["dTruth"]) == []
+    requested.clear()
+    with pytest.raises(ValueError, match="m3_authority_not_integrated"):   # no gate: no D image is ever requested
+        ev.load_d_capture_bundle(corpus.directory, resolution=corpus.resolution, layer_a_results=corpus.layer_a,
+                                 authorization=None, images=source, repo_root=corpus.repo)
+    assert not set(requested) & d_observations
+    record = sb.parse_canonical((corpus.repo / sb.FREEZE_RECORD_PATH).read_bytes(), "r")
+    requested.clear()
+    try:
+        sf.construct_freeze_record(corpus.directory, images=source, protocol=record["protocol"],
+                                   roster=record["roster"], partition_plan=record["partitionPlan"])
+    finally:
+        sb._D_TRUTH_LOADED.discard("freeze-construction")
+    assert requested and not set(requested) & d_observations   # the freeze tool never reads a D evidence image
+
+
+def test_cold3_owner3_valid_silence_is_measured_and_invalid_output_is_contract_fail():
+    corpus = _exception_corpus()
+    cap = corpus.capture
+    silent_det = fx.Detector([])
+    empty_reads = Outputs([[]])
+    a = ev.run_detection(corpus.sel, "cx", detector=silent_det, detector_identity=DET, images=images)
+    b = ev.run_reading(corpus.sel, "px", recogniser=Outputs([[]]), recogniser_identity=REC, images=images)
+    c = ev.run_track(corpus.sel, "x0", detector=GOOD_BOX, recogniser=empty_reads, detector_identity=DET,
+                     recogniser_identity=REC, images=images)
+    d = ev.run_track(cap, "xd", detector=silent_det, recogniser=fx.Recogniser([]), detector_identity=DET,
+                     recogniser_identity=REC, images=images)
+    assert {a.state, b.state, c.state, d.state} == {ev.COMPLETED}
+    assert b.plate.outcome == ev.PLATE_UNREADABLE
+    assert ev.evaluate_a(corpus.sel, [a], detector=DET).outcome == ev.MEASURED
+    assert ev.evaluate_b(corpus.sel, [b], recogniser=REC).outcome == ev.MEASURED
+    assert ev.evaluate_c(corpus.sel, [c], composition=(DET, REC)).outcome == ev.MEASURED
+    scored = ev.evaluate_d(corpus.full, [d], composition=(DET, REC))
+    assert scored.outcome == ev.MEASURED and scored.d_score == 0
+    bad = ev.run_track(corpus.sel, "x0", detector=fx.Detector([fx.PlateBox(1, 1, 20, 10, 1.5)]),
+                       recogniser=fx.Recogniser(["KA01AB1234"]), detector_identity=DET, recogniser_identity=REC,
+                       images=images)
+    assert bad.state == ev.CONTRACT_FAIL
+
+
+def test_cold3_owner3_harness_fault_refuses_scoring_and_grants_no_rerun(monkeypatch):
+    corpus = _exception_corpus()
+    monkeypatch.setattr(ev, "_lease_of", lambda track: (_ for _ in ()).throw(RuntimeError("x")))
+    fault = ev.run_track(corpus.sel, "x0", detector=GOOD_BOX, recogniser=fx.Recogniser(["KA01AB1234"]),
+                         detector_identity=DET, recogniser_identity=REC, images=images)
+    monkeypatch.undo()
+    assert fault.state == ev.HARNESS_FAULT and "rerun" not in fault.contract_violation
+    with pytest.raises(ValueError) as refused:
+        ev.evaluate_c(corpus.sel, [fault], composition=(DET, REC))
+    assert "cannot_be_scored" in str(refused.value) and "rerun" not in str(refused.value)
+    assert not [name for name in dir(ev) if "rerun" in name.lower()]   # no API grants or records a rerun
+    source = pathlib.Path(ev.__file__).read_text(encoding="utf-8")
+    assert "does NOT\n# authorise a rerun" in source and "grants no rerun" in source

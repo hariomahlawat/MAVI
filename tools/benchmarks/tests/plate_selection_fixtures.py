@@ -91,7 +91,9 @@ def tuuid(tid):
     return str(uuid.uuid5(NS, f"track/{tid}"))
 
 
-def evidence_row(tid, k, role="near-view"):
+def evidence_row(tid, k, role=None):
+    """Evidence rank ``k`` in PR-3's role order: rank 0 is the representative (job-complete pairing)."""
+    role = role or (sb.EVIDENCE_ROLES[k] if k < len(sb.EVIDENCE_ROLES) else sb.EVIDENCE_ROLES[1])
     seed = hashlib.sha256(f"{tid}/{k}".encode()).digest()
     sha, size = _stored(_jpeg((64, 32), (seed[0], seed[1], seed[2])))
     return {"observationId": oid(tid, k), "rank": k, "role": role, "sha256": sha, "sizeBytes": size}
@@ -207,7 +209,7 @@ def fresh_process():
 def d_load(loader, directory, repo, resolution, layer_a):
     with authorised():
         return loader(directory, resolution=resolution, layer_a_results=layer_a, authorization=TEST_AUTHORITY,
-                      repo_root=repo)
+                      images=images, repo_root=repo)
 
 
 def write(path: Path, data: bytes) -> None:
@@ -317,8 +319,8 @@ def make_record(docs_bytes, sites, protocol=None, roster=None, plan_id="plan"):
 def construct(directory, record):
     """The real freeze-construction tool on ``directory`` (it marks protected truth read; tests then forget it)."""
     try:
-        return sf.construct_freeze_record(directory, protocol=record["protocol"], roster=record["roster"],
-                                          partition_plan=record["partitionPlan"])
+        return sf.construct_freeze_record(directory, images=images, protocol=record["protocol"],
+                                          roster=record["roster"], partition_plan=record["partitionPlan"])
     finally:
         sb._D_TRUTH_LOADED.discard("freeze-construction")
 
@@ -360,7 +362,7 @@ def build(tracks, crops=(), plates=(), *, partition=None, twin=None, sites=None,
     if mutate_record is None and not forge_record:
         assert construct(directory, record) == record_bytes   # the real tool builds exactly this record
     repo = commit_record(record_bytes)
-    sel = ev.load_selection_bundle(directory, repo_root=repo)
+    sel = ev.load_selection_bundle(directory, images=images, repo_root=repo)
     corpus = Corpus(repo, directory, docs, record, list(tracks), sel)
     corpus.all_tracks = ab_tracks + d_tracks
     corpus.d_tracks = d_tracks

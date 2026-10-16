@@ -72,7 +72,7 @@ def _raw_load(record_bytes, docs_bytes, name, stage=sb.SELECTION):
     directory = fx._ROOT / f"{name}-corpus"
     for key, data in docs_bytes.items():
         fx.write(directory / sb.DOCUMENT_FILES[key], data)
-    selection = ev.load_selection_bundle(directory, repo_root=repo)
+    selection = ev.load_selection_bundle(directory, images=fx.images, repo_root=repo)
     if stage == sb.SELECTION:
         return selection
     layer_a = [ev.LayerAResult(comp(selection.ab_digest, d, 100, *m), _h(d), d != "PD1-X")
@@ -108,10 +108,10 @@ def test_the_api_has_no_expected_digest_or_corpus_object_parameter():
         parameters = set(inspect.signature(getattr(ev, name)).parameters)
         assert not parameters & {"manifest", "expected_manifest_digest", "config", "freeze", "partition_plan",
                                  "replicates", "seed", "mpid", "k", "minimum_support", "queries"}, name
-    assert set(inspect.signature(ev.load_selection_bundle).parameters) == {"corpus_dir", "repo_root"}
+    assert set(inspect.signature(ev.load_selection_bundle).parameters) == {"corpus_dir", "images", "repo_root"}
     for loader in (ev.load_d_capture_bundle, ev.load_protected_d_bundle):
         assert set(inspect.signature(loader).parameters) == {"corpus_dir", "resolution", "layer_a_results",
-                                                             "authorization", "repo_root"}
+                                                             "authorization", "images", "repo_root"}
     for gone in ("EvaluationManifest", "ProtocolConfig", "PartitionPlan", "Truth", "TEXT", "UNSUPPORTED_TEXT",
                  "manifest_digest", "verify_manifest", "partition_plan_digest"):
         assert not hasattr(ev, gone), gone
@@ -136,19 +136,20 @@ def test_the_record_must_be_committed_and_unedited(tmp_path):
     path = fx._ROOT / "committed-once" / sb.FREEZE_RECORD_PATH
     path.write_bytes(record.replace(b'"bootstrapSeed":7', b'"bootstrapSeed":8'))  # an uncommitted seed swap
     with pytest.raises(ValueError, match="differs_from_its_commit"):
-        ev.load_selection_bundle(fx._ROOT / "committed-once-corpus", repo_root=fx._ROOT / "committed-once")
+        ev.load_selection_bundle(fx._ROOT / "committed-once-corpus", images=fx.images,
+                                 repo_root=fx._ROOT / "committed-once")
     path.write_bytes(record)
-    assert ev.load_selection_bundle(fx._ROOT / "committed-once-corpus",
+    assert ev.load_selection_bundle(fx._ROOT / "committed-once-corpus", images=fx.images,
                                     repo_root=fx._ROOT / "committed-once").bundle_id == bundle.bundle_id
     with pytest.raises(ValueError, match="freeze_record_absent"):
-        ev.load_selection_bundle(corpus.directory, repo_root=tmp_path)
+        ev.load_selection_bundle(corpus.directory, images=fx.images, repo_root=tmp_path)
     fx.write(tmp_path / sb.FREEZE_RECORD_PATH, record)   # present but not in any repository
     with pytest.raises(ValueError, match="freeze_record_not_committed|not_a_repository_root"):
-        ev.load_selection_bundle(corpus.directory, repo_root=tmp_path)
+        ev.load_selection_bundle(corpus.directory, images=fx.images, repo_root=tmp_path)
     nested = corpus.repo / "config" / "nested"
     fx.write(nested / sb.FREEZE_RECORD_PATH, record)   # a record inside a repository, below its root
     with pytest.raises(ValueError, match="not_a_repository_root"):
-        ev.load_selection_bundle(corpus.directory, repo_root=nested)
+        ev.load_selection_bundle(corpus.directory, images=fx.images, repo_root=nested)
 
 
 def test_a_recommitted_change_is_a_different_identity_and_frozen_results_are_refused():
@@ -525,7 +526,8 @@ def test_cross_partition_aliases_are_refused():
 
 
 @pytest.mark.parametrize("mutate, code", [
-    (lambda d: d["abIndex"]["tracks"][0]["evidence"].append(dict(d["abIndex"]["tracks"][0]["evidence"][0], rank=1)),
+    (lambda d: d["abIndex"]["tracks"][0]["evidence"].append(dict(d["abIndex"]["tracks"][0]["evidence"][0], rank=1,
+                                                                                       role="near-view")),
      "observation_shared_by_two_images"),
     (lambda d: d["abIndex"]["tracks"][0]["evidence"][0].update(role="side-view"), "index_evidence_malformed"),
     (lambda d: d["abIndex"]["tracks"][0]["evidence"][0].update(sizeBytes=0), "index_evidence_malformed"),

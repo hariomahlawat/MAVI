@@ -25,9 +25,11 @@ from pathlib import Path
 from tools.benchmarks.capabilities.plates import selection_bundle as sb
 
 
-def construct_freeze_record(corpus_dir, *, protocol: dict, roster: dict, partition_plan: dict) -> bytes:
+def construct_freeze_record(corpus_dir, *, images, protocol: dict, roster: dict, partition_plan: dict) -> bytes:
     """The canonical freeze-record bytes for the corpus in ``corpus_dir``, or a refusal (``ValueError`` with the same
-    stable codes the loader uses). Nothing is written."""
+    stable codes the loader uses). Nothing is written. ``images`` is the image byte source: every A/B Track evidence
+    image and GT plate crop is admitted with PR-3's decoder and crop-dimension bound. The tool touches the four corpus
+    documents and those A/B image bytes, never a D evidence image."""
     if not isinstance(corpus_dir, (str, os.PathLike)):
         raise ValueError("corpus_directory_malformed")
     directory = Path(os.fspath(corpus_dir))
@@ -49,4 +51,7 @@ def construct_freeze_record(corpus_dir, *, protocol: dict, roster: dict, partiti
     ab_truth = sb._truth(parsed["abTruth"], sb.Partition.AB_SELECTION, ab_index)
     sb._truth(parsed["dTruth"], sb.Partition.PROTECTED_D, d_index)
     sb.check_disjoint(ab_index, ab_truth[2], d_index)
+    # A/B images only. D evidence images are NOT read here: the tool's established access is the four documents
+    # (including the D truth); D evidence bytes are decode-checked only at the authorised D_CAPTURE load.
+    sb.admit_images(images, ab_index, ab_truth[2])
     return record_bytes
