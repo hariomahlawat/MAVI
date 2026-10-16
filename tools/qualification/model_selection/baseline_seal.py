@@ -33,7 +33,6 @@ from .credibility import (
     BENCHMARK_BASELINE,
     CANDIDATE_ID_RE,
     EVENT_ID_RE,
-    FROZEN_SUFFIX,
     LOCAL_ID_RE,
     MODEL_SELECTION_DIR,
     SHA256_RE,
@@ -174,8 +173,6 @@ def frozen_compositions(frozen: Mapping) -> dict[str, tuple[dict, dict]]:
 def capability_of(event_id: str) -> str:
     return event_id[len("msr-"):-len("-yyyy-nn")]
 
-
-partner_capability = capability_of
 
 
 # ------------------------------------------------------------------ Stage 1 (ledger)
@@ -460,19 +457,11 @@ def seal_path(repo: Path, frozen: Mapping, composition_id: str) -> Path:
     return event_folder(repo, frozen["capabilityId"]) / f"{frozen['eventId']}{SEAL_INFIX}{composition_id}.json"
 
 
-def ranking_path(repo: Path, event_id: str) -> Path:
-    return event_folder(repo, capability_of(event_id)) / f"{event_id}{RANKING_SUFFIX}"
 
 
-def frozen_path(repo: Path, event_id: str) -> Path:
-    return event_folder(repo, capability_of(event_id)) / f"{event_id}{FROZEN_SUFFIX}"
 
 
-partner_frozen_path = frozen_path
 
-
-def d_manifest_path(repo: Path, frozen: Mapping, manifest_id: str) -> Path:
-    return event_folder(repo, frozen["capabilityId"]) / f"{frozen['eventId']}{D_MANIFEST_INFIX}{manifest_id}.json"
 
 
 def read_canonical(path: Path, code: str) -> dict:

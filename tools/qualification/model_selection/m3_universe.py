@@ -24,7 +24,6 @@ Standard library only.
 from __future__ import annotations
 
 import itertools
-import math
 import re
 from collections.abc import Mapping, Sequence
 
@@ -61,8 +60,6 @@ def group_id(universe: Mapping) -> str:
     return document_sha256(universe)
 
 
-def universe_of(ledger: Mapping) -> dict | None:
-    return ledger.get(UNIVERSE_FIELD)
 
 
 # ------------------------------------------------------------------ ledger block
@@ -286,8 +283,3 @@ def derive_ordinary_universe(universe: Mapping, frozen_by_event: Mapping[str, Ma
 
 def ordinary_compositions_sha256(ordinary: Sequence[Mapping]) -> str:
     return document_sha256(list(ordinary))
-
-
-def finite(value: object) -> bool:
-    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
-

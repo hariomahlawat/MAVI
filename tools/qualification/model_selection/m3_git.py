@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -218,10 +218,3 @@ def ref_commit_or_none(repo: Path, ref: str) -> str | None:
         return None
     raise GitCommandError("git_command_failed", args, completed.returncode,
                           completed.stderr.decode("utf-8", "replace")[-STDERR_TAIL:])
-
-
-def blob_texts(repo: Path, blobs: Mapping[str, Iterable[str]]) -> dict[str, dict[str, str]]:
-    """``{path: {blob id: text}}`` for every listed blob (one cat-file process)."""
-    wanted = {b for ids in blobs.values() for b in ids}
-    raw = read_blobs(repo, wanted)
-    return {path: {b: raw[b].decode("utf-8", "replace") for b in ids} for path, ids in blobs.items()}
