@@ -1,10 +1,22 @@
 """MSR revision M3: the fail-closed Git layer and the one reachable-history walk (authority redesign, invariants A6/A1).
 
-Every Git call here runs with a fixed environment (``GIT_NO_REPLACE_OBJECTS=1``, ``GIT_TERMINAL_PROMPT=0``,
-``LC_ALL=C``, ``GIT_OPTIONAL_LOCKS=0``, and no inherited ``GIT_DIR``-style overrides). A non-zero exit raises
-``GitCommandError`` (code ``git_command_failed``) carrying the arguments, the return code and the tail of stderr. It is a
-``CredibilityError``, so it is always a refusal, and it is never mapped by a caller to "mismatch", "absent", "deleted"
-or "success": an infrastructure failure stays distinguishable from an integrity finding.
+Every M3 Git call runs under ONE isolated execution profile (``git_environment`` and ``_run``; no per-call-site
+guards). System and global configuration are disabled (``GIT_CONFIG_NOSYSTEM=1``, ``GIT_CONFIG_GLOBAL`` = the null
+device); every inherited ``GIT_*`` variable is dropped except the trace switches (``GIT_TRACE*``), so no environment
+can redirect the repository, the object store, the configuration (``GIT_CONFIG_COUNT``/``KEY``/``VALUE``,
+``GIT_CONFIG_PARAMETERS``), URL rewriting, SSH, askpass or the exec path; and fixed ``-c`` options pin
+``core.longpaths=true`` (Windows MAX_PATH), no fsmonitor or untracked cache, no colour, no signature display, no path
+quoting and no relative diffs. ``GIT_NO_REPLACE_OBJECTS=1``, ``GIT_TERMINAL_PROMPT=0``, ``LC_ALL=C`` and
+``GIT_OPTIONAL_LOCKS=0`` are set. The repository's own ``.git/config`` still applies to repository-local commands; the
+canonical-remote check therefore never runs inside the repository (``m3_authority.check_live_anchor``). The one
+explicit carry-over is line-ending normalisation for work-tree status (``core.autocrlf``/``core.eol``, validated), so a
+normal Windows checkout is not misread as modified.
+
+A non-zero exit raises ``GitCommandError`` (code ``git_command_failed``) carrying the arguments, the return code and
+the tail of stderr. It is a ``CredibilityError``, so it is always a refusal, and it is never mapped by a caller to
+"mismatch", "absent", "deleted" or "success": an infrastructure failure stays distinguishable from an integrity
+finding. A cleanliness check (``worktree_status``) also refuses any stderr output with exit 0 (for example a file Git
+could not stat) and index flags that hide work-tree changes (skip-worktree, assume-unchanged).
 
 Historical content is read **by blob id** from the walk (``read_blobs``, one ``git cat-file --batch`` process), never
 by ``git show <commit>:<path>``. A missing object raises ``git_object_missing``.
@@ -25,10 +37,15 @@ from pathlib import Path
 
 from .credibility import MODEL_SELECTION_DIR, CredibilityError, _fail
 
-# Environment variables that would redirect ``git -C <repo>`` to another repository or object store.
-_STRIPPED = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR",
-             "GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM")
-_FIXED = {"GIT_NO_REPLACE_OBJECTS": "1", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", "GIT_OPTIONAL_LOCKS": "0"}
+# Inherited GIT_* variables that are kept: tracing only (they change no behaviour; the Windows diagnostic uses them).
+_KEPT = frozenset({"GIT_TRACE", "GIT_TRACE_SETUP", "GIT_TRACE_PERFORMANCE", "GIT_TRACE2", "GIT_TRACE2_PERF",
+                   "GIT_TRACE2_EVENT", "GIT_TRACE2_BRIEF"})
+_FIXED = {"GIT_NO_REPLACE_OBJECTS": "1", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", "GIT_OPTIONAL_LOCKS": "0",
+          "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+ISOLATION_OPTIONS = ("-c", "core.longpaths=true", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+                     "-c", "color.ui=never", "-c", "log.showSignature=false", "-c", "core.quotePath=false",
+                     "-c", "diff.relative=false", "-c", "core.safecrlf=false")
+_LINE_ENDING_VALUES = {"core.autocrlf": ("true", "false", "input"), "core.eol": ("lf", "crlf", "native")}
 STDERR_TAIL = 2000
 
 
@@ -43,14 +60,18 @@ class GitCommandError(CredibilityError):
 
 
 def git_environment() -> dict[str, str]:
-    environment = {k: v for k, v in os.environ.items() if k not in _STRIPPED}
+    """The isolated environment of every M3 Git call."""
+    environment = {k: v for k, v in os.environ.items() if not k.upper().startswith("GIT_") or k.upper() in _KEPT}
     environment.update(_FIXED)
     return environment
 
 
-def _run(repo: Path, args: tuple[str, ...], data: bytes | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(repo), *args], input=data, capture_output=True, check=False,
-                          env=git_environment())
+def _run(repo: Path | None, args: tuple[str, ...], data: bytes | None = None, *, options: tuple[str, ...] = (),
+         cwd: Path | None = None) -> subprocess.CompletedProcess:
+    """Run Git under the isolated profile, in ``repo`` (``-C``) or, with ``repo=None``, in ``cwd`` only."""
+    location = ("-C", str(repo)) if repo is not None else ()
+    return subprocess.run(["git", *ISOLATION_OPTIONS, *options, *location, *args], input=data, capture_output=True,
+                          check=False, env=git_environment(), cwd=None if cwd is None else str(cwd))
 
 
 def _git(repo: Path, *args: str, input: bytes | None = None) -> bytes:  # noqa: A002 - mirrors subprocess
@@ -60,6 +81,25 @@ def _git(repo: Path, *args: str, input: bytes | None = None) -> bytes:  # noqa: 
         raise GitCommandError("git_command_failed", args, completed.returncode,
                               completed.stderr.decode("utf-8", "replace")[-STDERR_TAIL:])
     return completed.stdout
+
+
+def line_ending_options(repo: Path) -> tuple[str, ...]:
+    """The repository user's effective ``core.autocrlf``/``core.eol`` (the only settings carried into the isolated
+    profile, and only for work-tree status). Read with the user's ordinary configuration; any value outside the
+    documented set refuses."""
+    environment = {k: v for k, v in os.environ.items() if k.upper() not in ("GIT_DIR", "GIT_WORK_TREE")}
+    found: list[str] = []
+    for key, allowed in _LINE_ENDING_VALUES.items():
+        completed = subprocess.run(["git", "-C", str(repo), "config", "--get", key], capture_output=True, check=False,
+                                   env=environment)
+        if completed.returncode == 1:
+            continue
+        value = completed.stdout.decode("utf-8", "replace").strip().lower()
+        if completed.returncode != 0 or value not in allowed:
+            raise GitCommandError("git_command_failed", ("config", "--get", key), completed.returncode,
+                                  f"unsupported {key}={value!r} {completed.stderr.decode('utf-8', 'replace')}")
+        found += ["-c", f"{key}={value}"]
+    return tuple(found)
 
 
 def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
@@ -192,13 +232,31 @@ def model_selection_history(repo: Path) -> History:
 
 
 def worktree_status(repo: Path, paths: Iterable[str]) -> dict[str, str]:
-    """``{path: porcelain status}`` for the given paths (untracked included). Empty when clean."""
+    """``{path: porcelain status}`` for the given paths (untracked included). Empty when clean.
+
+    Fail closed: any stderr output (for example a path Git could not stat) is a ``GitCommandError`` even with exit 0,
+    and an index entry flagged skip-worktree or assume-unchanged (which hides work-tree edits from status) is refused
+    (``worktree_index_flags_hide_changes``)."""
     paths = sorted(set(paths))
     if not paths:
         return {}
-    out = _git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", *paths)
+    repo = Path(repo)
+    options = line_ending_options(repo)
+    args = ("status", "--porcelain=v1", "-z", "--untracked-files=all", "--", *paths)
+    completed = _run(repo, args, options=options)
+    stderr = completed.stderr.decode("utf-8", "replace")
+    if completed.returncode != 0 or stderr.strip():
+        raise GitCommandError("git_command_failed", args, completed.returncode, stderr[-STDERR_TAIL:])
+    flags_args = ("ls-files", "-v", "-z", "--", *paths)
+    flagged = _run(repo, flags_args, options=options)
+    flags_err = flagged.stderr.decode("utf-8", "replace")
+    if flagged.returncode != 0 or flags_err.strip():
+        raise GitCommandError("git_command_failed", flags_args, flagged.returncode, flags_err[-STDERR_TAIL:])
+    for entry in flagged.stdout.decode("utf-8", "surrogateescape").split("\0"):
+        if len(entry) > 2 and (entry[0] == "S" or entry[0].islower()):
+            raise _fail("worktree_index_flags_hide_changes", entry[2:])
     found = {}
-    for entry in out.decode("utf-8", "surrogateescape").split("\0"):
+    for entry in completed.stdout.decode("utf-8", "surrogateescape").split("\0"):
         if len(entry) > 3:
             found[entry[3:]] = entry[:2]
     return found

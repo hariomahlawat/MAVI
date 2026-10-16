@@ -23,17 +23,17 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import tempfile
+from contextlib import contextmanager
+from decimal import Decimal
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
 from .baseline_seal import (
-    ARTEFACT_INFIXES,
     D_MANIFEST_INFIX,
     D_MANIFEST_SCHEMA,
-    LEGACY_LAYER_A_INFIX,
-    RANKING_INFIX,
     RANKING_SUFFIX,
     RESOLVED,
     SEAL_INFIX,
@@ -60,6 +60,7 @@ from .credibility import (
     PROTOCOL_SUFFIX,
     SHA256_RE,
     SHORTLISTED,
+    SNAPSHOT_SUFFIX,
     CredibilityError,
     _fail,
     _instant,
@@ -172,14 +173,89 @@ def event_paths(event_id: str) -> dict[str, str]:
 
 
 def artefact_event(path: str) -> str | None:
-    """The event an M3 artefact path belongs to, or None when the name is no M3 artefact."""
-    name = Path(path).name
-    if not (name.startswith("msr-") and name.endswith(".json")):
-        return None
-    for infix in ARTEFACT_INFIXES:
-        if infix in name:
-            return name.split(infix)[0]
-    return None
+    """The event an M3 artefact (component ranking, seal, D manifest or legacy Layer-A file) belongs to, or None.
+
+    Parsed by the complete artefact SUFFIX after a full event id (``classify_event_file``), never by an infix, so a
+    capability id containing ``-layer-a-``, ``-seal-`` or similar never misattributes a file. Two different full
+    parses of one name refuse (``m3_artefact_name_ambiguous``)."""
+    events = {event for event, cls in classify_event_file(Path(path).name) if cls in ARTEFACT_CLASSES}
+    if len(events) > 1:
+        raise _fail("m3_artefact_name_ambiguous", Path(path).name)
+    return next(iter(events), None)
+
+
+# ------------------------------------------------------------------ the M3 event-file registry (P2-1)
+#
+# ONE registry classifies every file of an M3 event (``<event-id>`` followed by exactly one of these suffixes) and
+# gives it an immutability policy. Everything is ADD-ONLY by default once committed; the exceptions are enumerated
+# here with their rationale, and a file in an event's namespace that matches no class is refused.
+IMMUTABLE = "immutable"  # added once: one blob, never modified, retyped, deleted or edited in the work tree
+VERSIONED = "versioned"  # may be modified in place by a later version, never deleted once committed
+APPEND_LINES = "append-lines"  # versioned, and every structured line of every version is kept (A4)
+DECISION = "decision"  # versioned, and every version carries the same compositionAuthority block
+MUTABLE = "mutable"  # governed by another check (stated per class)
+FORBIDDEN = "forbidden"  # may never appear
+_ID = r"[A-Za-z][A-Za-z0-9-]{0,63}"
+EVENT_FILE_CLASSES = (
+    # (class, suffix pattern, policy, rationale for any exception to IMMUTABLE)
+    ("working-ledger", r"-evidence-ledger\.json", MUTABLE,
+     "grows after freeze; its append-only evolution from the frozen copy is validate_evolution"),
+    ("frozen-ledger", r"-evidence-ledger-frozen\.json", IMMUTABLE, ""),
+    ("protocol", r"-protocol\.md", IMMUTABLE, ""),
+    ("record", r"\.md", APPEND_LINES, "the record gains citation, decision and state lines; none is ever removed"),
+    ("addenda", r"-addenda\.md", VERSIONED, "dated entries are appended after closure (README §11)"),
+    ("decision", r"-decision\.json", DECISION,
+     "advances with the event state in place; its compositionAuthority block never changes, except "
+     "implementationComposition moving once from null to the chosen composition"),
+    ("decided-ledger", r"-evidence-ledger-decided\.json", VERSIONED,
+     "re-cut with each decision version (M1 §8); the decision binds each version by hash"),
+    ("component-ranking", r"-component-ranking\.json", IMMUTABLE, ""),
+    ("seal", rf"-baseline-seal-{_ID}\.json", IMMUTABLE, ""),
+    ("d-manifest", rf"-d-manifest-{_ID}\.json", IMMUTABLE, ""),
+    ("legacy-layer-a", rf"-layer-a-{_ID}\.json", FORBIDDEN, "the pre-redesign Layer-A result"),
+)
+ARTEFACT_CLASSES = frozenset({"component-ranking", "seal", "d-manifest", "legacy-layer-a"})
+_POLICY = {cls: policy for cls, _suffix, policy, _why in EVENT_FILE_CLASSES}
+_SUFFIX_RES = tuple((cls, re.compile(suffix)) for cls, suffix, _p, _w in EVENT_FILE_CLASSES)
+
+
+def classify_event_file(name: str) -> list[tuple[str, str]]:
+    """Every ``(eventId, class)`` parse of a file name: a full event id (it ends at a ``-dddd-dd`` boundary) followed
+    by exactly one registered suffix. Normally exactly one parse; callers refuse ambiguity where it matters."""
+    found = []
+    for cut in re.finditer(r"-\d{4}-\d{2}", name):
+        event, rest = name[:cut.end()], name[cut.end():]
+        if not EVENT_ID_RE.fullmatch(event):
+            continue
+        for cls, suffix in _SUFFIX_RES:
+            if suffix.fullmatch(rest):
+                found.append((event, cls))
+    return found
+
+
+def event_files(history: History, event_id: str) -> dict[str, str]:
+    """``{path: class}`` of every committed (historical or HEAD) file in the event's namespace; an unclassifiable
+    name in that namespace refuses (``m3_unclassified_event_file``)."""
+    folder = event_paths(event_id)["folder"]
+    found: dict[str, str] = {}
+    for path in sorted(history.paths() | set(history.head_tree)):
+        if not path.startswith(folder + "/"):
+            continue
+        name = Path(path).name
+        if not (name.startswith(event_id + "-") or name.startswith(event_id + ".")):
+            continue
+        classes = {cls for event, cls in classify_event_file(name) if event == event_id}
+        if not classes:
+            raise _fail("m3_unclassified_event_file", path)
+        found[path] = sorted(classes)[0]
+    return found
+
+
+def decision_in_history(history: History, event_id: str) -> bool:
+    """Whether a decision summary or a decided ledger of the event was ever committed (on any reachable edge)."""
+    paths = event_paths(event_id)
+    decided = f"{paths['folder']}/{event_id}{SNAPSHOT_SUFFIX}"
+    return any(history.adds.get(p) or history.blobs.get(p) for p in (paths["decision"], decided))
 
 
 def _is_m3_ledger(document: object) -> bool:
@@ -256,40 +332,52 @@ def model_selection_domain(repo: Path, history: History) -> Domain:
 
 
 def check_event_history(repo: Path, history: History, event_id: str, record_text: str | None) -> None:
-    """A2-A4 for one domain event over the whole reachable history.
+    """A2-A4 for one domain event over the whole reachable history, applied through the event-file registry
+    (``EVENT_FILE_CLASSES``) to EVERY committed file of the event, current or historical.
 
-    A2: HEAD holds the frozen ledger, the protocol and the record (``m3_event_erased``); the frozen ledger and the
-    protocol keep exactly one blob and are never modified, retyped or deleted on any parent edge, nor modified in the
-    work tree (``m3_frozen_file_rewritten``). A3: M3 artefacts are add-only, one blob each, present in HEAD and
-    unmodified in the work tree. A4: every structured line of every historical record version is still in the record
-    (``m3_record_line_removed``)."""
+    A2: HEAD holds the frozen ledger, the protocol and the record (``m3_event_erased``). IMMUTABLE files (frozen
+    ledger, protocol, rankings, seals, D manifests) keep exactly one blob and are never modified, retyped or deleted on
+    any parent edge, nor modified in the work tree. VERSIONED files (record, addenda, decision, decided ledger) are never
+    deleted once committed (``m3_versioned_file_deleted``) and stay in HEAD. A4: every structured line of every
+    historical record version is still in the record. Every historical decision version carries the same
+    ``compositionAuthority`` block (``composition_authority_rewritten``), whether or not a decision file exists now.
+    Deletion, re-creation, renames (no rename detection: a delete plus an add), merges and merged side branches are all
+    edges of the one walk."""
     paths = event_paths(event_id)
     if paths["frozen"] not in history.paths():
         raise _fail("m3_group_member_missing", event_id)
     for kind in ("frozen", "protocol", "record"):
         if paths[kind] not in history.head_tree:
             raise _fail("m3_event_erased", f"{event_id}:{kind}")
-    status = worktree_status(repo, [paths["frozen"], paths["protocol"]])
-    for kind in ("frozen", "protocol"):
-        path = paths[kind]
-        if history.rewrites.get(path) or history.deletes.get(path) or len(history.blobs.get(path, ())) != 1 \
-                or status.get(path, "  ").strip():
-            raise _fail("m3_frozen_file_rewritten", f"{event_id}:{kind}")
-    folder = paths["folder"]
-    artefacts = sorted(p for p in history.paths() | set(history.head_tree)
-                       if p.startswith(folder + "/") and artefact_event(p) == event_id)
-    status = worktree_status(repo, artefacts)
-    for path in artefacts:
-        if LEGACY_LAYER_A_INFIX in Path(path).name:
+    files = event_files(history, event_id)
+    status = worktree_status(repo, files)
+    # frozen ledger and protocol first (A2), then every other file
+    for path, cls in sorted(files.items(), key=lambda item: (item[1] not in ("frozen-ledger", "protocol"), item[0])):
+        policy = _POLICY[cls]
+        work = status.get(path, "  ")
+        if policy == FORBIDDEN:
             raise _fail("legacy_layer_a_artefact", path)
-        if history.deletes.get(path):
-            raise _fail("baseline_artefact_deleted_in_history", f"{path}@{sorted(history.deletes[path])[0][:12]}")
-        if history.rewrites.get(path) or len(history.blobs.get(path, ())) != 1:
-            raise _fail("baseline_artefact_rewritten_in_history", path)
-        if history.head_tree.get(path) not in history.blobs[path]:
-            raise _fail("baseline_artefact_deleted_in_history", path)
-        if status.get(path, "  ")[1:].strip() or status.get(path, "  ")[0] in "MDRT":
-            raise _fail("baseline_artefact_rewritten_in_history", path)
+        if policy == MUTABLE:
+            continue
+        frozen_kind = cls in ("frozen-ledger", "protocol")
+        if policy == IMMUTABLE:
+            if frozen_kind:
+                if history.rewrites.get(path) or history.deletes.get(path) or len(history.blobs.get(path, ())) != 1 \
+                        or work.strip():
+                    raise _fail("m3_frozen_file_rewritten", f"{event_id}:{'frozen' if cls == 'frozen-ledger' else 'protocol'}")
+                continue
+            if history.deletes.get(path):
+                raise _fail("baseline_artefact_deleted_in_history", f"{path}@{sorted(history.deletes[path])[0][:12]}")
+            if history.rewrites.get(path) or len(history.blobs.get(path, ())) != 1:
+                raise _fail("baseline_artefact_rewritten_in_history", path)
+            if history.head_tree.get(path) not in history.blobs[path]:
+                raise _fail("baseline_artefact_deleted_in_history", path)
+            if work[1:].strip() or work[0] in "MDRT":
+                raise _fail("baseline_artefact_rewritten_in_history", path)
+            continue
+        # VERSIONED, APPEND_LINES, DECISION: modified in place by later versions, never deleted once committed
+        if history.deletes.get(path) or path not in history.head_tree or "D" in work:
+            raise _fail("m3_versioned_file_deleted", path)
     current = structured_lines(record_text or "")
     record_blobs = history.blobs.get(paths["record"], set())
     texts = read_blobs(repo, record_blobs)
@@ -297,6 +385,27 @@ def check_event_history(repo: Path, history: History, event_id: str, record_text
         missing = structured_lines(texts[blob].decode("utf-8", "replace")) - current
         if missing:
             raise _fail("m3_record_line_removed", f"{event_id}:{sorted(missing)[0]}")
+    decision_blobs = history.blobs.get(paths["decision"], set())
+    blocks = []
+    for blob, data in sorted(read_blobs(repo, decision_blobs).items()):
+        try:
+            block = json.loads(data.decode("utf-8")).get(AUTHORITY_FIELD)
+        except (ValueError, AttributeError):
+            block = None
+        if not isinstance(block, dict):
+            raise _fail("composition_authority_rewritten", paths["decision"])
+        blocks.append(block)
+    _check_blocks_agree(blocks, paths["decision"])
+
+
+def _check_blocks_agree(blocks: list[Mapping], where: str) -> None:
+    """Every version of a decision's block is identical, except ``implementationComposition``, which takes at most one
+    non-null value across all versions (it moves once from null to the chosen composition and never changes)."""
+    def without_choice(value: Mapping) -> str:
+        return document_sha256({k: v for k, v in value.items() if k != "implementationComposition"})
+    if len({without_choice(b) for b in blocks}) > 1 or \
+            len({b.get("implementationComposition") for b in blocks} - {None}) > 1:
+        raise _fail("composition_authority_rewritten", where)
 
 
 # ------------------------------------------------------------------ the pure group state (shared by every mode)
@@ -488,7 +597,7 @@ def _load_seal(ctx: Context, bob_event: str, composition: str) -> dict | None:
     return seal
 
 
-def check_group_authority(ctx: Context, gid: str, *, mode: str, remote_url: str | None = None,
+def check_group_authority(ctx: Context, gid: str, *, mode: str,
                           github_api: Callable[[str], object] | None = None) -> GroupAuthority:
     """THE authority predicate of a composition group. Repository verification (``mode="repository"``) and the only
     pre-D entry point ``open_protected_d`` (``mode="pre_d"``) both call it, so D can never open on a state the
@@ -548,7 +657,7 @@ def check_group_authority(ctx: Context, gid: str, *, mode: str, remote_url: str 
     _check_supersedes(ctx, authority)
     _check_stop_blocks_later_events(ctx, authority)
     if mode == "pre_d":
-        _check_pre_d(ctx, authority, remote_url, github_api)
+        _check_pre_d(ctx, authority, github_api)
     return authority
 
 
@@ -623,6 +732,10 @@ def _check_abandonment(ctx: Context, authority: GroupAuthority) -> None:
              for e in authority.members}
     if not any(lines.values()):
         return
+    for e in authority.members:
+        # O4 covers a baseline D that cannot be evaluated BEFORE any decision: never an escape from a recorded one
+        if decision_in_history(ctx.history, e):
+            raise _fail("abandonment_after_decision", e)
     first = lines[authority.members[0]]
     if any(v != first for v in lines.values()):
         raise _fail("group_abandonment_incomplete", authority.state.group_id[:12])
@@ -686,26 +799,26 @@ def _group_of_event(ctx: Context, event_id: str) -> str | None:
 
 
 def _check_member_artefacts(ctx: Context, authority: GroupAuthority) -> None:
-    """Every M3 artefact in a member folder is a known one: the member's component ranking, the group's one seal or a
-    D manifest of the BOB event (checked below). Anything else is refused."""
+    """Every file in a member's namespace in the current tree is a registered class (``EVENT_FILE_CLASSES``); a seal is
+    the group's one seal and a D manifest belongs to the BOB event. Committed history is checked by the registry
+    policies in ``check_event_history``."""
     state = authority.state
     for e in authority.members:
         folder = Path(ctx.repo) / event_paths(e)["folder"]
-        for path in sorted(folder.glob(f"{e}-*.json")):
-            if artefact_event(path.name) != e:
-                continue
+        for path in sorted(folder.glob(f"{e}*")):
             name = path.name
-            if name == f"{e}{RANKING_SUFFIX}":
+            if not (name.startswith(e + "-") or name.startswith(e + ".")):
                 continue
-            if e == state.bob_event and (name == f"{e}{SEAL_INFIX}{state.composition_id}.json"
-                                         or (D_MANIFEST_INFIX in name and RANKING_INFIX not in name
-                                             and SEAL_INFIX not in name and LEGACY_LAYER_A_INFIX not in name)):
-                continue
-            if LEGACY_LAYER_A_INFIX in name:
+            classes = {cls for event, cls in classify_event_file(name) if event == e}
+            if not classes:
+                raise _fail("m3_unclassified_event_file", _rel(path, ctx.repo))
+            cls = sorted(classes)[0]
+            if cls == "legacy-layer-a":
                 raise _fail("legacy_layer_a_artefact", _rel(path, ctx.repo))
-            if D_MANIFEST_INFIX in name:
+            if cls == "d-manifest" and e != state.bob_event:
                 raise _fail("d_manifest_location_mismatch", _rel(path, ctx.repo))
-            raise _fail("baseline_artefact_without_frozen_composition", _rel(path, ctx.repo))
+            if cls == "seal" and name != f"{state.bob_event}{SEAL_INFIX}{state.composition_id}.json":
+                raise _fail("baseline_artefact_without_frozen_composition", _rel(path, ctx.repo))
 
 
 def _read_superseded_by(ctx: Context, authority: GroupAuthority) -> None:
@@ -888,44 +1001,86 @@ def verify_default_branch_protection(github_api: Callable[[str], object],
 # ------------------------------------------------------------------ D2: the live anchor
 
 
-def check_live_anchor(repo: Path, s0s: Iterable[str], remote_url: str, paths: Iterable[str]) -> str:
-    """D2. ``git ls-remote --exit-code <canonical> refs/heads/main`` must return exactly one line, T; T is fetched and
-    must be a commit; every seal's S0 must be an ancestor of T (published); T must be an ancestor of HEAD; the group
-    paths must be identical at T and HEAD and clean in the work tree. Never reads ``origin`` or its remote-tracking
-    refs. No network, a failed fetch or an unexpected answer refuses (``anchor_unavailable``)."""
+def check_live_anchor(repo: Path, s0s: Iterable[str], paths: Iterable[str]) -> str:
+    """D2, outside the repository's configuration. The canonical remote is the fixed ``CANONICAL_ORIGIN`` (or, in
+    tests only, ``canonical_for_tests``), queried and fetched from a fresh temporary directory under the isolated Git
+    profile, so no repository ``url.*.insteadOf``/``pushInsteadOf``, credential, proxy or protocol setting can redirect
+    it; the file transport is refused for the canonical check (``protocol.file.allow=never``) except under the test
+    seam, and ``ext::`` is always refused.
+
+    1. ``ls-remote --exit-code <canonical> refs/heads/main``: of the returned lines, exactly one has the EXACT ref
+       ``refs/heads/main`` (a branch such as ``x/refs/heads/main`` is ignored; two exact lines refuse); its SHA is T.
+    2. T is fetched into a temporary bare repository; the fetched tip must equal T; every seal's S0 must be in that
+       canonical history and an ancestor of T (published), else ``seal_not_published``.
+    3. In the repository: T must exist locally and be an ancestor of HEAD; the group paths are identical at T and
+       HEAD and clean in the work tree (``worktree_status``, fail closed).
+    No network, a failed query or fetch, or an unexpected answer refuses (``anchor_unavailable``)."""
     repo = Path(repo)
-    args = ("ls-remote", "--exit-code", remote_url, DEFAULT_BRANCH_REF)
-    completed = _run(repo, args)
-    if completed.returncode != 0:
-        raise _fail("anchor_unavailable", f"ls-remote rc={completed.returncode}: "
-                    f"{completed.stderr.decode('utf-8', 'replace').strip()[-500:]}")
-    lines = [line for line in completed.stdout.decode("utf-8", "replace").splitlines() if line.strip()]
-    if len(lines) != 1:
-        raise _fail("anchor_unavailable", f"ls-remote returned {len(lines)} lines")
-    tip, _, ref = lines[0].partition("\t")
-    if ref.strip() != DEFAULT_BRANCH_REF or not IMMUTABLE_REVISION_RE.match(tip.strip()):
-        raise _fail("anchor_unavailable", "unexpected ls-remote answer")
-    tip = tip.strip()
-    fetched = _run(repo, ("fetch", "--no-tags", "--quiet", remote_url, DEFAULT_BRANCH_REF))
-    if fetched.returncode != 0:
-        raise _fail("anchor_unavailable", f"fetch rc={fetched.returncode}: "
-                    f"{fetched.stderr.decode('utf-8', 'replace').strip()[-500:]}")
-    _git(repo, "cat-file", "-e", f"{tip}^{{commit}}")
-    for s0 in s0s:
-        if not is_ancestor(repo, s0, tip):
-            raise _fail("seal_not_published", s0[:12])
-    if not is_ancestor(repo, tip, "HEAD"):
+    url, allow_local = _canonical()
+    transport = ("-c", f"protocol.file.allow={'always' if allow_local else 'never'}", "-c", "protocol.ext.allow=never")
+    with tempfile.TemporaryDirectory(prefix="mavi-m3-anchor-") as scratch:
+        scratch = Path(scratch)
+        args = ("ls-remote", "--exit-code", url, DEFAULT_BRANCH_REF)
+        completed = _run(None, args, options=transport, cwd=scratch)
+        if completed.returncode != 0:
+            raise _fail("anchor_unavailable", f"ls-remote rc={completed.returncode}: "
+                        f"{completed.stderr.decode('utf-8', 'replace').strip()[-500:]}")
+        exact = []
+        for line in completed.stdout.decode("utf-8", "replace").splitlines():
+            sha, _, ref = line.partition("\t")
+            if ref.strip() == DEFAULT_BRANCH_REF:
+                exact.append(sha.strip())
+        if len(exact) != 1 or not IMMUTABLE_REVISION_RE.match(exact[0]):
+            raise _fail("anchor_unavailable", f"ls-remote returned {len(exact)} exact {DEFAULT_BRANCH_REF} lines")
+        tip = exact[0]
+        canonical = scratch / "canonical.git"
+        init = _run(None, ("init", "-q", "--bare", str(canonical)), cwd=scratch)
+        if init.returncode != 0:
+            raise GitCommandError("git_command_failed", ("init", "--bare"), init.returncode,
+                                  init.stderr.decode("utf-8", "replace"))
+        fetched = _run(canonical, ("fetch", "--no-tags", "--quiet", url, f"+{DEFAULT_BRANCH_REF}:refs/mavi/canonical"),
+                       options=transport)
+        if fetched.returncode != 0:
+            raise _fail("anchor_unavailable", f"fetch rc={fetched.returncode}: "
+                        f"{fetched.stderr.decode('utf-8', 'replace').strip()[-500:]}")
+        if ref_commit_or_none(canonical, "refs/mavi/canonical") != tip:
+            raise _fail("anchor_unavailable", "the fetched canonical tip differs from the advertised one")
+        for s0 in s0s:
+            if ref_commit_or_none(canonical, s0) != s0 or not is_ancestor(canonical, s0, tip):
+                raise _fail("seal_not_published", s0[:12])
+    if ref_commit_or_none(repo, tip) != tip or not is_ancestor(repo, tip, "HEAD"):
         raise _fail("anchor_not_in_head", tip[:12])
     paths = sorted(set(paths))
     diff = _run(repo, ("diff", "--quiet", tip, "HEAD", "--", *paths))
     if diff.returncode == 1:
         raise _fail("group_state_differs_from_anchor", tip[:12])
-    if diff.returncode != 0:
+    if diff.returncode != 0 or diff.stderr.strip():
         raise GitCommandError("git_command_failed", ("diff", "--quiet"), diff.returncode,
                               diff.stderr.decode("utf-8", "replace"))
     if worktree_status(repo, paths):
         raise _fail("group_state_not_clean", ",".join(paths))
     return tip
+
+
+_TEST_CANONICAL: str | None = None
+
+
+def _canonical() -> tuple[str, bool]:
+    """The canonical remote and whether the file transport is allowed for it (only under the test seam)."""
+    return (CANONICAL_ORIGIN, False) if _TEST_CANONICAL is None else (_TEST_CANONICAL, True)
+
+
+@contextmanager
+def canonical_for_tests(location: str):
+    """TEST SEAM ONLY: stand a local bare repository in for the canonical GitHub repository. Everything else (the
+    isolated profile, the temporary directory, the exact-ref parse, the fetched-tip and ancestry checks) is unchanged.
+    A harness using it is a review finding."""
+    global _TEST_CANONICAL
+    previous, _TEST_CANONICAL = _TEST_CANONICAL, str(location)
+    try:
+        yield
+    finally:
+        _TEST_CANONICAL = previous
 
 
 # ------------------------------------------------------------------ the only pre-D entry point
@@ -940,7 +1095,7 @@ class DAuthorization:
     bob_event: str
 
 
-def _check_pre_d(ctx: Context, authority: GroupAuthority, remote_url: str | None,
+def _check_pre_d(ctx: Context, authority: GroupAuthority,
                  github_api: Callable[[str], object] | None) -> None:
     state = authority.state
     if state.seal is None:
@@ -955,11 +1110,11 @@ def _check_pre_d(ctx: Context, authority: GroupAuthority, remote_url: str | None
         raise _fail("d_not_authorised", f"superseded-by:{sorted(authority.superseded_by.values())[0]}")
     if state.s0 is None:
         raise _fail("d_not_authorised", "baseline-seal-not-committed")
-    if remote_url is None or github_api is None:
+    if github_api is None:
         raise _fail("d_not_authorised", "anchor-not-configured")
 
 
-def open_protected_d(repo: Path, group: str, *, remote_url: str = CANONICAL_ORIGIN,
+def open_protected_d(repo: Path, group: str, *,
                      github_api: Callable[[str], object] = gh_api) -> DAuthorization:
     """THE pre-D gate. Call before reading any protected D data; record the returned anchor, seal hash, seal commit
     (S0) and U hash in every D manifest (``d_manifest_document``).
@@ -975,11 +1130,11 @@ def open_protected_d(repo: Path, group: str, *, remote_url: str = CANONICAL_ORIG
     gid = group if SHA256_RE.match(group) else _group_of_event(ctx, group)
     if gid is None or gid not in ctx.authorities:
         raise _fail("composition_group_unknown", str(group)[:24])
-    authority = check_group_authority(ctx, gid, mode="pre_d", remote_url=remote_url, github_api=github_api)
+    authority = check_group_authority(ctx, gid, mode="pre_d", github_api=github_api)
     state = authority.state
     verify_default_branch_protection(github_api)
     folders = sorted({event_paths(e)["folder"] for e in authority.members})
-    anchor = check_live_anchor(repo, [state.s0], remote_url, folders)
+    anchor = check_live_anchor(repo, [state.s0], folders)
     seal = state.seal
     binding = SealBinding(state.composition_id, state.seal_sha256, state.s0, seal["partnerCandidateId"],
                           seal["partnerIdentitySha256"], seal["compositionSha256"])
@@ -1051,7 +1206,7 @@ def check_composition_decision(decision: Mapping, state: GroupState,
         raise _fail("d_started_after_decision", f"{where}.dExecutionStartedAt")
     forbidden = set(state.bob_ids) | {state.composition_id}
     universe = state.universe
-    mpid = float(universe["mpid"])
+    mpid = _exact(universe["mpid"])
     gate_ids = list(universe["compositionGateIds"])
     seal_hashes = {state.composition_id: state.seal_sha256}
     # the gate-only baseline composition (O4: no decision without its D result)
@@ -1062,7 +1217,8 @@ def check_composition_decision(decision: Mapping, state: GroupState,
     _match(base["dResultSha256"], SHA256_RE, f"{where}.baseline.dResultSha256")
     if base["dScore"] is None:
         raise _fail("baseline_d_unavailable", f"{where}.baseline.dScore")
-    base_score = _number(base["dScore"], f"{where}.baseline.dScore")
+    _number(base["dScore"], f"{where}.baseline.dScore")
+    base_score = _exact(base["dScore"])
     # C2: the composition set equals the sealed U, with derived ids and exact components
     expected = {item["compositionId"]: item["components"] for item in state.ordinary}
     candidates = _list(block["compositionCandidates"], f"{where}.compositionCandidates")
@@ -1092,7 +1248,7 @@ def check_composition_decision(decision: Mapping, state: GroupState,
         _match(row["dResultSha256"], SHA256_RE, f"{at}.dResultSha256")
         if row["baselineSealSha256s"] != seal_hashes:
             raise _fail("d_result_baseline_seal_mismatch", f"{at}.baselineSealSha256s")
-        baseline_passed = score is not None and score - base_score >= mpid
+        baseline_passed = score is not None and _exact(row["dScore"]) - base_score >= mpid
         if gates[BASELINE_GATE] != (PASSED if baseline_passed else FAILED):
             raise _fail("composition_baseline_gate_not_derived", f"{at}.gates.{BASELINE_GATE}")
         technical = PASSED if all(v == PASSED for v in gates.values()) else FAILED
@@ -1157,6 +1313,14 @@ def check_composition_decision(decision: Mapping, state: GroupState,
                   if any(c["eventId"] == own_event and c["candidateId"] == candidate for c in expected[comp])]
         derived[candidate] = (PASSED, max(scores)) if scores else (FAILED, None)
     return derived
+
+
+def _exact(value: float | int) -> Decimal:
+    """The exact decimal value of a JSON number literal as written (P3-A): ``Decimal(str(value))``, where ``str`` of a
+    parsed float is its shortest round-trip representation, so ``0.7 - 0.5 >= 0.2`` holds exactly as written. Used
+    only for the baseline hard gate (D-score minus the baseline D-score at least the MPID); the ranking order is
+    unchanged."""
+    return Decimal(str(value))
 
 
 def implementation_component(state: GroupState, composition_id: str, own_event: str) -> str:

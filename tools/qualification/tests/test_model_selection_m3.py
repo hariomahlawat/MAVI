@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import json
+from decimal import Decimal
 import os
 import shutil
 import subprocess
@@ -215,7 +216,8 @@ def authority_block(state, *, scores=None, base=BASE_D, anchor=ANCHOR, implement
     for item in state.ordinary:
         cid = item["compositionId"]
         score = scores.get(cid)
-        baseline_passed = score is not None and base is not None and score - base >= MPID
+        baseline_passed = score is not None and base is not None and \
+            Decimal(str(score)) - Decimal(str(base)) >= Decimal(str(MPID))
         gates = {"baseline": "passed" if baseline_passed else "failed", "consistent-wrong": "passed"}
         technical = "passed" if all(v == "passed" for v in gates.values()) else "failed"
         if technical == "passed":
@@ -1212,7 +1214,7 @@ def git(repo: Path, *args: str) -> str:
     environment = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
                        GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
     return subprocess.run(["git", "-C", str(repo), "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false",
-                           "-c", "init.defaultBranch=main", *args],
+                           "-c", "init.defaultBranch=main", "-c", "core.longpaths=true", *args],
                           capture_output=True, text=True, check=True, env=environment).stdout.strip()
 
 
@@ -1340,8 +1342,9 @@ def protected_api(*, enforcement="active", include=("~DEFAULT_BRANCH",), exclude
 
 
 def open_d(built: Built, *, remote=None, api=None):
-    return ma.open_protected_d(built.path, EVENT, remote_url=remote or built.remote or publish(built),
-                               github_api=api or protected_api())
+    """open_protected_d with a local bare repository standing in for the canonical one (the explicit test seam)."""
+    with ma.canonical_for_tests(remote or built.remote or publish(built)):
+        return ma.open_protected_d(built.path, EVENT, github_api=api or protected_api())
 
 
 def commit_d(built: Built, auth, run="RUN-1") -> Path:
@@ -1708,7 +1711,8 @@ def test_baseline_d_unavailable_refuses_the_decision_and_abandons_the_group(tmp_
     validate_repository(built.path)
     refused("d_not_authorised", open_d, built)
     commit_decisions(built, auth)
-    refused("event_abandoned_decision_refused", validate_repository, built.path)
+    # a decision after the abandonment is refused (the decision now also sits in the event's committed history)
+    assert code_of(validate_repository, built.path) in ("event_abandoned_decision_refused", "abandonment_after_decision")
 
 
 def test_abandonment_must_cover_the_group_and_cite_a_d_result(tmp_path):
@@ -1895,10 +1899,10 @@ def test_probe_repo_e1_injected_git_failure_is_a_typed_refusal(tmp_path, monkeyp
     built = build(tmp_path / "r")
     original = mg._run
 
-    def failing(repo, args, data=None):
+    def failing(repo, args, data=None, **kwargs):
         if args and args[0] == "cat-file":
             return subprocess.CompletedProcess(["git", *args], 128, b"", b"fatal: simulated object store failure")
-        return original(repo, args, data)
+        return original(repo, args, data, **kwargs)
     monkeypatch.setattr(mg, "_run", failing)
     with pytest.raises(mg.GitCommandError) as error:
         validate_repository(built.path)
@@ -2109,8 +2113,8 @@ HISTORY_ATTACKS = {
 def test_gate_and_repository_refuse_every_history_attack(tmp_path, attack):
     built = HISTORY_ATTACKS[attack](tmp_path)
     repository = code_of(validate_repository, built.path)
-    gate = code_of(ma.open_protected_d, built.path, EVENT, remote_url=str(tmp_path / "unused.git"),
-                   github_api=protected_api())
+    with ma.canonical_for_tests(str(tmp_path / "unused.git")):
+        gate = code_of(ma.open_protected_d, built.path, EVENT, github_api=protected_api())
     assert repository != "accepted" and gate != "accepted", (attack, repository, gate)
     assert repository == gate, (attack, repository, gate)  # the gate runs the repository predicate first
 

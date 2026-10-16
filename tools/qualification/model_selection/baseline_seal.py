@@ -84,6 +84,7 @@ STOP_REASONS = (
     "protected-d-accessed",
     "prerequisite-failed",
 )
+ORDINARY_ID_PREFIX = "C-"
 SEAL_INFIX = "-baseline-seal-"
 RANKING_SUFFIX = "-component-ranking.json"
 RANKING_INFIX = "-component-ranking"
@@ -183,6 +184,9 @@ def check_stage1_rule(composition: Mapping, entry: Mapping, where: str) -> None:
     _keys(composition, ("compositionId", "partnerEventId", "eligiblePartners", "excludedPartners", "derivationRule",
                         "gateScope"), where)
     _match(composition["compositionId"], LOCAL_ID_RE, f"{where}.compositionId")
+    if composition["compositionId"].startswith(ORDINARY_ID_PREFIX):
+        # the ``C-`` prefix is the derived ordinary-composition namespace (``m3_universe.composition_id``)
+        raise _fail("gate_only_composition_id_reserved", f"{where}.compositionId")
     _match(composition["partnerEventId"], EVENT_ID_RE, f"{where}.partnerEventId")
     _enum(composition["derivationRule"], DERIVATION_RULES, f"{where}.derivationRule")
     if composition["gateScope"] == GATE_SCOPE_LISTED_DISABLED:
