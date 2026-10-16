@@ -546,6 +546,20 @@ def test_qualification_lanes_shard_by_test_and_never_vacuously() -> None:
         assert "@shard-tests.txt" in block and "set -euo pipefail" in block
 
 
+def test_the_performance_lanes_run_the_forward_admitted_order_and_no_reverse_lane() -> None:
+    """X3 determinism: the sweep and the long-task lane measure in `forward`
+    order (page-issued identity, pre-transport admission: admission.mjs), the
+    order performance.mjs judges; generic reverse ordering is not a method, so
+    there is no reverse lane, and the judge has no reverse path."""
+    workflow = (_WORKFLOWS / "quality-gate.yml").read_text(encoding="utf-8")
+    blocks = _job_blocks(workflow)
+    assert "MAVI_VQA_RESPONSE_ORDER: forward" in blocks["visual-sweep"]
+    assert "MAVI_VQA_RESPONSE_ORDER: forward" in blocks["performance-long-tasks"]
+    assert "performance-reverse" not in blocks and "performance-reverse" not in workflow
+    assert "MAVI_VQA_RESPONSE_ORDER: reverse" not in workflow
+    assert "--ordinary-lane" not in workflow and "--response-order" not in workflow
+
+
 def test_the_quality_aggregate_accounts_for_every_lane() -> None:
     """`quality` depends on every other job and requires each one to be
     `success` where the scope job made it applicable and `skipped` where it did
@@ -584,6 +598,73 @@ def test_the_quality_aggregate_accounts_for_every_lane() -> None:
         assert "continue-on-error" not in block
     # A pull request head supersedes its own run; a push to a gated branch is never cancelled.
     assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
+
+
+INFORMATIONAL_WORKFLOWS = {"plate-search-scale-informational.yml": "plate-search-scale-diagnostic"}
+
+
+def test_the_plate_search_scale_workflow_is_informational_and_outside_the_quality_gate() -> None:
+    """Stage 4 PR-4 (owner decision 2026-10-16): the plate search at scale is an
+    informational CI diagnostic in a workflow of its own. It is not a Quality Gate
+    lane (so the aggregate above stays exactly the gate's lanes), not a required
+    check, never writes under qualification-evidence/, is bound to the exact head,
+    and says in its own output that it is not qualification evidence."""
+    import re
+
+    gate = (_WORKFLOWS / "quality-gate.yml").read_text(encoding="utf-8")
+    assert "plate-search-scale" not in gate and "PlateSearchScaleMeasurementTests" not in gate
+    for workflow_file, job in INFORMATIONAL_WORKFLOWS.items():
+        workflow = (_WORKFLOWS / workflow_file).read_text(encoding="utf-8")
+        assert "INFORMATIONAL DIAGNOSTIC ONLY" in workflow
+        blocks = _job_blocks(workflow)
+        assert set(blocks) == {job}
+        block = blocks[job]
+        name = re.search(r"^    name: (.+)$", block, re.M).group(1)
+        assert "informational" in name and "not a gate" in name
+        assert "needs:" not in block and "continue-on-error" not in block
+        # Exact head.
+        assert "MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
+        assert 'test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"' in block
+        # Diagnostic output only: CI mode, named as a diagnostic, never under qualification-evidence/.
+        assert "MAVI_PLATE_SEARCH_SCALE_MODE: ci" in block
+        assert "qualification-evidence" not in workflow
+        uploads = block.split("uses: actions/upload-artifact@v4")[1:]
+        assert len(uploads) == 1
+        assert "name: plate-search-scale-informational-ci-diagnostic\n" in uploads[0]
+        assert "path: plate-search-scale-ci-diagnostic/\n" in uploads[0]
+        assert "retention-days: 14\n" in uploads[0]
+    # The harness writes the CI output under its own names and states it is not evidence.
+    harness = (Path(__file__).parents[3] / "tests" / "Mavi.IntegrationTests" / "PlateSearchScaleMeasurementTests.cs").read_text(encoding="utf-8")
+    assert "qualificationEvidence = false" in harness
+    assert 'prefix = "plate-search-scale-ci-diagnostic";' in harness
+    # Owner decision 2026-10-16: v1 is the budgeted set, v2 the diagnostic (declared-limits) set.
+    assert "budgetedQuerySet = BudgetedQuerySet" in harness and "diagnosticQuerySet = DiagnosticQuerySet" in harness
+    assert "budgetMilliseconds" not in harness.split('prefix = "plate-search-scale-ci-diagnostic";', 1)[1].split("else", 1)[0]
+
+
+def test_the_m3_git_diagnostic_is_its_own_informational_windows_workflow() -> None:
+    """MSR M3 (PR #220): the Windows Git trace diagnostic lives in a workflow of its own, so the Windows
+    qualification lane stays upload-free (test above). It is informational: not a Quality Gate lane, not part of
+    the `qualification tooling windows` aggregate, not a required check; bound to the exact head; it uploads Git
+    traces only, never under qualification-evidence/."""
+    import re
+
+    workflow = (_WORKFLOWS / "m3-git-diagnostic-windows.yml").read_text(encoding="utf-8")
+    assert "INFORMATIONAL DIAGNOSTIC ONLY" in workflow
+    blocks = _job_blocks(workflow)
+    assert set(blocks) == {"m3-git-diagnostic"}
+    block = blocks["m3-git-diagnostic"]
+    name = re.search(r"^    name: (.+)$", block, re.M).group(1)
+    assert "informational" in name and "not a gate" in name
+    assert "needs:" not in block and "runs-on: windows-latest" in block
+    assert "MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
+    assert "ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}" in block
+    assert "(git rev-parse HEAD).Trim()" in block and "-ne $env:MAVI_EXPECTED_SOURCE_SHA" in block
+    assert "qualification-evidence" not in workflow
+    uploads = block.split("uses: actions/upload-artifact@v4")[1:]
+    assert len(uploads) == 1 and "name: m3-git-diagnostic-${{ matrix.variant }}\n" in uploads[0]
+    for other in ("quality-gate.yml", "qualification-tooling-windows.yml"):
+        assert "m3-git-diagnostic" not in (_WORKFLOWS / other).read_text(encoding="utf-8"), other
 
 
 def test_task12_keeps_its_byte_reproducibility_build_serial() -> None:

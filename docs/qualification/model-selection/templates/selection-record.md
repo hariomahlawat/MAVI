@@ -25,6 +25,8 @@ Reference the schema; summarise the operating envelope.
 
 The credibility class and all external evidence come from the event's External Evidence Ledger, `<event-id>-evidence-ledger.json` (`../candidate-credibility.md`; template `templates/external-evidence-ledger.md`). This table restates the class; the ledger is authoritative for it, and the credibility class never enters §6.
 
+Benchmark-only baselines (M3) are listed in a separate table, "benchmark-only baseline — not a selectable candidate", with the group's gate-only composition seal SHA-256 and status (`RESOLVED` with its partner, or `STOPPED` with its reason), and any `Superseded by` or `Abandoned:` record line. They never appear in §6 or in any ranked, frontier, winner, incumbent or implementation field, and they gain no credibility from MAVI measurements.
+
 One **candidate card** per serious candidate, holding every field of methodology §5. It is filled at `PROTOCOL_FROZEN` and extended with measurements.
 
 ## 3. Reported evidence (class R; snapshotted)

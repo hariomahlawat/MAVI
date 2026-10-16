@@ -136,6 +136,10 @@ public sealed class PlateCompletionTimingTests(PostgresFixture fixture, ITestOut
             observations = await db.PlateObservations.CountAsync(x => x.AnalysisId == unit.AnalysisId);
             readings = await db.PlateReadings.CountAsync();
             texts = await db.PlateTrackTexts.CountAsync(x => x.AnalysisId == unit.AnalysisId);
+            // ADR-018: the COPY publication (untouched) gets every text's Track start from the trigger.
+            Assert.Equal(0L, await db.Database.SqlQuery<long>(
+                $"SELECT count(*) AS \"Value\" FROM plate_track_texts x JOIN tracks t ON t.id = x.track_id WHERE x.analysis_id = {unit.AnalysisId} AND x.track_start_timestamp_utc IS DISTINCT FROM t.start_timestamp_utc")
+                .SingleAsync());
         }
 
         Assert.Equal((trackCount, trackCount * 4, trackCount * 12, trackCount * 4), (outcomes, observations, readings, texts));

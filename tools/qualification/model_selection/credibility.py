@@ -18,6 +18,15 @@ module enforces the rules marked **[checked]** there, on three documents:
   the ranking, and gates the implementation candidate on clearance and an
   ``established`` class on the decision date.
 
+Method revision M3 (``proposals/m3-benchmark-only-baseline.md``) adds the
+``BENCHMARK_BASELINE`` disposition and the composition group. It applies to
+``msr-v1-m3`` ledgers and decision summary v1 only, and is refused anywhere in decision
+v2. Every M3 event belongs to a composition group (a frozen ``compositionUniverse``
+shared by its two component events); a benchmark-only candidate is measured solely to
+define the group's frozen baseline gate and is never ranked, derived or implemented.
+The seal is ``baseline_seal.py``; the derived composition set ``m3_universe.py``; the
+history, chronology, anchors, decision binding and the pre-D gate ``m3_authority.py``.
+
 Standard library only; nothing here reads the network, a model or imagery.
 """
 
@@ -27,6 +36,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +44,7 @@ from pathlib import Path
 LEDGER_SCHEMA = "mavi-external-evidence-ledger-v1"
 DECISION_SCHEMA = "mavi-model-selection-decision-v1"
 METHOD_REVISION = "msr-v1-m1"
+METHOD_REVISION_M3 = "msr-v1-m3"
 UNKNOWN = "UNKNOWN"
 REPORTED_LABEL = "reported, not reproduced by MAVI"
 
@@ -80,18 +91,22 @@ CLAIM_KINDS = ("task-quality", "runtime")
 DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED = (
     "DISCOVERED", "SHORTLISTED", "NOT_SHORTLISTED", "REFERENCE_ONLY", "DEFERRED",
 )
-DISPOSITIONS = (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED)
+BENCHMARK_BASELINE = "BENCHMARK_BASELINE"  # M3: measured only to define frozen gates; never ranked
+PERMISSION_ARTEFACT_KINDS = ("executable", "runtime-libraries", "model-data")  # M3 per-artefact evaluation permission
+MANIFEST_FILE_KINDS = ("executable", "runtime-library", "data")  # M3 host-manifest file kinds
+DISPOSITIONS = (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED, BENCHMARK_BASELINE)
 REASONS_BY_DISPOSITION = {
     DISCOVERED: (),
     SHORTLISTED: (),
     NOT_SHORTLISTED: ("technical", "credibility"),
     REFERENCE_ONLY: ("credibility", "evaluation-permission", "availability"),
     DEFERRED: ("technical", "resources", "availability"),
+    BENCHMARK_BASELINE: ("technical",),
 }
 DISPOSITIONS_BY_CLASS = {
     ESTABLISHED: (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED),
     EMERGING: (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED),
-    REFERENCE: (DISCOVERED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED),
+    REFERENCE: (DISCOVERED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED, BENCHMARK_BASELINE),
     EXCLUDED: (DISCOVERED, NOT_SHORTLISTED),
     MAVI_OWNED: (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, DEFERRED),
 }
@@ -114,6 +129,9 @@ LICENCE_STATUSES = ("NOT_ASSESSED", "REVIEW_PENDING", "CLEARED", "CONSTRAINED", 
 CLEARED = "CLEARED"
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+UTC_INSTANT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+EVENT_ID_RE = re.compile(r"^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\d{4}-\d{2}$")
+NOT_APPLICABLE = "n/a"
 IMMUTABLE_REVISION_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 TOKEN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 CANDIDATE_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$")
@@ -272,26 +290,163 @@ def _person(name: str) -> str:
     return " ".join(name.split()).casefold()
 
 
-def _reject_licence_keys(value: object, where: str) -> None:
+def _reject_licence_keys(value: object, where: str, exempt: frozenset = frozenset()) -> None:
     """The ledger is licence-blind by construction.
 
     No key may mention a licence, and no text may either, except a disposition that
     records the evaluation-permission carve-out (MSR method §2), whose reason and
-    revisit trigger necessarily talk about terms.
+    revisit trigger necessarily talk about terms, and a declared exact identifier:
+    ``exempt`` holds ``(field path, exact raw value)`` pairs (``_identifier_exemptions``).
     """
     if isinstance(value, dict):
         carve_out = value.get("reasonClass") == "evaluation-permission" and "status" in value
         for key, item in value.items():
-            if "licen" in key.lower():
+            if _LICENCE_STEM in _skeleton(_normalise_text(key)):  # a key never takes the plate-term exemption
                 raise _fail("licence_field_in_ledger", f"{where}.{key}")
             if carve_out and key in ("reason", "revisitTrigger"):
                 continue
-            _reject_licence_keys(item, f"{where}.{key}")
+            _reject_licence_keys(item, f"{where}.{key}", exempt)
     elif isinstance(value, list):
         for index, item in enumerate(value):
-            _reject_licence_keys(item, f"{where}[{index}]")
-    elif isinstance(value, str) and "licen" in value.lower():
+            _reject_licence_keys(item, f"{where}[{index}]", exempt)
+    elif isinstance(value, str) and (where, value) not in exempt and has_licence_wording(value):
         raise _fail("licence_reasoning_in_ledger", where)
+
+
+# Typed identifier exemptions (M3 final round, item 3). The frozen ledger may declare, per candidate, an exact
+# identifier value in one closed field kind with a recorded reason. Only that exact raw value at those exact field
+# paths of that candidate skips the licence scan: whole-value equality, no wildcard, regex, substring, prefix, domain,
+# suffix or basename matching, never prose (summaries, caveats, evidence text, reasons). Declarations are part of the
+# frozen ledger, so nothing can be exempted after freeze (validate_evolution).
+IDENTIFIER_FIELD_KINDS = {
+    "repository-url": ("identity.repository", "identity.derivation.fromRepository", "methodCode.repository"),
+    "source-url": ("evidence[].source",),
+    "artefact-filename": ("identity.files[].path",),
+    "model-identifier": ("candidateName",),
+}
+_IDENTIFIER_KEYS = ("candidateId", "fieldKind", "value", "reason")
+
+
+def _identifier_paths(entry: Mapping, index: int, kind: str) -> dict[str, object]:
+    """``{field path: raw value}`` of one candidate for one identifier field kind."""
+    base = f"ledger.candidates[{index}]"
+    found: dict[str, object] = {}
+    for path in IDENTIFIER_FIELD_KINDS[kind]:
+        if path == "evidence[].source":
+            for j, item in enumerate(entry.get("evidence") or []):
+                if isinstance(item, dict):
+                    found[f"{base}.evidence[{j}].source"] = item.get("source")
+        elif path == "identity.files[].path":
+            for j, item in enumerate((entry.get("identity") or {}).get("files") or []):
+                if isinstance(item, dict):
+                    found[f"{base}.identity.files[{j}].path"] = item.get("path")
+        else:
+            node: object = entry
+            for part in path.split("."):
+                node = node.get(part) if isinstance(node, dict) else None
+            found[f"{base}.{path}"] = node
+    return found
+
+
+def _identifier_exemptions(ledger: object) -> frozenset:
+    """The ``(field path, value)`` pairs a well-formed declaration exempts. A malformed declaration exempts nothing,
+    so its value is scanned and refused like any text; ``_check_identifier_exemptions`` reports the defect."""
+    if not isinstance(ledger, dict) or not isinstance(ledger.get("identifierExemptions"), list):
+        return frozenset()
+    candidates = ledger.get("candidates") if isinstance(ledger.get("candidates"), list) else []
+    index = {e.get("candidateId"): i for i, e in enumerate(candidates) if isinstance(e, dict)}
+    exempt = set()
+    for k, item in enumerate(ledger["identifierExemptions"]):
+        if not (isinstance(item, dict) and set(item) == set(_IDENTIFIER_KEYS)
+                and item["fieldKind"] in IDENTIFIER_FIELD_KINDS and item["candidateId"] in index
+                and isinstance(item["value"], str) and item["value"] and not any(c.isspace() for c in item["value"])
+                and isinstance(item["reason"], str) and item["reason"].strip()):
+            continue
+        i = index[item["candidateId"]]
+        for path, raw in _identifier_paths(candidates[i], i, item["fieldKind"]).items():
+            if raw == item["value"]:
+                exempt.add((path, raw))
+        exempt.add((f"ledger.identifierExemptions[{k}].value", item["value"]))
+    return frozenset(exempt)
+
+
+def _check_identifier_exemptions(ledger: Mapping) -> None:
+    if "identifierExemptions" not in ledger:
+        return
+    entries = {e["candidateId"]: (i, e) for i, e in enumerate(ledger["candidates"])}
+    seen = set()
+    for k, item in enumerate(_list(ledger["identifierExemptions"], "ledger.identifierExemptions")):
+        at = f"ledger.identifierExemptions[{k}]"
+        _keys(item, _IDENTIFIER_KEYS, at)
+        kind = _enum(item["fieldKind"], tuple(IDENTIFIER_FIELD_KINDS), f"{at}.fieldKind")
+        value = _text(item["value"], f"{at}.value")
+        _text(item["reason"], f"{at}.reason")
+        if any(c.isspace() for c in value):
+            raise _fail("identifier_exemption_not_an_identifier", f"{at}.value")
+        if item["candidateId"] not in entries:
+            raise _fail("identifier_exemption_candidate_unknown", f"{at}.candidateId")
+        i, entry = entries[item["candidateId"]]
+        if value not in _identifier_paths(entry, i, kind).values():
+            raise _fail("identifier_exemption_not_found", at)  # exact value in a field of the declared kind
+        key = (item["candidateId"], kind, value)
+        if key in seen:
+            raise _fail("identifier_exemption_duplicate", at)
+        seen.add(key)
+
+
+# ----------------------------------------------------------------- licence wording (M1 licence-blindness)
+#
+# Owner decision (M3 final round): the vehicle-plate domain term is exempt from the licence-wording scan ONLY when the
+# ENTIRE normalised field value is exactly one of `_PLATE_DOMAIN_VALUES` ("license plate", "license plates",
+# "licence plate", "licence plates"). No positional inference that "license/licence" is a noun is made: a value that
+# merely contains the phrase ("License plate weights to anyone", "vehicle and license plate crops", "multi-line
+# license plates", a quoted, bracketed or listed phrase) is scanned like any other text and refused. Benign prose is
+# rewritten ("number plate", "plate"); exact identifiers are exempted only through the ledger's typed, frozen
+# `identifierExemptions` (`_identifier_exemptions`).
+#
+# Normalisation (`_normalise_text`, detection only, never stored): NFKC, case folding, combining marks removed,
+# invisible format characters (category Cf: zero-width space/joiners, word joiner, BOM, soft hyphen, bidi marks)
+# removed, Unicode dash forms folded to "-", every whitespace run folded to one space and the ends trimmed. The text is
+# then folded to a Latin skeleton (`_CONFUSABLES`: Cyrillic, Greek and Armenian letters drawn like Latin ones) and
+# refused if it contains "licen". No single non-Latin script holds look-alikes of all of l, i, c, e and n, so a word
+# written wholly in one of those scripts never folds to "licen"; the skeleton refuses only mixed-script spellings.
+# Latin small capitals and the digit one written for "i" are folded too (obfuscations, not words).
+# Paraphrases ("may be redistributed under the terms ...") and confusables outside the table remain reviewer
+# obligations (candidate-credibility.md §9).
+_LICENCE_STEM = "licen"
+_PLATE_DOMAIN_VALUES = frozenset({"license plate", "license plates", "licence plate", "licence plates"})
+_DASHES = dict.fromkeys(map(ord, "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u2e3a\u2e3b\ufe58\ufe63\uff0d\u2043\u02d7"), "-")
+_CONFUSABLES = str.maketrans({
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c", "\u0443": "y", "\u0445": "x",
+    "\u0456": "i", "\u0458": "j", "\u0455": "s", "\u0501": "d", "\u04cf": "l", "\u04bb": "h", "\u051b": "q",
+    "\u051d": "w", "\u0269": "i", "\u0131": "i", "\u03bf": "o", "\u03b9": "i", "\u03bd": "v", "\u03b1": "a",
+    "\u0251": "a", "\u217c": "l", "\u01c0": "l",
+    "\u0578": "n", "\u057c": "n", "\u0585": "o",  # Armenian vo, ra, oh
+    "\u029f": "l", "\u026a": "i", "\u1d04": "c", "\u1d07": "e", "\u0274": "n",  # small capitals
+    "1": "i",  # the digit one written for i ("l1cense"); detection only
+})
+
+
+def _normalise_text(text: str) -> str:
+    """A conservative, detection-only normal form (never stored)."""
+    text = unicodedata.normalize("NFKC", text).casefold()
+    text = "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
+    text = unicodedata.normalize("NFKC", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    text = text.translate(_DASHES)
+    return " ".join(text.split())
+
+
+def _skeleton(text: str) -> str:
+    return text.translate(_CONFUSABLES)
+
+
+def has_licence_wording(text: str) -> bool:
+    """True unless ``text`` is free of "licen" or is, as a whole, exactly the plate domain term."""
+    normal = _normalise_text(text)
+    if normal in _PLATE_DOMAIN_VALUES:
+        return False
+    return _LICENCE_STEM in _skeleton(normal)
 
 
 _TRACKING_PARAMETER_RE = re.compile(r"^(?:utm_[a-z]+|ref|source|fbclid|gclid)=", re.IGNORECASE)
@@ -562,7 +717,7 @@ def _check_structure(entry: dict, ledger: dict, where: str) -> dict[str, dict]:
          "architecture", "evidence", "claims", "popularitySignals", "caveats", "classification",
          "classificationHistory", "disposition"),
         where,
-        optional=("methodCode",),
+        optional=("methodCode", "benchmarkBaseline"),
     )
     _match(entry["candidateId"], CANDIDATE_ID_RE, f"{where}.candidateId")
     _text(entry["candidateName"], f"{where}.candidateName")
@@ -820,6 +975,10 @@ def _check_disposition(entry: dict, items: Mapping[str, dict], computed: str, co
         _optional_text(disposition["revisitTrigger"], f"{where}.disposition.revisitTrigger")
     _optional_text(disposition.get("reviewedBy"), f"{where}.disposition.reviewedBy")
 
+    if status == BENCHMARK_BASELINE:
+        _check_benchmark_baseline(entry, computed, confidence, where)
+    elif "benchmarkBaseline" in entry:
+        raise _fail("benchmark_baseline_block_without_role", f"{where}.benchmarkBaseline")
     if status not in DISPOSITIONS_BY_CLASS[computed]:
         raise _fail("disposition_not_allowed_for_class", f"{where}.disposition.status")
     if reason_class == "credibility" and computed not in CREDIBILITY_REASON_CLASSES[status]:
@@ -851,21 +1010,136 @@ def _check_disposition(entry: dict, items: Mapping[str, dict], computed: str, co
                 raise _fail("shortlist_requires_snapshotted_evidence", f"{where}.evidence.{evidence_id}")
 
 
+def _instant(value: object, where: str) -> datetime:
+    if not isinstance(value, str) or not UTC_INSTANT_RE.match(value):
+        raise _fail("instant_malformed", where)
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise _fail("instant_malformed", where) from exc
+    if parsed.date() > _today():
+        raise _fail("date_in_future", where)
+    return parsed
+
+
+def _check_benchmark_baseline(entry: dict, computed: str, confidence: str, where: str) -> None:
+    """M3 §2 rules 1-2 and 4, §6(c): the role, its pinned bytes and its frozen gate-only compositions."""
+    if computed != REFERENCE:
+        raise _fail("benchmark_baseline_class", f"{where}.disposition.status")
+    if entry["candidateKind"] == BASELINE:
+        raise _fail("benchmark_baseline_class", f"{where}.candidateKind")
+    if confidence != HIGH or not _pinned_files(entry["identity"]):
+        raise _fail("benchmark_baseline_requires_pinned_provenance", f"{where}.identity")
+    at = f"{where}.benchmarkBaseline"
+    block = _keys(entry.get("benchmarkBaseline"), ("purpose", "protocolSection", "configurationSha256", "adapterSha256",
+                                                   "hostManifests", "evaluationPermissions", "compositions"), at)
+    _text(block["purpose"], f"{at}.purpose")
+    _text(block["protocolSection"], f"{at}.protocolSection")
+    _match(block["configurationSha256"], SHA256_RE, f"{at}.configurationSha256")  # invocation / configuration
+    _match(block["adapterSha256"], SHA256_RE, f"{at}.adapterSha256")  # adapter / preprocessing
+    manifests = block["hostManifests"]
+    if not isinstance(manifests, dict) or not manifests:
+        raise _fail("benchmark_baseline_host_manifest_required", f"{at}.hostManifests")
+    for profile, files in manifests.items():
+        _match(profile, TOKEN_RE, f"{at}.hostManifests")
+        files = _list(files, f"{at}.hostManifests.{profile}")
+        if not files:
+            raise _fail("benchmark_baseline_host_manifest_required", f"{at}.hostManifests.{profile}")
+        paths = []
+        for index, item in enumerate(files):
+            fat = f"{at}.hostManifests.{profile}[{index}]"
+            _keys(item, ("path", "kind", "sha256", "size"), fat)
+            paths.append(_text(item["path"], f"{fat}.path"))
+            _enum(item["kind"], MANIFEST_FILE_KINDS, f"{fat}.kind")
+            _match(item["sha256"], SHA256_RE, f"{fat}.sha256")
+            if isinstance(item["size"], bool) or not isinstance(item["size"], int) or item["size"] <= 0:
+                raise _fail("number_required", f"{fat}.size")
+        if paths != sorted(set(paths)):
+            raise _fail("benchmark_baseline_manifest_not_sorted_unique", f"{at}.hostManifests.{profile}")
+    # Evaluation permission is bound per exact artefact (M3 rule 2, review P3): one decision for the executables, one
+    # for the runtime libraries/dependencies (when the host manifests hold any) and one for the model/trained data.
+    # Each host-manifest file declares its kind by path, and each permission covers exactly the files of its kind:
+    # `executable` = every executable file, `runtime-libraries` = every runtime-library file, `model-data` = the pinned
+    # identity files plus every data file. A data file can therefore not be filed under the executable permission.
+    permissions = _list(block["evaluationPermissions"], f"{at}.evaluationPermissions")
+    kinds: dict[str, set[str]] = {}
+    for index, item in enumerate(permissions):
+        pat = f"{at}.evaluationPermissions[{index}]"
+        _keys(item, ("artefactKind", "sha256s", "decidedBy", "decidedOn", "primarySourceSha256"), pat)
+        kind = _enum(item["artefactKind"], PERMISSION_ARTEFACT_KINDS, f"{pat}.artefactKind")
+        if kind in kinds:
+            raise _fail("benchmark_baseline_permission_kind_duplicate", f"{pat}.artefactKind")
+        hashes = _list(item["sha256s"], f"{pat}.sha256s")
+        for value in hashes:
+            _match(value, SHA256_RE, f"{pat}.sha256s")
+        if not hashes or hashes != sorted(set(hashes)):
+            raise _fail("benchmark_baseline_permission_not_sorted_unique", f"{pat}.sha256s")
+        kinds[kind] = set(hashes)
+        _text(item["decidedBy"], f"{pat}.decidedBy")
+        _date(item["decidedOn"], f"{pat}.decidedOn")
+        _match(item["primarySourceSha256"], SHA256_RE, f"{pat}.primarySourceSha256")
+    # Owner decision O7 / design P3: one hash has one kind across every profile, a pinned identity file is `data`
+    # wherever it is listed and is listed in every profile, and every profile holds at least one executable.
+    kind_of: dict[str, str] = {}
+    pinned = set(_pinned_files(entry["identity"]))
+    for profile, files in manifests.items():
+        if not any(item["kind"] == "executable" for item in files):
+            raise _fail("benchmark_baseline_profile_without_executable", f"{at}.hostManifests.{profile}")
+        for item in files:
+            if kind_of.setdefault(item["sha256"], item["kind"]) != item["kind"]:
+                raise _fail("benchmark_baseline_hash_kind_conflict", f"{at}.hostManifests.{profile}.{item['path']}")
+            if item["sha256"] in pinned and item["kind"] != "data":
+                raise _fail("benchmark_baseline_identity_file_not_data", f"{at}.hostManifests.{profile}.{item['path']}")
+        if pinned - {item["sha256"] for item in files}:
+            raise _fail("benchmark_baseline_identity_file_not_in_manifest", f"{at}.hostManifests.{profile}")
+    by_kind = {kind: {item["sha256"] for files in manifests.values() for item in files if item["kind"] == kind}
+               for kind in MANIFEST_FILE_KINDS}
+    expected = {"executable": by_kind["executable"], "runtime-libraries": by_kind["runtime-library"],
+                "model-data": set(_pinned_files(entry["identity"])) | by_kind["data"]}
+    for kind in ("executable", "model-data"):
+        if kind not in kinds:
+            raise _fail("benchmark_baseline_permission_required", f"{at}.evaluationPermissions.{kind}")
+    if "runtime-libraries" not in kinds and expected["runtime-libraries"]:
+        raise _fail("benchmark_baseline_permission_required", f"{at}.evaluationPermissions.runtime-libraries")
+    if any(kinds.get(kind, set()) != hashes for kind, hashes in expected.items()):
+        raise _fail("benchmark_baseline_permission_not_bound", f"{at}.evaluationPermissions")
+    from .baseline_seal import check_stage1_rule
+    ids = set()
+    for index, composition in enumerate(_list(block["compositions"], f"{at}.compositions")):
+        cat = f"{at}.compositions[{index}]"
+        check_stage1_rule(composition, entry, cat)
+        if composition["compositionId"] in ids:
+            raise _fail("duplicate_composition_id", cat)
+        ids.add(composition["compositionId"])
+    if not ids:
+        # M3 rule 1: a benchmark-only component is admitted only to define a frozen gate (cold review P3-6)
+        raise _fail("benchmark_baseline_without_gate", f"{at}.compositions")
+    if len(ids) != 1:
+        # the group's one baseline gate is measured against exactly one gate-only composition
+        raise _fail("composition_universe_requires_one_baseline", f"{at}.compositions")
+
+
+def _benchmark_baselines(ledger: Mapping) -> set[str]:
+    return {e["candidateId"] for e in ledger["candidates"] if e["disposition"]["status"] == BENCHMARK_BASELINE}
+
+
 def validate_ledger(ledger: object) -> dict[str, dict]:
     """Validate a ledger; return ``{candidateId: {class, provenanceConfidence, disposition}}``."""
-    _reject_licence_keys(ledger, "ledger")
+    _reject_licence_keys(ledger, "ledger", _identifier_exemptions(ledger))
     _keys(
         ledger,
         ("schema", "eventId", "capabilityId", "objectClass", "subTasks", "methodRevision", "candidates"),
         "ledger",
-        optional=("frozenOn",),
+        optional=("frozenOn", "identifierExemptions", "compositionUniverse", "supersedes"),
     )
     if "frozenOn" in ledger:
         _date(ledger["frozenOn"], "ledger.frozenOn")
     if ledger["schema"] != LEDGER_SCHEMA:
         raise _fail("schema_unsupported", "ledger.schema")
-    if ledger["methodRevision"] not in (METHOD_REVISION, "msr-v1-m2"):
+    if ledger["methodRevision"] not in (METHOD_REVISION, "msr-v1-m2", METHOD_REVISION_M3):
         raise _fail("method_revision_unsupported", "ledger.methodRevision")
+    if ledger["methodRevision"] == METHOD_REVISION_M3 and ledger["capabilityId"] in EVENT_SCOPES:
+        raise _fail("m3_scope_unsupported", "ledger.capabilityId")  # S2c events use decision v2 (M3 §2 rule 8)
     if ledger["methodRevision"] == "msr-v1-m2" and ledger["capabilityId"] not in ("person-attributes", "vehicle-attributes"):
         raise _fail("m2_scope_unsupported", "ledger.capabilityId")
     capability = _match(ledger["capabilityId"], TOKEN_RE, "ledger.capabilityId")
@@ -884,6 +1158,7 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
 
     summary: dict[str, dict] = {}
     owners: dict[str, list[dict]] = {}
+    composition_ids: set[str] = set()
     for index, entry in enumerate(_list(ledger["candidates"], "ledger.candidates")):
         where = f"ledger.candidates[{index}]"
         items = _check_structure(entry, ledger, where)
@@ -900,6 +1175,8 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
             owners[sha].append(entry)
         computed = credibility_class(entry, items)
         confidence = provenance_confidence(entry, items)
+        if entry["disposition"].get("status") == BENCHMARK_BASELINE and ledger["methodRevision"] != METHOD_REVISION_M3:
+            raise _fail("benchmark_baseline_requires_m3", f"{where}.disposition.status")
         classification = _keys(entry["classification"], ("class", "provenanceConfidence"), f"{where}.classification")
         if classification["class"] != computed:
             raise _fail("declared_class_differs_from_computed", f"{where}.classification.class")
@@ -907,12 +1184,50 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
             raise _fail("declared_confidence_differs_from_computed", f"{where}.classification.provenanceConfidence")
         _check_history(entry, items, computed, where)
         _check_disposition(entry, items, computed, confidence, where)
+        if candidate_id in composition_ids:
+            raise _fail("gate_only_composition_id_collides", where)
+        composition_ids |= {c["compositionId"] for c in (entry.get("benchmarkBaseline") or {}).get("compositions", ())}
+        if composition_ids & (set(summary) | {candidate_id}):
+            raise _fail("gate_only_composition_id_collides", where)
         summary[candidate_id] = {
             "class": computed,
             "provenanceConfidence": confidence,
             "disposition": entry["disposition"]["status"],
         }
+    _check_identifier_exemptions(ledger)
+    _check_m3_group_fields(ledger)
     return summary
+
+
+def _check_m3_group_fields(ledger: Mapping) -> None:
+    """M3 authority redesign: every ``msr-v1-m3`` event is a composition-group member (``compositionUniverse``,
+    refused in M1/M2 ledgers); a benchmark-only baseline's partner is the other group member; ``supersedes`` only on an
+    M3 group event (owner decision O6); and no shortlisted ordinary candidate pins a BOB executable, model, data or
+    identity file, whatever kind it gives it (owner decision O7; runtime libraries may be shared)."""
+    from .baseline_seal import bob_payload_hashes, candidate_file_hashes, frozen_compositions
+    from .m3_universe import SUPERSEDES_FIELD, UNIVERSE_FIELD, check_supersedes_block, check_universe_block
+    m3 = ledger["methodRevision"] == METHOD_REVISION_M3
+    for field in (UNIVERSE_FIELD, SUPERSEDES_FIELD):
+        if field in ledger and not m3:
+            raise _fail("composition_universe_requires_m3", f"ledger.{field}")
+    if m3 and UNIVERSE_FIELD not in ledger:
+        raise _fail("m3_requires_composition_universe", "ledger")
+    if not m3:
+        return
+    check_universe_block(ledger)
+    if SUPERSEDES_FIELD in ledger:
+        check_supersedes_block(ledger)
+    members = {item["eventId"] for item in ledger[UNIVERSE_FIELD]["componentEvents"]}
+    bobs = [e for e in ledger["candidates"] if e["disposition"]["status"] == BENCHMARK_BASELINE]
+    if len(bobs) > 1:
+        raise _fail("composition_universe_requires_one_baseline", "ledger.candidates")
+    for composition_id, (entry, rule) in sorted(frozen_compositions(ledger).items()):
+        if rule["partnerEventId"] == ledger["eventId"] or rule["partnerEventId"] not in members:
+            raise _fail("baseline_partner_event_not_in_group", f"ledger.compositions.{composition_id}")
+        forbidden = bob_payload_hashes(entry)
+        for other in ledger["candidates"]:
+            if other["disposition"]["status"] == SHORTLISTED and candidate_file_hashes(other) & forbidden:
+                raise _fail("benchmark_baseline_bytes_in_ordinary_candidate", f"ledger.{other['candidateId']}")
 
 
 def _shortlist(ledger: Mapping) -> set[str]:
@@ -962,11 +1277,18 @@ def validate_evolution(older: dict, newer: dict, since: date | None = None) -> N
         raise _fail("frozen_date_changed", "ledger.frozenOn")
     bound = date.fromisoformat(older["frozenOn"]) if since is None else since
     _check_sealed_on(older, bound, "sealed_copy_postdates_its_seal")
+    if newer.get("identifierExemptions") != older.get("identifierExemptions"):
+        raise _fail("identifier_exemptions_changed_after_freeze", "ledger.identifierExemptions")
     for field in ("capabilityId", "objectClass", "subTasks", "methodRevision"):
         if newer[field] != older[field]:
             raise _fail("frozen_ledger_scope_changed", f"ledger.{field}")
+    for field in ("compositionUniverse", "supersedes"):  # M3: the group and its supersession are frozen
+        if newer.get(field) != older.get(field):
+            raise _fail("frozen_ledger_scope_changed", f"ledger.{field}")
     if _shortlist(older) != _shortlist(newer):
         raise _fail("shortlist_changed_after_freeze", "ledger.candidates")
+    if _benchmark_baselines(older) != _benchmark_baselines(newer):
+        raise _fail("benchmark_baselines_changed_after_freeze", "ledger.candidates")
     before = {entry["candidateId"]: entry for entry in older["candidates"]}
     for later in newer["candidates"]:
         if later["candidateId"] not in before and any(value < bound for value in _dates(later)):
@@ -1008,6 +1330,12 @@ def validate_evolution(older: dict, newer: dict, since: date | None = None) -> N
             for field in sorted(fixed):
                 if later.get(field) != entry[field]:
                     raise _fail("frozen_shortlisted_field_changed", f"{where}.{field}")
+        elif entry["disposition"]["status"] == BENCHMARK_BASELINE:
+            # M3 §6(b): identity, manifests, permissions, configuration and frozen compositions are fixed.
+            fixed = (set(entry) | set(later)) - (set(FROZEN_APPEND_ONLY) - {"claims"}) - {"classification"}
+            for field in sorted(fixed):
+                if later.get(field) != entry.get(field):
+                    raise _fail("frozen_benchmark_baseline_field_changed", f"{where}.{field}")
 
 
 # ------------------------------------------------------------- decision summary
@@ -1020,13 +1348,25 @@ def _maximal(scores: Mapping[str, float]) -> set[str]:
     return {candidate for candidate, score in scores.items() if score == best}
 
 
-def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Path | None = None) -> None:
+def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Path | None = None,
+                      group: object | None = None) -> None:
     """Validate a decision summary against its decision snapshot and frozen ledger (§8).
 
     ``ledger`` is the ledger as it stood at the decision (``<event-id>-evidence-ledger-
     decided.json``); nothing it holds may postdate the decision.
+
+    M3: for a composition-group event the mandatory ``compositionAuthority`` block is bound to the group state
+    (``m3_authority.GroupState``): the sealed composition set U, the recomputed hard gates, ranking, strongest
+    composition, top-K and finalists, and each ordinary row's technical gates and comparative score are derived from
+    the passing end-to-end compositions (``m3_authority.check_composition_decision``). The group state is ``group``
+    or, when it is not given, the one repository verification computes under ``repo``.
     """
     validate_evolution(frozen, ledger)
+    benchmark = _benchmark_baselines(frozen)
+    universe = frozen.get("compositionUniverse")
+    if isinstance(decision, dict) and decision.get("schema") == "mavi-model-selection-decision-v2" and \
+            (benchmark or universe is not None):
+        raise _fail("m3_v2_unsupported", "decision.schema")  # M3 §2 rule 8: v2 is unchanged and takes no M3 event
     if isinstance(decision, dict) and decision.get("schema") == "mavi-model-selection-decision-v2":
         if repo is None:
             raise _fail("decision_v2_requires_repository", "decision")
@@ -1044,7 +1384,8 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         decision,
         ("schema", "eventId", "eventState", "outcome", "decidedOn", "ledgerSha256", "frozenLedgerSha256",
          "protocolSha256", "targetProfiles", "evaluated", "licence", "strongestReported",
-         "highestTaskQualityEvaluated", "strongestEvaluatedTechnical", "strongestClearedPerProfile", "implementation"),
+         "highestTaskQualityEvaluated", "strongestEvaluatedTechnical", "strongestClearedPerProfile", "implementation",
+         *(("compositionAuthority",) if universe is not None else ())),  # M3: mandatory exactly for group events
         "decision",
     )
     if decision["schema"] != DECISION_SCHEMA:
@@ -1056,6 +1397,22 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
     if decision["frozenLedgerSha256"] != document_sha256(frozen):
         raise _fail("decision_frozen_ledger_hash_mismatch", "decision.frozenLedgerSha256")
     _match(decision["protocolSha256"], SHA256_RE, "decision.protocolSha256")
+    if universe is not None:
+        # M3: the group state comes first; a STOPPED or missing seal refuses every decision before any M1 rule runs.
+        from .m3_universe import group_id
+        if group is None:
+            if repo is None:
+                raise _fail("m3_decision_requires_group_authority", "decision")
+            from .m3_authority import repository_group_authority
+            group = repository_group_authority(Path(repo), group_id(universe)).state
+        if group.group_id != group_id(universe) or group.frozen_by_event.get(frozen["eventId"]) != frozen:
+            raise _fail("d_artefact_group_mismatch", "decision.compositionAuthority")
+        if group.protocol_by_event.get(frozen["eventId"]) != decision["protocolSha256"]:
+            raise _fail("decision_protocol_hash_mismatch", "decision.protocolSha256")
+        if group.seal is None:
+            raise _fail("gate_only_composition_unresolved", "decision.compositionAuthority.baselineSeals")
+        if group.seal_status != "RESOLVED":
+            raise _fail("baseline_stopped_decision_refused", f"{group.composition_id}:{group.seal['stopReason']}")
     state = _enum(decision["eventState"], EVENT_STATES, "decision.eventState")
     decided_on = _date(decision["decidedOn"], "decision.decidedOn")
     _check_sealed_on(ledger, decided_on, "decision_snapshot_postdates_decision")
@@ -1075,6 +1432,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
             ("candidateId", "artefactSha256s", "maviTrainedArtefacts", "maviRevision", "technicalGates",
              "comparativeScore", "taskQualityScore", "measurementSha256"),
             at,
+            optional=("hostManifestSha256s", "baselineSealSha256s") if benchmark else (),
         )
         candidate_id = row["candidateId"]
         if candidate_id in evaluated:
@@ -1082,6 +1440,24 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         if candidate_id not in entries:
             raise _fail("evaluated_candidate_not_in_ledger", at)
         _match(row["measurementSha256"], SHA256_RE, f"{at}.measurementSha256")
+        if candidate_id in benchmark:
+            # M3 §6(a): measured, never scored for selection; §6(c): the exact pinned host bytes.
+            if row["technicalGates"] != NOT_APPLICABLE or row["comparativeScore"] is not None \
+                    or row["taskQualityScore"] is not None:
+                raise _fail("benchmark_baseline_row_scored", at)
+            manifests = entries[candidate_id]["benchmarkBaseline"]["hostManifests"]
+            if row.get("hostManifestSha256s") != {p: document_sha256(m) for p, m in manifests.items()}:
+                raise _fail("benchmark_baseline_host_manifest_mismatch", f"{at}.hostManifestSha256s")
+            if sorted(manifests) != sorted(profiles):
+                # review P3: one pinned host manifest per declared target profile, and no other
+                raise _fail("benchmark_baseline_host_profiles_differ_from_target_profiles", f"{at}.hostManifestSha256s")
+            if row.get("baselineSealSha256s") != {group.composition_id: group.seal_sha256}:
+                raise _fail("benchmark_baseline_row_seal_mismatch", f"{at}.baselineSealSha256s")
+            _check_evaluated_artefact(entries[candidate_id], row, at)
+            evaluated[candidate_id] = row
+            continue
+        if "hostManifestSha256s" in row or "baselineSealSha256s" in row:
+            raise _fail("host_manifests_only_for_benchmark_baseline", f"{at}.hostManifestSha256s")
         _number(row["taskQualityScore"], f"{at}.taskQualityScore")
         gates = _enum(row["technicalGates"], ("passed", "failed"), f"{at}.technicalGates")
         if gates == "passed":
@@ -1090,20 +1466,50 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
             raise _fail("failed_gate_has_score", f"{at}.comparativeScore")
         _check_evaluated_artefact(entries[candidate_id], row, at)
         evaluated[candidate_id] = row
-    if set(evaluated) != _shortlist(frozen):
+    if set(evaluated) != _shortlist(frozen) | benchmark:
         raise _fail("evaluated_set_differs_from_shortlist", "decision.evaluated")
+    ranked = {c: row for c, row in evaluated.items() if c not in benchmark}
 
-    licence = _keys(decision["licence"], evaluated, "decision.licence")
-    for candidate_id in evaluated:
+    # M3 §2 rule 3: a benchmark-only baseline is never named by a derived output or the implementation.
+    implementation = decision["implementation"]
+    reported = decision["strongestReported"]
+    named = [
+        ("strongestReported", reported.get("candidateId") if isinstance(reported, dict) else None),
+        ("highestTaskQualityEvaluated", decision["highestTaskQualityEvaluated"]),
+        ("strongestEvaluatedTechnical", decision["strongestEvaluatedTechnical"]),
+    ]
+    if isinstance(decision["strongestClearedPerProfile"], dict):
+        named += [(f"strongestClearedPerProfile.{p}", c) for p, c in decision["strongestClearedPerProfile"].items()]
+    if isinstance(implementation, dict) and isinstance(implementation.get("components"), list):
+        named += [("implementation.components", c) for c in implementation["components"]]
+    for field, candidate_id in named:
+        if isinstance(candidate_id, str) and candidate_id in benchmark:
+            raise _fail("benchmark_baseline_in_derived_output", f"decision.{field}")
+    implementation_composition = None
+    if universe is not None:
+        # M3 C2-C6: implementation authority comes only from passing end-to-end compositions. Every ordinary row's
+        # technical gates and comparative score are the composition-derived values, so a candidate whose every
+        # composition failed a hard gate (the baseline gate included) is failed for every M1 rule below.
+        from .m3_authority import check_composition_decision
+        derived = check_composition_decision(decision, group, frozen["eventId"])
+        for candidate_id, row in sorted(ranked.items()):
+            gates, score = derived.get(candidate_id, ("failed", None))
+            if row["technicalGates"] != gates:
+                raise _fail("row_technical_gates_not_composition_derived", f"decision.evaluated.{candidate_id}")
+            if row["comparativeScore"] != score:
+                raise _fail("row_score_not_composition_derived", f"decision.evaluated.{candidate_id}")
+        implementation_composition = decision["compositionAuthority"]["implementationComposition"]
+
+    licence = _keys(decision["licence"], ranked, "decision.licence")
+    for candidate_id in ranked:
         statuses = _keys(licence[candidate_id], profiles, f"decision.licence.{candidate_id}")
         for profile in profiles:
             _enum(statuses[profile], LICENCE_STATUSES, f"decision.licence.{candidate_id}.{profile}")
 
     # The strongest reported candidate is a recorded judgement over class R evidence; it
     # must resolve to a ledger claim and carry the "not reproduced" label.
-    reported = decision["strongestReported"]
     if reported is None:
-        if any(entry["claims"] for entry in entries.values()):
+        if any(entry["claims"] for c, entry in entries.items() if c not in benchmark):
             raise _fail("strongest_reported_required", "decision.strongestReported")
     else:
         _keys(reported, ("candidateId", "claimId", "label"), "decision.strongestReported")
@@ -1114,7 +1520,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
             raise _fail("strongest_reported_label", "decision.strongestReported.label")
 
     # Task quality alone, over every evaluated candidate (gates, runtime and licence ignored).
-    quality = {candidate: row["taskQualityScore"] for candidate, row in evaluated.items()}
+    quality = {candidate: row["taskQualityScore"] for candidate, row in ranked.items()}
     highest = decision["highestTaskQualityEvaluated"]
     if quality and highest not in _maximal(quality):
         raise _fail("highest_task_quality_not_maximal", "decision.highestTaskQualityEvaluated")
@@ -1122,7 +1528,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         raise _fail("highest_task_quality_without_evaluation", "decision.highestTaskQualityEvaluated")
 
     # The technical ranking reads recorded scores only: never licence, never credibility.
-    technical = {c: row["comparativeScore"] for c, row in evaluated.items() if row["technicalGates"] == "passed"}
+    technical = {c: row["comparativeScore"] for c, row in ranked.items() if row["technicalGates"] == "passed"}
     strongest = decision["strongestEvaluatedTechnical"]
     if technical and strongest not in _maximal(technical):
         raise _fail("strongest_technical_not_maximal", "decision.strongestEvaluatedTechnical")
@@ -1138,15 +1544,25 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         if not eligible and named is not None:
             raise _fail("strongest_cleared_not_derived", f"decision.strongestClearedPerProfile.{profile}")
 
-    implementation = decision["implementation"]
     if implementation is not None:
-        _check_implementation(implementation, state, evaluated, licence, profiles, entries)
+        _check_implementation(implementation, state, ranked, licence, profiles, entries)
+        if universe is not None:
+            from .m3_authority import implementation_component
+            if implementation_composition is None:
+                raise _fail("implementation_composition_required", "decision.compositionAuthority")
+            own = implementation_component(group, implementation_composition, frozen["eventId"])
+            if implementation["components"] != [own]:
+                raise _fail("implementation_not_composition_component", "decision.implementation.components")
+    elif implementation_composition is not None:
+        raise _fail("implementation_composition_without_implementation", "decision.compositionAuthority")
     outcome = decision["outcome"]
     if state != "CLOSED":
         if outcome is not None:
             raise _fail("outcome_before_closed", "decision.outcome")
         return
     _enum(outcome, OUTCOMES, "decision.outcome")
+    # M3 rule 5: the outcome is the ordinary M1 outcome over the composition-derived rows. Benchmark-only rows were
+    # removed from every domain above (``ranked``) and never appear in any output.
     components = [] if implementation is None else implementation["components"]
     baseline_only = bool(components) and all(entries[c]["candidateKind"] == BASELINE for c in components)
     if outcome == "SELECTED_FOR_PACKAGING" and (not components or baseline_only):
@@ -1224,7 +1640,14 @@ def _check_implementation(
 
 
 def validate_repository(repo: Path) -> list[str]:
-    """Validate every committed ledger, frozen ledger and decision summary; return the paths checked."""
+    """Validate every committed ledger, frozen ledger and decision summary; return the paths checked.
+
+    Requires full Git history (M3 authority redesign, invariant A6): the sticky M3 audit domain comes from one
+    reachable-history walk, so a shallow clone, a graft or a directory outside Git is refused."""
+    return _validate_repository(repo)[0]
+
+
+def _validate_repository(repo: Path) -> tuple[list[str], object]:
     root = repo / MODEL_SELECTION_DIR
     checked: list[str] = []
     ledgers: dict[Path, dict] = {}
@@ -1260,6 +1683,11 @@ def validate_repository(repo: Path) -> list[str]:
         record = event.parent / f"{event.name}.md"
         if not record.is_file() or lf_normalised_sha256(protocol) not in record.read_text(encoding="utf-8"):
             raise _fail("protocol_hash_not_recorded_in_record", relative(protocol))
+    # M3 (authority redesign): the sticky history audit and every composition group (m3_authority.py). The history
+    # walk runs for every repository; nothing is added to the output while the M3 domain is empty.
+    from .m3_authority import validate_repository_m3
+    m3_checked, m3 = validate_repository_m3(repo, frozen_ledgers)
+    checked += m3_checked
     for path in sorted(root.glob(f"*/msr-*{DECISION_SUFFIX}")):
         event = path.parent / path.name[: -len(DECISION_SUFFIX)]
         if event not in frozen_ledgers:
@@ -1298,7 +1726,12 @@ def validate_repository(repo: Path) -> list[str]:
         record_text = (event.parent / f"{event.name}.md").read_text(encoding="utf-8")
         if lf_normalised_sha256(path) not in record_text or lf_normalised_sha256(snapshot_path) not in record_text:
             raise _fail("decision_hash_not_recorded_in_record", relative(path))
-        validate_decision(decision, snapshot, frozen_ledgers[event])
+        universe = frozen_ledgers[event].get("compositionUniverse")
+        group = None
+        if universe is not None:
+            from .m3_universe import group_id
+            group = m3.authorities[group_id(universe)].state
+        validate_decision(decision, snapshot, frozen_ledgers[event], repo=repo, group=group)
         # After the decision the working ledger only grows, and nothing is dated before it.
         validate_evolution(snapshot, ledgers[event], since=date.fromisoformat(decision["decidedOn"]))
         checked.append(relative(snapshot_path))
@@ -1306,4 +1739,4 @@ def validate_repository(repo: Path) -> list[str]:
     for path in sorted(root.glob(f"*/msr-*{SNAPSHOT_SUFFIX}")):
         if relative(path) not in checked:
             raise _fail("snapshot_without_decision", relative(path))
-    return checked
+    return checked, m3

@@ -25,7 +25,7 @@ The workflow runs on every pull request so that `quality` always reports. Its fi
 | `guard coverage shard 0–3` | `guard` | `src/vision`, `tools/vision`, `tools/requirements.txt` |
 | `qualification shard 0–3` | `qualification` | `tools/qualification`, `tools/requirements.txt`, `src/vision`, `contracts`, `tests`, `config`, `models`, every workflow, `docs/qualification` |
 | `web and production host` | `web` | `src/web`, `src/platform`, `Directory.Build.props`, `global.json`, `config` |
-| `visual harness unit / e2e-0/3 … e2e-2/3`, `visual sweep shard 0–3`, `visual aggregate`, `keyboard journeys shard 0–2`, `keyboard journeys aggregate` | `visual` | `src/web`, `tools/web-visual-qa` |
+| `visual harness unit / e2e-0/3 … e2e-2/3`, `visual sweep shard 0–3`, `visual aggregate`, `keyboard journeys shard 0–2`, `keyboard journeys aggregate`, `performance long tasks`, `performance reverse shard 0–3`, `performance budgets` | `visual` | `src/web`, `tools/web-visual-qa` |
 
 The rules of the classifier, in order: a path in `always` (`.github/workflows/quality-gate.yml`, `tools/ci/**`) runs every lane; a path matching a lane's globs runs that lane; a path matching only an `inert` glob (`docs/**` outside the lane triggers above, Markdown, `.claude/**`, Git and editor metadata, the pull-request template) runs none; **a path matching nothing runs every lane**, as does an empty change list, an unreadable list or any error in the tool. Any doubt answers "run". A documentation-only pull request therefore runs `quality scope`, `repo contracts` and `quality` — about three minutes — and nothing else.
 
@@ -56,6 +56,10 @@ This workflow still uses a path filter on `pull_request`. It does not start at a
 
 When it does run, treat a red or missing result as a merge blocker in review.
 
+### Informational workflows (not gates)
+
+`plate-search-scale-informational.yml` (job `plate search at scale (informational CI diagnostic, not a gate)`, Stage 4 PR-4) seeds the frozen 10^6-Track plate corpus on CI PostgreSQL and runs `PlateSearchScaleMeasurementTests` in mode `ci`: the plan shape of the real statements and a catastrophic bound (3 000 ms) that only a change of complexity class would exceed. It is not a Quality Gate lane, not in `quality.needs` and not a required check, and its result never blocks a merge. Its checkout is verified against the exact pull request head, and its output (artifact `plate-search-scale-informational-ci-diagnostic`, files `plate-search-scale-ci-diagnostic*`, outside `qualification-evidence/`) states `qualificationEvidence: false` and carries no budget. It is **not** qualification evidence and not Development evidence: the plan §2.8 budget of 300 ms is judged on the pinned Development host only (`docs/qualification/stage4/2026-10-13-plate-search-at-scale.md`). Only the budgeted query set (v1) is failed on plan shape; the diagnostic set v2 (declared limits, owner decision 2026-10-16) is reported per query and fails only on the catastrophic bound. A red run is a prompt to read the plans, not a merge gate. `src/vision/tests/test_runtime_metadata.py` (`test_the_plate_search_scale_workflow_is_informational_and_outside_the_quality_gate`) binds these properties.
+
 ## Reading a run
 
 ### A required check shows "Expected — waiting for status"
@@ -75,6 +79,7 @@ The workflow did not run for the pull request's current head. The usual causes:
 - **Merging pull requests one after another.** Quality Gate cancels an in-progress run only for a pull request's own ref; a push run on `main` is never cancelled, so each merge commit keeps its run. Still check that the latest `main` run completed.
 - **A lane shows "not applicable (skipped)" in `quality`'s log.** The scope job decided the change could not reach it. If you believe it should have run, the scope list (`tools/ci/quality-scope.json`) is missing a path: add it with a test in `tools/ci/tests/test_quality_scope.py`. A path the list does not know runs every lane, so an omission can only make CI slower, never skip a lane a known path reaches.
 - **`visual aggregate` was skipped and `quality` failed on `visual-sweep`.** A sweep shard failed; open that shard's log and its `visual-qa-captures-shard-i` artifact. The aggregate runs only once every shard has succeeded.
+- **`performance reverse shard i` failed.** The reverse-order lane (X3 determinism: the sweep's ordinary cases with data responses answered in reverse order) hit a harness fault; its visual findings never fail it (`--keep`). Its CLS is judged in `performance budgets`, which also fails when a reverse shard's results are missing or of another head.
 - **`keyboard journeys shard i` failed.** A journey did not complete by keyboard: the log names the journey, viewport, step and why (a target not reached in its Tab bound, focus lost or invalid, a checkpoint not reached, pointer or scripted input). `keyboard-journey-results-i` holds the steps, the page's text and request log at the failure, and a capture. Reproduce locally with `node tools/web-visual-qa/journeys.mjs --journeys <id> --viewports <WxH>` against a fresh `npm run build`.
 - **`keyboard journeys aggregate` failed.** The shards did not agree, an execution ran zero or two times, or a pass lacked its evidence: a workflow or harness defect, not a product finding.
 - **`visual aggregate` failed with a harness error naming a shard.** The shards did not agree (head, manifest, plan) or a planned case ran zero or two times: a workflow or harness defect, not a product finding.

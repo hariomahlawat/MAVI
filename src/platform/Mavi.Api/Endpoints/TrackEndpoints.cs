@@ -20,12 +20,39 @@ public static partial class TrackEndpoints
     private static async Task<IResult> SearchAsync(
         HttpContext context,
         TrackSearchService service,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (!TryParseQuery(context.Request.Query, out var query))
             return Problem(400, "track_search_invalid", "Track search parameters are invalid.");
 
         var result = await service.SearchAsync(query!, cancellationToken);
+        if (query!.Plate is { } plate)
+        {
+            // Plate text is a potentially identifying cue (plan §5.5): the log records that a plate
+            // predicate was searched, its match mode and the counts — never the text.
+            var logger = loggerFactory.CreateLogger(typeof(TrackEndpoints).FullName!);
+            var matchKind = TrackPlateQueryRules.ToWire(plate.Match);
+            var searched = result.Page?.PlateCoverage;
+            var returned = result.Page?.Items.Count ?? 0;
+            LogPlateSearch(
+                logger,
+                matchKind,
+                query.Cursor is not null,
+                result.IsSuccess,
+                returned,
+                searched?.Ready ?? 0,
+                searched?.VehicleTracksInScope ?? 0);
+        }
+
+        if (result.Page?.PlateIntegrityFaults is { Count: > 0 } faults)
+        {
+            // Coverage already used the Tracks' own counts (fail safe); the operator learns of the fault.
+            var integrityLogger = loggerFactory.CreateLogger(typeof(TrackEndpoints).FullName!);
+            foreach (var fault in faults)
+                LogPlateCoverageFault(integrityLogger, fault.AnalysisId, fault.ProcessingRunId, fault.HeaderTracks, fault.VehicleTracks);
+        }
+
         if (!result.IsSuccess)
         {
             // A caller that demanded complete coverage is told, in the same structured
@@ -44,9 +71,10 @@ public static partial class TrackEndpoints
 
         var page = result.Page!;
         var response = new TrackSearchResponse(
-            page.Items.Select(row => ToSearchItem(row, page.ItemAnalytics)).ToArray(),
+            page.Items.Select(row => ToSearchItem(row, page.ItemAnalytics, page.ItemPlates)).ToArray(),
             page.NextCursor,
-            page.Coverage is { } coverage ? ToCoverage(coverage) : null);
+            page.Coverage is { } coverage ? ToCoverage(coverage) : null,
+            page.PlateCoverage is { } plateCoverage ? ToPlateCoverage(plateCoverage) : null);
         return Results.Ok(response);
     }
 
@@ -98,9 +126,30 @@ public static partial class TrackEndpoints
 
         if (!result.IsSuccess)
             return Problem(400, result.ErrorCode!, "Track detail parameters are invalid.");
-        return result.Row is null
-            ? Problem(404, "track_not_found", "Track was not found.")
-            : Results.Ok(ToDetail(result.Row, result.EvidenceSet!, result.Analytics!));
+        if (result.Row is null)
+            return Problem(404, "track_not_found", "Track was not found.");
+
+        // A Vehicle Track's plate evidence (Stage 4); a Person Track has none to read.
+        var plates = await service.GetPlateDetailAsync(result.Row, cancellationToken);
+        if (plates is { Readiness: Domain.Plates.PlateReadinessState.Ready, Facts: null })
+        {
+            // Readiness named a default analysis, but its facts were not readable as fact-bearing. A published
+            // analysis is immutable and stays fact-bearing (Completed or Superseded), so this cannot happen
+            // between the two reads; it is an integrity fault, reported with ids only, never a plate value.
+            LogPlateFactsMissing(loggerFactory.CreateLogger(typeof(TrackEndpoints).FullName!), result.Row.ProcessingRunId, result.Row.Id);
+        }
+
+        if (plates is { Readiness: Domain.Plates.PlateReadinessState.Ready, Facts: { Outcome: null } missing })
+        {
+            // A published analysis gives every Vehicle Track of its run exactly one outcome (PR-3's completion
+            // invariant), so this is an integrity fault of persisted data. The wire shape stays the frozen one
+            // (reported as Unavailable without a reason, never invented facts); the operator learns of it here.
+            // Ids only: never a plate text.
+            LogPlateOutcomeMissing(loggerFactory.CreateLogger(typeof(TrackEndpoints).FullName!),
+                missing.Provenance.AnalysisId, result.Row.Id);
+        }
+
+        return Results.Ok(ToDetail(result.Row, result.EvidenceSet!, result.Analytics!, plates));
     }
 
     private static readonly HashSet<string> SupportedQueryKeys =
@@ -131,6 +180,9 @@ public static partial class TrackEndpoints
             TrackSearchContractRules.MinStationaryMsKey,
             TrackSearchContractRules.LoiteringKey,
             TrackSearchContractRules.AnalyticsCoverageKey,
+            // Stage 4 plate predicate (plan §5.4).
+            TrackSearchContractRules.PlateTextKey,
+            TrackSearchContractRules.PlateMatchKey,
         };
 
     private static bool TryParseQuery(
@@ -152,7 +204,10 @@ public static partial class TrackEndpoints
             !TryInt(values, "limit", 50, out var limit) ||
             !SingleOrMissing(values, "cursor", out var cursor) ||
             !TryObjectSubclass(values, out var objectSubclass) ||
-            !TryAnalytics(values, out var analytics))
+            !TryAnalytics(values, out var analytics) ||
+            !SingleOrMissing(values, TrackSearchContractRules.PlateTextKey, out var plateText) ||
+            !SingleOrMissing(values, TrackSearchContractRules.PlateMatchKey, out var plateMatch) ||
+            !TrackPlateQueryRules.TryParse(plateText, plateMatch, out var plate))
             return false;
 
         query = new TrackSearchQuery(
@@ -167,7 +222,8 @@ public static partial class TrackEndpoints
             cursor,
             limit,
             analytics,
-            objectSubclass);
+            objectSubclass,
+            plate);
         return true;
     }
 
@@ -392,7 +448,8 @@ public static partial class TrackEndpoints
 
     private static TrackSearchItemResponse ToSearchItem(
         TrackSearchRow row,
-        IReadOnlyDictionary<Guid, TrackItemAnalytics>? itemAnalytics) => new(
+        IReadOnlyDictionary<Guid, TrackItemAnalytics>? itemAnalytics,
+        IReadOnlyDictionary<Guid, TrackItemPlate>? itemPlates) => new(
         row.Id,
         row.ProcessingRunId,
         row.VideoAssetId,
@@ -417,7 +474,73 @@ public static partial class TrackEndpoints
         itemAnalytics is not null && itemAnalytics.TryGetValue(row.Id, out var explained)
             ? ToItemAnalytics(explained)
             : null,
-        row.ExposedObjectSubclass);
+        row.ExposedObjectSubclass,
+        itemPlates is not null && itemPlates.TryGetValue(row.Id, out var plate)
+            ? new TrackItemPlateResponse(
+                plate.MatchedText,
+                TrackPlateQueryRules.ToWire(plate.MatchKind),
+                plate.SupportCount,
+                plate.PlateObservationCount,
+                plate.DistinctTextCount,
+                plate.MaxConfidence,
+                plate.BestPlateObservationId)
+            : null);
+
+    // --- Plate mapping (Stage 4) -------------------------------------------
+
+    private static PlateCoverageResponse ToPlateCoverage(TrackPlateCoverage coverage) => new(
+        coverage.IdentityFingerprint,
+        coverage.VehicleTracksInScope,
+        coverage.Ready,
+        coverage.Pending,
+        coverage.Failed,
+        coverage.Stale,
+        coverage.NotConfigured);
+
+    private static TrackPlatesResponse ToPlates(TrackPlateDetail detail)
+    {
+        var readiness = detail.Readiness.ToString();
+        if (detail.Facts is not { } facts)
+            return new TrackPlatesResponse(readiness, null, null, null, [], [], null);
+
+        var outcome = facts.Outcome ?? Domain.Plates.PlateTrackOutcomeKind.Unavailable;
+        var analysed = outcome == Domain.Plates.PlateTrackOutcomeKind.Analysed;
+        var provenance = facts.Provenance;
+        return new TrackPlatesResponse(
+            readiness,
+            outcome.ToString(),
+            analysed ? null : facts.UnavailableReason,
+            facts.Agreement,
+            facts.Texts.Select(text => new TrackPlateTextResponse(
+                text.NormalisedText, text.SupportCount, text.MaxConfidence, text.BestPlateObservationId)).ToArray(),
+            facts.Observations.Select(plate => new TrackPlateObservationResponse(
+                plate.PlateObservationId,
+                plate.SourceObservationId,
+                plate.Role.ToString(),
+                plate.OffsetMs,
+                plate.SourceFrameNumber,
+                plate.TimestampUtc,
+                new TrackPlateBoxResponse(plate.BoxX, plate.BoxY, plate.BoxWidth, plate.BoxHeight, plate.CropWidth, plate.CropHeight),
+                plate.DetectorConfidence,
+                plate.Outcome.ToString(),
+                plate.Readings.Select(reading => new TrackPlateReadingResponse(
+                    reading.Rank,
+                    reading.RawText,
+                    reading.RawLineCount,
+                    reading.NormalisedText,
+                    reading.NormalisationOutcome == Domain.Plates.PlateNormalisationOutcome.Ok
+                        ? Application.Modules.Plates.PlateNormalisation.Ok
+                        : Application.Modules.Plates.PlateNormalisation.Rejected,
+                    reading.Confidence,
+                    reading.FormatClass)).ToArray())).ToArray(),
+            new TrackPlateProvenanceResponse(
+                provenance.AnalysisId,
+                provenance.PlateDetectorModelPackId,
+                provenance.OcrModelPackId,
+                new TrackPlateNormalisationResponse(provenance.NormalisationId, provenance.NormalisationSha256),
+                new TrackPlateSummaryPolicyResponse(provenance.SummaryPolicyId, provenance.SummaryPolicyVersion, provenance.SummaryPolicySha256),
+                provenance.CompletedAtUtc));
+    }
 
     // --- Analytics mapping -------------------------------------------------
 
@@ -508,7 +631,8 @@ public static partial class TrackEndpoints
     private static TrackDetailResponse ToDetail(
         TrackDetailRow row,
         TrackEvidenceSet evidenceSet,
-        TrackDetailAnalytics analytics)
+        TrackDetailAnalytics analytics,
+        TrackPlateDetail? plates)
     {
         // One source: the Evidence Set. The compatibility Representative is rank 0 of the
         // same list, so the two cannot disagree (S1.3 plan D1).
@@ -554,7 +678,8 @@ public static partial class TrackEndpoints
             row.TrajectoryArtifactId,
             ArtifactContentUrl(row.TrajectoryArtifactId),
             ToDetailAnalytics(analytics),
-            row.ExposedObjectSubclass);
+            row.ExposedObjectSubclass,
+            plates is null ? null : ToPlates(plates));
     }
 
     private static TrackEvidenceObservationResponse ToObservation(TrackEvidenceObservationRow observation) => new(
@@ -602,6 +727,31 @@ public static partial class TrackEndpoints
         ILogger logger,
         Guid trackId,
         TrackEvidenceSetInvariant invariant);
+
+    [LoggerMessage(EventId = 1424, EventName = "track_plate_facts_missing", Level = LogLevel.Warning,
+        Message = "Plate readiness of run {ProcessingRunId} is Ready but the default analysis's facts for Vehicle Track {TrackId} could not be read; the detail reports readiness only.")]
+    private static partial void LogPlateFactsMissing(ILogger logger, Guid processingRunId, Guid trackId);
+
+    [LoggerMessage(EventId = 1423, EventName = "track_plate_coverage_mismatch", Level = LogLevel.Warning,
+        Message = "Plate analysis {AnalysisId} of run {ProcessingRunId} accounts for {HeaderTracks} Vehicle Tracks but the run has {VehicleTracks}; plate coverage used the run's own count.")]
+    private static partial void LogPlateCoverageFault(ILogger logger, Guid analysisId, Guid processingRunId, int headerTracks, int vehicleTracks);
+
+    [LoggerMessage(EventId = 1422, EventName = "track_plate_outcome_missing", Level = LogLevel.Warning,
+        Message = "Plate analysis {AnalysisId} is the Ready default for the run of Vehicle Track {TrackId} but has no outcome for it; the detail reports it as unavailable.")]
+    private static partial void LogPlateOutcomeMissing(ILogger logger, Guid analysisId, Guid trackId);
+
+    // The plate text is deliberately not a parameter of this message (plan §5.5): presence, match
+    // mode and counts only. A test pins that no log record of a plate search carries the text.
+    [LoggerMessage(EventId = 1421, EventName = "track_plate_search", Level = LogLevel.Information,
+        Message = "Track search with a plate predicate ({MatchKind}, continuation {Continuation}): accepted {Accepted}, {Returned} rows; plate readings ready for {Ready} of {VehicleTracksInScope} vehicle tracks in scope.")]
+    private static partial void LogPlateSearch(
+        ILogger logger,
+        string matchKind,
+        bool continuation,
+        bool accepted,
+        int returned,
+        int ready,
+        int vehicleTracksInScope);
 
     private static IResult Problem(int statusCode, string code, string detail) =>
         Results.Problem(

@@ -244,6 +244,10 @@ try {
 
     Initialize-MaviDatabase -PsqlPath $postgres.PsqlPath -Port $port -AdminPassword $adminPassword -DatabaseName $databaseName -DatabaseUser $databaseUser -DatabasePassword $databasePassword
     Write-MaviSetupStatus -Name $databaseName -Status "OK" -Detail "database ready"
+    # Initialize-MaviDatabase has created pg_trgm (it fails if the runtime pack lacks it). Packs staged
+    # before Stage 4 PR-4 do not record its version.
+    $trigramVersion = $postgres.Manifest.PSObject.Properties["pgTrgmVersion"]
+    Write-MaviSetupStatus -Name "pg_trgm" -Status "OK" -Detail $(if ($trigramVersion) { [string]$trigramVersion.Value } else { "PostgreSQL contrib" })
 
     if ($Profile -eq "Development") {
         Initialize-MaviDatabase -PsqlPath $postgres.PsqlPath -Port $port -AdminPassword $adminPassword -DatabaseName $testDatabaseName -DatabaseUser $databaseUser -DatabasePassword $databasePassword

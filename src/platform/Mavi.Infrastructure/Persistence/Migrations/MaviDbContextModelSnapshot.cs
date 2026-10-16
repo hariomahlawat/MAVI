@@ -21,6 +21,7 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "pg_trgm");
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
@@ -354,6 +355,8 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.HasIndex("VideoAssetId", "StartTimestampUtc");
+
+                    b.HasIndex(new[] { "ObjectClass", "EndTimestampUtc" }, "ix_tracks_object_class_end_timestamp_utc");
 
                     b.ToTable("tracks", null, t =>
                         {
@@ -1099,10 +1102,24 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("support_count");
 
+                    b.Property<DateTimeOffset>("TrackStartTimestampUtc")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("track_start_timestamp_utc");
+
                     b.HasKey("AnalysisId", "TrackId", "NormalisedText");
 
                     b.HasIndex("BestPlateObservationId")
                         .HasDatabaseName("ix_plate_track_texts_best_plate_observation");
+
+                    b.HasIndex(new[] { "NormalisedText" }, "ix_plate_track_texts_normalised_text_pattern");
+
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex(new[] { "NormalisedText" }, "ix_plate_track_texts_normalised_text_pattern"), new[] { "text_pattern_ops" });
+
+                    b.HasIndex(new[] { "NormalisedText" }, "ix_plate_track_texts_normalised_text_trgm");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex(new[] { "NormalisedText" }, "ix_plate_track_texts_normalised_text_trgm"), "gin");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex(new[] { "NormalisedText" }, "ix_plate_track_texts_normalised_text_trgm"), new[] { "gin_trgm_ops" });
 
                     b.ToTable("plate_track_texts", null, t =>
                         {

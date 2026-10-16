@@ -18,6 +18,8 @@ using Microsoft.AspNetCore.Server.IIS;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+// Request URLs may carry plate text (Stage 4 plan §5.5): never log them, whatever the configured level.
+builder.Logging.AddPlateTextLogPrivacy();
 builder.AddMaviMachineConfiguration();
 builder.Services.AddMaviInfrastructure(builder.Configuration);
 builder.Services.AddDatabaseMigrationStartup(builder.Configuration);
@@ -66,6 +68,10 @@ app.VerifyTrackCursorSigning();
 app.VerifyVisualAttributeRelease();
 app.VerifyPlateRelease();
 await app.ApplyDatabaseMigrationsAsync();
+// Sanitised request start/finish telemetry in place of the framework's raw-URL lines (Stage 4 §5.5).
+app.UseSafeRequestTelemetry();
+// A plate-bearing search URL is never sent onward as a Referer (Stage 4 §5.5; defence in depth).
+app.UseNoReferrerPolicy();
 // Client-aborted requests are expected control flow. Keep cancellation propagation intact in
 // repositories and services, but prevent routine RequestAborted exceptions from surfacing as
 // application failures (or debugger user-unhandled breaks) at the HTTP boundary.

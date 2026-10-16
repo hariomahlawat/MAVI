@@ -2,7 +2,7 @@
 
 The repository does not carry ad-hoc PostgreSQL binaries.
 
-For an approved Windows x64 offline release, use tools/native/stage_postgresql_runtime_windows.ps1 against a known-good PostgreSQL 18 installation that already contains the approved pgvector version. Supply the pgvector licence and, when it cannot be discovered automatically, the PostgreSQL licence/copyright file.
+For an approved Windows x64 offline release, use tools/native/stage_postgresql_runtime_windows.ps1 against a known-good PostgreSQL 18 installation that already contains the approved pgvector version and the standard contrib modules (the staging refuses a tree without pg_trgm, which the plate-text search index needs). Supply the pgvector licence and, when it cannot be discovered automatically, the PostgreSQL licence/copyright file.
 
 The staged pack is written under:
 

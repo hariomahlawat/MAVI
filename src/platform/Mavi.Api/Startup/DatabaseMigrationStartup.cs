@@ -241,6 +241,25 @@ public static class DatabaseMigrationStartup
                 $"the connected server reports major version {majorVersion}.");
         }
 
+        // pg_trgm (PostgreSQL contrib, shipped in the MAVI runtime pack) backs the plate search's
+        // trigram index (migration AddPlateSearchIndexes). Missing contrib is a packaging defect, stated
+        // as one before the migration fails on it.
+        await using (var trigramCommand = connection.CreateCommand())
+        {
+            trigramCommand.CommandText =
+                "select default_version from pg_available_extensions where name = 'pg_trgm';";
+            var trigramVersion = Convert.ToString(
+                await trigramCommand.ExecuteScalarAsync(cancellationToken),
+                System.Globalization.CultureInfo.InvariantCulture);
+            if (string.IsNullOrWhiteSpace(trigramVersion))
+            {
+                throw new InvalidOperationException(
+                    "MAVI PostgreSQL prerequisite is missing: the pg_trgm contrib extension is not " +
+                    "available on this PostgreSQL server. Install the MAVI PostgreSQL runtime pack, " +
+                    "which ships it, before starting MAVI.");
+            }
+        }
+
         if (!options.RequirePgVector)
             return;
 

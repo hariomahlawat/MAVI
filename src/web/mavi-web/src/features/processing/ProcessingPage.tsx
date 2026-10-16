@@ -25,6 +25,7 @@ import {
 import { queryKeys } from '../../app/queryClient';
 import { analyticsReadinessText } from './analyticsReadiness';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
+import { useLayoutHold } from '../../shared/async/layoutHold';
 import { hasFailure } from '../../shared/async/asyncState';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
@@ -187,13 +188,22 @@ export default function ProcessingPage() {
   const displayZone = systemConfig.data?.displayTimeZoneId;
   const zoneState = fromQuery(systemConfig);
   const zoneUnavailable = zoneState.kind === 'unavailable';
+  // The Record's layout hold (§38, the shared primitive; see below), per video:
+  // every supporting answer that applies to this video's Record.
+  const held = useLayoutHold(videoAssetId, [
+    fromQuery(video), fromQuery(processing), zoneState,
+    ...(isGuid(cameraId) ? [fromQuery(camera)] : []),
+    ...(runId !== '' ? [fromQuery(analytics)] : []),
+  ]);
 
   /** The Record's frame, so every terminal state keeps the surface's identity. */
   function frame(name: string, body: ReactNode) {
     return (
       <section className="page">
         <ContextBar surface="processing-detail" object={{ label: name }} />
-        <RecordLayout>{body}</RecordLayout>
+        {/* Its own instance, never the drawn Record's (keyed below): the drawn
+            Record replaces it rather than moving its column (§38). */}
+        <RecordLayout key="frame">{body}</RecordLayout>
       </section>
     );
   }
@@ -213,6 +223,25 @@ export default function ProcessingPage() {
   if (notFound) {
     // `Not found` is the video's state, said by the alert, not its identity.
     return frame(videoLabel, <Alert tone="error">Video was not found.</Alert>);
+  }
+
+  // The Record is drawn once, whole (§38). Its two regions share one column
+  // below Tier A: the run's panel grows from a loading line to its progress,
+  // timings and — for a completed run — its scene analytics, the facts carry
+  // the camera that names them, and both state times in the display timezone.
+  // Drawn as each answer lands, every arrival moves the panels below it; drawn
+  // once every answer has settled (answered or failed), nothing moves. A
+  // failed answer settles the hold and is said in its region, as before.
+  // Only the first drawing of this video's Record waits: once drawn, a later
+  // request (a recovered video naming its camera, a retried run) updates its
+  // own region in place; another video on the same route is held again until
+  // its own answers have settled.
+  if (held) {
+    return frame(videoLabel, (
+      <StateRegion kind="page" state={{ kind: 'loading' }} label="processing state" loadingLabel="Loading processing state…">
+        {() => null}
+      </StateRegion>
+    ));
   }
 
   const state = processing.data;
@@ -290,6 +319,7 @@ export default function ProcessingPage() {
       />
 
       <RecordLayout
+        key="record"
         // The Video facts are this run's identity (file, camera, recorded
         // time): at Tier C they lead (§4.2, §25).
         factsCarryIdentity

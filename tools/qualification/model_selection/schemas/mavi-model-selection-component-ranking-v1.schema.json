@@ -1,0 +1,111 @@
+{
+  "$id": "urn:mavi:mavi-model-selection-component-ranking-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Shape contract (MSR revision M3, authority redesign): one composition-group event's component ranking (layer A or B), committed as <event-id>-component-ranking.json and cited by the record. The rows are exactly the frozen shortlist; the rank key is DERIVED from metrics by the frozen lexicographic-v1 rule (model_selection/m3_universe.py), never authored. Replaces the Layer-A result schema.",
+  "properties": {
+    "compositionUniverseSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "eventId": {
+      "pattern": "^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\\d{4}-\\d{2}$",
+      "type": "string"
+    },
+    "evidenceSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "frozenLedgerSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "rankingGateIds": {
+      "items": {
+        "pattern": "^[A-Za-z][A-Za-z0-9-]{0,63}$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "rankingLayer": {
+      "enum": [
+        "A",
+        "B"
+      ]
+    },
+    "rankingRuleSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "rows": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "candidateId": {
+            "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$",
+            "type": "string"
+          },
+          "gates": {
+            "additionalProperties": {
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "minProperties": 1,
+            "propertyNames": {
+              "pattern": "^[A-Za-z][A-Za-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "identitySha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "measurementSha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "minProperties": 1,
+            "propertyNames": {
+              "pattern": "^[A-Za-z][A-Za-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "candidateId",
+          "gates",
+          "identitySha256",
+          "measurementSha256",
+          "metrics"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "schema": {
+      "const": "mavi-model-selection-component-ranking-v1"
+    }
+  },
+  "required": [
+    "compositionUniverseSha256",
+    "eventId",
+    "evidenceSha256",
+    "frozenLedgerSha256",
+    "rankingGateIds",
+    "rankingLayer",
+    "rankingRuleSha256",
+    "rows",
+    "schema"
+  ],
+  "type": "object"
+}

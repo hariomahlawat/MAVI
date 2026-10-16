@@ -16,6 +16,9 @@ import { canonicalSearchKey, parseCommittedSearch, removeCriteria } from './sear
 import TrackResultCard from './TrackResultCard';
 import VisualSearchPage from './VisualSearchPage';
 
+/** The workspace is drawn once its supporting answers settle (§38): wait for the rail. */
+const searchDrawn = () => screen.findByLabelText('Object class', undefined, { timeout: 3000 });
+
 /**
  * Stage 3 X2 in the web client: the committed `objectSubclass` grammar, its
  * canonical query (which is also the cache and search fingerprint), the Vehicle
@@ -179,6 +182,7 @@ describe('the Vehicle type filter', () => {
     const user = userEvent.setup();
     renderWithApp(<LocationProbe />, { route: '/search' });
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
+    await searchDrawn();
 
     const type = screen.getByLabelText('Vehicle type');
     expect(within(type).getAllByRole('option').map((option) => option.textContent)).toEqual(['Any vehicle type', 'Car']);
@@ -205,6 +209,7 @@ describe('the Vehicle type filter', () => {
   it('is not available under Person, and choosing Person clears it', async () => {
     const user = userEvent.setup();
     renderWithApp(<VisualSearchPage />, { route: '/search?objectSubclass=car' });
+    await searchDrawn();
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
     expect(vi.mocked(searchTracks).mock.calls[0][0]).toEqual(expect.objectContaining({
       objectClass: 'Vehicle',
@@ -220,6 +225,7 @@ describe('the Vehicle type filter', () => {
   it('clears the type when the class is set back to Any class', async () => {
     const user = userEvent.setup();
     renderWithApp(<VisualSearchPage />, { route: '/search?objectSubclass=car' });
+    await searchDrawn();
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
 
     await user.selectOptions(screen.getByLabelText('Object class'), '');
@@ -234,6 +240,7 @@ describe('the Vehicle type filter', () => {
 
   it('refuses an unsupported vehicle type in the URL without issuing a Track request', async () => {
     renderWithApp(<VisualSearchPage />, { route: '/search?objectSubclass=truck' });
+    await searchDrawn();
 
     expect(await screen.findByText(/Vehicle type must be car/i)).toBeInTheDocument();
     expect(searchTracks).not.toHaveBeenCalled();
@@ -242,6 +249,7 @@ describe('the Vehicle type filter', () => {
   it('shows the type as a chip that removes only the type', async () => {
     const user = userEvent.setup();
     renderWithApp(<VisualSearchPage />, { route: '/search?objectClass=Vehicle&objectSubclass=car' });
+    await searchDrawn();
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
 
     const chips = () => screen.getByRole('group', { name: 'Committed filters' });

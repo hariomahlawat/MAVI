@@ -86,7 +86,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
-          fetch-depth: 1
+          # Full history: verify_repo walks the reachable model-selection history (the sticky MSR M3 audit
+          # domain, seal chronology and recorded anchors, which need refs/remotes/origin/main) and refuses a
+          # shallow clone.
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify exact checked-out source head
         run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
@@ -337,7 +340,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
-          fetch-depth: 1
+          # Full history: the M3 retroactivity test compares committed model-selection artefacts with
+          # the merge-base of origin/main, and the seal history tests need real ancestry.
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify exact checked-out source head
         run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
@@ -579,6 +584,11 @@ jobs:
         shell: bash
         env:
           SHARD_INDEX: ${{ matrix.shard }}
+          # X3 determinism: data responses answered one at a time in the order
+          # the page issued them — numbered in the page, admitted before the
+          # connection pool (admission.mjs) — so every intermediate layout is
+          # painted and the performance gate judges the bundle, not transport.
+          MAVI_VQA_RESPONSE_ORDER: forward
         run: node tools/web-visual-qa/run.mjs --workers 3 --shard "$SHARD_INDEX/$SHARD_COUNT"
       # The shard's results (small) for the aggregate; its captures (diagnostic,
       # never qualification evidence) for a person to read.
@@ -865,6 +875,8 @@ jobs:
         if: steps.mode.outputs.mode != 'closure'
         env:
           MAVI_VQA_OUT: tools/web-visual-qa/.performance/long-tasks
+          # X3 determinism: the same order and admission as the sweep (performance.mjs).
+          MAVI_VQA_RESPONSE_ORDER: forward
         run: node tools/web-visual-qa/run.mjs --long-tasks
       # The lane's results (small): the performance gate judges them.
       - name: Retain the long-task results

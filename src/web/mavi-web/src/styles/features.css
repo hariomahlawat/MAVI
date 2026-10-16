@@ -27,6 +27,10 @@
 .attention-note { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); color: var(--text-muted); font-size: var(--fs-1); }
 .overview-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr); gap: var(--s-4); align-items: start; }
 .overview-recent { display: grid; }
+/* Every state of Recent tracks holds the skeleton's height — RECENT_LIMIT (8)
+   rows at the recent-row pitch — so a short or empty answer moves nothing
+   below it (§38, X3 determinism). OverviewPage.test.tsx binds the 8. */
+.overview-recent-frame { min-height: calc(8 * var(--c-recent-row-h)); }
 .overview-recent__row {
   display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center;
   padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--border-subtle); text-decoration: none; color: inherit;
@@ -65,17 +69,25 @@
 /* The counts' shape while they load (ProcessingQueuePage): drawn as nothing,
    wrapping as they will. */
 .queue-reserve { visibility: hidden; }
+/* A cell's placeholder over an unseen value of its final shape (owner ruling 3, §38). */
+.cell-reserve { display: inline-grid; justify-items: end; }
+.cell-reserve > * { grid-area: 1 / 1; }
+.cell-reserve__ghost { visibility: hidden; }
+.cell-reserve__ghost[data-reserve]::before { content: attr(data-reserve); }
+.cell-reserve--start { justify-items: start; }
+.table--ledger .run-cell .cell-reserve { display: inline-grid; flex-shrink: 0; }
+.table--ledger .run-cell .cell-reserve__ghost { min-width: max-content; }
 .queue-reserve--counts { display: inline-flex; flex-wrap: wrap; gap: var(--s-3); font-variant-numeric: tabular-nums; }
 @media (width < 768px) {
   /* §25 Tier C: the counts are a line of their own under the invariant. */
   .queue-counts__sep { display: none; }
   .queue-counts, .queue-counts--pending { display: flex; }
   .queue-reserve--counts { display: none; }
-  /* The folded values' reserve is a Tier B column width. A Tier C item lets
-     those values wrap under the identity when they do not fit beside it, and
-     whether they fit turns on a few pixels of the face: a reserve that guesses
-     the width can fit where the values then wrap (S6/X3), so it holds nothing. */
-  .ledger-folded .queue-reserve { display: none; }
+  /* Whether a Tier C item's folded values fit beside its identity turned on a
+     few pixels of the face, so a row could gain a line when its run landed.
+     On the queue they are always the item's second line (owner ruling 3,
+     §38), and a row whose run is still out holds that line, unseen. */
+  .table--fold-processing-queue .ledger-folded { flex-basis: 100%; }
 }
 .run-cell { display: grid; gap: var(--s-1); min-width: 160px; }
 /* In a Ledger the status cell is one column among six at 1366, so it takes the
