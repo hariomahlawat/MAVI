@@ -222,6 +222,13 @@ def git(root: Path, *args: str) -> None:
                    capture_output=True, env=env)
 
 
+def git_out(root: Path, *args: str, input: bytes | None = None) -> str:  # noqa: A002
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return subprocess.run(["git", "-C", str(root), "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+                           "-c", "core.autocrlf=false", *args], check=True, capture_output=True, env=env,
+                          input=input).stdout.decode().strip()
+
+
 def commit_record(data: bytes, name: str | None = None) -> Path:
     """A fresh repository whose HEAD holds ``data`` at the frozen record path."""
     root = _ROOT / (name or f"repo-{hashlib.sha256(data).hexdigest()[:20]}")

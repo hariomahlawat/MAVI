@@ -471,16 +471,16 @@ def _read_record(repo_root: Path) -> tuple[bytes, str]:
     if not (root / FREEZE_RECORD_PATH).is_file():
         _fail("freeze_record_absent")
     try:
-        m3_git.git_history_state(root)
+        history = m3_git.path_history(root, FREEZE_RECORD_PATH)   # refuses a non-root, shallow or grafted history
     except CredibilityError as exc:
-        reason = str(exc).rsplit(":", 1)[-1]
-        if reason == "absent":
-            _fail("freeze_record_root_is_not_a_repository_root")
-        if reason in ("shallow", "grafts_present"):
+        code = str(exc)
+        if code.startswith("model_selection_history_unavailable"):
+            reason = code.rsplit(":", 1)[-1]
+            if reason == "absent":
+                _fail("freeze_record_root_is_not_a_repository_root")
             _fail(f"freeze_record_history_incomplete:{reason}")
-        _fail(f"freeze_record_not_committed:{exc}")
+        _fail(f"freeze_record_not_committed:{code[:200]}")
     try:
-        history = m3_git.path_history(root, FREEZE_RECORD_PATH)
         blob = history.head_tree.get(FREEZE_RECORD_PATH)
         if blob is None:
             _fail("freeze_record_not_committed")
