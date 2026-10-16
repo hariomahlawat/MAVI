@@ -42,6 +42,7 @@ It does not change PR-3/PR-4 product semantics or the frozen plate normalisation
 | Query lengths (item 18) | 2026-10-14 | Prefix 4; suffix = the **terminal four digits** (of the final digit run); interior 5. These are fixed constants, never fabricated: an absent class is recorded |
 | Bootstrap (item 17) | 2026-10-14 | The fast path resamples precomputed per-Track counts. It is mathematically identical to re-evaluation, proven by test under the same seed |
 | O1 | 2026-10-14 | Bounded private Indian Development-footage labelling approved (design proposed, not started). IDD-X is not ANPR/OCR evidence |
+| Five points (#218) | 2026-10-16 | Owner instruction on `fc17dd30`, implemented in #218 (§4a): (1) the freeze record's root of trust — add-only over the full history, read through M3's isolated Git profile; the external pin is the integration PR (§6); (2) protected-D isolation — Layer A runs with no D index or D truth present; disjointness is established at freeze construction and recorded; (3) reserved `TEXT` is exactly the repository's defined encodings (a truth-state name, or a `<…>` token with both brackets); no placeholder blacklist; (4) caller verdicts (`gates_passed`, `independent`, `d_rows_read`, `resolved_at_utc`) can neither open D nor change scoring: N4 independence is predeclared in the record, and D access fails closed on the not-yet-integrated M3 authority; (5) candidate outputs on D evidence are captured before the D truth is loaded, and no candidate executes afterwards in the process |
 
 ## 2. Plan-derived rules (Stage-4 plan; not owner-changed)
 
@@ -86,15 +87,35 @@ Patching each exploit would leave the class of attack open, so the boundary was 
 
 1. **Independent identity: a committed freeze record** (`selection_bundle.FREEZE_RECORD_PATH` =
    `config/benchmarks/plates/selection-freeze-v1.json`, a fixed repository path).
-   - The loader reads the record itself. It must be tracked by Git and its working-tree bytes must equal the HEAD blob
-     (Git's own blob identity), so an uncommitted edit is never the record.
+   - The loader reads the record itself, through M3's isolated Git profile (`m3_git`: no system or global
+     configuration, no inherited `GIT_*`, replace objects ignored, a shallow or grafted history refused). The bytes
+     are read **by blob id from HEAD**, and the work-tree copy must be clean (index flags that hide edits are
+     refused), so an uncommitted edit is never the record.
+   - **Root of trust (owner point 1, 2026-10-16).** The record path must be **add-only across the full reachable
+     history** (`m3_git.path_history`, the same single walk M3 uses for its own directory): every change to the path
+     is an addition of exactly the HEAD blob. An edit-and-recommit, a re-serialisation, a delete-and-re-add (of the
+     same or other bytes), an edit merged from a branch and a retype are refused (`freeze_record_not_add_only`). The
+     freeze commit is the record's unique first add (`first_add_commit`), and every bundle carries it.
+   - **What this cannot stop, and who closes it.** A local check cannot detect a rewrite of history itself (amend,
+     rebase, a fresh repository). Such a rewrite yields a different record identity (record SHA-256, partition
+     digests, freeze commit), so nothing frozen under the original transfers (tested), but nothing local refuses the
+     new identity. The integration PR (§6) pins it externally: the record SHA-256 is bound into both M3 frozen
+     ledgers, and those are published on the protected default branch and verified by M3's live canonical anchor.
+     The harness check is a precondition only; M3 stays the single authority.
    - The record binds every score-affecting value:
      - the protocol: query parameters and seed, bootstrap seed, R = 1,000, the percentile rule, MPID 4/100, the
        calibration minimum, K = 3, the support floor 50, and one pinned floor per rostered detector;
-     - the rosters: the detector and recogniser universes with identity SHA-256s, OC5 benchmark-only (excluded from
-       both, no identity under two ids), the ranking rule, the Layer-A gate set, the events and the freeze time;
+     - the rosters: the detector and recogniser universes with identity SHA-256s and each component's predeclared
+       **N4 independence verdict** (`[id, identitySha256, independent]`; owner point 4: never a caller input), OC5
+       benchmark-only (excluded from both, no identity under two ids), the ranking rule, the Layer-A gate set, the
+       events (the partner event differs from the baseline event; the composition id is outside M3's `C-` namespace)
+       and the freeze time;
      - the site-level partition plan;
-     - the SHA-256 of each of the four corpus documents (A/B index, A/B truth, D index, D truth).
+     - the SHA-256 of each of the four corpus documents (A/B index, A/B truth, D index, D truth);
+     - the **disjointness result and its hash** (owner point 2), written by the freeze-construction tool
+       `selection_freeze.construct_freeze_record`, which is the only code that reads both partitions together before
+       D: it parses all four documents strictly, validates each partition and checks R2. The hash binds the result to
+       the four document SHA-256s and the list of checks.
    - The pinned values are also code constants; any other value is refused.
    - **Choice and trade-off.** A committed file is reproducible and reviewable in Git history. It needs no new
      service or dependency: Git is already a repository prerequisite. The caller cannot pass the content and the digest
@@ -113,20 +134,32 @@ Patching each exploit would leave the class of attack open, so the boundary was 
      `bundle_id` string is read.
    - Truth is typed once (`classify_truth`). `TruthState` is authoritative afterwards: B/C/D never re-normalise raw
      truth.
-   - **The paired bundle (R2).** The A/B and protected-D partitions are verified together under one plan:
+   - **The paired corpus (R2).** The A/B and protected-D partitions are one corpus under one plan:
      - sites are mutually exclusive, with case and whitespace aliases refused;
      - Track ids, MAVI uuids, observation ids and content SHA-256s (evidence and B plate images) are unique across
        both partitions.
-   - **Stages.**
-     - `load_selection_bundle` reads the D *index* (truth-free) for these checks, but never the D truth.
-     - `load_protected_d_bundle` also reads the D truth. Loading it ends Stage 2: `resolve_baseline` then refuses
-       for that record in the process.
+     The cross-partition check runs at freeze construction (recorded in the record) and again on the real D index
+     whenever a D stage opens it; a hand-assembled record whose claim is false loads for Layer A (which never sees D)
+     and is refused the moment D is opened.
+   - **Stages (owner points 2 and 5).** Each stage opens only what it needs:
+     - `load_selection_bundle`: the record and the two A/B documents. **No D path is constructed, stat-ed or opened**:
+       Layer A/B/C, top-K, the Layer-A artefact and the Stage-2 resolution run with the D files absent (tested with an
+       audit-hook instrument).
+     - `load_d_capture_bundle`: adds the D index (evidence, no truth). Candidates run on D evidence only here.
+     - `load_protected_d_bundle`: adds the D truth, for scoring. Loading it ends candidate execution in the process:
+       every execution envelope then refuses (`candidate_execution_after_protected_d_truth_loaded`), and the truth
+       cannot be loaded while a candidate callable is running (`protected_d_truth_load_during_candidate_execution`).
+       The freeze-construction tool marks its process the same way.
+     - Both D stages require (a) the harness's verified Stage-2 resolution and (b) the **protected-D authority**
+       (`selection_bundle._authorise_protected_d`). #218 integrates no authority, so (b) refuses every value — including
+       a hand-built M3 `DAuthorization` — with `protected_d_not_authorised:m3_authority_not_integrated` (**fail
+       closed**). Opening any D data ends Stage 2 for the record (`resolve_baseline` refuses on the harness's own fact).
 4. **Execution envelopes** (`run_track`, `run_detection`, `run_reading`) take a bundle and an item id, never evidence.
    - The identity must be a roster entry by id AND identity SHA-256 (R3).
    - The image source must return exact `bytes` matching the frozen SHA-256 and size.
    - The candidate's outputs must be exact types (list/tuple, `PlateBox`, `Reading`, `str`); anything else is a
      CONTRACT_FAIL.
-   - A protected-D Track runs only from the protected-D bundle.
+   - A protected-D Track runs only from the D-capture bundle; no envelope runs on the protected-D (truth) bundle.
 5. **Results are harness records**, not sealed caller objects.
    - Each run and result is recorded in a private registry. The caller receives a deep copy carrying `result_id`.
    - Metrics and decisions read only that id string and use the registry's own record. So edits, subclasses,
@@ -150,20 +183,31 @@ Patching each exploit would leave the class of attack open, so the boundary was 
 1. the candidate under test: its callables (so its outputs) and its asserted identity, which must equal a roster entry;
 2. the image byte source (verified by SHA-256 and size);
 3. the corpus directory (verified against the committed record);
-4. the N4 `independent` verdict and Layer-A `gates_passed` (mandated M3 integration);
-5. `resolve_baseline`'s self-attested `d_rows_read` and `resolved_at_utc`. Binding them to Git chronology and the
-   committed pre-D seal is an M3-chronology integration item; the in-process D-truth-loaded check is an extra guard;
-6. `repo_root`, for tests only (default: the harness repository).
+4. the Layer-A `gates_passed` verdict per eligible detector. It feeds only the Stage-2 harness record, which is not
+   authority: it cannot open D (the D stages also need the protected-D authority, which fails closed) and a resolution
+   derived from other verdicts is refused by every gate and comparison (`differs_from_frozen_derivation`). The
+   integration PR derives it from M3's committed component ranking (§6). The N4 `independent` verdict is no longer a
+   caller value (record roster, above);
+5. `resolve_baseline`'s `d_rows_read` and `resolved_at_utc` — **reporting-only**: a non-zero claim or a time before
+   the freeze can only STOP, and the time is only recorded (two times give the same PD_BASE, composition hash and gate
+   outcome; tested). Whether D was read is the harness's own in-process fact, checked whatever is claimed. Git
+   chronology and the committed seal bind the time in the integration PR;
+6. the protected-D `authorization` (refused in #218);
+7. `repo_root`, for tests only (default: the harness repository).
 
 The real committed record and corpus documents are an **integration prerequisite before the PR-2 freeze**. The record
 path does not exist yet, and the loader refuses (`freeze_record_absent`).
 
 **Disclosed limit.** Code running in the same interpreter can still write the private registries (`_register`,
-`_BUNDLES`). The boundary protects reproducibility through the supported API, not against in-process code.
+`_BUNDLES`, `_D_TRUTH_LOADED`) or replace module functions (the tests replace `_authorise_protected_d` inside
+`fixtures.authorised()` only). The boundary protects reproducibility through the supported API, not against
+in-process code. In particular, during D capture the D truth is in no harness or PR-3 registry (tested from inside a
+candidate callable), but a candidate with filesystem access could read the D truth file directly; preventing that is
+the protected-D storage and authority of the integration PR.
 
 **Layer-A artefact** (`layer_a_result_document`): canonical JSON + LF with M3's per-partner keys and
-`evidenceSha256` = the A/B partition digest. M3's event-level fields and per-gate dictionary are reconciled in the
-integration PR.
+`evidenceSha256` = the A/B partition digest. It is the pre-redesign shape: merged M3 refuses `-layer-a-` artefacts and
+uses one committed component ranking per event instead. The conversion is specified in §6.
 
 **History (superseded by the boundary above; kept for traceability).** Review 6 added alias-item refusals, frozen
 top-K values, C any-violation and `c_minus_b` pairing. Review 7 added site-disjoint partitions, `UNSUPPORTED_TEXT`, the
@@ -181,5 +225,74 @@ reserved syntax is defined narrowly.
   labelled and partitioned).
 - The Stage-1 baseline freeze (in the record's roster): the eligible detector and recogniser identities, the OC5
   identity and the Layer-A gate-set hash.
+- The predeclared N4 independence verdict of every rostered component (record roster rows).
 
 **Not a frozen value:** the PD_BASE identity. It is a Stage-2 derived value, sealed after Layer A and before D (§1, N2 resolution).
+
+## 6. M3 integration contract (for the mandated follow-up PR; #218 implements none of it)
+
+**Status.** Reconciliation of #218 with merged M3 (#220, `0f039c6b`): `tools/qualification/model_selection/
+{m3_authority,m3_git,m3_universe,baseline_seal}.py`, `proposals/m3-benchmark-only-baseline.md` and
+`candidate-credibility.md`. #218 contains **no bridge code**: it shares M3's isolated Git layer (`m3_git.path_history`,
+a generalisation of M3's one history walk) and nothing else, and its protected-D gate fails closed. M3 is the single
+authority; the harness must equal it, never replace it. Cheap equivalences are pinned by tests in
+`test_plates_selection_owner_points.py` (`test_m3_*`).
+
+### 6.1 Findings (D.1–D.5)
+
+| Item | Finding | Evidence |
+|---|---|---|
+| D.1 Identities and rankings representable in M3's universe | **Yes, with a mapping.** Candidate, event and composition ids use exactly M3's patterns, and the canonical JSON form is M3's. The roster's identity SHA-256s are opaque: the integration must make them M3's (`candidate_identity_sha256` of each SHORTLISTED ledger entry; `benchmark_component_identity_sha256` for OC5). The harness ranks on (primary, second, third) with "missing sorts last"; M3's `lexicographic-v1` needs every metric finite, so a component with a missing metric must be turned into a failed ranking gate, never a key. Without ties, the harness top-K and PD_BASE equal M3's `derive_top_k` and `best_partner`. | `test_m3_identifier_and_canonical_forms_are_m3s`, `test_m3_component_ranking_top_k_and_pd_base_agree_without_ties` |
+| D.2 Layer-A result → M3 ranking and seal | **Maps, but not as emitted today.** `layer_a_result_document` is the pre-redesign shape; M3 refuses `-layer-a-` files (`LEGACY_LAYER_A_INFIX`). The integration emits one `component_ranking_document` per event (rows: `candidateId`, `identitySha256`, `gates`, `metrics`, `measurementSha256`; `evidenceSha256` = the A/B partition digest). `derive_baseline_seal` then derives PD_BASE, and the harness `BaselineResolution` must equal the seal field for field (6.3). The gate-only composition hash is the same function (`m3_composition_sha256` = `baseline_seal.composition_sha256`). | `test_m3_gate_only_composition_hash_is_m3s`; `test_composition_identity_is_bound_through_the_real_path` |
+| D.3 OC5 cannot enter ordinary ranking or implementation | **Holds on both sides.** Harness: OC5 is in neither universe (record refuses), and top-K, ranking, the comparison and rankable compositions refuse it by id or identity. M3: a benchmark-only baseline is never SHORTLISTED, so it is never in a component ranking, top-K or U, and its payload bytes may not appear in an ordinary candidate (R1). | `test_benchmark_only_component_never_enters_top_k`, `test_sealed_resolution_cannot_change_or_be_forged_and_oc5_is_never_rankable` |
+| D.4 The single gate-only baseline is PD_BASE + OC5 | **Holds.** The record names exactly one gate-only composition (`compositionId`, the OC5 event `eventId`, the detector event `partnerEventId`, which must differ); M3 requires exactly one benchmark-only baseline with exactly one composition whose partner is the other group event. | `test_score_affecting_configuration_is_frozen_in_the_record` (`partner_event_is_the_baseline_event`, `composition_id_reserved`) |
+| D.5 Baseline failure, ambiguity and non-evaluable results fail closed | **Holds; one mapping needed.** No detector passing, an ambiguous PD_BASE, an identity or universe mismatch, or D read first: harness `BaselineStop`; M3 STOPPED seal (terminal, no D). A baseline contract failure or a non-evaluable baseline is only known after D: harness `BaselineStop`; M3 has no seal state for it, so the integration records it as the group abandonment `baseline-d-unavailable` (`ABANDON_REASONS`), and M3 refuses a decision without a baseline D (O4). | `test_m3_ambiguity_stops_in_both_…`, `test_pd_base_resolution_stops_and_never_chooses`, `test_silent_baseline_and_corpus_deficiency` |
+
+### 6.2 Every difference between Stage-4 result formats and M3 schemas (D.6)
+
+| # | Stage-4 (#218) | M3 | Required in the integration PR |
+|---|---|---|---|
+| 1 | Roster identity SHA-256s are opaque values in the freeze record | `identitySha256` = canonical SHA-256 of the ledger `identity` block; OC5 = `benchmark_component_identity_sha256` (identity, configuration, adapter, host manifests) | The record's roster equals the two events' SHORTLISTED identities and the BOB identity; refuse otherwise |
+| 2 | Every rostered detector is eligible to be PD_BASE | `eligiblePartners` + `excludedPartners` = the partner shortlist | Require `excludedPartners == []` or carry eligibility into the record |
+| 3 | `rankingRuleSha256` = SHA-256 of the text `DETECTOR_RANKING_RULE` (rule v2) | `partnerRankingRuleSha256` = `document_sha256(rankingRule)` of `lexicographic-v1` keys | Pin the M3 block (keys `recallAtCoverage` max, `falsePlatesPerCrop` min, `ap50` max; OCR `em` max, `cer` min, `ece` min) and its hash in the record |
+| 4 | `layerAGatesSha256` is an opaque hash; the gate definitions are not in the harness | `ranking_gates_sha256` = `document_sha256(rankingGateIds)` | Define the ranking-gate ids (at least `contract`, `support`, `independent` and the frozen Layer-A gates) and derive each row's `gates` from harness measurements, never from a caller verdict (replaces `gates_passed`) |
+| 5 | Missing metric sorts last; float metrics from `Fraction` | Every metric a finite JSON number; no "missing" | A missing metric fails a ranking gate (or STOPs); never encoded as a number |
+| 6 | Layer-A artefact `mavi-plate-harness-layer-a-result-v1` (`rankKey` strings, `gates: {"layer-a": …}`) | `mavi-model-selection-component-ranking-v1` (derived key; authored keys refused); `-layer-a-` files refused | Replace the artefact by `component_ranking_document`; `measurementSha256` becomes the canonical hash of a canonical A/B result document, not of `repr` |
+| 7 | top-K: a tie across the K boundary is cut by lexical id (N4 as implemented) | A tie across the `k` boundary STOPs (owner O3) | M3's derived top-K is authoritative for U. **Owner question:** confirm that N4's "lexical id" applies only inside the top-K, so the boundary tie STOPs as in M3 (pinned by `test_m3_ambiguity_stops_in_both_…`) |
+| 8 | MPID compared exactly on rational D-scores (D7a, `Fraction`) | The `baseline` gate recomputed from JSON-number `dScore` as `Decimal(str(value))` | **Conflict at the boundary:** D = 131/150 vs baseline 5/6 is exactly ΔD = 0.04 (harness PASS), but the JSON floats give 0.0399999999999999 (M3 FAIL). The decision must carry exact D-scores, or M3 must take the harness's exact gate verdict. **Owner question** (pinned by `test_m3_exact_mpid_boundary_differs_through_json_floats`) |
+| 9 | `BaselineResolution.d_state = "D_NOT_STARTED"`; `resolved_at_utc` | `protectedDState = "NOT_STARTED"`; `recordedAt`, `recordedBy` | Map the literals; the resolution must equal the seal (6.3) |
+| 10 | `freeze_sha256` = hash of the record SHA-256 and the baseline rule | `frozenLedgerSha256`, `protocolSha256`, `stage1RuleSha256`, `eligibleUniverseSha256` | Bind the record SHA-256 into both frozen ledgers or protocols (the external pin of §4a item 1) |
+| 11 | D result: a registry `TrackScore` (rationals, counts, accounting) | D manifest `mavi-model-selection-d-manifest-v1` with `resultSha256`; decision rows with `dScore`, `dResultSha256`, `baselineSealSha256s` | A canonical D-result document per composition; `resultSha256` = its canonical hash; the manifest from `d_manifest_document(auth, …)` |
+| 12 | Compositions are (detector identity, recogniser identity) pairs | `compositionId` = `C-<candidate>--<candidate>` ordered by event id; U = (top-K ∪ packageable baselines) per event | Derive the id with `m3_universe.composition_id`; the composition set must equal the sealed U |
+| 13 | Partition digests derive from the record SHA-256 | `evidenceSha256` is any SHA-256 | Use the A/B partition digest for rankings and the D partition digest in D manifests |
+| 14 | Detector-matched OC5 uplift is diagnostic | No field | Report only (never a decision row) |
+
+### 6.3 Interfaces for the integration PR
+
+1. **Freeze → events.** The committed freeze record's SHA-256 is cited by both M3 frozen ledgers (detector event and
+   OCR event) or their protocols; the roster equals their shortlists (6.2 items 1–4). A loader check: the record
+   SHA-256 found in the reachable history of `docs/qualification/model-selection` at a commit no later than the
+   ledgers' freeze.
+2. **A/B → component rankings.** `component_ranking_document(frozen, rows, evidence_sha256=bundle.ab_digest)` per
+   event, rows from harness `ComponentScore`s with derived `gates`; committed and cited per M3 rule 4a.
+3. **Seal.** `derive_baseline_seal(...)` → commit at `seal_path(...)`; then the harness check
+   `resolution.pd_base_id == seal["partnerCandidateId"]`, `pd_base_identity_sha256 == seal["partnerIdentitySha256"]`,
+   `composition_sha256 == seal["compositionSha256"]`, `benchmark_only_identity_sha256 ==
+   seal["benchmarkComponentIdentitySha256"]`; any difference STOPs.
+4. **Protected-D authority.** Replace the body of `selection_bundle._authorise_protected_d(selection_state,
+   authorization, resolution)`: call `m3_authority.open_protected_d(repo, group)` **inside the harness** (a
+   `DAuthorization` is a plain dataclass and must never be accepted from a caller), check the binding of item 3, and
+   keep the returned authorization in the D-stage state. It remains the only path to `D_CAPTURE` and `PROTECTED_D`.
+5. **No other path to D data.** The D documents are opened only by `selection_bundle._load` at a D stage. The
+   integration adds a test that enumerates every public function of the harness modules and proves none reaches a D
+   path without the authority (the selection stage already opens no D path; `test_point2_…`).
+6. **D manifests and results.** Every D result carries the authorization's anchor, seal and U hash
+   (`d_manifest_document`); `verify_d_manifest_binding(manifest, repo)` runs before scoring; decision rows follow 6.2
+   items 8, 11 and 12.
+7. **Required regression tests:** premature D access (D before the seal, before publication, before the anchor);
+   anchor redirection; a missing, STOPPED or altered seal; incorrect identities (roster ≠ shortlist, OC5 identity);
+   chronology violations (ranking after the seal, D before the seal); a forged `DAuthorization`; a decision row whose
+   rounded `dScore` flips the exact MPID gate.
+
+**Not in #218 and not to be built there:** the committed seal, the anchor verification, `open_protected_d` calls,
+real Model Selection Events, a real freeze record, D manifests.

@@ -612,3 +612,17 @@ def test_m3_ambiguity_stops_in_both_and_the_top_k_boundary_tie_is_a_recorded_dif
     with pytest.raises(credibility.CredibilityError, match="component_rank_ambiguous"):
         m3_universe.derive_top_k(_m3_ranking(tied4, sb._state_of(wide.sel).roster.independent), ev.TOP_K)
     assert ev.top_k(wide.sel, tied4, "detector") == ["PD1-X", "PD2-N", "PD2-S"]
+
+
+def test_m3_exact_mpid_boundary_differs_through_json_floats():
+    """Recorded difference (decision record §6, D.6 item 8): the harness compares MPID exactly on rational D-scores
+    (owner D7a); M3 recomputes the baseline gate from JSON-number ``dScore`` values (``Decimal(str(float))``). At the
+    exact boundary they disagree, so the integration must carry exact D-scores (owner question)."""
+    corpus = fx.population(1)
+    base = fx.score(corpus, fx.runs_for(corpus, fx.outputs_of(1, lambda i: [_plate_text(i)])))
+    candidate, baseline = Fraction(131, 150), Fraction(5, 6)
+    assert candidate - baseline == ev.MPID
+    assert fx.gate(corpus, fx.C("PD2-S", "OC1-XS", fx.with_d(base, candidate)),
+                   fx.C("PD2-N", "OC5-BEST", fx.with_d(base, baseline))) == ev.PASS
+    m3_mpid = m3_authority._exact(0.04)
+    assert m3_authority._exact(float(candidate)) - m3_authority._exact(float(baseline)) < m3_mpid   # M3: FAIL

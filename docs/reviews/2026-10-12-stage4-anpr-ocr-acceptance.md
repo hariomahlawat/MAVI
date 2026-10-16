@@ -277,14 +277,15 @@ These are tooling corrections only. No frozen result, threshold or verdict chang
 - D terms, ΔD and the bootstrap replicates are exact rationals (no epsilon). The fast bootstrap is proven identical to re-evaluation.
 - The superiority rule and the cluster unit (physical capture site) are the owner's.
 
-**Tests:** `tools/benchmarks/tests/test_plates_selection_harness.py`, synthetic fixtures only; no dataset and no model is read.
+**Tests:** `tools/benchmarks/tests/test_plates_selection_{harness,boundary,owner_points}.py`, synthetic fixtures only; no dataset and no model is read.
 
 **Gate.** This repair must merge before the PR-2 events reach `PROTOCOL_FROZEN` (plan §4.2 item 2). It is level 1 evidence (harness implemented and tested).
 
 **Scope and obligations (owner 2026-10-14).** #218 is accepted as the level-1 A–D / query harness only.
-- **Architecture (owner instruction, 2026-10-14):** canonical bytes → identity verification against a committed freeze record → strict parse → harness-owned immutable state → A/B/C/D. Metrics read only harness records, never caller objects, configuration or expected digests. A/B selection and protected D are verified together as one paired bundle; the selection stage never reads the D truth (decision record §4a).
+- **Architecture (owner instruction, 2026-10-14):** canonical bytes → identity verification against a committed freeze record → strict parse → harness-owned immutable state → A/B/C/D. Metrics read only harness records, never caller objects, configuration or expected digests. A/B selection and protected D are one paired corpus whose disjointness is established at freeze construction and recorded in the record (decision record §4a).
+- **Owner's five points (2026-10-16):** the freeze record is add-only over the full history (read through M3's isolated Git profile); the selection stage opens no D document (Layer A runs with the D files absent); D capture (D index) precedes D truth, after which no candidate executes; reserved `TEXT` is exactly the defined encodings; N4 independence is predeclared in the record and the protected-D loaders fail closed until the M3 authority is integrated (decision record §1 "Five points", §4a).
 - **Truth:** `TEXT` needs v1 AND the owner's corpus-level letter-and-digit rule; other non-reserved human text is retained as `UNSUPPORTED_TEXT` (decision record N8 and item 10).
-- **Mandated follow-up PR:** the M3 pre-D seal integration (committed baseline seal, Git chronology, D-manifest binding, and M3's committed Layer-A document with `layerAResultSha256`, from which Layer-A gate verdicts must come). It must merge before PR-2 cold review 1 and `PROTOCOL_FROZEN`.
+- **Mandated follow-up PR:** the M3 pre-D integration (the record SHA-256 bound into both M3 frozen ledgers, one committed component ranking per event from which the ranking-gate verdicts come, the committed baseline seal, `open_protected_d` called by the harness's protected-D gate, D-manifest binding and Git chronology). Its exact interface and every format difference are in decision record §6. It must merge before PR-2 cold review 1 and `PROTOCOL_FROZEN`.
 - **Integration prerequisite (corpus):** the committed freeze record (`config/benchmarks/plates/selection-freeze-v1.json`) and the four canonical corpus documents it names. The harness implements the mechanism; the data does not exist yet.
 
 ## Reproduction and repeatability

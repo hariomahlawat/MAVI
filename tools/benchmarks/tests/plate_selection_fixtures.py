@@ -350,7 +350,10 @@ def build(tracks, crops=(), plates=(), *, partition=None, twin=None, sites=None,
     record_bytes = sb.canonical_bytes(record)
     key = record_bytes + b"\x00" + b"\x00".join(docs_bytes[k] for k in sorted(docs_bytes))
     if key in _CACHE:
-        return _CACHE[key]
+        cached = _CACHE[key]
+        if resolve and cached.resolution is None and _resolvable(record):
+            _resolve(cached)   # the same record built earlier with resolve=False (never D-loaded without one)
+        return cached
     directory = _ROOT / f"corpus-{hashlib.sha256(key).hexdigest()[:20]}"
     for name, data in docs_bytes.items():
         write(directory / sb.DOCUMENT_FILES[name], data)
@@ -361,11 +364,19 @@ def build(tracks, crops=(), plates=(), *, partition=None, twin=None, sites=None,
     corpus = Corpus(repo, directory, docs, record, list(tracks), sel)
     corpus.all_tracks = ab_tracks + d_tracks
     corpus.d_tracks = d_tracks
-    if resolve and set(r[0] for r in record["roster"]["detectors"]) == set(DETECTORS):
-        corpus.layer_a = layer_a_for(corpus)
-        corpus.resolution = ev.resolve_baseline(sel, corpus.layer_a, d_rows_read=0, resolved_at_utc=WHEN)
+    if resolve and _resolvable(record):
+        _resolve(corpus)
     _CACHE[key] = corpus
     return corpus
+
+
+def _resolvable(record) -> bool:
+    return set(r[0] for r in record["roster"]["detectors"]) == set(DETECTORS)
+
+
+def _resolve(corpus) -> None:
+    corpus.layer_a = layer_a_for(corpus)
+    corpus.resolution = ev.resolve_baseline(corpus.sel, corpus.layer_a, d_rows_read=0, resolved_at_utc=WHEN)
 
 
 # ---------------------------------------------------------------------------------------------- candidates
