@@ -2221,3 +2221,25 @@ def test_published_schemas_accept_the_derived_documents():
     binding = bs.SealBinding(GATE, state.seal_sha256, S0, "PD-A", identity_of("pda"), state.seal["compositionSha256"])
     auth = ma.DAuthorization(state.group_id, ANCHOR, (binding,), state.seal["ordinaryCompositionsSha256"], EVENT)
     jsonschema.validate(ma.d_manifest_document(auth, "RUN-1", sha("d")), d_schema)
+
+
+# probe_licence (cold review): pinned as a permanent test. Refused cases must stay refused; the cases that pass are the
+# declared residual R4 (spacing, paraphrase, confusables outside the folded table), a reviewer obligation (M1 §9).
+LICENCE_PROBE = {
+    "Licence restricts redistribution": True, "License Plates": False, "  licence   plate ": False,
+    "license-plate": True, "license\u200b plate": False, "license\u00a0plate": False, "license\u3000plate": False,
+    "license plate.": True, "lic\u00adense restricts use": True,
+    "\U0001d425\U0001d422\U0001d41c\U0001d41e\U0001d427\U0001d42c\U0001d41e": True, "l\u0456cense": True,
+    "\u0142icense terms forbid bundling": False, "l\u00b7icense": False, "L\u0130CENSE": True, "\u2113icense": True,
+    "\u13de\u13a5cense": False, "l i c e n s e": False, "AGPL-3.0 weights; cannot be bundled in the Model Pack": False,
+    "copyleft terms make redistribution impossible": False, "lisence not cleared": False, "LICENSE": True,
+    "https://github.com/x/license-plate-detector": True, "\u216cicense": True,
+    "\uff4c\uff49\uff43\uff45\uff4e\uff53\uff45": True, "l\u0336icense": True, "l1cense": True, "|icense": False,
+    "Iicense": False,
+}
+
+
+@pytest.mark.parametrize("value", sorted(LICENCE_PROBE))
+def test_probe_licence_cases_are_pinned(value):
+    from model_selection.credibility import has_licence_wording
+    assert has_licence_wording(value) is LICENCE_PROBE[value], repr(value)
