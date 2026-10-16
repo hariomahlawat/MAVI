@@ -50,6 +50,8 @@ from tools.benchmarks.tests.plate_selection_fixtures import (
     layer_a_for,
     plate,
 )
+from mavi_vision.plates import contracts as plate_contracts
+from mavi_vision.plates.inference import Reading
 from tools.qualification.model_selection import baseline_seal, credibility, m3_authority, m3_universe
 
 POLY = (((1, 1), (20, 1), (20, 10), (1, 10)),)
@@ -768,3 +770,172 @@ def test_cold_p3_4_wrong_typed_document_fields_are_typed_refusals(mutate, code):
     with pytest.raises(ValueError, match=code):
         fx.build([T("x0", "x-site", "KA01AB1234")], [crop("cx", "x0", 0, POLY)], [plate("px", "x0", b=7, c=0)],
                  twin=[T("xd", "xd-site", "KA02AB1234")], mutate=mutate)
+
+
+# ---------------------------------------------------------------------------------------------- cold review df921fa6
+#
+# One root cause with P2-1 (principle-10 reassessment): the harness assumed its own handling of candidate-controlled
+# values never raises, and PR-3's broad handler turned such an exception into a silent, scored abstention. One
+# mechanism closes the class: the candidate boundary (``ev._guarded``), total validators, and the COMPLETED backstop.
+
+HUGE = 10 ** 400
+
+
+def _huge_paths(corpus):
+    cap = corpus.capture
+
+    def huge_box():
+        return fx.Detector([fx.PlateBox(1, 1, 20, 10, HUGE)])
+
+    def huge_read():
+        return Outputs([[Reading("KA01AB1234", HUGE)]])
+
+    yield "A", lambda: ev.run_detection(corpus.sel, "cx", detector=huge_box(), detector_identity=DET, images=images)
+    yield "B", lambda: ev.run_reading(corpus.sel, "px", recogniser=huge_read(), recogniser_identity=REC,
+                                      images=images)
+    for layer, bundle, tid in (("C", corpus.sel, "x0"), ("D", cap, "xd")):
+        yield f"{layer} score", lambda b=bundle, t=tid: ev.run_track(
+            b, t, detector=huge_box(), recogniser=fx.Recogniser(["KA01AB1234"]), detector_identity=DET,
+            recogniser_identity=REC, images=images)
+        yield f"{layer} confidence", lambda b=bundle, t=tid: ev.run_track(
+            b, t, detector=GOOD_BOX, recogniser=huge_read(), detector_identity=DET, recogniser_identity=REC,
+            images=images)
+
+
+def test_cold2_huge_int_score_and_confidence_are_contract_fail_in_every_layer():
+    corpus = _exception_corpus()
+    runs = {}
+    for name, call in _huge_paths(corpus):
+        result = call()
+        assert result.state == ev.CONTRACT_FAIL and "out_of_range" in result.contract_violation, name
+        runs[name] = result
+    assert ev.evaluate_a(corpus.sel, [runs["A"]], detector=DET).outcome == ev.CONTRACT_FAIL
+    assert ev.evaluate_b(corpus.sel, [runs["B"]], recogniser=REC).outcome == ev.CONTRACT_FAIL
+    for kind in ("score", "confidence"):
+        assert ev.evaluate_c(corpus.sel, [runs[f"C {kind}"]], composition=(DET, REC)).outcome == ev.CONTRACT_FAIL
+        assert ev.evaluate_d(corpus.full, [runs[f"D {kind}"]], composition=(DET, REC)).outcome == ev.CONTRACT_FAIL
+
+
+class _Hostile:
+    def __eq__(self, other):
+        raise RuntimeError("eq")
+
+    def __lt__(self, other):
+        raise RuntimeError("lt")
+
+    __le__ = __gt__ = __ge__ = __lt__
+
+    def __hash__(self):
+        raise RuntimeError("hash")
+
+    def __float__(self):
+        raise RuntimeError("float")
+
+    def __index__(self):
+        raise RuntimeError("index")
+
+    def __bool__(self):
+        raise RuntimeError("bool")
+
+    def __len__(self):
+        raise RuntimeError("len")
+
+    def __iter__(self):
+        raise RuntimeError("iter")
+
+
+def _adversarial_values():
+    class BigInt(int):
+        pass
+
+    class F(float):
+        pass
+
+    recursive: list = []
+    recursive.append(recursive)
+    deep: list = []
+    for _ in range(2000):
+        deep = [deep]
+    return [HUGE, -HUGE, 2 ** 2000, True, False, BigInt(1), F(0.5), Decimal("0.5"), Decimal("NaN"),
+            Fraction(1, 2), float("nan"), float("inf"), -float("inf"), -0.0, 1e308, 0, 1, 0.5, 1.0000001, None,
+            "0.5", b"x", _Hostile(), recursive, deep, (), [], {}, object(), type, 1 + 0j]
+
+
+def test_cold2_validators_are_total():
+    """Invariant 2: the validators return a violation or None for ANY input, never raise."""
+    for value in _adversarial_values():
+        assert isinstance(ev._probability(value), bool)
+        for boxes in (value, [value], (value,), [fx.PlateBox(1, 1, 20, 10, value)],
+                      [fx.PlateBox(value, 1, 20, 10, 0.5)], [fx.PlateBox(1, value, value, 10, 0.5)],
+                      [fx.PlateBox(1, 1, 20, value, 0.5)]):
+            out = ev.detector_output_violation(boxes, 64, 32, 2)
+            assert out is None or type(out) is str
+        for readings in (value, [value], (value,), [Reading(value, 0.5)], [Reading("KA01AB1234", value)],
+                         [Reading("KA01AB1234", 0.9), Reading("KA01AB1235", value)]):
+            out = ev.recogniser_output_violation(readings, 3)
+            assert out is None or type(out) is str
+    assert ev._probability(1) and ev._probability(0.0) and not ev._probability(HUGE) and not ev._probability(True)
+
+
+def test_cold2_a_validator_fault_inside_the_boundary_is_contract_fail(monkeypatch):
+    """Invariant 1: a fault in the harness's own validation of candidate output is inside the boundary."""
+    corpus = _exception_corpus()
+
+    def broken(*args, **kwargs):
+        raise OverflowError("validator fault")
+
+    monkeypatch.setattr(ev, "detector_output_violation", broken)
+    monkeypatch.setattr(ev, "recogniser_output_violation", broken)
+    results = [ev.run_detection(corpus.sel, "cx", detector=GOOD_BOX, detector_identity=DET, images=images),
+               ev.run_reading(corpus.sel, "px", recogniser=Outputs([R(("KA01AB1234", 0.9))]),
+                              recogniser_identity=REC, images=images),
+               ev.run_track(corpus.sel, "x0", detector=GOOD_BOX, recogniser=fx.Recogniser(["KA01AB1234"]),
+                            detector_identity=DET, recogniser_identity=REC, images=images)]
+    for result in results:
+        assert result.state == ev.CONTRACT_FAIL and "output_unvalidatable" in result.contract_violation
+
+
+def test_cold2_backstop_a_bypassed_flag_is_harness_fault_never_completed_or_scored(monkeypatch):
+    """Invariant 3: simulate a harness-side exception that bypasses the flag. PR-3 abstains the crop; the run is
+    HARNESS_FAULT (not COMPLETED) and every evaluator refuses to score it. Invariant 4: A/B never leak it."""
+    corpus = _exception_corpus()
+    cap = corpus.capture
+    monkeypatch.setattr(ev._Guard, "flag", lambda self, text: None)   # the bypass
+    c_run = ev.run_track(corpus.sel, "x0", detector=_RaisingDetector(lambda: OverflowError("x")),
+                         recogniser=fx.Recogniser(["KA01AB1234"]), detector_identity=DET, recogniser_identity=REC,
+                         images=images)
+    d_run = ev.run_track(cap, "xd", detector=GOOD_BOX, recogniser=_RaisingRecogniser(lambda: OverflowError("x")),
+                         detector_identity=DET, recogniser_identity=REC, images=images)
+    a_run = ev.run_detection(corpus.sel, "cx", detector=_RaisingDetector(lambda: OverflowError("x")),
+                             detector_identity=DET, images=images)
+    b_run = ev.run_reading(corpus.sel, "px", recogniser=_RaisingRecogniser(lambda: OverflowError("x")),
+                           recogniser_identity=REC, images=images)
+    for run_ in (c_run, d_run, a_run, b_run):
+        assert run_.state == ev.HARNESS_FAULT and run_.contract_violation.startswith("harness_fault@")
+    assert "crop_abstained:detector_error" in c_run.contract_violation
+    assert "crop_abstained:ocr_error" in d_run.contract_violation
+    monkeypatch.undo()
+    for call in (lambda: ev.evaluate_c(corpus.sel, [c_run], composition=(DET, REC)),
+                 lambda: ev.evaluate_d(corpus.full, [d_run], composition=(DET, REC)),
+                 lambda: ev.evaluate_a(corpus.sel, [a_run], detector=DET),
+                 lambda: ev.evaluate_b(corpus.sel, [b_run], recogniser=REC)):
+        with pytest.raises(ValueError, match="harness_fault_run_cannot_be_scored"):
+            call()
+
+
+@pytest.mark.parametrize("status, reason", [
+    *[("abstained", r) for r in sorted(plate_contracts.CROP_ABSTENTION_REASONS)],
+    *[("unavailable", r) for r in sorted(plate_contracts.CROP_UNAVAILABLE_REASONS)],
+    ("excluded", None)])
+def test_cold2_backstop_covers_every_pr3_non_scored_outcome(monkeypatch, status, reason):
+    """Every PR-3 non-scored crop outcome that appears with no harness flag makes the run HARNESS_FAULT."""
+    corpus = _exception_corpus()
+    real = ev.analyse_crop
+
+    def fake(*args, **kwargs):
+        return dataclasses.replace(real(*args, **kwargs), status=status, reason=reason)
+
+    monkeypatch.setattr(ev, "analyse_crop", fake)
+    result = ev.run_track(corpus.sel, "x0", detector=GOOD_BOX, recogniser=fx.Recogniser(["KA01AB1234"]),
+                          detector_identity=DET, recogniser_identity=REC, images=images)
+    assert result.state == ev.HARNESS_FAULT and f"crop_{status}:{reason}" in result.contract_violation

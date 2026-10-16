@@ -155,6 +155,7 @@ CLUSTER_UNIT = "physical-capture-site"        # owner item 4 / C2
 
 PASS, FAIL, INSUFFICIENT = "PASS", "FAIL", "INSUFFICIENT_EVIDENCE"
 MEASURED, CONTRACT_FAIL, COMPLETED = "MEASURED", "CONTRACT_FAIL", "COMPLETED"
+HARNESS_FAULT = "HARNESS_FAULT"   # a run the harness could not account for: never COMPLETED, never scored (N9 rerun)
 
 _UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _CANDIDATE_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$")
@@ -175,7 +176,15 @@ def _fail(code: str):
 
 
 def _probability(value: object) -> bool:
-    return type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 1
+    """Total: never raises. An exact ``int`` is compared exactly (no float conversion, so ``10**400`` cannot
+    overflow); an exact ``float`` must lie in [0, 1] (NaN and ±inf fail the comparisons); any other type, including
+    ``bool`` and every subclass, is not a probability."""
+    kind = type(value)
+    if kind is int:
+        return 0 <= value <= 1
+    if kind is float:
+        return 0.0 <= value <= 1.0
+    return False
 
 
 def _integer(value: object) -> bool:
@@ -392,10 +401,19 @@ class _Guard:
 # hostile. The evidence formatter below cannot fail: the message is ``BaseException.__str__`` (the exception's ``args``;
 # the candidate's own ``__str__``/``__repr__`` is never called), the class name is read through ``type``'s own slot (a
 # metaclass cannot intercept it), both inside a ``BaseException`` catch, and any failure or non-``str`` result becomes
-# a stable placeholder. Every guard is flagged BEFORE anything else happens, so a
-# candidate exception is always a CONTRACT_FAIL (decision record, Contract row; N9), never a COMPLETED run.
+# a stable placeholder.
+#
+# THE CANDIDATE BOUNDARY (``_guarded``; cold reviews of 5735c63c P2-1 and df921fa6 P2, one root cause: the harness
+# assumed its own handling of candidate-controlled values never raises, and PR-3's broad product handler turned any
+# such exception into a silent, scored abstention). One boundary encloses everything that touches candidate-controlled
+# values: the call, the output validation and the copy into harness-owned values. Any BaseException anywhere inside it
+# flags the guard FIRST, so it is a CONTRACT_FAIL (decision record, Contract row), never a COMPLETED run. Behind it,
+# the validators are total (they never raise), and a backstop refuses to call a run COMPLETED unless every crop was
+# scored with nothing flagged: anything PR-3 did not score without a harness flag is HARNESS_FAULT, never scored.
 # ``KeyboardInterrupt`` and ``SystemExit`` raised inside candidate code are recorded as CONTRACT_FAIL for that run and
-# then re-raised, so an operator interrupt or a process exit is honoured; the event cannot score without that run.
+# then re-raised, so an operator interrupt or a process exit is honoured. A later rerun of that run can still produce a
+# COMPLETED record: limiting reruns (N9: one, for a proven infrastructure fault with identical bytes and configuration)
+# is procedural and belongs to the event integration (decision record §6, disclosed residual).
 _UNPRINTABLE, _NON_STR = "<unprintable>", "<non-str>"
 _ABORTS = (KeyboardInterrupt, SystemExit)
 _TYPE_NAME = type.__dict__["__name__"]
@@ -417,25 +435,41 @@ def _exception_evidence(exc: BaseException) -> str:
     return f"{name}:{message[:160]}"
 
 
+_NO_OUTPUT = object()   # the boundary's "violation recorded, no usable output" result
+
+
+def _guarded(guard: _Guard, component: str, where: str, call: Callable[[], object],
+             validate: Callable[[object], str | None], copy: Callable[[object], object]) -> object:
+    """THE candidate boundary. ``call`` runs the candidate, ``validate`` checks its output (a violation is flagged and
+    ``_NO_OUTPUT`` returned), ``copy`` turns valid output into harness-owned values. Any BaseException raised in any of
+    the three flags the guard FIRST (``plate_<component>_<phase>@<where>:<evidence>``), then propagates."""
+    phase = "runtime_error"
+    try:
+        output = call()
+        phase = "output_unvalidatable"
+        violation = validate(output)
+        if violation is not None:
+            guard.flag(f"{violation}:{where}")
+            return _NO_OUTPUT
+        phase = "output_uncopyable"
+        return copy(output)
+    except BaseException as exc:  # noqa: BLE001 - flagged FIRST (a FAIL), then re-raised by the caller's rule
+        guard.flag(f"plate_{component}_{phase}@{where}:{_exception_evidence(exc)}")
+        raise
+
+
 class _CheckedDetector:
-    """Harness validator: records the first contract violation; PR-3 then sees ONE materialised copy of the output."""
+    """The candidate detector behind the boundary; PR-3 sees ONE harness-owned copy of valid output, else ``[]``."""
 
     def __init__(self, inner: PlateDetector, guard: _Guard, bound: int) -> None:
         self.inner, self.guard, self.bound = inner, guard, bound
 
     def detect(self, crop, verified: VerifiedCrop):
-        where = f"obs={verified.observation_id}"
-        try:
-            boxes = self.inner.detect(crop, verified)
-        except BaseException as exc:  # noqa: BLE001 - flagged FIRST (a FAIL), then re-raised for PR-3's own handling
-            self.guard.flag(f"plate_detector_runtime_error@{where}:{_exception_evidence(exc)}")
-            raise
-        width, height = crop.size
-        violation = detector_output_violation(boxes, width, height, self.bound)
-        if violation is not None:
-            self.guard.flag(f"{violation}:{where}")
-            return []
-        return list(boxes)
+        width, height = crop.size   # the harness-decoded image
+        out = _guarded(self.guard, "detector", f"obs={verified.observation_id}",
+                       lambda: self.inner.detect(crop, verified),
+                       lambda boxes: detector_output_violation(boxes, width, height, self.bound), list)
+        return [] if out is _NO_OUTPUT else out
 
 
 class _CheckedRecogniser:
@@ -443,17 +477,10 @@ class _CheckedRecogniser:
         self.inner, self.guard, self.bound = inner, guard, bound
 
     def read(self, region, verified: VerifiedCrop, box: PlateBox):
-        where = f"obs={verified.observation_id}"
-        try:
-            readings = self.inner.read(region, verified, box)
-        except BaseException as exc:  # noqa: BLE001 - flagged FIRST (a FAIL), then re-raised
-            self.guard.flag(f"plate_recogniser_runtime_error@{where}:{_exception_evidence(exc)}")
-            raise
-        violation = recogniser_output_violation(readings, self.bound)
-        if violation is not None:
-            self.guard.flag(f"{violation}:{where}")
-            return []
-        return list(readings)
+        out = _guarded(self.guard, "recogniser", f"obs={verified.observation_id}",
+                       lambda: self.inner.read(region, verified, box),
+                       lambda readings: recogniser_output_violation(readings, self.bound), list)
+        return [] if out is _NO_OUTPUT else out
 
 
 # ---------------------------------------------------------------------------------------------- execution envelopes
@@ -509,7 +536,7 @@ class TrackRun:
     detector: ComponentIdentity
     recogniser: ComponentIdentity
     parameters: PlateParameters
-    state: str                      # COMPLETED | CONTRACT_FAIL
+    state: str                      # COMPLETED | CONTRACT_FAIL | HARNESS_FAULT
     record: TrackRecord | None
     contract_violation: str | None
     result_id: str = ""
@@ -563,27 +590,39 @@ def _run_track(bundle, track_id, detector, recogniser, detector_identity, recogn
                                               _evidence(track.evidence), det, rec, parameters, run_state, record,
                                               violation))
 
+    def unaccounted(where: str, what: str):
+        return result(HARNESS_FAULT, None, f"harness_fault@{where}:{what}")
+
     records = []
     for ref, content, observation in zip(track.evidence, contents, observations):
         verified = VerifiedCrop(ref.observation_id, ref.role, ref.rank, ref.sha256, content)
+        where = f"obs={ref.observation_id}"
         try:
             record = analyse_crop(observation, verified, checked_detector, checked_recogniser, parameters)
-        except OutputInvalid as exc:
-            return result(CONTRACT_FAIL, None, guard.violation or _safe_text(lambda: str(exc)))
-        except BaseException as exc:  # a non-Exception candidate raise passes through PR-3's Exception handlers
-            if guard.violation is None:
-                raise   # not candidate-attributable: harness or infrastructure fault
-            failed = result(CONTRACT_FAIL, None, guard.violation)
+        except BaseException as exc:  # noqa: BLE001 - PR-3 raised (OutputInvalid) or a raise passed its handlers
+            if guard.violation is not None:
+                failed = result(CONTRACT_FAIL, None, guard.violation)
+            else:
+                failed = unaccounted(where, f"raised:{_exception_evidence(exc)}")
             if isinstance(exc, _ABORTS):
                 raise
             return failed
         if guard.violation is not None:
             return result(CONTRACT_FAIL, None, guard.violation)
+        if record.status != CROP_SCORED:
+            # Backstop (invariant 3): no PR-3 non-scored outcome — the abstentions decode_failed, detector_error,
+            # ocr_error, ocr_output_invalid, or an unavailability — can occur here without a harness flag, because the
+            # boundary hands PR-3 only verified bytes and valid, copied output. Reaching it means the boundary was
+            # bypassed: the run is unaccounted, never COMPLETED and never scored.
+            return unaccounted(where, f"crop_{record.status}:{record.reason}")
         records.append(record)
     try:
         summary = summarise_track(lease, tuple(records))
-    except OutputInvalid as exc:
-        return result(CONTRACT_FAIL, None, _safe_text(lambda: str(exc)))
+    except BaseException as exc:  # noqa: BLE001 - harness-owned records only: an unaccounted fault
+        failed = unaccounted("track", f"summary:{_exception_evidence(exc)}")
+        if isinstance(exc, _ABORTS):
+            raise
+        return failed
     return result(COMPLETED, summary, None)
 
 
@@ -634,18 +673,22 @@ def _run_detection(bundle, crop_id, detector, detector_identity, images) -> Dete
         return _register(_A_RUN, DetectionRun(state.ab.digest, crop.crop_id, _evidence((ref,))[0], det, floor,
                                               run_state, proposals, (width, height), violation))
 
+    guard, where = _Guard(), f"obs={ref.observation_id}"
     try:
-        boxes = detector.detect(image, verified)
-    except BaseException as exc:  # noqa: BLE001 - any candidate raise is a recorded FAIL (aborts re-raised after)
-        failed = result(CONTRACT_FAIL, (), f"plate_detector_runtime_error@obs={ref.observation_id}:"
-                                           f"{_exception_evidence(exc)}")
+        out = _guarded(guard, "detector", where, lambda: detector.detect(image, verified),
+                       lambda boxes: detector_output_violation(boxes, width, height, MAXIMUM_DETECTIONS_PER_CROP),
+                       lambda boxes: tuple((b.x, b.y, b.width, b.height, float(b.score)) for b in boxes))
+    except BaseException as exc:  # noqa: BLE001 - recorded, never leaked (aborts re-raised after recording)
+        if guard.violation is not None:
+            failed = result(CONTRACT_FAIL, (), guard.violation)
+        else:
+            failed = result(HARNESS_FAULT, (), f"harness_fault@{where}:raised:{_exception_evidence(exc)}")
         if isinstance(exc, _ABORTS):
             raise
         return failed
-    violation = detector_output_violation(boxes, width, height, MAXIMUM_DETECTIONS_PER_CROP)
-    if violation is not None:
-        return result(CONTRACT_FAIL, (), f"{violation}:obs={ref.observation_id}")
-    return result(COMPLETED, tuple((b.x, b.y, b.width, b.height, float(b.score)) for b in boxes), None)
+    if guard.violation is not None:
+        return result(CONTRACT_FAIL, (), guard.violation)
+    return result(COMPLETED, out, None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -696,18 +739,23 @@ def _run_reading(bundle, plate_id, recogniser, recogniser_identity, images) -> R
         return _register(_B_RUN, ReadRun(state.ab.digest, plate.plate_id, _evidence((ref,))[0], rec, run_state, record,
                                          violation))
 
+    guard, where = _Guard(), f"obs={ref.observation_id}"
+    whole = PlateBox(0, 0, image.size[0], image.size[1], 1.0)
     try:
-        readings = recogniser.read(image, verified, PlateBox(0, 0, image.size[0], image.size[1], 1.0))
-    except BaseException as exc:  # noqa: BLE001 - any candidate raise is a recorded FAIL (aborts re-raised after)
-        failed = result(CONTRACT_FAIL, None, f"plate_recogniser_runtime_error@obs={ref.observation_id}:"
-                                             f"{_exception_evidence(exc)}")
+        out = _guarded(guard, "recogniser", where, lambda: recogniser.read(image, verified, whole),
+                       lambda readings: recogniser_output_violation(readings, MAXIMUM_READINGS_PER_PLATE),
+                       lambda readings: _rank_plate(list(readings), ranking_parameters(0.0)))
+    except BaseException as exc:  # noqa: BLE001 - recorded, never leaked (aborts re-raised after recording)
+        if guard.violation is not None:
+            failed = result(CONTRACT_FAIL, None, guard.violation)
+        else:
+            failed = result(HARNESS_FAULT, None, f"harness_fault@{where}:raised:{_exception_evidence(exc)}")
         if isinstance(exc, _ABORTS):
             raise
         return failed
-    violation = recogniser_output_violation(readings, MAXIMUM_READINGS_PER_PLATE)
-    if violation is not None:
-        return result(CONTRACT_FAIL, None, f"{violation}:obs={ref.observation_id}")
-    return result(COMPLETED, _rank_plate(list(readings), ranking_parameters(0.0)), None)
+    if guard.violation is not None:
+        return result(CONTRACT_FAIL, None, guard.violation)
+    return result(COMPLETED, out, None)
 
 
 def _refloor(record: TrackRecord, floor: float) -> TrackRecord:
@@ -808,6 +856,8 @@ def _require_complete(runs: list, kind: str, id_of: Callable, expected_ids: Iter
     out: dict = {}
     for run in runs:
         stored = _lookup(kind, run, f"{code}_result_not_from_the_harness")
+        if getattr(stored, "state", None) == HARNESS_FAULT:
+            _fail(f"{code}_harness_fault_run_cannot_be_scored")   # unaccounted: rerun under N9, never scored
         if stored.partition_digest != digest:
             _fail(f"{code}_result_of_another_partition_or_bundle")
         key = id_of(stored)
