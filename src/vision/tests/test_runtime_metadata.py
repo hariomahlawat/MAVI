@@ -642,6 +642,31 @@ def test_the_plate_search_scale_workflow_is_informational_and_outside_the_qualit
     assert "budgetMilliseconds" not in harness.split('prefix = "plate-search-scale-ci-diagnostic";', 1)[1].split("else", 1)[0]
 
 
+def test_the_m3_git_diagnostic_is_its_own_informational_windows_workflow() -> None:
+    """MSR M3 (PR #220): the Windows Git trace diagnostic lives in a workflow of its own, so the Windows
+    qualification lane stays upload-free (test above). It is informational: not a Quality Gate lane, not part of
+    the `qualification tooling windows` aggregate, not a required check; bound to the exact head; it uploads Git
+    traces only, never under qualification-evidence/."""
+    import re
+
+    workflow = (_WORKFLOWS / "m3-git-diagnostic-windows.yml").read_text(encoding="utf-8")
+    assert "INFORMATIONAL DIAGNOSTIC ONLY" in workflow
+    blocks = _job_blocks(workflow)
+    assert set(blocks) == {"m3-git-diagnostic"}
+    block = blocks["m3-git-diagnostic"]
+    name = re.search(r"^    name: (.+)$", block, re.M).group(1)
+    assert "informational" in name and "not a gate" in name
+    assert "needs:" not in block and "runs-on: windows-latest" in block
+    assert "MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
+    assert "ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}" in block
+    assert "(git rev-parse HEAD).Trim()" in block and "-ne $env:MAVI_EXPECTED_SOURCE_SHA" in block
+    assert "qualification-evidence" not in workflow
+    uploads = block.split("uses: actions/upload-artifact@v4")[1:]
+    assert len(uploads) == 1 and "name: m3-git-diagnostic-${{ matrix.variant }}\n" in uploads[0]
+    for other in ("quality-gate.yml", "qualification-tooling-windows.yml"):
+        assert "m3-git-diagnostic" not in (_WORKFLOWS / other).read_text(encoding="utf-8"), other
+
+
 def test_task12_keeps_its_byte_reproducibility_build_serial() -> None:
     """Task 10 compiles MMCV in parallel (a tuning knob); Task 12's wheel
     reproducibility proof keeps MAX_JOBS=1."""

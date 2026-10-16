@@ -341,13 +341,21 @@ def decision(document, *, frozen=None, scores=None, licence=None, state="QUALIFI
 def commit_tree(repo: Path) -> Path:
     """Repository verification needs full Git history (MSR M3 invariant A6: the model-selection audit domain comes
     from one reachable-history walk). Commit a synthetic tree as one snapshot so the unchanged M1/M2 verdicts are
-    checked exactly as before. Returns ``repo``."""
+    checked exactly as before. Returns ``repo``.
+
+    ``core.longpaths=true`` (test-scoped): the S2c fixtures hold content-addressed names (a 163-character repository
+    path), which under a Windows runner's pytest temp directory exceed MAX_PATH; Git for Windows then refuses to index
+    them ("Filename too long", exit 128). Any Git failure is reported with its return code and stderr."""
     environment = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
                        GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
 
     def git(*args):
-        subprocess.run(["git", "-C", str(repo), "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", *args],
-                       capture_output=True, check=True, env=environment)
+        command = ["git", "-C", str(repo), "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false",
+                   "-c", "core.longpaths=true", *args]
+        completed = subprocess.run(command, capture_output=True, check=False, env=environment)
+        if completed.returncode != 0:
+            raise AssertionError(f"git {' '.join(args)} failed in {repo} (rc={completed.returncode}): "
+                                 f"{completed.stderr.decode('utf-8', 'replace').strip()}")
     if not (Path(repo) / ".git").exists():
         git("init", "-q")
     git("add", "-A")
