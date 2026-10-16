@@ -15,12 +15,15 @@ Normative text: ``proposals/m3-benchmark-only-baseline.md`` §3 rules 4a and 9 a
   (live anchor, D2). Every D manifest and decision records ``anchorCommit``, re-verified in repository mode (D3).
 
 Standard library only. Network access (the canonical GitHub repository and its API) is used only by
-``open_protected_d``, a Development-time qualification step; absence or uncertainty refuses (owner decision O8).
+``open_protected_d``, a Development-time qualification step; absence or uncertainty refuses (owner decision O8). The
+GitHub API is reached only through ``gh api`` pinned to ``github.com`` under a scrubbed environment (IP-5 I3); the
+only substitute is the test seam ``github_api_for_tests`` (no caller-injectable API parameter exists).
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -80,6 +83,7 @@ from .m3_git import (
     _git,
     _run,
     first_add_commit,
+    immutable_blob_matches,
     is_ancestor,
     model_selection_history,
     read_blobs,
@@ -362,8 +366,10 @@ def check_event_history(repo: Path, history: History, event_id: str, record_text
         frozen_kind = cls in ("frozen-ledger", "protocol")
         if policy == IMMUTABLE:
             if frozen_kind:
+                # content check (I2): the frozen ledger and protocol are compared LF-normalised with their HEAD blob
                 if history.rewrites.get(path) or history.deletes.get(path) or len(history.blobs.get(path, ())) != 1 \
-                        or work.strip():
+                        or work.strip() \
+                        or not immutable_blob_matches(repo, path, history.head_tree[path], lf_only=False):
                     raise _fail("m3_frozen_file_rewritten", f"{event_id}:{'frozen' if cls == 'frozen-ledger' else 'protocol'}")
                 continue
             if history.deletes.get(path):
@@ -373,6 +379,10 @@ def check_event_history(repo: Path, history: History, event_id: str, record_text
             if history.head_tree.get(path) not in history.blobs[path]:
                 raise _fail("baseline_artefact_deleted_in_history", path)
             if work[1:].strip() or work[0] in "MDRT":
+                raise _fail("baseline_artefact_rewritten_in_history", path)
+            # content check (I2): rankings, seals and D manifests are canonical JSON, LF-only by construction
+            if path in history.head_tree and not immutable_blob_matches(repo, path, history.head_tree[path],
+                                                                        lf_only=True):
                 raise _fail("baseline_artefact_rewritten_in_history", path)
             continue
         # VERSIONED, APPEND_LINES, DECISION: modified in place by later versions, never deleted once committed
@@ -597,15 +607,14 @@ def _load_seal(ctx: Context, bob_event: str, composition: str) -> dict | None:
     return seal
 
 
-def check_group_authority(ctx: Context, gid: str, *, mode: str,
-                          github_api: Callable[[str], object] | None = None) -> GroupAuthority:
+def check_group_authority(ctx: Context, gid: str, *, mode: str) -> GroupAuthority:
     """THE authority predicate of a composition group. Repository verification (``mode="repository"``) and the only
     pre-D entry point ``open_protected_d`` (``mode="pre_d"``) both call it, so D can never open on a state the
     repository check refuses. In order: full history (the context holds the walk); the member files; the identical
     universe, the one BOB and its partner, R1, the cited component rankings and the cited seal re-derived field for
     field (``derive_group_state``); A2-A4 for every member; chronology F ≺ R ≺ S0; D manifests, decisions,
-    supersession and abandonment; and, in ``pre_d`` mode only, clean RESOLVED state, the protected default branch (O2)
-    and the live anchor (D2)."""
+    supersession and abandonment; and, in ``pre_d`` mode only, clean RESOLVED state. The protected default branch (O2)
+    and the live anchor (D2) are then checked by ``open_protected_d`` itself."""
     if mode not in ("repository", "pre_d"):
         raise _fail("authority_mode_invalid", mode)
     cached = ctx.authorities.get(gid)
@@ -657,7 +666,7 @@ def check_group_authority(ctx: Context, gid: str, *, mode: str,
     _check_supersedes(ctx, authority)
     _check_stop_blocks_later_events(ctx, authority)
     if mode == "pre_d":
-        _check_pre_d(ctx, authority, github_api)
+        _check_pre_d(ctx, authority)
     return authority
 
 
@@ -947,11 +956,61 @@ def repository_group_authority(repo: Path, gid: str) -> GroupAuthority:
 # ------------------------------------------------------------------ O2: protected default branch
 
 
+GITHUB_HOST = "github.com"
+REQUIRED_STATUS_CHECK = {"context": "quality", "integration_id": 15368}  # GitHub Actions; job `quality`
+ALLOWED_MERGE_METHODS = ["merge"]
+# Inherited GH_*/GITHUB_* variables kept for ``gh``: the tokens only (they authenticate; the host is pinned and the
+# repository identity is verified, so a token cannot redirect anything). Every other GH_*/GITHUB_* variable is dropped
+# (GH_HOST, GH_REPO, GH_CONFIG_DIR, GH_ENTERPRISE_TOKEN, GITHUB_API_URL, GH_DEBUG, ...), as are custom TLS trust roots.
+_GH_KEPT = frozenset({"GH_TOKEN", "GITHUB_TOKEN"})
+_GH_DROPPED = frozenset({"SSL_CERT_FILE", "SSL_CERT_DIR"})
+_GH_FIXED = {"GH_HOST": GITHUB_HOST, "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1",
+             "GH_NO_EXTENSION_UPDATE_NOTIFIER": "1", "GH_SPINNER_DISABLED": "1"}
+_GH_API_PATH_RE = re.compile(rf"^repos/{re.escape(CANONICAL_REPOSITORY)}(?:/[A-Za-z0-9_.~-]+)*"
+                             r"(?:\?[A-Za-z0-9_=&-]+)?$")
+
+
+def gh_environment() -> dict[str, str]:
+    """The environment of every ``gh`` call (I3): inherited ``GH_*``/``GITHUB_*`` dropped except the tokens,
+    ``SSL_CERT_FILE``/``SSL_CERT_DIR`` dropped, ``GH_HOST=github.com``, no prompts, no update checks."""
+    environment = {k: v for k, v in os.environ.items()
+                   if not (k.upper().startswith(("GH_", "GITHUB_")) and k.upper() not in _GH_KEPT)
+                   and k.upper() not in _GH_DROPPED}
+    environment.update(_GH_FIXED)
+    return environment
+
+
+def _gh(args: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(["gh", *args], capture_output=True, check=False, env=gh_environment())
+
+
+def gh_preflight() -> None:
+    """Refuse a ``gh`` configuration that redirects its HTTP transport (``http_unix_socket``, globally or for
+    ``github.com``), read under the same scrubbed environment as the API calls. Any failure is unverifiable."""
+    for args in (["config", "get", "http_unix_socket"], ["config", "get", "--host", GITHUB_HOST, "http_unix_socket"]):
+        try:
+            completed = _gh(args)
+        except OSError as exc:
+            raise _fail("protected_default_branch_unverifiable", f"gh {' '.join(args)}: {exc}") from exc
+        if completed.returncode != 0:
+            raise _fail("protected_default_branch_unverifiable",
+                        f"gh {' '.join(args)}: rc={completed.returncode}: "
+                        f"{completed.stderr.decode('utf-8', 'replace')[-500:]}")
+        if completed.stdout.strip():
+            raise _fail("protected_default_branch_unverifiable", "gh_http_unix_socket_configured")
+
+
 def gh_api(path: str) -> object:
-    """``gh api <path>`` (read-only). Any failure raises ``protected_default_branch_unverifiable``."""
-    completed = subprocess.run(["gh", "api", "-H", "Accept: application/vnd.github+json", path],
-                               capture_output=True, check=False, env={**__import__("os").environ,
-                                                                       "GH_PROMPT_DISABLED": "1"})
+    """``gh api --hostname github.com --method GET <path>`` (read-only) for a path of the canonical repository only.
+    Any failure raises ``protected_default_branch_unverifiable``."""
+    if not isinstance(path, str) or not _GH_API_PATH_RE.match(path) or "/../" in f"/{path}/" or "/./" in f"/{path}/":
+        raise _fail("protected_default_branch_unverifiable", f"gh api path refused: {str(path)[:80]}")
+    try:
+        completed = subprocess.run(["gh", "api", "--hostname", GITHUB_HOST, "--method", "GET",
+                                    "-H", "Accept: application/vnd.github+json", path],
+                                   capture_output=True, check=False, env=gh_environment())
+    except OSError as exc:
+        raise _fail("protected_default_branch_unverifiable", f"gh api {path}: {exc}") from exc
     if completed.returncode != 0:
         raise _fail("protected_default_branch_unverifiable",
                     f"gh api {path}: rc={completed.returncode}: {completed.stderr.decode('utf-8', 'replace')[-500:]}")
@@ -961,16 +1020,76 @@ def gh_api(path: str) -> object:
         raise _fail("protected_default_branch_unverifiable", f"gh api {path}: not JSON") from exc
 
 
+_TEST_GITHUB_API: Callable[[str], object] | None = None
+
+
+def _github_api() -> Callable[[str], object]:
+    """The GitHub API client: ``gh_api``, or only under ``github_api_for_tests`` the installed fake."""
+    return gh_api if _TEST_GITHUB_API is None else _TEST_GITHUB_API
+
+
+@contextmanager
+def github_api_for_tests(api: Callable[[str], object]):
+    """TEST SEAM ONLY: stand a fake read-only GitHub API (``path -> parsed JSON``) in for ``gh_api`` (and skip the
+    ``gh`` configuration preflight, which belongs to the real client). Every predicate applied to the answers is
+    unchanged. Referenced only under ``tests`` (AST-checked); a harness using it is a review finding."""
+    global _TEST_GITHUB_API
+    previous, _TEST_GITHUB_API = _TEST_GITHUB_API, api
+    try:
+        yield
+    finally:
+        _TEST_GITHUB_API = previous
+
+
 _DEFAULT_BRANCH_PATTERNS = ("~DEFAULT_BRANCH", "~ALL", DEFAULT_BRANCH_REF)
 
 
-def verify_default_branch_protection(github_api: Callable[[str], object],
-                                     repository: str = CANONICAL_REPOSITORY) -> int:
-    """Owner decision O2: an ACTIVE branch ruleset covers the default branch with ``deletion`` and ``non_fast_forward``
-    and NO bypass actors, and GitHub reports both rules as applying to ``main``. Returns the ruleset id. Anything that
-    cannot be verified refuses (``protected_default_branch_unverifiable``); a verified absence refuses
-    (``protected_default_branch_unverified``)."""
+def _rule(rules: object, kind: str) -> dict | None:
+    found = [r for r in rules or () if isinstance(r, dict) and r.get("type") == kind]
+    return found[0] if len(found) == 1 else None
+
+
+def _ruleset_satisfies(detail: dict) -> bool:
+    """IP-5 I3/Q1: the one ruleset carries deletion, non_fast_forward, the required ``quality`` check of integration
+    15368 under the strict policy, and ``pull_request.allowed_merge_methods == ["merge"]`` (the ruleset's own merge
+    methods; the repository settings may still allow squash/rebase), with no bypass actor."""
+    rules = detail.get("rules")
+    types = {r.get("type") for r in rules or () if isinstance(r, dict)}
+    checks, pull = _rule(rules, "required_status_checks"), _rule(rules, "pull_request")
+    if not {"deletion", "non_fast_forward"} <= types or checks is None or pull is None:
+        return False
+    check_params, pull_params = checks.get("parameters") or {}, pull.get("parameters") or {}
+    required = check_params.get("required_status_checks")
+    has_quality = isinstance(required, list) and any(
+        isinstance(c, dict) and c.get("context") == REQUIRED_STATUS_CHECK["context"]
+        and type(c.get("integration_id")) is int and c.get("integration_id") == REQUIRED_STATUS_CHECK["integration_id"]
+        for c in required)
+    return has_quality and check_params.get("strict_required_status_checks_policy") is True \
+        and pull_params.get("allowed_merge_methods") == ALLOWED_MERGE_METHODS and detail.get("bypass_actors") == []
+
+
+def verify_default_branch_protection() -> int:
+    """Owner decision O2 with the IP-5 predicate. The canonical repository is ``hariomahlawat/MAVI`` on
+    ``github.com`` (``full_name`` and ``default_branch`` verified, so a renamed, transferred or redirected repository
+    refuses), and ONE active branch ruleset covers the default branch with ``deletion``, ``non_fast_forward``, the
+    required status check ``quality`` (integration 15368) with ``strict_required_status_checks_policy: true``, and
+    ``pull_request.allowed_merge_methods == ["merge"]``, with NO bypass actors; GitHub reports each of those four rules
+    of that ruleset as applying to ``main``. Returns the ruleset id. Anything that cannot be verified (including a
+    redirected ``gh`` transport or identity) refuses (``protected_default_branch_unverifiable``); a verified absence
+    refuses (``protected_default_branch_unverified``). The GitHub API is ``gh_api`` (after ``gh_preflight``) or, in
+    tests only, the ``github_api_for_tests`` fake; there is no parameter."""
+    repository = CANONICAL_REPOSITORY
+    production = _TEST_GITHUB_API is None
+    github_api = _github_api()
     try:
+        if production:
+            gh_preflight()
+        identity = github_api(f"repos/{repository}")
+        identity = identity if isinstance(identity, dict) else {}
+        if identity.get("full_name") != repository or identity.get("default_branch") != DEFAULT_BRANCH:
+            raise _fail("protected_default_branch_unverifiable",
+                        f"repository identity {str(identity.get('full_name'))[:60]}@"
+                        f"{str(identity.get('default_branch'))[:60]}")
         rulesets = github_api(f"repos/{repository}/rulesets?includes_parents=true")
         applied = github_api(f"repos/{repository}/rules/branches/{DEFAULT_BRANCH}")
         if not isinstance(rulesets, list) or not isinstance(applied, list):
@@ -978,7 +1097,7 @@ def verify_default_branch_protection(github_api: Callable[[str], object],
         applied_rules = {(r.get("type"), r.get("ruleset_id")) for r in applied if isinstance(r, dict)}
         for summary in rulesets:
             if not isinstance(summary, dict) or summary.get("enforcement") != "active" \
-                    or summary.get("target", "branch") != "branch" or not isinstance(summary.get("id"), int):
+                    or summary.get("target", "branch") != "branch" or type(summary.get("id")) is not int:
                 continue
             detail = github_api(f"repos/{repository}/rulesets/{summary['id']}")
             if not isinstance(detail, dict) or detail.get("enforcement") != "active":
@@ -987,9 +1106,9 @@ def verify_default_branch_protection(github_api: Callable[[str], object],
             include, exclude = ref_name.get("include") or [], ref_name.get("exclude") or []
             covers = any(p in _DEFAULT_BRANCH_PATTERNS for p in include) and \
                 not any(p in _DEFAULT_BRANCH_PATTERNS for p in exclude)
-            types = {r.get("type") for r in detail.get("rules") or () if isinstance(r, dict)}
-            if covers and {"deletion", "non_fast_forward"} <= types and detail.get("bypass_actors") == [] and \
-                    {("deletion", summary["id"]), ("non_fast_forward", summary["id"])} <= applied_rules:
+            wanted = {(t, summary["id"]) for t in ("deletion", "non_fast_forward", "pull_request",
+                                                   "required_status_checks")}
+            if covers and _ruleset_satisfies(detail) and wanted <= applied_rules:
                 return summary["id"]
     except CredibilityError:
         raise
@@ -1006,7 +1125,9 @@ def check_live_anchor(repo: Path, s0s: Iterable[str], paths: Iterable[str]) -> s
     tests only, ``canonical_for_tests``), queried and fetched from a fresh temporary directory under the isolated Git
     profile, so no repository ``url.*.insteadOf``/``pushInsteadOf``, credential, proxy or protocol setting can redirect
     it; the file transport is refused for the canonical check (``protocol.file.allow=never``) except under the test
-    seam, and ``ext::`` is always refused.
+    seam, and ``ext::`` is always refused. Both remote operations run INSIDE the fresh bare repository created here
+    (only its own, empty configuration applies), and its creation runs with ``GIT_CEILING_DIRECTORIES``, so a
+    temporary directory nested in another repository cannot pick up that repository's configuration (IP-5 I1).
 
     1. ``ls-remote --exit-code <canonical> refs/heads/main``: of the returned lines, exactly one has the EXACT ref
        ``refs/heads/main`` (a branch such as ``x/refs/heads/main`` is ignored; two exact lines refuse); its SHA is T.
@@ -1020,8 +1141,13 @@ def check_live_anchor(repo: Path, s0s: Iterable[str], paths: Iterable[str]) -> s
     transport = ("-c", f"protocol.file.allow={'always' if allow_local else 'never'}", "-c", "protocol.ext.allow=never")
     with tempfile.TemporaryDirectory(prefix="mavi-m3-anchor-") as scratch:
         scratch = Path(scratch)
+        canonical = scratch / "canonical.git"
+        init = _run(None, ("init", "-q", "--bare", str(canonical)), cwd=scratch)
+        if init.returncode != 0:
+            raise GitCommandError("git_command_failed", ("init", "--bare"), init.returncode,
+                                  init.stderr.decode("utf-8", "replace"))
         args = ("ls-remote", "--exit-code", url, DEFAULT_BRANCH_REF)
-        completed = _run(None, args, options=transport, cwd=scratch)
+        completed = _run(canonical, args, options=transport)
         if completed.returncode != 0:
             raise _fail("anchor_unavailable", f"ls-remote rc={completed.returncode}: "
                         f"{completed.stderr.decode('utf-8', 'replace').strip()[-500:]}")
@@ -1033,11 +1159,6 @@ def check_live_anchor(repo: Path, s0s: Iterable[str], paths: Iterable[str]) -> s
         if len(exact) != 1 or not IMMUTABLE_REVISION_RE.match(exact[0]):
             raise _fail("anchor_unavailable", f"ls-remote returned {len(exact)} exact {DEFAULT_BRANCH_REF} lines")
         tip = exact[0]
-        canonical = scratch / "canonical.git"
-        init = _run(None, ("init", "-q", "--bare", str(canonical)), cwd=scratch)
-        if init.returncode != 0:
-            raise GitCommandError("git_command_failed", ("init", "--bare"), init.returncode,
-                                  init.stderr.decode("utf-8", "replace"))
         fetched = _run(canonical, ("fetch", "--no-tags", "--quiet", url, f"+{DEFAULT_BRANCH_REF}:refs/mavi/canonical"),
                        options=transport)
         if fetched.returncode != 0:
@@ -1051,7 +1172,7 @@ def check_live_anchor(repo: Path, s0s: Iterable[str], paths: Iterable[str]) -> s
     if ref_commit_or_none(repo, tip) != tip or not is_ancestor(repo, tip, "HEAD"):
         raise _fail("anchor_not_in_head", tip[:12])
     paths = sorted(set(paths))
-    diff = _run(repo, ("diff", "--quiet", tip, "HEAD", "--", *paths))
+    diff = _run(repo, ("diff", "--quiet", "--no-ext-diff", "--no-textconv", tip, "HEAD", "--", *paths))
     if diff.returncode == 1:
         raise _fail("group_state_differs_from_anchor", tip[:12])
     if diff.returncode != 0 or diff.stderr.strip():
@@ -1095,8 +1216,7 @@ class DAuthorization:
     bob_event: str
 
 
-def _check_pre_d(ctx: Context, authority: GroupAuthority,
-                 github_api: Callable[[str], object] | None) -> None:
+def _check_pre_d(ctx: Context, authority: GroupAuthority) -> None:
     state = authority.state
     if state.seal is None:
         raise _fail("d_not_authorised", "baseline-seal-missing")
@@ -1110,29 +1230,28 @@ def _check_pre_d(ctx: Context, authority: GroupAuthority,
         raise _fail("d_not_authorised", f"superseded-by:{sorted(authority.superseded_by.values())[0]}")
     if state.s0 is None:
         raise _fail("d_not_authorised", "baseline-seal-not-committed")
-    if github_api is None:
-        raise _fail("d_not_authorised", "anchor-not-configured")
 
 
-def open_protected_d(repo: Path, group: str, *,
-                     github_api: Callable[[str], object] = gh_api) -> DAuthorization:
+def open_protected_d(repo: Path, group: str) -> DAuthorization:
     """THE pre-D gate. Call before reading any protected D data; record the returned anchor, seal hash, seal commit
     (S0) and U hash in every D manifest (``d_manifest_document``).
 
     ``group`` is the group id or the id of any member event. The whole repository must verify (the same predicate as
     ``validate_repository``, including every other group, supersession and the sticky audit), then for this group:
     every member file clean and committed, the one seal RESOLVED, U determinate, not abandoned or superseded; the
-    default branch protected by an active ruleset without bypass (O2); and the live anchor T on the canonical
-    repository (D2). Offline, or any doubt, refuses."""
+    canonical repository's identity and its default branch protected by the ruleset predicate
+    (``verify_default_branch_protection``: O2 plus the required ``quality`` check and merge-only, IP-5 I3/Q1); and the
+    live anchor T on the canonical repository (D2). There is no API parameter: the GitHub API is ``gh_api`` (or, in
+    tests only, ``github_api_for_tests``). Offline, or any doubt, refuses."""
     from .credibility import _validate_repository
     repo = Path(repo)
     _checked, ctx = _validate_repository(repo)
     gid = group if SHA256_RE.match(group) else _group_of_event(ctx, group)
     if gid is None or gid not in ctx.authorities:
         raise _fail("composition_group_unknown", str(group)[:24])
-    authority = check_group_authority(ctx, gid, mode="pre_d", github_api=github_api)
+    authority = check_group_authority(ctx, gid, mode="pre_d")
     state = authority.state
-    verify_default_branch_protection(github_api)
+    verify_default_branch_protection()
     folders = sorted({event_paths(e)["folder"] for e in authority.members})
     anchor = check_live_anchor(repo, [state.s0], folders)
     seal = state.seal

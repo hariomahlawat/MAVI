@@ -1321,22 +1321,41 @@ def publish(built: Built) -> str:
     return built.remote
 
 
+REQUIRED_CHECKS = (("Task 10 qualification", 15368), ("quality", 15368))
+
+
 def protected_api(*, enforcement="active", include=("~DEFAULT_BRANCH",), exclude=(),
-                  rules=("deletion", "non_fast_forward"), bypass=(), applied=True, fail=None):
+                  rules=("deletion", "non_fast_forward", "pull_request", "required_status_checks"), bypass=(),
+                  applied=True, fail=None, checks=REQUIRED_CHECKS, strict=True, merge_methods=("merge",),
+                  identity=("hariomahlawat/MAVI", "main"), applied_rules=None):
+    """A fake GitHub API shaped like the live ruleset 23662752 (read-only ``gh api`` 2026-10-17)."""
     calls = []
+    parameters = {
+        "pull_request": {"required_approving_review_count": 0, "required_review_thread_resolution": True,
+                         **({} if merge_methods is None else {"allowed_merge_methods": list(merge_methods)})},
+        "required_status_checks": {"strict_required_status_checks_policy": strict, "do_not_enforce_on_create": False,
+                                   "required_status_checks": [{"context": c, "integration_id": i} for c, i in checks]},
+    }
+
+    def rule(t):
+        return {"type": t, **({"parameters": copy.deepcopy(parameters[t])} if t in parameters else {})}
 
     def api(path):
         calls.append(path)
         if fail is not None and fail in path:
             raise CredibilityError("protected_default_branch_unverifiable:simulated API failure")
+        if path == "repos/hariomahlawat/MAVI":
+            return {"full_name": identity[0], "default_branch": identity[1], "id": 1}
         if path.endswith("rulesets?includes_parents=true"):
             return [{"id": 7, "enforcement": enforcement, "target": "branch"}]
         if path.endswith("rules/branches/main"):
-            return [{"type": t, "ruleset_id": 7} for t in rules] if applied else []
+            if not applied:
+                return []
+            return [{**rule(t), "ruleset_id": 7} for t in (rules if applied_rules is None else applied_rules)]
         if path.endswith("rulesets/7"):
             return {"id": 7, "enforcement": enforcement, "target": "branch",
                     "conditions": {"ref_name": {"include": list(include), "exclude": list(exclude)}},
-                    "rules": [{"type": t} for t in rules], "bypass_actors": list(bypass)}
+                    "rules": [rule(t) for t in rules], "bypass_actors": list(bypass)}
         raise AssertionError(f"unexpected API path {path}")
     api.calls = calls
     return api
@@ -1344,8 +1363,9 @@ def protected_api(*, enforcement="active", include=("~DEFAULT_BRANCH",), exclude
 
 def open_d(built: Built, *, remote=None, api=None):
     """open_protected_d with a local bare repository standing in for the canonical one (the explicit test seam)."""
-    with ma.canonical_for_tests(remote or built.remote or publish(built)):
-        return ma.open_protected_d(built.path, EVENT, github_api=api or protected_api())
+    with ma.canonical_for_tests(remote or built.remote or publish(built)), \
+            ma.github_api_for_tests(api or protected_api()):
+        return ma.open_protected_d(built.path, EVENT)
 
 
 def commit_d(built: Built, auth, run="RUN-1") -> Path:
@@ -1873,24 +1893,28 @@ def test_probe_repo_c1_main_rewrite_is_blocked_by_the_ruleset_check(tmp_path):
                       (protected_api(applied=False), "protected_default_branch_unverified"),
                       (protected_api(fail="rulesets"), "protected_default_branch_unverifiable")):
         refused(code, open_d, built, api=api)
-    assert ma.verify_default_branch_protection(protected_api(include=("refs/heads/main",))) == 7
+    assert verify_protection(protected_api(include=("refs/heads/main",))) == 7
+
+
+def verify_protection(api):
+    with ma.github_api_for_tests(api):
+        return ma.verify_default_branch_protection()
 
 
 def test_ruleset_api_shape_errors_fail_closed():
-    refused("protected_default_branch_unverifiable", ma.verify_default_branch_protection,
-            lambda path: {"message": "x"})
+    refused("protected_default_branch_unverifiable", verify_protection, lambda path: {"message": "x"})
 
     def raises(path):
         raise OSError("gh not installed")
-    refused("protected_default_branch_unverifiable", ma.verify_default_branch_protection, raises)
+    refused("protected_default_branch_unverifiable", verify_protection, raises)
     base = protected_api()
 
     def no_bypass_field(path):
         detail = base(path)
         if isinstance(detail, dict):
-            detail.pop("bypass_actors")
+            detail.pop("bypass_actors", None)
         return detail
-    refused("protected_default_branch_unverified", ma.verify_default_branch_protection, no_bypass_field)
+    refused("protected_default_branch_unverified", verify_protection, no_bypass_field)
 
 
 # ---- A6 / clarification 4: Git errors are classified refusals, never verdicts
@@ -2114,8 +2138,8 @@ HISTORY_ATTACKS = {
 def test_gate_and_repository_refuse_every_history_attack(tmp_path, attack):
     built = HISTORY_ATTACKS[attack](tmp_path)
     repository = code_of(validate_repository, built.path)
-    with ma.canonical_for_tests(str(tmp_path / "unused.git")):
-        gate = code_of(ma.open_protected_d, built.path, EVENT, github_api=protected_api())
+    with ma.canonical_for_tests(str(tmp_path / "unused.git")), ma.github_api_for_tests(protected_api()):
+        gate = code_of(ma.open_protected_d, built.path, EVENT)
     assert repository != "accepted" and gate != "accepted", (attack, repository, gate)
     assert repository == gate, (attack, repository, gate)  # the gate runs the repository predicate first
 
@@ -2410,8 +2434,8 @@ def test_p2_2_the_production_check_refuses_the_file_transport(tmp_path, monkeypa
     built = build(tmp_path / "r")
     local = publish(built)
     monkeypatch.setattr(ma, "_canonical", lambda: (local, False))  # a local path standing in for the canonical URL
-    with pytest.raises(CredibilityError) as error:
-        ma.open_protected_d(built.path, EVENT, github_api=protected_api())
+    with pytest.raises(CredibilityError) as error, ma.github_api_for_tests(protected_api()):
+        ma.open_protected_d(built.path, EVENT)
     assert str(error.value).startswith("anchor_unavailable") and "rc=" in str(error.value)
 
 
@@ -2598,3 +2622,365 @@ def test_p3_d_duplicate_or_missing_exact_ref_lines_refuse(tmp_path, monkeypatch)
             return original(repo, args, data, **kwargs)
         monkeypatch.setattr(ma, "_run", fake)
         refused("anchor_unavailable", open_d, built, remote=remote)
+
+
+
+# ================================================================== IP-5: M3 Git, gh and ruleset hardening
+# Plan rev 4 §4.13 (I1-I4), §10.1 (Q1, A4). The synthetic probes of the #220 convergence review
+# (``probe_git_residuals.py``) are permanent tests here; W1 is in test_trusted_tree.py.
+
+
+def _nested_parent_with_insteadof(tmp_path, target_url: str, redirect_to: str) -> Path:
+    """A parent repository whose local config rewrites ``target_url``; the returned directory is nested inside it."""
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    git(parent, "init", "-q")
+    git(parent, "config", f"url.{redirect_to}.insteadOf", target_url)
+    nested = parent / "scratch"
+    nested.mkdir()
+    return nested
+
+
+def test_ip5_i1_probe_parent_repository_config_is_invisible_to_repository_less_git(tmp_path):
+    """Probe (1): Git run with ``repo=None`` from a directory nested in another repository must not discover it."""
+    nested = _nested_parent_with_insteadof(tmp_path, "https://github.com/", "file:///nonexistent-redirect/")
+    completed = mg._run(None, ("config", "--get-regexp", r"url\..*"), cwd=nested)
+    assert completed.returncode == 1 and completed.stdout == b"", completed.stdout
+
+
+def test_ip5_i1_nested_scratch_with_insteadof_still_anchors_on_the_true_tip(tmp_path, monkeypatch):
+    """The anchor's temporary directory nested in a repository whose config rewrites the canonical URL to a fake:
+    ``ls-remote`` must still advertise the TRUE canonical tip (no refusal, no redirection)."""
+    built = build(tmp_path / "r")
+    canonical = publish(built)
+    fake = tmp_path / "fake.git"
+    git(tmp_path, "init", "-q", "--bare", str(fake))
+    git(built.path, "push", "-q", str(fake), f"{built.commits['F']}:refs/heads/main")
+    nested = _nested_parent_with_insteadof(tmp_path, Path(canonical).as_uri(), fake.as_uri())
+    monkeypatch.setattr(ma.tempfile, "tempdir", str(nested))
+    auth = open_d(built, remote=Path(canonical).as_uri())
+    assert auth.anchor_commit == built.commits["S0"]
+
+
+def test_ip5_i1_repository_less_git_requires_an_explicit_working_directory():
+    with pytest.raises(ValueError):
+        mg._run(None, ("version",))
+
+
+def _small_repo(tmp_path):
+    repo = tmp_path / "filt"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    write(repo / "a.json", '{"v":1}\n')
+    commit(repo, "c")
+    return repo
+
+
+@pytest.mark.parametrize("attribute", ["filter=hide", "ident", "working-tree-encoding=UTF-16"])
+@pytest.mark.parametrize("where", ["info-attributes", "gitattributes"])
+def test_ip5_i2_probe_status_altering_attributes_are_refused(tmp_path, attribute, where):
+    """Probe (2a): a repository-local clean filter (or ident / encoding) can make an edited file look clean."""
+    repo = _small_repo(tmp_path)
+    git(repo, "config", "filter.hide.clean", "git show HEAD:a.json")
+    if where == "info-attributes":
+        write(repo / ".git" / "info" / "attributes", f"a.json {attribute}\n")
+    else:
+        write(repo / ".gitattributes", f"a.json {attribute}\n")
+        git(repo, "add", ".gitattributes")
+        git(repo, "commit", "-q", "-m", "attributes")
+    write(repo / "a.json", '{"v":2}\n')
+    with pytest.raises(CredibilityError) as error:
+        mg.worktree_status(repo, ["a.json"])
+    assert str(error.value).startswith("worktree_attribute_hides_changes:a.json:"), str(error.value)
+
+
+def test_ip5_i2_probe_ignored_files_are_reported_as_dirty(tmp_path):
+    """Probe (2b): ``info/exclude`` (or any ignore rule) hid an untracked file from ``worktree_status``."""
+    repo = _small_repo(tmp_path)
+    write(repo / ".git" / "info" / "exclude", "extra.json\n")
+    write(repo / "extra.json", "{}\n")
+    assert mg.worktree_status(repo, ["extra.json"]) == {"extra.json": "!!"}
+    assert mg.worktree_status(repo, ["a.json"]) == {}
+
+
+def test_ip5_i2_an_ignored_file_in_a_group_folder_keeps_d_closed(tmp_path):
+    built = build(tmp_path / "r")
+    publish(built)
+    write(built.path / ".git" / "info" / "exclude", "scratch-notes.txt\n")
+    write(built.folder / "scratch-notes.txt", "an ignored, uncommitted file in a group folder")
+    validate_repository(built.path)  # the repository check does not look at untracked files
+    refused("group_state_not_clean", open_d, built)
+
+
+def test_ip5_i2_a_clean_filter_on_an_m3_artefact_is_refused_by_repository_and_gate(tmp_path):
+    built = build(tmp_path / "r")
+    publish(built)
+    rel = built.seal_path().relative_to(built.path).as_posix()
+    git(built.path, "config", "filter.hide.clean", f"git show HEAD:{rel}")
+    write(built.path / ".git" / "info" / "attributes", "*.json filter=hide\n")
+    tampered = copy.deepcopy(built.seal)
+    tampered["stopReason"] = "tampered"
+    ma.write_canonical(built.seal_path(), tampered)
+    refused("worktree_attribute_hides_changes", validate_repository, built.path)
+    refused("worktree_attribute_hides_changes", open_d, built)
+
+
+def _stat_preserving_edit(path: Path, data: bytes) -> None:
+    """Replace a file's bytes with a same-size edit and restore its mtime: Git's stat cache then trusts the index (on
+    Windows ctime is the creation time, so ``git status`` reports the file clean; reproduced on this host)."""
+    before = path.stat()
+    assert len(data) == before.st_size
+    path.write_bytes(data)
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+
+def _same_size_variant(data: bytes) -> bytes:
+    index = data.index(b"0")  # a digit inside a hash or a date: same size, still parseable
+    return data[:index] + b"1" + data[index + 1:]
+
+
+@pytest.mark.parametrize("kind", ["seal", "ranking", "frozen"])
+def test_ip5_i2_a_status_blind_edit_of_an_immutable_file_is_caught_by_the_content_check(tmp_path, kind, monkeypatch):
+    """Any status blind spot (simulated) leaves the content check. A protocol edit is not listed: its LF hash is cited
+    by the record, so ``check_event_files`` refuses it first (the content check is then defence in depth)."""
+    built = build(tmp_path / "r")
+    path = {"seal": built.seal_path(), "ranking": built.folder / f"{EVENT}{bs.RANKING_SUFFIX}",
+            "frozen": built.folder / f"{EVENT}-evidence-ledger-frozen.json"}[kind]
+    data = path.read_bytes()
+    path.write_bytes(data + b" " if kind == "frozen" else _same_size_variant(data))  # same document / same size
+    monkeypatch.setattr(ma, "worktree_status", lambda repo, paths: {})
+    code = "m3_frozen_file_rewritten" if kind == "frozen" else "baseline_artefact_rewritten_in_history"
+    assert code_of(validate_repository, built.path) == code
+
+
+def test_ip5_i2_a_same_size_mtime_preserving_edit_is_refused_without_simulation(tmp_path):
+    built = build(tmp_path / "r")
+    old = 1_600_000_000_000_000_000  # an mtime well before the index write, so the entry is not "racily clean"
+    os.utime(built.seal_path(), ns=(old, old))
+    git(built.path, "update-index", "--refresh")
+    _stat_preserving_edit(built.seal_path(), _same_size_variant(built.seal_path().read_bytes()))
+    if os.name == "nt":  # the reproduction: Git's own status is blind to this edit on Windows
+        rel = built.seal_path().relative_to(built.path).as_posix()
+        assert git(built.path, "status", "--porcelain", "--", rel) == ""
+    refused("baseline_artefact_rewritten_in_history", validate_repository, built.path)
+
+
+def test_ip5_i2_a_crlf_checkout_is_accepted(tmp_path):
+    """A normal Windows checkout (``core.autocrlf=true``) of an LF-only group verifies and opens D unchanged."""
+    built = build(tmp_path / "r")
+    publish(built)
+    git(built.path, "config", "core.autocrlf", "true")
+    for path in list(built.folder.parent.rglob("*")):
+        if path.is_file():
+            path.unlink()
+    git(built.path, "-c", "core.autocrlf=true", "checkout", "-q", "--", ".")  # the helper pins autocrlf=false
+    assert b"\r\n" in built.record().read_bytes() and b"\r\n" in built.seal_path().read_bytes()
+    validate_repository(built.path)
+    assert open_d(built).anchor_commit == built.commits["S0"]
+
+
+@pytest.mark.parametrize("lf_only", [True, False])
+def test_ip5_i2_immutable_blob_matches_is_generic_and_path_independent(tmp_path, lf_only):
+    repo = tmp_path / "g"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    for rel in ("any/where/record.json", "other.md"):
+        write(repo / rel, '{"a":1}\n')
+    commit(repo, "c")
+    crlf = '{"a":1}\r\n'.encode("ascii")
+    for rel in ("any/where/record.json", "other.md"):
+        blob = git(repo, "rev-parse", f"HEAD:{rel}")
+        assert mg.immutable_blob_matches(repo, rel, blob, lf_only=lf_only)
+        (repo / rel).write_bytes(crlf)  # a CRLF checkout of an LF blob
+        assert mg.immutable_blob_matches(repo, rel, blob, lf_only=lf_only)
+        (repo / rel).write_bytes(b'{"a":2}\n')
+        assert not mg.immutable_blob_matches(repo, rel, blob, lf_only=lf_only)
+        (repo / rel).unlink()
+        assert not mg.immutable_blob_matches(repo, rel, blob, lf_only=lf_only)
+
+
+def test_ip5_i2_an_lf_only_class_with_a_crlf_blob_fails_closed(tmp_path):
+    """The LF-only assumption is stated: a committed CRLF blob never matches its own work-tree copy as LF-only."""
+    repo = tmp_path / "g"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    (repo / "x.json").write_bytes('{"a":1}\r\n'.encode("ascii"))
+    commit(repo, "c")
+    blob = git(repo, "rev-parse", "HEAD:x.json")
+    assert not mg.immutable_blob_matches(repo, "x.json", blob, lf_only=True)
+    assert mg.immutable_blob_matches(repo, "x.json", blob, lf_only=False)
+
+
+# ---- I3: gh environment, host identity, repository identity
+
+
+def test_ip5_i3_open_protected_d_and_the_ruleset_check_take_no_api_parameter(tmp_path):
+    built = build(tmp_path / "r")
+    with pytest.raises(TypeError):
+        ma.open_protected_d(built.path, EVENT, github_api=protected_api())
+    with pytest.raises(TypeError):
+        ma.verify_default_branch_protection(protected_api())
+    with pytest.raises(TypeError):
+        ma.check_group_authority(None, "g", mode="pre_d", github_api=protected_api())
+
+
+def test_ip5_i3_the_test_seam_is_scoped_and_restored():
+    api = protected_api()
+    assert ma._github_api() is ma.gh_api
+    with ma.github_api_for_tests(api):
+        assert ma._github_api() is api
+        assert ma.verify_default_branch_protection() == 7
+    assert ma._github_api() is ma.gh_api
+
+
+def test_ip5_i3_gh_environment_is_scrubbed_and_pinned(monkeypatch):
+    for name, value in (("GH_HOST", "evil.example"), ("GH_CONFIG_DIR", "/tmp/evil"), ("GH_REPO", "evil/x"),
+                        ("GH_ENTERPRISE_TOKEN", "e"), ("GITHUB_ENTERPRISE_TOKEN", "e"), ("GITHUB_API_URL", "http://x"),
+                        ("GH_DEBUG", "api"), ("GH_PATH", "/tmp/gh"), ("GH_TOKEN", "t1"), ("GITHUB_TOKEN", "t2"),
+                        ("SSL_CERT_FILE", "/tmp/ca.pem"), ("SSL_CERT_DIR", "/tmp/ca")):
+        monkeypatch.setenv(name, value)
+    environment = ma.gh_environment()
+    assert environment["GH_HOST"] == "github.com" and environment["GH_PROMPT_DISABLED"] == "1"
+    assert environment["GH_TOKEN"] == "t1" and environment["GITHUB_TOKEN"] == "t2"
+    kept = {k.upper() for k in environment if k.upper().startswith(("GH_", "GITHUB_"))}
+    assert kept <= {"GH_HOST", "GH_TOKEN", "GITHUB_TOKEN", "GH_PROMPT_DISABLED", "GH_NO_UPDATE_NOTIFIER",
+                    "GH_NO_EXTENSION_UPDATE_NOTIFIER", "GH_SPINNER_DISABLED"}, kept
+    assert not {"SSL_CERT_FILE", "SSL_CERT_DIR"} & {k.upper() for k in environment}
+
+
+def test_ip5_i3_gh_api_pins_the_host_and_the_repository(monkeypatch):
+    seen = []
+
+    def fake_run(argv, **kwargs):
+        seen.append((argv, kwargs.get("env")))
+        return subprocess.CompletedProcess(argv, 0, b"{}", b"")
+    monkeypatch.setattr(ma.subprocess, "run", fake_run)
+    assert ma.gh_api("repos/hariomahlawat/MAVI/rulesets/1") == {}
+    argv, environment = seen[-1]
+    assert argv[:4] == ["gh", "api", "--hostname", "github.com"] and "--method" in argv and "GET" in argv
+    assert argv[-1] == "repos/hariomahlawat/MAVI/rulesets/1" and environment["GH_HOST"] == "github.com"
+    for path in ("repos/evil/MAVI", "https://evil.example/repos/hariomahlawat/MAVI", "/repos/hariomahlawat/MAVI",
+                 "repos/hariomahlawat/MAVI-other", "graphql", "repos/hariomahlawat/MAVI/../evil",
+                 "repos/hariomahlawat/MAVI/x y"):
+        refused("protected_default_branch_unverifiable", ma.gh_api, path)
+
+
+@pytest.mark.parametrize("scope", ["global", "host"])
+def test_ip5_i3_a_gh_unix_socket_configuration_is_refused(tmp_path, monkeypatch, scope):
+    if shutil.which("gh") is None:
+        pytest.skip("the GitHub CLI is not installed on this host")
+    config = tmp_path / "xdg" / "gh"
+    config.mkdir(parents=True)
+    if scope == "global":
+        (config / "config.yml").write_text("http_unix_socket: /tmp/mavi-evil.sock\n")
+    else:
+        (config / "config.yml").write_text("hosts:\n  github.com:\n    http_unix_socket: /tmp/mavi-evil.sock\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "ignored"))  # dropped by the scrub
+    refused("protected_default_branch_unverifiable", ma.gh_preflight)
+
+
+def test_ip5_i3_gh_preflight_accepts_a_configuration_without_a_socket(tmp_path, monkeypatch):
+    if shutil.which("gh") is None:
+        pytest.skip("the GitHub CLI is not installed on this host")
+    (tmp_path / "xdg" / "gh").mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    ma.gh_preflight()
+
+
+def test_ip5_i3_the_production_client_runs_the_preflight_before_any_api_call(monkeypatch):
+    order = []
+    fake = protected_api()
+    monkeypatch.setattr(ma, "gh_preflight", lambda: order.append("preflight"))
+    monkeypatch.setattr(ma, "gh_api", lambda path: order.append(path) or fake(path))
+    assert ma.verify_default_branch_protection() == 7
+    assert order[0] == "preflight" and order[1] == "repos/hariomahlawat/MAVI"
+
+
+@pytest.mark.parametrize("identity", [("hariomahlawat/MAVI-fork", "main"), ("evil/MAVI", "main"),
+                                      ("hariomahlawat/mavi", "main"), ("hariomahlawat/MAVI", "master")])
+def test_ip5_i3_a_redirected_repository_identity_is_refused(identity):
+    refused("protected_default_branch_unverifiable", verify_protection, protected_api(identity=identity))
+
+
+# ---- Q1: required `quality` check (integration 15368, strict) and merge-only protection
+
+
+def test_ip5_q1_the_live_ruleset_shape_is_accepted():
+    assert verify_protection(protected_api()) == 7
+    assert verify_protection(protected_api(checks=(("quality", 15368),))) == 7
+
+
+@pytest.mark.parametrize("changes", [
+    {"checks": (("Task 10 qualification", 15368),)},
+    {"checks": (("quality", 99999), ("Task 10 qualification", 15368))},
+    {"checks": (("quality", None),)},
+    {"checks": (("Quality", 15368),)},
+    {"strict": False},
+    {"strict": None},
+    {"merge_methods": ("merge", "squash")},
+    {"merge_methods": ("squash",)},
+    {"merge_methods": ("merge", "rebase")},
+    {"merge_methods": ()},
+    {"merge_methods": None},
+    {"rules": ("deletion", "non_fast_forward", "pull_request")},
+    {"rules": ("deletion", "non_fast_forward", "required_status_checks")},
+    {"applied_rules": ("deletion", "non_fast_forward", "pull_request")},
+    {"applied_rules": ("deletion", "non_fast_forward", "required_status_checks")},
+])
+def test_ip5_q1_a_ruleset_without_the_required_check_or_merge_only_is_refused(changes):
+    refused("protected_default_branch_unverified", verify_protection, protected_api(**changes))
+
+
+def test_ip5_q1_the_gate_applies_the_predicate(tmp_path):
+    built = build(tmp_path / "r")
+    refused("protected_default_branch_unverified", open_d, built, api=protected_api(merge_methods=("merge", "squash")))
+    refused("protected_default_branch_unverified", open_d, built, api=protected_api(strict=False))
+
+
+# ---- I4: the line-ending carry-over ignores injected configuration
+
+
+def test_ip5_i4_injected_line_ending_configuration_is_inert(tmp_path, monkeypatch):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    git(repo, "config", "core.autocrlf", "false")
+    git(repo, "config", "core.eol", "lf")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "2")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.autocrlf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
+    monkeypatch.setenv("GIT_CONFIG_KEY_1", "core.eol")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_1", "crlf")
+    monkeypatch.setenv("GIT_CONFIG_PARAMETERS", "'core.eol'='crlf'")
+    assert mg.line_ending_options(repo) == ("-c", "core.autocrlf=false", "-c", "core.eol=lf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "bogus")  # an injected invalid value is not even read
+    assert mg.line_ending_options(repo) == ("-c", "core.autocrlf=false", "-c", "core.eol=lf")
+
+
+# ---- seams: the test-only entry points are referenced only under tests (AST scan)
+
+
+def test_ip5_test_seams_are_referenced_only_under_tests():
+    import ast
+    repo = Path(__file__).resolve().parents[3]
+    seams = {"canonical_for_tests", "github_api_for_tests", "_TEST_CANONICAL", "_TEST_GITHUB_API"}
+    defining = (repo / "tools" / "qualification" / "model_selection" / "m3_authority.py").resolve()
+    listed = subprocess.run(["git", "-C", str(repo), "ls-files", "-z", "--", "*.py"], capture_output=True, check=True)
+    offenders = []
+    for rel in listed.stdout.decode("utf-8").split("\0"):
+        path = repo / rel
+        if not rel or "tests" in Path(rel).parts or not path.is_file() or path.resolve() == defining:
+            continue
+        for node in ast.walk(ast.parse(path.read_bytes(), filename=rel)):
+            if isinstance(node, ast.Name):
+                name = node.id
+            elif isinstance(node, ast.Attribute):
+                name = node.attr
+            elif isinstance(node, ast.alias):
+                name = node.name.rsplit(".", 1)[-1]
+            else:
+                continue
+            if name in seams:
+                offenders.append(f"{rel}:{getattr(node, 'lineno', 0)}:{name}")
+    assert offenders == [], offenders

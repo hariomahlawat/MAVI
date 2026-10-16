@@ -8,9 +8,17 @@ can redirect the repository, the object store, the configuration (``GIT_CONFIG_C
 ``core.longpaths=true`` (Windows MAX_PATH), no fsmonitor or untracked cache, no colour, no signature display, no path
 quoting and no relative diffs. ``GIT_NO_REPLACE_OBJECTS=1``, ``GIT_TERMINAL_PROMPT=0``, ``LC_ALL=C`` and
 ``GIT_OPTIONAL_LOCKS=0`` are set. The repository's own ``.git/config`` still applies to repository-local commands; the
-canonical-remote check therefore never runs inside the repository (``m3_authority.check_live_anchor``). The one
-explicit carry-over is line-ending normalisation for work-tree status (``core.autocrlf``/``core.eol``, validated), so a
-normal Windows checkout is not misread as modified.
+canonical-remote check therefore never runs inside the repository (``m3_authority.check_live_anchor`` runs it inside a
+fresh bare repository it creates), and a repository-less call (``repo=None``) must name its working directory and runs
+with ``GIT_CEILING_DIRECTORIES`` at that directory's parent, so no enclosing repository (and none of its
+``url.*.insteadOf`` or other configuration) is ever discovered (IP-5 I1). The one explicit carry-over is line-ending
+normalisation for work-tree status (``core.autocrlf``/``core.eol``, validated, read without any injected
+``GIT_CONFIG_*``; IP-5 I4), so a normal Windows checkout is not misread as modified.
+
+Work-tree cleanliness (``worktree_status``) is complete and fail closed (IP-5 I2): ignored files are reported (``!!``)
+and count as dirty; a ``filter``, ``ident`` or ``working-tree-encoding`` attribute on a checked path (from any
+attributes source) refuses before ``git status`` runs (no clean filter is ever executed); and an immutable file can be
+checked against its committed blob by content (``immutable_blob_matches``), which Git's stat cache cannot hide.
 
 A non-zero exit raises ``GitCommandError`` (code ``git_command_failed``) carrying the arguments, the return code and
 the tail of stderr. It is a ``CredibilityError``, so it is always a refusal, and it is never mapped by a caller to
@@ -29,6 +37,7 @@ Standard library only.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 from collections.abc import Iterable
@@ -46,6 +55,11 @@ ISOLATION_OPTIONS = ("-c", "core.longpaths=true", "-c", "core.fsmonitor=false", 
                      "-c", "color.ui=never", "-c", "log.showSignature=false", "-c", "core.quotePath=false",
                      "-c", "diff.relative=false", "-c", "core.safecrlf=false")
 _LINE_ENDING_VALUES = {"core.autocrlf": ("true", "false", "input"), "core.eol": ("lf", "crlf", "native")}
+# The only inherited GIT_* variables the line-ending read keeps: they locate the user's ordinary configuration files.
+_LINE_ENDING_KEPT = frozenset({"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM"})
+# Attributes that make ``git status`` compare a transformed work-tree file (a clean filter, keyword expansion or a
+# re-encoding) and can therefore hide an edit; on a checked path each must be unspecified (or explicitly unset).
+STATUS_ALTERING_ATTRIBUTES = ("filter", "ident", "working-tree-encoding")
 STDERR_TAIL = 2000
 
 
@@ -68,10 +82,21 @@ def git_environment() -> dict[str, str]:
 
 def _run(repo: Path | None, args: tuple[str, ...], data: bytes | None = None, *, options: tuple[str, ...] = (),
          cwd: Path | None = None) -> subprocess.CompletedProcess:
-    """Run Git under the isolated profile, in ``repo`` (``-C``) or, with ``repo=None``, in ``cwd`` only."""
-    location = ("-C", str(repo)) if repo is not None else ()
+    """Run Git under the isolated profile, in ``repo`` (``-C``) or, with ``repo=None``, in ``cwd`` only.
+
+    A repository-less call must name ``cwd`` (a directory the caller created) and runs with ``GIT_CEILING_DIRECTORIES``
+    set to its parent: Git can then never discover an enclosing repository, whose configuration would otherwise apply
+    (I1)."""
+    environment = git_environment()
+    if repo is not None:
+        location: tuple[str, ...] = ("-C", str(repo))
+    else:
+        if cwd is None:
+            raise ValueError("a repository-less M3 Git call must name its working directory")
+        location = ()
+        environment["GIT_CEILING_DIRECTORIES"] = str(Path(cwd).resolve().parent)
     return subprocess.run(["git", *ISOLATION_OPTIONS, *options, *location, *args], input=data, capture_output=True,
-                          check=False, env=git_environment(), cwd=None if cwd is None else str(cwd))
+                          check=False, env=environment, cwd=None if cwd is None else str(cwd))
 
 
 def _git(repo: Path, *args: str, input: bytes | None = None) -> bytes:  # noqa: A002 - mirrors subprocess
@@ -85,9 +110,12 @@ def _git(repo: Path, *args: str, input: bytes | None = None) -> bytes:  # noqa: 
 
 def line_ending_options(repo: Path) -> tuple[str, ...]:
     """The repository user's effective ``core.autocrlf``/``core.eol`` (the only settings carried into the isolated
-    profile, and only for work-tree status). Read with the user's ordinary configuration; any value outside the
-    documented set refuses."""
-    environment = {k: v for k, v in os.environ.items() if k.upper() not in ("GIT_DIR", "GIT_WORK_TREE")}
+    profile, and only for work-tree status). Read with the user's ordinary configuration files (system, global,
+    repository) only: every inherited ``GIT_*`` variable is dropped except the ones that locate those files
+    (``_LINE_ENDING_KEPT``), so ``GIT_CONFIG_PARAMETERS``, ``GIT_CONFIG_COUNT``, ``GIT_CONFIG_KEY_*`` and
+    ``GIT_CONFIG_VALUE_*`` injection is inert (I4). Any value outside the documented set refuses."""
+    environment = {k: v for k, v in os.environ.items()
+                   if not k.upper().startswith("GIT_") or k.upper() in _LINE_ENDING_KEPT}
     found: list[str] = []
     for key, allowed in _LINE_ENDING_VALUES.items():
         completed = subprocess.run(["git", "-C", str(repo), "config", "--get", key], capture_output=True, check=False,
@@ -238,34 +266,90 @@ def path_history(repo: Path, folder: str) -> History:
 
 
 def worktree_status(repo: Path, paths: Iterable[str]) -> dict[str, str]:
-    """``{path: porcelain status}`` for the given paths (untracked included). Empty when clean.
+    """``{path: porcelain status}`` for the given paths (untracked and ignored included). Empty when clean.
 
-    Fail closed: any stderr output (for example a path Git could not stat) is a ``GitCommandError`` even with exit 0,
-    and an index entry flagged skip-worktree or assume-unchanged (which hides work-tree edits from status) is refused
-    (``worktree_index_flags_hide_changes``)."""
+    Fail closed: any stderr output (for example a path Git could not stat) is a ``GitCommandError`` even with exit 0;
+    an index entry flagged skip-worktree or assume-unchanged (which hides work-tree edits from status) is refused
+    (``worktree_index_flags_hide_changes``); a ``filter``/``ident``/``working-tree-encoding`` attribute on the paths or
+    any tracked file under them is refused BEFORE status runs (``worktree_attribute_hides_changes``); and an ignored
+    file is reported as ``!!`` (dirty), so ``.gitignore``, ``info/exclude`` or ``core.excludesFile`` cannot hide one.
+    Git's stat cache can still miss a same-size, mtime-preserving edit; immutable files are therefore also checked by
+    content (``immutable_blob_matches``)."""
     paths = sorted(set(paths))
     if not paths:
         return {}
     repo = Path(repo)
     options = line_ending_options(repo)
-    args = ("status", "--porcelain=v1", "-z", "--untracked-files=all", "--", *paths)
-    completed = _run(repo, args, options=options)
-    stderr = completed.stderr.decode("utf-8", "replace")
-    if completed.returncode != 0 or stderr.strip():
-        raise GitCommandError("git_command_failed", args, completed.returncode, stderr[-STDERR_TAIL:])
     flags_args = ("ls-files", "-v", "-z", "--", *paths)
     flagged = _run(repo, flags_args, options=options)
     flags_err = flagged.stderr.decode("utf-8", "replace")
     if flagged.returncode != 0 or flags_err.strip():
         raise GitCommandError("git_command_failed", flags_args, flagged.returncode, flags_err[-STDERR_TAIL:])
+    tracked = []
     for entry in flagged.stdout.decode("utf-8", "surrogateescape").split("\0"):
         if len(entry) > 2 and (entry[0] == "S" or entry[0].islower()):
             raise _fail("worktree_index_flags_hide_changes", entry[2:])
+        if len(entry) > 2:
+            tracked.append(entry[2:])
+    _refuse_status_altering_attributes(repo, sorted(set(paths) | set(tracked)), options)
+    args = ("status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching", "--", *paths)
+    completed = _run(repo, args, options=options)
+    stderr = completed.stderr.decode("utf-8", "replace")
+    if completed.returncode != 0 or stderr.strip():
+        raise GitCommandError("git_command_failed", args, completed.returncode, stderr[-STDERR_TAIL:])
     found = {}
     for entry in completed.stdout.decode("utf-8", "surrogateescape").split("\0"):
         if len(entry) > 3:
             found[entry[3:]] = entry[:2]
     return found
+
+
+def _refuse_status_altering_attributes(repo: Path, paths: list[str], options: tuple[str, ...]) -> None:
+    """``git check-attr`` (every attributes source Git itself uses for status) for ``STATUS_ALTERING_ATTRIBUTES``."""
+    args = ("check-attr", "-z", "--stdin", *STATUS_ALTERING_ATTRIBUTES)
+    data = "".join(f"{p}\0" for p in paths).encode("utf-8", "surrogateescape")
+    completed = _run(repo, args, data, options=options)
+    stderr = completed.stderr.decode("utf-8", "replace")
+    if completed.returncode != 0 or stderr.strip():
+        raise GitCommandError("git_command_failed", args, completed.returncode, stderr[-STDERR_TAIL:])
+    fields = completed.stdout.decode("utf-8", "surrogateescape").split("\0")
+    if len(fields) % 3 != 1 or fields[-1] != "":
+        raise GitCommandError("git_command_failed", args, 0, "unparseable check-attr output")
+    for index in range(0, len(fields) - 1, 3):
+        path, attribute, value = fields[index:index + 3]
+        if value not in ("unspecified", "unset"):
+            raise _fail("worktree_attribute_hides_changes", f"{path}:{attribute}={value}")
+
+
+def git_blob_id(data: bytes, object_format: str) -> str:
+    """The Git object id of a blob with exactly these bytes (``sha1`` or ``sha256`` object format)."""
+    return hashlib.new(object_format, b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def immutable_blob_matches(repo: Path, path: str, blob_id: str, *, lf_only: bool) -> bool:
+    """Whether the work-tree file ``path`` (relative to ``repo``) has the content of the committed blob ``blob_id``,
+    by content, never by Git's stat cache (which a same-size, mtime-preserving edit defeats). Generic and
+    path-independent: the caller supplies the path and the blob id it trusts (for example a ``History.head_tree``
+    entry); nothing here knows which artefact it is.
+
+    * ``lf_only=True`` (classes that are LF-only by construction, such as canonical JSON): the work-tree bytes with
+      CRLF -> LF are hashed as a blob and compared with ``blob_id``. The stated assumption is that the committed blob
+      contains no CR LF; a blob that does never matches (fail closed).
+    * ``lf_only=False`` (text such as Markdown): the LF-normalised work-tree bytes are compared with the LF-normalised
+      committed blob bytes (read by id).
+    A missing, non-regular or unreadable work-tree file never matches."""
+    target = Path(repo) / path
+    try:
+        work = target.read_bytes() if target.is_file() and not target.is_symlink() else None
+    except OSError:
+        work = None
+    if work is None:
+        return False
+    work = work.replace(b"\r\n", b"\n")
+    if lf_only:
+        object_format = {40: "sha1", 64: "sha256"}.get(len(blob_id))
+        return object_format is not None and git_blob_id(work, object_format) == blob_id
+    return read_blobs(repo, [blob_id])[blob_id].replace(b"\r\n", b"\n") == work
 
 
 def resolve_commit(repo: Path, revision: str) -> str:
