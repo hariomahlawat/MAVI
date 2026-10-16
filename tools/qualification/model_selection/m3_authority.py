@@ -44,7 +44,6 @@ from .baseline_seal import (
     capability_of,
     check_partner_universe,
     derive_group_inputs,
-    event_folder,
     frozen_compositions,
     read_canonical,
     record_seal_citations,
@@ -68,13 +67,11 @@ from .credibility import (
     _list,
     _match,
     _number,
-    _text,
     canonical_json,
     document_sha256,
     lf_normalised_sha256,
     read_json,
     validate_evolution,
-    validate_ledger,
 )
 from .m3_git import (
     GitCommandError,
@@ -96,7 +93,6 @@ from .m3_universe import (
     SUPERSEDES_FIELD,
     UNIVERSE_FIELD,
     check_component_ranking,
-    component_event,
     derive_top_k,
     group_id,
     ordinary_compositions_sha256,
@@ -117,8 +113,8 @@ STRUCTURED_LINE_RE = re.compile(
 RANKING_CITATION_RE = re.compile(r"^Component ranking (?P<id>\S+) SHA-256: (?P<sha>[0-9a-f]{64}) *$", re.MULTILINE)
 SUPERSEDED_RE = re.compile(r"^Superseded by (?P<id>\S+) *$", re.MULTILINE)
 ABANDONED_RE = re.compile(r"^Abandoned: (?P<reason>\S+) evidence SHA-256: (?P<sha>[0-9a-f]{64}) *$", re.MULTILINE)
-M3_RECORD_RE = re.compile(r"^(?:Baseline seal \S+ SHA-256: |Component ranking \S+ SHA-256: |Superseded by |Abandoned: )",
-                          re.MULTILINE)
+M3_RECORD_RE = re.compile(
+    r"^(?:Baseline seal \S+ SHA-256: |Component ranking \S+ SHA-256: |Superseded by |Abandoned: )", re.MULTILINE)
 RECORD_NAME_RE = re.compile(r"^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\d{4}-\d{2}\.md$")
 DECISION_KEYS = ("groupId", "anchorCommit", "baselineSeals", "dExecutionStartedAt", "incumbent", "baseline", "topK",
                  "componentFinalists", "compositionCandidates", "rankedCompositions", "frontier",
@@ -332,7 +328,8 @@ class GroupState:
 
 
 def derive_group_state(frozen_by_event: Mapping[str, Mapping], protocol_by_event: Mapping[str, str],
-                       rankings: Mapping[str, Mapping | None], seal: Mapping | None, *, s0: str | None = None) -> GroupState:
+                       rankings: Mapping[str, Mapping | None], seal: Mapping | None, *,
+                       s0: str | None = None) -> GroupState:
     """The pure part of the group predicate (no Git): identical universe in every member, exactly one benchmark-only
     baseline with one gate-only composition whose partner is the other member, the partner universe, R1 (no ordinary
     candidate pins a BOB payload file), the component rankings, the seal re-derived field for field, and U."""
@@ -621,7 +618,8 @@ def check_recorded_anchor(repo: Path, anchor: str, s0: str | None, adds: Iterabl
 
 
 def _check_abandonment(ctx: Context, authority: GroupAuthority) -> None:
-    lines = {e: sorted(m.group(0).rstrip() for m in ABANDONED_RE.finditer(_record_text(ctx.repo, e).replace("\r\n", "\n")))
+    lines = {e: sorted(m.group(0).rstrip()
+                       for m in ABANDONED_RE.finditer(_record_text(ctx.repo, e).replace("\r\n", "\n")))
              for e in authority.members}
     if not any(lines.values()):
         return
@@ -1020,7 +1018,8 @@ def verify_d_manifest_binding(manifest: Mapping, repo: Path) -> None:
 # ------------------------------------------------------------------ C2-C6: the decision binding
 
 
-def check_composition_decision(decision: Mapping, state: GroupState, own_event: str) -> dict[str, tuple[str, float | None]]:
+def check_composition_decision(decision: Mapping, state: GroupState,
+                               own_event: str) -> dict[str, tuple[str, float | None]]:
     """The mandatory ``compositionAuthority`` block of a group event's decision summary v1 (identical in every group
     event). Returns, per own-event candidate, the composition-derived ``(technicalGates, comparativeScore)``.
 

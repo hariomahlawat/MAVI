@@ -411,7 +411,8 @@ def verify_baseline_seal(seal: object, *, frozen: Mapping, protocol_sha256: str,
             if seal["partnerFrozenLedgerSha256"] is not None:
                 _match(seal["partnerFrozenLedgerSha256"], SHA256_RE, f"{where}.partnerFrozenLedgerSha256")
         recorded_rankings = seal["componentRankingSha256s"]
-        if not isinstance(recorded_rankings, dict) or set(recorded_rankings) != set(expected["componentRankingSha256s"]):
+        if not isinstance(recorded_rankings, dict) or \
+                set(recorded_rankings) != set(expected["componentRankingSha256s"]):
             raise _fail("baseline_seal_differs_from_frozen_inputs", f"{where}.componentRankingSha256s")
         for event_id, supplied in expected["componentRankingSha256s"].items():
             if supplied is not None and recorded_rankings[event_id] is None:
