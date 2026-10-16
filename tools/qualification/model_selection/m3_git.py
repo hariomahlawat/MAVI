@@ -110,7 +110,11 @@ def git_history_state(repo: Path) -> str:
         raise GitCommandError("git_command_failed", ("rev-parse", "--show-toplevel"), completed.returncode,
                               completed.stderr.decode("utf-8", "replace")[-STDERR_TAIL:])
     top = completed.stdout.decode("utf-8", "replace").strip()
-    if Path(top).resolve() != repo.resolve():
+    try:
+        same = Path(top).resolve() == repo.resolve() or os.path.samefile(top, repo)  # 8.3 names, case on Windows
+    except OSError:
+        same = False
+    if not same:
         raise _fail("model_selection_history_unavailable", f"{repo.name}:absent")
     if _git(repo, "rev-parse", "--is-shallow-repository").decode().strip() == "true":
         raise _fail("model_selection_history_unavailable", f"{repo.name}:shallow")

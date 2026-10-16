@@ -1002,6 +1002,11 @@ def test_probe_gate_5_frontier_of_individual_candidates_is_refused():
      "d_result_baseline_seal_mismatch"),
     (lambda b: b["compositionCandidates"][0].update(dResultSha256="UNKNOWN"), "malformed"),
     (lambda b: b["compositionCandidates"][0].update(compositionId=GATE), "benchmark_baseline_in_composition_candidate"),
+    (lambda b: b["compositionCandidates"][0]["components"][1].update(  # a BOB tuple smuggled into U's place
+        candidateId="VC-BOB", identitySha256=identity_of("bob")), "composition_components_not_derived"),
+    (lambda b: b["compositionCandidates"].append({**copy.deepcopy(b["compositionCandidates"][0]),
+                                                  "compositionId": "C-PD-A--VC-BOB"}),
+     "composition_set_differs_from_sealed_universe"),
     (lambda b: b.update(rankedCompositions=list(reversed(b["rankedCompositions"]))), "ranked_compositions_not_derived"),
     (lambda b: b.update(rankedCompositions=b["rankedCompositions"][:-1]), "ranked_compositions_not_derived"),
     (lambda b: b.update(rankedCompositions=b["rankedCompositions"] + ["C-PD-A--VC-B0"]),
@@ -1450,6 +1455,29 @@ def test_rankings_and_seal_must_be_cited_exactly_once_and_canonical(tmp_path):
     built = build(tmp_path / "f", stages=("freeze",))
     append(built.record(), bs.seal_citation(GATE, sha("no file")))
     refused("baseline_seal_cited_without_file", validate_repository, built.path)
+
+
+def test_an_m3_artefact_outside_its_event_folder_is_refused(tmp_path):
+    built = build(tmp_path / "r")
+    stray = folder_of(built.path, PARTNER_EVENT) / f"{EVENT}{bs.SEAL_INFIX}{GATE}.json"
+    ma.write_canonical(stray, built.seal)
+    refused("m3_artefact_location_mismatch", validate_repository, built.path)
+    commit(built.path, "a seal filed in another event's folder")
+    stray.unlink()
+    commit(built.path, "and removed again")
+    refused("m3_artefact_location_mismatch", validate_repository, built.path)  # history keeps it in view
+
+
+def test_an_uncommitted_freeze_is_accepted_until_artefacts_appear(tmp_path):
+    path = tmp_path / "r"
+    path.mkdir()
+    git(path, "init", "-q")
+    commit(path, "unrelated root")
+    document, partner = m3_ledger(), partner_ledger()
+    built = Built(path, document, partner, {EVENT: write_event(path, document), PARTNER_EVENT: write_event(path, partner)})
+    validate_repository(path)
+    write_rankings(built)
+    refused("m3_chronology_unproven", validate_repository, path)
 
 
 def test_no_ranking_no_seal_means_no_protected_d(tmp_path):

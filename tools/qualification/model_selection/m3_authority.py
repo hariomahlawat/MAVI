@@ -218,6 +218,8 @@ def model_selection_domain(repo: Path, history: History) -> Domain:
         if event is not None:
             if not EVENT_ID_RE.match(event):
                 raise _fail("m3_artefact_name_invalid", path)
+            if Path(path).parent.as_posix() != event_paths(event)["folder"]:
+                raise _fail("m3_artefact_location_mismatch", path)  # anywhere but its event folder, ever
             domain.add(event, f"artefact:{name}")
         elif name.startswith("msr-") and name.endswith(FROZEN_SUFFIX):
             wanted[path] = history.blobs.get(path, set())
@@ -523,7 +525,8 @@ def check_group_authority(ctx: Context, gid: str, *, mode: str, remote_url: str 
     state = derive_group_state(frozen_by_event, protocol_by_event, rankings, seal)
     authority = GroupAuthority(state, members)
     for e in members:
-        check_event_history(ctx.repo, ctx.history, e, _record_text(ctx.repo, e))
+        if e in ctx.domain.events:  # a member never committed has no history yet; D1 and the clean check cover it
+            check_event_history(ctx.repo, ctx.history, e, _record_text(ctx.repo, e))
     # D1: F ≺ R ≺ S0 (strict)
     seal_rel = event_paths(bob_event)["folder"] + f"/{bob_event}{SEAL_INFIX}{composition}.json"
     s0 = _commit_of(ctx, seal_rel) if seal is not None else None
@@ -810,7 +813,11 @@ def validate_repository_m3(repo: Path, frozen_by_path: Mapping[Path, Mapping]) -
     root = Path(repo) / MODEL_SELECTION_DIR
     for path in sorted(root.glob("*/msr-*.json")):
         event = artefact_event(path.name)
-        if event is not None and _group_of_event(ctx, event) is None:
+        if event is None:
+            continue
+        if not EVENT_ID_RE.match(event) or path.parent.name != capability_of(event):
+            raise _fail("m3_artefact_location_mismatch", _rel(path, repo))
+        if _group_of_event(ctx, event) is None:
             raise _fail("baseline_artefact_without_frozen_composition", _rel(path, repo))
     if ctx.domain.events:
         checked.append("git-history:full")
