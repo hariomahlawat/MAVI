@@ -13,10 +13,18 @@ partition representation, or mutable state may alter population membership, elig
 assignment, candidate eligibility, or any A/B/C/D result."
 
 **1. Verified bundle** (``selection_bundle``). The loader reads the committed freeze record at a fixed repository
-path. The record holds the protocol, the rosters, the partition plan and the corpus document hashes. The loader then
-reads the four corpus documents, verifies their exact bytes, parses them strictly, and builds private immutable state.
-The A/B selection partition and the protected D partition are verified together as one paired bundle. A ``Bundle`` is
-only a handle: its id string selects that state. No caller object, configuration value or expected digest enters.
+path (by blob id, add-only across the full history, M3's isolated Git profile). The record holds the protocol, the
+rosters (with each component's predeclared N4 independence verdict), the partition plan, the corpus document hashes and
+the freeze-time disjointness result. The loader reads only the documents its stage needs, verifies their exact bytes,
+parses them strictly, and builds private immutable state. A ``Bundle`` is only a handle: its id string selects that
+state. No caller object, configuration value or expected digest enters.
+
+**Stages** (owner points 2, 4 and 5):
+- ``load_selection_bundle``: record + A/B documents only (no D path is opened);
+- ``load_d_capture_bundle``: adds the D index (evidence, no truth) for candidate execution on D evidence;
+- ``load_protected_d_bundle``: adds the D truth for scoring; after it no candidate can execute in the process.
+Both D loaders require the verified Stage-2 resolution AND the protected-D authority, which #218 does not integrate, so
+they fail closed (``protected_d_not_authorised:m3_authority_not_integrated``) until the mandated M3 integration PR.
 
 **2. Execution envelopes** (``run_track``, ``run_detection``, ``run_reading``). They take a bundle and an item id,
 never evidence. The harness:
@@ -48,13 +56,20 @@ The caller receives a copy that carries a ``result_id``.
    equal a rostered identity;
 2. the image byte source. Its bytes are verified against the frozen SHA-256 and size;
 3. the corpus directory. Its documents are verified against the committed record;
-4. the N4 ``independent`` verdict and the Layer-A ``gates_passed`` verdict (mandated M3 integration);
-5. ``resolve_baseline``'s self-attested ``d_rows_read`` and ``resolved_at_utc``. The loader also refuses resolution
-   once the D truth of the record has been loaded in this process;
-6. ``repo_root`` (tests only; the default is the harness's own repository), whose committed record is the identity.
+4. the Layer-A ``gates_passed`` verdict per eligible detector. It feeds only the Stage-2 derivation (a harness record
+   that is not authority): it cannot open D, because both D loaders also require the protected-D authority, which
+   fails closed until the M3 integration derives the gate results from the committed component ranking. (The N4
+   ``independent`` verdict is no longer a caller value: it is predeclared in the frozen record.);
+5. ``resolve_baseline``'s ``d_rows_read`` and ``resolved_at_utc``: reporting-only. A non-zero ``d_rows_read`` or a
+   time before the freeze can only STOP; ``resolved_at_utc`` is only recorded. Neither can enable anything: Stage 2
+   refuses on the harness's own fact that D data of the record was opened in this process, whatever is claimed;
+6. the protected-D ``authorization`` (refused in #218; see above);
+7. ``repo_root`` (tests only; the default is the harness's own repository), whose committed record is the identity.
 
-**Disclosed limit:** an in-process caller can still write the private registries (``_register``, ``_BUNDLES``, ``_state_of``). The
-boundary protects reproducibility through the supported API, not against code running in the same interpreter.
+**Disclosed limit:** an in-process caller can still write the private registries (``_register``, ``_BUNDLES``,
+``_D_TRUTH_LOADED``) or replace module functions. The boundary protects reproducibility through the supported API, not
+against code running in the same interpreter; in particular a candidate's own process could read the D files directly
+from disk, which only the protected-D storage and authority of the integration PR can prevent.
 """
 
 from __future__ import annotations
@@ -122,7 +137,6 @@ from tools.benchmarks.capabilities.plates.selection_bundle import (  # noqa: F40
     canonical_bytes,
     classify_truth,
     is_reserved_truth_text,
-    load_protected_d_bundle,
     load_selection_bundle,
     parse_canonical,
 )
@@ -283,6 +297,8 @@ def _layer_digest(state, layer: str) -> str:
     if layer not in ("A", "B", "C", "D"):
         _fail("layer_unknown")
     part = state.d if layer == "D" else state.ab
+    if not part.index_loaded:
+        _fail("layer_d_requires_a_protected_d_stage")   # the selection stage never opens the D index
     rows = {"A": sorted(part.crops), "B": sorted(part.b_plates), "C": sorted(part.c_plates),
             "D": sorted(part.tracks)}[layer]
     return _canonical_sha256({"partition": part.digest, "layer": layer, "items": rows})
@@ -420,6 +436,14 @@ class _CheckedRecogniser:
 ImageSource = Callable[[str, str], bytes]   # (observation id, SHA-256) → the exact image bytes
 
 
+def _executable(bundle: object):
+    """The state of a bundle on which candidate code may run: never the protected-D (truth) stage."""
+    state = sb._state_of(bundle)
+    if state.stage == sb.PROTECTED:
+        _fail("candidate_execution_on_the_protected_d_bundle")
+    return state
+
+
 def _image_bytes(images: ImageSource, ref) -> bytes:
     """The harness reads the prescribed image and verifies the exact ``bytes``. A mismatch is a corpus integrity
     failure (the run is refused), never a candidate result."""
@@ -485,13 +509,18 @@ def run_track(bundle: object, track_id: str, *, detector: PlateDetector, recogni
               detector_identity: ComponentIdentity, recogniser_identity: ComponentIdentity,
               images: ImageSource) -> TrackRun:
     """Run PR-3 with the guarded candidate on EXACTLY the frozen Track's evidence, at the frozen floor. A protected-D
-    Track runs only from the protected-D bundle."""
-    state = sb._state_of(bundle)
+    Track runs only from the D-capture bundle (D evidence, no D truth); no candidate runs once D truth is loaded."""
+    with sb._candidate_execution():
+        return _run_track(bundle, track_id, detector, recogniser, detector_identity, recogniser_identity, images)
+
+
+def _run_track(bundle, track_id, detector, recogniser, detector_identity, recogniser_identity, images) -> TrackRun:
+    state = _executable(bundle)
     det = _rostered(detector_identity, _detectors(state), "run_detector")
     rec = _rostered(recogniser_identity, _recognisers(state, benchmark=True), "run_recogniser")
     part, track = _track(state, track_id, "run")
-    if part.partition is Partition.PROTECTED_D and not part.truth_loaded:
-        _fail("run_d_track_requires_the_protected_d_bundle")
+    if part.partition is Partition.PROTECTED_D and state.stage != sb.D_CAPTURE:
+        _fail("run_d_track_requires_the_d_capture_bundle")
     if not track.has_mavi_evidence:
         _fail("run_track_has_no_mavi_evidence")  # NO_RUN is derived from the bundle, never executed
     parameters = ranking_parameters(_floor(state, det))
@@ -549,7 +578,12 @@ def _evidence_of(part, track_id: str, observation_id: str):
 def run_detection(bundle: object, crop_id: str, *, detector: PlateDetector, detector_identity: ComponentIdentity,
                   images: ImageSource) -> DetectionRun:
     """Run the guarded detector on EXACTLY the frozen crop's evidence image (A/B partition only)."""
-    state = sb._state_of(bundle)
+    with sb._candidate_execution():
+        return _run_detection(bundle, crop_id, detector, detector_identity, images)
+
+
+def _run_detection(bundle, crop_id, detector, detector_identity, images) -> DetectionRun:
+    state = _executable(bundle)
     det = _rostered(detector_identity, _detectors(state), "run_detector")
     crop = state.ab.crops.get(crop_id) if type(crop_id) is str else None
     if crop is None:
@@ -605,7 +639,12 @@ def _rank_plate(readings: Sequence[Reading], parameters: PlateParameters) -> Pla
 def run_reading(bundle: object, plate_id: str, *, recogniser: PlateRecogniser,
                 recogniser_identity: ComponentIdentity, images: ImageSource) -> ReadRun:
     """Run the guarded recogniser on EXACTLY the frozen GT plate crop (whole image as the plate region; A/B only)."""
-    state = sb._state_of(bundle)
+    with sb._candidate_execution():
+        return _run_reading(bundle, plate_id, recogniser, recogniser_identity, images)
+
+
+def _run_reading(bundle, plate_id, recogniser, recogniser_identity, images) -> ReadRun:
+    state = _executable(bundle)
     rec = _rostered(recogniser_identity, _recognisers(state, benchmark=True), "run_recogniser")
     plate = state.ab.b_plates.get(plate_id) if type(plate_id) is str else None
     if plate is None:
@@ -923,7 +962,6 @@ def c_minus_b(c: ReadResult, b: ReadResult) -> Fraction | None:
 @dataclass(frozen=True, slots=True)
 class ComponentScore:
     candidate_id: str
-    independent: bool              # caller-provided N4 verdict: demonstrably independent qualifying release
     support: int
     primary: float | None          # A: recall at coverage; B: EM
     second: float | None           # A: false plates per crop (lower better); B: CER (lower better)
@@ -944,29 +982,21 @@ def _measurement_sha256(result) -> str:
     return _canonical_sha256({"result": repr(replace(result, result_id=""))})
 
 
-def _verdict(value: object, code: str) -> bool:
-    if type(value) is not bool:
-        _fail(code)
-    return value
-
-
-def detector_component(independent: bool, result: DetectionResult) -> ComponentScore:
-    independent = _verdict(independent, "component_independent_verdict_not_a_bool")
+def detector_component(result: DetectionResult) -> ComponentScore:
     stored = _lookup(_A, result, "component_detection_result_not_from_the_harness")
     who = stored.detector
-    return _register(_COMPONENT, ComponentScore(who.candidate_id, independent, stored.plates, _float(stored.recall),
+    return _register(_COMPONENT, ComponentScore(who.candidate_id, stored.plates, _float(stored.recall),
                                                 _float(stored.false_plates_per_crop), stored.ap50,
                                                 stored.outcome == CONTRACT_FAIL, who.identity_sha256, "detector",
                                                 stored.partition_digest, _measurement_sha256(stored)))
 
 
-def recogniser_component(independent: bool, result: ReadResult) -> ComponentScore:
-    independent = _verdict(independent, "component_independent_verdict_not_a_bool")
+def recogniser_component(result: ReadResult) -> ComponentScore:
     stored = _lookup(_B, result, "component_read_result_not_from_the_harness")
     if stored.layer != "B":
         _fail("component_read_result_not_layer_b")
     who = stored.recogniser
-    return _register(_COMPONENT, ComponentScore(who.candidate_id, independent, stored.plates, _float(stored.em),
+    return _register(_COMPONENT, ComponentScore(who.candidate_id, stored.plates, _float(stored.em),
                                                 stored.cer, stored.ece, stored.outcome == CONTRACT_FAIL,
                                                 who.identity_sha256, "recogniser", stored.partition_digest,
                                                 _measurement_sha256(stored)))
@@ -987,7 +1017,8 @@ def _rank_values(s: ComponentScore):
 def top_k(bundle: object, scores: Iterable[ComponentScore], kind: str) -> list[str]:
     """N4 tie-breaks over harness component scores of ``kind`` on the bundle's A/B partition. K and the support floor
     are the frozen record's values. The roster must EQUAL the frozen universe (no omission, no outsider, never empty);
-    contract-failed or non-independent components never enter; the benchmark-only component is refused."""
+    contract-failed components, components below the support floor and components the frozen record does not declare
+    independent (N4, predeclared) never enter; the benchmark-only component is refused."""
     state = sb._state_of(bundle)
     if kind not in ("detector", "recogniser"):
         _fail("top_k_kind")
@@ -1006,7 +1037,7 @@ def top_k(bundle: object, scores: Iterable[ComponentScore], kind: str) -> list[s
     universe = dict(roster.detectors if kind == "detector" else roster.recognisers)
     if {s.candidate_id: s.identity_sha256 for s in stored} != universe:
         _fail("top_k_roster_is_not_the_frozen_universe")
-    eligible = [s for s in stored if s.independent and not s.contract_fail
+    eligible = [s for s in stored if roster.independent[s.candidate_id] and not s.contract_fail
                 and s.support >= state.protocol.support_floor]
     return [s.candidate_id for s in sorted(eligible, key=lambda s: (_rank_values(s), s.candidate_id))
             [:state.protocol.top_k]]
@@ -1497,7 +1528,8 @@ def baseline_freeze(bundle: object) -> BaselineFreeze:
 @dataclass(frozen=True, slots=True)
 class LayerAResult:
     """One eligible detector's Layer-A result: its harness A component score and the frozen gates' verdict
-    (``gates_passed``, caller-provided until the M3 integration)."""
+    (``gates_passed``). The verdict is a caller value until the M3 integration derives it from the committed component
+    ranking; it shapes only the Stage-2 harness record, never D access (``load_d_capture_bundle``)."""
     score: ComponentScore
     identity_sha256: str
     gates_passed: bool
@@ -1615,12 +1647,18 @@ def _derive(state, results: list[tuple[ComponentScore, str, bool]], resolved_at_
 
 
 def resolve_baseline(bundle: object, results, *, d_rows_read: int, resolved_at_utc: str) -> BaselineResolution:
-    """Stage 2. Derive PD_BASE mechanically from the frozen rule; refuses once D data is read."""
+    """Stage 2. Derive PD_BASE mechanically from the frozen rule; refuses once D data is read.
+
+    ``d_rows_read`` and ``resolved_at_utc`` are reporting-only (owner point 4): a non-zero claim or a time before the
+    freeze STOPS and the time is recorded, but neither can enable anything. Whether D data was read is the harness's
+    own in-process fact (``selection_bundle.d_data_loaded``), checked whatever the claim; Git chronology and the
+    committed seal bind the time in the integration PR. The resolution is a harness record, not D authority: D opens
+    only through the protected-D authority (``load_d_capture_bundle``)."""
     state = sb._state_of(bundle)
     if type(d_rows_read) is not int or d_rows_read != 0:
         raise BaselineStop("baseline_resolution_after_d_data_read")
-    if sb.d_truth_loaded(state.record_sha256):
-        raise BaselineStop("baseline_resolution_after_d_truth_loaded")
+    if sb.d_data_loaded(state.record_sha256) or sb.d_truth_loaded(state.record_sha256):
+        raise BaselineStop("baseline_resolution_after_d_data_loaded")
     return _register(_RES, _derive(state, _layer_a(results), resolved_at_utc))
 
 
@@ -1644,6 +1682,33 @@ def verify_resolution(bundle: object, resolution, results) -> None:
     """Re-derive Stage 2 from the frozen record and the Layer-A results. Drift or a foreign record raises
     ``BaselineStop``."""
     _verified_resolution(sb._state_of(bundle), resolution, results)
+
+
+def _pre_d(resolution: object, layer_a_results: object, authorization: object) -> Callable:
+    """The precondition of both D stages, run on the selection state before any D path is opened: the sealed Stage-2
+    resolution must re-derive from the frozen record and the Layer-A results, then the protected-D authority decides
+    (fail closed in #218)."""
+    layer_a = _materialise(layer_a_results, "layer_a_results_malformed")
+
+    def check(selection_state) -> None:
+        stored = _verified_resolution(selection_state, resolution, layer_a)
+        sb._authorise_protected_d(selection_state, authorization, stored)
+
+    return check
+
+
+def load_d_capture_bundle(corpus_dir, *, resolution, layer_a_results, authorization, repo_root=None) -> Bundle:
+    """The D-capture stage: the selection documents plus the D INDEX (evidence, no truth), for candidate execution on
+    protected-D evidence. Requires the verified Stage-2 resolution and the protected-D authority (fails closed in
+    #218: ``protected_d_not_authorised:m3_authority_not_integrated``)."""
+    return sb._load(corpus_dir, repo_root, sb.D_CAPTURE, _pre_d(resolution, layer_a_results, authorization))
+
+
+def load_protected_d_bundle(corpus_dir, *, resolution, layer_a_results, authorization, repo_root=None) -> Bundle:
+    """The protected-D stage: adds the D TRUTH, for scoring. Same precondition as the D-capture stage. Loading it ends
+    candidate execution in this process (owner point 5), so every candidate output on D evidence is captured on the
+    D-capture bundle first; it is refused while a candidate callable is running."""
+    return sb._load(corpus_dir, repo_root, sb.PROTECTED, _pre_d(resolution, layer_a_results, authorization))
 
 
 def assert_resolution_unchanged(sealed, current) -> None:

@@ -3,14 +3,23 @@
     canonical bytes  →  identity verification  →  strict parse  →  harness-owned immutable state  →  A/B/C/D
 
 **Independent identity.** The expected identities come from ONE committed freeze record at the fixed repository path
-``FREEZE_RECORD_PATH``. The loader reads it itself and requires it to be tracked by Git and byte-identical to ``HEAD``.
-It is never a parameter beside the content. The record holds:
+``FREEZE_RECORD_PATH``. The loader reads it itself (never a parameter beside the content), through M3's isolated Git
+profile (``m3_git``: no system/global configuration, no inherited ``GIT_*``, replace objects ignored, full history
+required). The record is read **by blob id from HEAD**, its work-tree copy must be clean, and its path must be
+**add-only across the full reachable history**: every change to the path is an addition of exactly the HEAD blob, so an
+edit-and-recommit, a delete-and-re-add or a merge that alters it after the freeze is refused
+(``freeze_record_not_add_only``). The freeze commit is the record's unique first add. What this cannot stop locally is
+a rewrite of history itself; pinning the record SHA-256 in the M3 frozen ledgers on the protected default branch (live
+anchor) is the mandated integration PR (decision record §6). The record holds:
 - the protocol: query parameters and seed, bootstrap seed, R, the percentile rule, MPID, the calibration minimum,
   K, the top-K support floor and each detector's pinned floor;
-- the roster: the detector and recogniser universes with identity SHA-256s, the benchmark-only OC5 identity, the
-  ranking rule, the Layer-A gate set, the events and the freeze time;
+- the roster: the detector and recogniser universes with identity SHA-256s and each component's predeclared N4
+  independence verdict, the benchmark-only OC5 identity, the ranking rule, the Layer-A gate set, the events and the
+  freeze time;
 - the site-level partition plan;
-- the SHA-256 of each of the four corpus documents: A/B index, A/B truth, D index and D truth.
+- the SHA-256 of each of the four corpus documents: A/B index, A/B truth, D index and D truth;
+- the cross-partition disjointness result and its hash, established by the freeze-construction tool
+  (``selection_freeze``) when the record was built.
 
 **Content.** The four corpus documents are read from a caller-named directory under fixed file names. Each must hash
 to its frozen SHA-256, then parse STRICTLY:
@@ -23,12 +32,23 @@ to its frozen SHA-256, then parse STRICTLY:
 
 **State.** Verified primitives become private, immutable harness objects held in a private registry. A loaded
 ``Bundle`` is only a handle: its ``bundle_id`` string selects harness state, and no other attribute of a caller object
-is read. A/B and protected D are verified together as ONE paired bundle:
-- one partition plan; sites in exactly one partition, with case and whitespace aliases refused;
-- Track ids, MAVI Track uuids, observation ids and content SHA-256s unique across BOTH partitions.
+is read. A/B and protected D are ONE paired corpus under one partition plan (sites in exactly one partition, with case
+and whitespace aliases refused; Track ids, MAVI Track uuids, observation ids and content SHA-256s unique across BOTH
+partitions). The cross-partition check runs at freeze construction and is recorded in the record; it is re-run on the
+real D index whenever D is opened.
 
-The selection stage (``load_selection_bundle``) reads the D index (no truth) for these checks, but never the D truth.
-The protected-D stage (``load_protected_d_bundle``) also reads the D truth.
+**Stages** (owner points 2 and 5). Each stage opens only what it needs:
+- ``SELECTION`` (``load_selection_bundle``): the record and the two A/B documents. **No D path is opened** — Layer A/B/C,
+  top-K and the Stage-2 resolution run with the D files absent;
+- ``D_CAPTURE`` (``evaluator.load_d_capture_bundle``): adds the D index (evidence, no truth) for candidate execution on
+  D evidence;
+- ``PROTECTED_D`` (``evaluator.load_protected_d_bundle``): adds the D truth for scoring. Loading it ends candidate
+  execution for the process: every execution envelope refuses afterwards, and the truth cannot be loaded while a
+  candidate callable is running.
+
+Both D stages require the verified Stage-2 resolution AND the protected-D authority (``_authorise_protected_d``). In
+#218 no authority is integrated, so the D stages **fail closed** in production; the M3 bridge
+(``m3_authority.open_protected_d``) is the mandated integration PR.
 
 **Truth.** The documents use the human states ``TEXT``, ``NO_PLATE``, ``UNREADABLE`` and ``NO_GT_VEHICLE``. For human
 text the harness DERIVES the typed state:
@@ -36,9 +56,14 @@ text the harness DERIVES the typed state:
   ``[0-9]``. This letter-and-digit rule is the owner's Stage-4 corpus eligibility rule, not part of v1;
 - ``UNSUPPORTED_TEXT`` otherwise. The text is retained and never refused.
 
-Reserved syntax is malformed input and is refused. It means exactly two things:
-1. text equal to a truth-state name, ignoring case, whitespace, ``_`` and ``-``;
-2. text beginning with ``<`` or ending with ``>`` (the sentinel/control syntax).
+Reserved syntax is malformed input and is refused. It means exactly the two encodings the repository has defined for
+non-text truth, and nothing else (no placeholder-word blacklist):
+1. text equal to a truth-state name (``TEXT``, ``UNSUPPORTED_TEXT``, ``NO_PLATE``, ``UNREADABLE``,
+   ``NO_GT_VEHICLE``), ignoring case, whitespace, ``_`` and ``-``;
+2. the ``<…>`` sentinel/control-token syntax: a text that BOTH begins with ``<`` AND ends with ``>`` (the harness
+   sentinels ``<no-plate>``, ``<unreadable>``, ``<no-gt-vehicle>`` of 2f849818 and the control-token rule of
+   e1e7b08f). A text with only one of the two brackets is ordinary human text (v1 rejects ``<``/``>``, so it is
+   ``UNSUPPORTED_TEXT``).
 
 After loading, the typed state is authoritative: no metric re-normalises raw truth.
 """
@@ -51,7 +76,8 @@ import json
 import math
 import os
 import re
-import subprocess
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -62,6 +88,8 @@ from mavi_vision.plates.contracts import is_raw_text
 from mavi_vision.plates.normalisation import OK, normalise
 
 from tools.benchmarks.capabilities.plates.queries import QueryParameters
+from tools.qualification.model_selection import m3_git
+from tools.qualification.model_selection.credibility import CredibilityError
 
 FREEZE_RECORD_PATH = "config/benchmarks/plates/selection-freeze-v1.json"
 RECORD_SCHEMA = "mavi-plate-selection-freeze-v1"
@@ -82,7 +110,10 @@ DETECTOR_RANKING_RULE_SHA256 = hashlib.sha256(DETECTOR_RANKING_RULE.encode("utf-
 
 EVIDENCE_ROLES = ("near-view", "far-view", "best-plate", "representative")
 PLATE_IMAGE_ROLE = "gt-plate-crop"
-SELECTION, PROTECTED = "SELECTION", "PROTECTED_D"   # bundle stages
+SELECTION, D_CAPTURE, PROTECTED = "SELECTION", "D_CAPTURE", "PROTECTED_D"   # bundle stages
+DISJOINT = "DISJOINT"
+DISJOINTNESS_CHECKS = ("site", "trackId", "maviTrackUuid", "observationId", "contentSha256")
+M3_ORDINARY_COMPOSITION_PREFIX = "C-"   # M3 baseline_seal.ORDINARY_ID_PREFIX: reserved for derived ordinary ids
 
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -232,9 +263,11 @@ def _polygon(value: object, code: str) -> tuple[tuple[float, float], ...]:
 
 
 def is_reserved_truth_text(text: str) -> bool:
-    """Reserved syntax: a truth-state name (case, whitespace, ``_`` and ``-`` ignored) or ``<``…/…``>`` control syntax."""
+    """Reserved syntax, exactly the repository's defined encodings of non-text truth: a truth-state name (case,
+    whitespace, ``_`` and ``-`` ignored) or a ``<…>`` sentinel/control token (begins with ``<`` AND ends with ``>``)."""
     stripped = text.strip()
-    return stripped.startswith("<") or stripped.endswith(">") or re.sub(r"[\s_-]", "", stripped).upper() in _RESERVED
+    return (stripped.startswith("<") and stripped.endswith(">")) or \
+        re.sub(r"[\s_-]", "", stripped).upper() in _RESERVED
 
 
 def classify_truth(state: object, text: object) -> tuple[TruthState, str | None, str | None]:
@@ -316,6 +349,7 @@ class _Protocol:
 class _Roster:
     detectors: MappingProxyType       # id → identity SHA-256
     recognisers: MappingProxyType
+    independent: MappingProxyType     # component id → the predeclared N4 independence verdict (frozen, never a caller input)
     benchmark_id: str
     benchmark_sha256: str
     layer_a_gates_sha256: str
@@ -335,6 +369,7 @@ class _Part:
     b_plates: MappingProxyType
     c_plates: MappingProxyType
     truth_loaded: bool
+    index_loaded: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,7 +403,9 @@ class Bundle:
 
 
 _BUNDLES: dict[str, _State] = {}
-_D_TRUTH_LOADED: set[str] = set()     # record SHA-256s whose protected-D truth this process has read
+_D_DATA_LOADED: set[str] = set()      # record SHA-256s whose protected-D index or truth this process has opened
+_D_TRUTH_LOADED: set[str] = set()     # record SHA-256s (or freeze constructions) whose protected-D truth was read
+_CANDIDATE_ACTIVE = [0]               # depth of candidate execution in progress (owner point 5)
 
 
 def _state_of(bundle: object) -> _State:
@@ -383,15 +420,42 @@ def d_truth_loaded(record_sha256: str) -> bool:
     return record_sha256 in _D_TRUTH_LOADED
 
 
+def d_data_loaded(record_sha256: str) -> bool:
+    """Any protected-D data (index or truth) of this record was opened in this process (Stage 2 is then over)."""
+    return record_sha256 in _D_DATA_LOADED
+
+
+def protected_truth_resident() -> bool:
+    """True once ANY protected-D truth has been read in this process: candidate execution is then refused."""
+    return bool(_D_TRUTH_LOADED)
+
+
+@contextmanager
+def _candidate_execution() -> Iterator[None]:
+    """Owner point 5. Every execution envelope runs inside this guard: no candidate code runs once protected-D truth
+    has been read in this process, and the D truth cannot be read while candidate code is running."""
+    if _D_TRUTH_LOADED:
+        _fail("candidate_execution_after_protected_d_truth_loaded")
+    _CANDIDATE_ACTIVE[0] += 1
+    try:
+        yield
+    finally:
+        _CANDIDATE_ACTIVE[0] -= 1
+
+
+def _authorise_protected_d(selection_state: _State, authorization: object, resolution: object) -> None:
+    """THE harness side of the pre-D gate, called before any protected-D path is opened (owner point 4).
+
+    #218 integrates no protected-D authority, so it refuses every request (fail closed). The mandated integration PR
+    replaces this body with the M3 bridge: ``m3_authority.open_protected_d`` called BY THE HARNESS (never a
+    caller-built ``DAuthorization``, which is a plain dataclass), the record SHA-256 bound to both M3 frozen ledgers,
+    the harness resolution equal to the committed RESOLVED seal (partner id and identity, composition SHA-256), and the
+    returned anchor/seal bound into every D manifest (decision record §6). A caller-supplied verdict
+    (``gates_passed``, ``independent``, ``d_rows_read``) can never satisfy it."""
+    raise ValueError("protected_d_not_authorised:m3_authority_not_integrated")
+
+
 # ---------------------------------------------------------------------------------------------- the freeze record
-
-
-def _git(root: Path, *args: str) -> bytes:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, env=env, check=False)
-    if result.returncode != 0:
-        _fail("freeze_record_not_committed")
-    return result.stdout
 
 
 def _harness_repository() -> Path:
@@ -399,40 +463,71 @@ def _harness_repository() -> Path:
 
 
 def _read_record(repo_root: Path) -> tuple[bytes, str]:
+    """The committed record bytes (by blob id from HEAD) and its freeze commit (the unique first add), under M3's
+    isolated Git profile and full-history walk. Refusals: absent, not committed, not the repository root, an
+    incomplete history (shallow or grafted), a dirty or index-hidden work-tree copy, or any history that is not
+    add-only for the record path (owner point 1)."""
     root = repo_root.resolve()
-    path = root / FREEZE_RECORD_PATH
-    if not path.is_file():
+    if not (root / FREEZE_RECORD_PATH).is_file():
         _fail("freeze_record_absent")
-    data = path.read_bytes()
-    lines = _git(root, "rev-parse", "--show-toplevel", "--show-object-format", "HEAD",
-                 f"HEAD:{FREEZE_RECORD_PATH}").decode("utf-8").splitlines()
-    if len(lines) != 4 or lines[1] not in ("sha1", "sha256"):
-        _fail("freeze_record_not_committed")
-    top, object_format, commit, blob = lines
-    if Path(top).resolve() != root:
-        _fail("freeze_record_root_is_not_a_repository_root")
-    # Git's own blob identity of the working-tree bytes must be HEAD's blob: an uncommitted edit is never the record.
-    if hashlib.new(object_format, b"blob %d\x00" % len(data) + data).hexdigest() != blob:
-        _fail("freeze_record_differs_from_its_commit")
+    try:
+        m3_git.git_history_state(root)
+    except CredibilityError as exc:
+        reason = str(exc).rsplit(":", 1)[-1]
+        if reason == "absent":
+            _fail("freeze_record_root_is_not_a_repository_root")
+        if reason in ("shallow", "grafts_present"):
+            _fail(f"freeze_record_history_incomplete:{reason}")
+        _fail(f"freeze_record_not_committed:{exc}")
+    try:
+        history = m3_git.path_history(root, FREEZE_RECORD_PATH)
+        blob = history.head_tree.get(FREEZE_RECORD_PATH)
+        if blob is None:
+            _fail("freeze_record_not_committed")
+        if m3_git.worktree_status(root, [FREEZE_RECORD_PATH]):
+            _fail("freeze_record_differs_from_its_commit")   # an uncommitted edit is never the record
+        if history.deletes.get(FREEZE_RECORD_PATH) or history.rewrites.get(FREEZE_RECORD_PATH) \
+                or history.blobs.get(FREEZE_RECORD_PATH) != {blob}:
+            _fail("freeze_record_not_add_only")   # edited, retyped or deleted at some commit of the reachable history
+        commit = m3_git.first_add_commit(root, history.adds.get(FREEZE_RECORD_PATH, ()), "freezeRecord")
+        data = m3_git.read_blobs(root, [blob])[blob]
+    except CredibilityError as exc:   # a Git failure or an ambiguous first add is a refusal, never a pass
+        code = str(exc)
+        if code.startswith("worktree_index_flags_hide_changes"):
+            _fail("freeze_record_differs_from_its_commit:index_flags_hide_changes")
+        _fail(f"freeze_record_not_committed:{code[:200]}")
     return data, commit
 
 
-def _identity_pairs(value: object, code: str) -> MappingProxyType:
+def _identity_rows(value: object, code: str) -> tuple[MappingProxyType, dict[str, bool]]:
+    """Rows ``[candidate id, identity SHA-256, independent]``. The N4 independence verdict is predeclared in the
+    frozen record (owner point 4), never a caller input."""
     rows = _list(value, code)
-    out = {}
+    out, independent = {}, {}
     for row in rows:
-        if type(row) is not list or len(row) != 2:
+        if type(row) is not list or len(row) != 3 or type(row[2]) is not bool:
             _fail(code)
-        out[_str(row[0], code, _CANDIDATE_RE)] = _sha(row[1], code)
+        candidate = _str(row[0], code, _CANDIDATE_RE)
+        out[candidate], independent[candidate] = _sha(row[1], code), row[2]
     _sorted_unique([r[0] for r in rows], code)
     if not out:
         _fail(code)
-    return MappingProxyType(out)
+    return MappingProxyType(out), independent
+
+
+def disjointness_attestation(documents: dict[str, str]) -> dict:
+    """The freeze-construction result recorded in the record: the four documents named by these SHA-256s were checked
+    together and share no site, Track id, MAVI uuid, observation id or image content across the partitions. It is a
+    record of the check (``selection_freeze.construct_freeze_record``), re-run on the real D index when D opens."""
+    checks = list(DISJOINTNESS_CHECKS)
+    return {"checks": checks, "result": DISJOINT,
+            "sha256": document_sha256(canonical_bytes({"checks": checks, "documents": dict(documents),
+                                                       "result": DISJOINT}))}
 
 
 def _parse_record(data: bytes) -> tuple[_Protocol, _Roster, dict[str, Partition], str, dict[str, str]]:
     record = _obj(parse_canonical(data, "freeze_record"), ("schema", "protocol", "roster", "partitionPlan",
-                                                            "documents"), "freeze_record_malformed")
+                                                            "documents", "disjointness"), "freeze_record_malformed")
     if record["schema"] != RECORD_SCHEMA:
         _fail("freeze_record_schema")
     p = _obj(record["protocol"], ("query", "bootstrapSeed", "bootstrapReplicates", "percentileRule", "mpid",
@@ -463,8 +558,8 @@ def _parse_record(data: bytes) -> tuple[_Protocol, _Roster, dict[str, Partition]
     r = _obj(record["roster"], ("detectors", "recognisers", "benchmarkOnly", "rankingRuleSha256",
                                 "layerAGatesSha256", "frozenAtUtc", "eventId", "compositionId", "partnerEventId"),
              "freeze_roster_malformed")
-    detectors = _identity_pairs(r["detectors"], "freeze_roster_detectors_malformed")
-    recognisers = _identity_pairs(r["recognisers"], "freeze_roster_recognisers_malformed")
+    detectors, independent = _identity_rows(r["detectors"], "freeze_roster_detectors_malformed")
+    recognisers, independent_ocr = _identity_rows(r["recognisers"], "freeze_roster_recognisers_malformed")
     benchmark = _list(r["benchmarkOnly"], "freeze_roster_malformed")
     if len(benchmark) != 2:
         _fail("freeze_roster_malformed")
@@ -481,13 +576,17 @@ def _parse_record(data: bytes) -> tuple[_Protocol, _Roster, dict[str, Partition]
         _fail("freeze_protocol_detector_floors_are_not_the_detector_universe")
     if r["rankingRuleSha256"] != DETECTOR_RANKING_RULE_SHA256:
         _fail("freeze_roster_ranking_rule_not_the_frozen_rule")
-    roster = _Roster(detectors, recognisers, benchmark_id, benchmark_sha,
-                     _sha(r["layerAGatesSha256"], "freeze_roster_malformed"),
+    composition_id = _str(r["compositionId"], "freeze_roster_composition_id_malformed", _COMPOSITION_RE)
+    if composition_id.startswith(M3_ORDINARY_COMPOSITION_PREFIX):
+        _fail("freeze_roster_composition_id_reserved")   # M3: "C-" is the derived ordinary-composition namespace
+    roster = _Roster(detectors, recognisers, MappingProxyType({**independent, **independent_ocr}), benchmark_id,
+                     benchmark_sha, _sha(r["layerAGatesSha256"], "freeze_roster_malformed"),
                      _str(r["frozenAtUtc"], "freeze_roster_time_malformed", _UTC_RE),
-                     _str(r["eventId"], "freeze_roster_event_id_malformed", _EVENT_RE),
-                     _str(r["compositionId"], "freeze_roster_composition_id_malformed", _COMPOSITION_RE),
+                     _str(r["eventId"], "freeze_roster_event_id_malformed", _EVENT_RE), composition_id,
                      _str(r["partnerEventId"], "freeze_roster_event_id_malformed", _EVENT_RE),
                      DETECTOR_RANKING_RULE_SHA256)
+    if roster.event_id == roster.partner_event_id:
+        _fail("freeze_roster_partner_event_is_the_baseline_event")   # M3: the partner is the OTHER group member
     plan = _obj(record["partitionPlan"], ("planId", "sites"), "freeze_partition_plan_malformed")
     _str(plan["planId"], "freeze_partition_plan_malformed", _ID_RE)
     rows = _list(plan["sites"], "freeze_partition_plan_malformed")
@@ -508,6 +607,8 @@ def _parse_record(data: bytes) -> tuple[_Protocol, _Roster, dict[str, Partition]
     documents = _obj(record["documents"], tuple(DOCUMENT_FILES), "freeze_documents_malformed")
     for value in documents.values():
         _sha(value, "freeze_documents_malformed")
+    if record["disjointness"] != disjointness_attestation(dict(documents)):
+        _fail("freeze_record_disjointness_not_attested")   # owner point 2: established at freeze construction
     return protocol, roster, sites, document_sha256(canonical_bytes(plan)), dict(documents)
 
 
@@ -617,62 +718,82 @@ def _unique(values: list, code: str) -> None:
         _fail(code)
 
 
-def _part(partition: Partition, digest: str, index: list[dict], truth) -> _Part:
+def _part(partition: Partition, digest: str, index: list[dict] | None, truth) -> _Part:
     truths, crops, plates = truth if truth is not None else ({}, [], [])
     tracks = {}
-    for t in index:
+    for t in index or ():
         state, text, supported = truths.get(t["trackId"], (None, None, None))
         tracks[t["trackId"]] = _Track(t["trackId"], t["site"], partition, t["uuid"], t["evidence"], state, text,
                                       supported)
     return _Part(partition, digest, MappingProxyType(tracks), MappingProxyType({c.crop_id: c for c in crops}),
                  MappingProxyType({p.plate_id: p for p in plates if p.image is not None}),
                  MappingProxyType({p.plate_id: p for p in plates if p.observation_id is not None}),
-                 truth is not None)
+                 truth is not None, index is not None)
+
+
+def check_disjoint(ab_index: list[dict], ab_plates: list[_Plate], d_index: list[dict]) -> None:
+    """The paired corpus (R2): Track ids, MAVI uuids, observation ids and content SHA-256s are unique across BOTH
+    partitions (sites are disjoint by the plan and the per-partition site check)."""
+    everything = ab_index + d_index
+    images = [e for t in everything for e in t["evidence"]] + [p.image for p in ab_plates if p.image is not None]
+    _unique([t["trackId"] for t in everything], "bundle_track_id_in_two_partitions")
+    _unique([t["uuid"] for t in everything if t["uuid"] is not None], "bundle_mavi_track_shared_by_two_tracks")
+    _unique([e.observation_id for e in images], "bundle_observation_shared_by_two_images")
+    _unique([e.sha256 for e in images], "bundle_content_shared_by_two_images")
 
 
 def partition_digest(record_sha256: str, partition: Partition) -> str:
     return document_sha256(canonical_bytes({"freezeRecordSha256": record_sha256, "partition": partition.value}))
 
 
-def _load(corpus_dir: object, repo_root: object, stage: str) -> Bundle:
+def _load(corpus_dir: object, repo_root: object, stage: str,
+          precondition: Callable[[_State], None] | None = None) -> Bundle:
+    """Open ONLY what the stage needs (owner point 2). ``SELECTION``: the record and the two A/B documents; no D path
+    is constructed or opened. ``D_CAPTURE`` adds the D index; ``PROTECTED_D`` adds the D truth. For a D stage,
+    ``precondition(selection_state)`` (the verified Stage-2 resolution and the protected-D authority, supplied by the
+    evaluator) runs before any D path is touched; the D data is marked read before it is opened (fail safe)."""
+    if stage not in (SELECTION, D_CAPTURE, PROTECTED):
+        _fail("bundle_stage_unknown")
     if not isinstance(corpus_dir, (str, os.PathLike)):
         _fail("corpus_directory_malformed")
+    if stage == PROTECTED and _CANDIDATE_ACTIVE[0]:
+        _fail("protected_d_truth_load_during_candidate_execution")
     root = _harness_repository() if repo_root is None else Path(os.fspath(repo_root))
     data, commit = _read_record(root)
     protocol, roster, sites, plan_digest, documents = _parse_record(data)
     record_sha = document_sha256(data)
     directory = Path(os.fspath(corpus_dir))
     ab_index = _index(_read_document(directory, "abIndex", documents["abIndex"]), Partition.AB_SELECTION, sites)
-    d_index = _index(_read_document(directory, "dIndex", documents["dIndex"]), Partition.PROTECTED_D, sites)
     ab_truth = _truth(_read_document(directory, "abTruth", documents["abTruth"]), Partition.AB_SELECTION, ab_index)
-    d_truth = None
-    if stage == PROTECTED:
-        d_truth = _truth(_read_document(directory, "dTruth", documents["dTruth"]), Partition.PROTECTED_D, d_index)
-    # The paired bundle (R2): nothing is shared across or within partitions.
-    everything = ab_index + d_index
-    images = [e for t in everything for e in t["evidence"]] + [p.image for p in ab_truth[2] if p.image is not None]
-    _unique([t["trackId"] for t in everything], "bundle_track_id_in_two_partitions")
-    _unique([t["uuid"] for t in everything if t["uuid"] is not None], "bundle_mavi_track_shared_by_two_tracks")
-    _unique([e.observation_id for e in images], "bundle_observation_shared_by_two_images")
-    _unique([e.sha256 for e in images], "bundle_content_shared_by_two_images")
     ab = _part(Partition.AB_SELECTION, partition_digest(record_sha, Partition.AB_SELECTION), ab_index, ab_truth)
-    d = _part(Partition.PROTECTED_D, partition_digest(record_sha, Partition.PROTECTED_D), d_index, d_truth)
-    bundle_id = document_sha256(canonical_bytes({"freezeRecordSha256": record_sha, "stage": stage}))
-    state = _State(bundle_id, stage, record_sha, commit, plan_digest, MappingProxyType(dict(sites)), protocol, roster,
-                   ab, d)
-    _BUNDLES[bundle_id] = state
-    if stage == PROTECTED:
-        _D_TRUTH_LOADED.add(record_sha)
-    return Bundle(bundle_id, stage, record_sha, commit, ab.digest, d.digest, plan_digest)
+    d_digest = partition_digest(record_sha, Partition.PROTECTED_D)
+
+    def state_for(name: str, d_part: _Part) -> _State:
+        bundle_id = document_sha256(canonical_bytes({"freezeRecordSha256": record_sha, "stage": name}))
+        return _State(bundle_id, name, record_sha, commit, plan_digest, MappingProxyType(dict(sites)), protocol,
+                      roster, ab, d_part)
+
+    state = state_for(SELECTION, _part(Partition.PROTECTED_D, d_digest, None, None))
+    if stage != SELECTION:
+        if precondition is None:
+            _fail("protected_d_not_authorised:no_precondition")
+        precondition(state)
+        if stage == PROTECTED and _CANDIDATE_ACTIVE[0]:
+            _fail("protected_d_truth_load_during_candidate_execution")
+        _D_DATA_LOADED.add(record_sha)
+        d_index = _index(_read_document(directory, "dIndex", documents["dIndex"]), Partition.PROTECTED_D, sites)
+        check_disjoint(ab_index, ab_truth[2], d_index)   # the recorded attestation, re-verified on the real D index
+        d_truth = None
+        if stage == PROTECTED:
+            _D_TRUTH_LOADED.add(record_sha)
+            d_truth = _truth(_read_document(directory, "dTruth", documents["dTruth"]), Partition.PROTECTED_D,
+                             d_index)
+        state = state_for(stage, _part(Partition.PROTECTED_D, d_digest, d_index, d_truth))
+    _BUNDLES[state.bundle_id] = state
+    return Bundle(state.bundle_id, stage, record_sha, commit, ab.digest, d_digest, plan_digest)
 
 
 def load_selection_bundle(corpus_dir, *, repo_root=None) -> Bundle:
-    """The selection stage: the frozen record, the A/B index and truth, and the D index (truth-free) for the paired
-    checks. The protected-D truth is never read."""
+    """The selection stage (Layer A/B/C, top-K, the Stage-2 resolution): the frozen record and the A/B documents ONLY.
+    No D index or D truth is opened or needed; the D partition digest is the record's commitment."""
     return _load(corpus_dir, repo_root, SELECTION)
-
-
-def load_protected_d_bundle(corpus_dir, *, repo_root=None) -> Bundle:
-    """The protected-D stage: everything, including the D truth. Loading it marks the record's D truth as read in this
-    process (``resolve_baseline`` then refuses)."""
-    return _load(corpus_dir, repo_root, PROTECTED)

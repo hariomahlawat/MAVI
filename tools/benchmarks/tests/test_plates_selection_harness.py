@@ -21,6 +21,7 @@ from mavi_vision.plates.inference import PlateBox, VerifiedCrop
 from mavi_vision.plates.pipeline import PlateRecord, RankedReading
 from tools.benchmarks.capabilities.plates import evaluator as ev
 from tools.benchmarks.capabilities.plates import queries as q
+from tools.benchmarks.tests import plate_selection_fixtures as fx
 from tools.benchmarks.tests.plate_selection_fixtures import (
     DET,
     EVENTS,
@@ -74,6 +75,14 @@ def gen(truths, manifest=MANIFEST):
 def TOPK(corpus, scores, kind):  # noqa: N802
     return ev.top_k(corpus.sel, scores, kind)
 
+
+
+@pytest.fixture(autouse=True)
+def _each_test_is_a_fresh_scoring_process():
+    """Every test starts with no protected truth marked read in this process (see ``plate_selection_fixtures``)."""
+    fx.new_process()
+    yield
+    fx.new_process()
 
 # ---------------------------------------------------------------------------------------------- queries
 
@@ -141,14 +150,16 @@ def test_runs_are_bound_to_their_track_evidence_and_identity():
     with pytest.raises(ValueError, match="no_mavi_evidence"):  # NO_RUN is derived, never executed or supplied
         run(corpus, "t2", [])
     with pytest.raises(ValueError, match="not_in_bundle"):
-        run(corpus, "t9", [], bundle=corpus.full)
+        run(corpus, "t9", [], bundle=corpus.capture)
     with pytest.raises(ValueError, match="run_detector_not_in_the_frozen_roster"):
         run(corpus, "t1", ["x"], det=ident("PD7-NEW"))
     with pytest.raises(ValueError, match="image_integrity_failed"):
-        ev.run_track(corpus.full, "t1", detector=GOOD_BOX, recogniser=Recogniser(["x"]), detector_identity=DET,
+        ev.run_track(corpus.capture, "t1", detector=GOOD_BOX, recogniser=Recogniser(["x"]), detector_identity=DET,
                      recogniser_identity=REC, images=lambda o, s: images(o, s) + b"x")
-    with pytest.raises(ValueError, match="run_d_track_requires_the_protected_d_bundle"):
+    with pytest.raises(ValueError, match="run_track_not_in_bundle"):   # the selection stage never opens the D index
         run(corpus, "t1", ["x"], bundle=corpus.sel)
+    with pytest.raises(ValueError, match="candidate_execution_on_the_protected_d_bundle"):
+        run(corpus, "t1", ["x"], bundle=corpus.full)
 
 
 def test_candidate_silence_is_a_completed_run_not_no_run():
@@ -400,7 +411,7 @@ def test_c_comes_only_from_the_composition_runs():
     with pytest.raises(ValueError, match="do_not_equal_the_bundle_items"):
         ev.evaluate_c(corpus.sel, good[:1], composition=(DET, REC))
     with pytest.raises(ValueError, match="component_read_result_not_layer_b"):
-        ev.recogniser_component(True, result)
+        ev.recogniser_component(result)
 
 
 # ---------------------------------------------------------------------------------------------- D
@@ -564,7 +575,7 @@ def test_gates_and_decisions_refuse_diagnostic_and_unrecorded_scores():
     raised = dataclasses.replace(silent, d_score=Fraction(1))  # an edited copy is the harness record again
     assert stored(ev._D, raised).d_score == 0
     with pytest.raises(ValueError, match="not_from_the_harness"):
-        ev.top_k(corpus.sel, [ev.ComponentScore("OC2-A", True, 100, 0.9, 0.1, 0.1, False, _h("OC2-A"), "recogniser",
+        ev.top_k(corpus.sel, [ev.ComponentScore("OC2-A", 100, 0.9, 0.1, 0.1, False, _h("OC2-A"), "recogniser",
                                                 corpus.ab_digest, _h("m"))], "recogniser")
 
 
@@ -659,24 +670,24 @@ def test_pd_base_resolution_stops_and_never_chooses():
     stop("after_d_data_read", layer_a_for(corpus), d_rows_read=1)
     stop("before_freeze", layer_a_for(corpus), when="2026-09-30T23:59:59Z")
     stop("time_malformed", layer_a_for(corpus), when="2026-10-14 00:00")
-    outsider = layer_a_for(corpus) + [ev.LayerAResult(comp(corpus, "PD9-NEW", True, 100, 1.0, 0.0, 1.0),
+    outsider = layer_a_for(corpus) + [ev.LayerAResult(comp(corpus, "PD9-NEW", 100, 1.0, 0.0, 1.0),
                                                       _h("PD9-NEW"), True)]
     stop("inconsistent_with_frozen_detector_universe", outsider)
     stop("inconsistent_with_frozen_detector_universe", layer_a_for(corpus)[1:])
     stop("ambiguous_duplicate_detector", layer_a_for(corpus) + layer_a_for(corpus)[1:2])
     stop("identity_mismatch:PD2-N", layer_a_for(corpus, identities={"PD2-N": _h("PD2-N-retrained")}))
     failed = layer_a_for(corpus)
-    failed[1] = dataclasses.replace(failed[1], score=comp(corpus, "PD2-N", True, 100, 0.95, 0.1, 0.9,
+    failed[1] = dataclasses.replace(failed[1], score=comp(corpus, "PD2-N", 100, 0.95, 0.1, 0.9,
                                                           contract_fail=True))
     stop("gate_pass_with_contract_fail:PD2-N", failed)
     stop("non_finite_metric:PD2-N", layer_a_for(corpus, metrics={"PD1-X": (0.9, 0.1, 0.9),
                                                                  "PD2-N": (float("nan"), 0.1, 0.9),
                                                                  "PD2-S": (0.9, 0.1, 0.9)}))
     elsewhere = layer_a_for(corpus)
-    elsewhere[1] = dataclasses.replace(elsewhere[1], score=comp("b" * 64, "PD2-N", True, 100, 0.95, 0.1, 0.9))
+    elsewhere[1] = dataclasses.replace(elsewhere[1], score=comp("b" * 64, "PD2-N", 100, 0.95, 0.1, 0.9))
     stop("not_on_the_frozen_partition:PD2-N", elsewhere)
     recogniser_kind = layer_a_for(corpus)
-    recogniser_kind[1] = dataclasses.replace(recogniser_kind[1], score=comp(corpus, "PD2-N", True, 100, 0.95, 0.1, 0.9,
+    recogniser_kind[1] = dataclasses.replace(recogniser_kind[1], score=comp(corpus, "PD2-N", 100, 0.95, 0.1, 0.9,
                                                                             kind="recogniser"))
     stop("not_a_detector_result:PD2-N", recogniser_kind)
     unrecorded = layer_a_for(corpus)
@@ -698,7 +709,7 @@ def test_sealed_resolution_cannot_change_or_be_forged_and_oc5_is_never_rankable(
     drifted = layer_a_for(corpus, passed=("PD2-S",))
     with pytest.raises(ev.BaselineStop, match="differs_from_frozen_derivation"):
         ev.verify_resolution(corpus.full, resolution, drifted)
-    with pytest.raises(ev.BaselineStop, match="after_d_truth_loaded"):
+    with pytest.raises(ev.BaselineStop, match="after_d_data_loaded"):
         ev.resolve_baseline(corpus.sel, drifted, d_rows_read=0, resolved_at_utc=WHEN)  # D is loaded: Stage 2 is over
     baseline = C("PD2-N", "OC5-BEST", with_d(base, Fraction(1, 2)))
     passing = C("PD2-S", "OC1-XS", with_d(base, Fraction(9, 10)))
@@ -736,7 +747,7 @@ def test_benchmark_only_component_never_enters_top_k():
 
     def component(who):
         runs = read_runs(corpus, {f"p{i}": R((_plate_text(i), 0.9)) for i in range(60)}, rec=who)
-        return ev.recogniser_component(True, ev.evaluate_b(corpus.sel, runs, recogniser=who))
+        return ev.recogniser_component(ev.evaluate_b(corpus.sel, runs, recogniser=who))
 
     with pytest.raises(ValueError, match="run_recogniser_not_in_the_frozen_roster"):
         component(ev.ComponentIdentity("OC9-ALIAS", OC5.identity_sha256))
@@ -753,26 +764,27 @@ def test_benchmark_only_component_never_enters_top_k():
 
 def test_top_k_is_deterministic_and_excludes_failures():
     detectors = ("PD2-M", "PD2-N", "PD2-S", "PD5-V5M", "PD5-V6S", "PD9-X")
-    corpus = population(1, roster=default_roster(detectors, ("OC2-A", "OC2-B")), protocol=None, resolve=False,
+    corpus = population(1, roster=default_roster(detectors, ("OC2-A", "OC2-B"), dependent=("PD5-V5M",)), protocol=None,
+                        resolve=False,
                         mutate_record=lambda r: r["protocol"].update(
                             detectorFloors=[[d, FLOOR] for d in detectors]))
-    scores = [comp(corpus, "PD2-S", True, 100, 0.9, 0.1, 0.8), comp(corpus, "PD2-N", True, 100, 0.9, 0.1, 0.9),
-              comp(corpus, "PD5-V5M", False, 100, 0.99, 0.0, 0.99), comp(corpus, "PD2-M", True, 10, 1, 0, 1),
-              comp(corpus, "PD5-V6S", True, 100, None, None, None),
-              comp(corpus, "PD9-X", True, 100, 1.0, 0.0, 1.0, contract_fail=True)]
+    scores = [comp(corpus, "PD2-S", 100, 0.9, 0.1, 0.8), comp(corpus, "PD2-N", 100, 0.9, 0.1, 0.9),
+              comp(corpus, "PD5-V5M", 100, 0.99, 0.0, 0.99), comp(corpus, "PD2-M", 10, 1, 0, 1),
+              comp(corpus, "PD5-V6S", 100, None, None, None),
+              comp(corpus, "PD9-X", 100, 1.0, 0.0, 1.0, contract_fail=True)]
     assert TOPK(corpus, scores, "detector") == ["PD2-N", "PD2-S", "PD5-V6S"]
-    ocr = [comp(corpus, "OC2-B", True, 60, 0.8, 0.1, 0.2, kind="recogniser"),
-           comp(corpus, "OC2-A", True, 60, 0.8, 0.1, None, kind="recogniser")]
+    ocr = [comp(corpus, "OC2-B", 60, 0.8, 0.1, 0.2, kind="recogniser"),
+           comp(corpus, "OC2-A", 60, 0.8, 0.1, None, kind="recogniser")]
     with pytest.raises(ValueError, match="duplicate_candidate"):  # review 6, P3-4
         TOPK(corpus, [ocr[0], ocr[0]], "recogniser")
     assert TOPK(corpus, ocr, "recogniser") == ["OC2-B", "OC2-A"]
     crops_corpus = _crop_corpus([(((1, 1), (21, 1), (21, 11), (1, 11)),)])
-    built = ev.detector_component(True, ev.evaluate_a(crops_corpus.sel, detect_runs(crops_corpus, GOOD_BOX),
-                                                      detector=DET))
+    built = ev.detector_component(ev.evaluate_a(crops_corpus.sel, detect_runs(crops_corpus, GOOD_BOX), detector=DET))
     assert (built.candidate_id, built.primary, built.kind, built.partition_digest) == (
         "PD2-S", 1.0, "detector", crops_corpus.ab_digest)
-    with pytest.raises(ValueError, match="independent_verdict_not_a_bool"):
-        ev.detector_component(1, ev.evaluate_a(crops_corpus.sel, detect_runs(crops_corpus, GOOD_BOX), detector=DET))
+    with pytest.raises(TypeError):   # owner point 4: N4 independence is the frozen record's verdict, not a parameter
+        ev.detector_component(True, ev.evaluate_a(crops_corpus.sel, detect_runs(crops_corpus, GOOD_BOX),
+                                                  detector=DET))
 
 
 def test_detector_matched_tesseract_is_diagnostic_only():

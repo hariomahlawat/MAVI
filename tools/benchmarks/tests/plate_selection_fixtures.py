@@ -1,14 +1,24 @@
 """Synthetic fixtures for the plate-selection harness: frozen records committed in temporary Git repositories, and
 canonical corpus documents. No dataset, no model.
 
-Every ``build`` writes the four corpus documents and a freeze record that names their SHA-256s, commits the record at
-``FREEZE_RECORD_PATH`` in a fresh temporary repository and loads the bundle through the real loader. The expected
-identities therefore always come from a committed record, never from a value passed beside the content.
+Every ``build`` writes the four corpus documents, builds the freeze record with the real freeze-construction tool
+(``selection_freeze``; a record edited by ``mutate_record`` or forged with ``forge_record`` is assembled by hand with
+the same attestation helper), commits it at ``FREEZE_RECORD_PATH`` in a fresh temporary repository and loads the
+bundle through the real loader. The expected identities therefore always come from a committed record, never from a
+value passed beside the content.
+
+**Protected D in tests.** #218 integrates no protected-D authority, so the real D loaders refuse every request
+(``selection_bundle._authorise_protected_d``). Tests that exercise D scoring patch that one function, inside
+``authorised()`` only, with a stub accepting only the test object ``TEST_AUTHORITY``. Scoring-semantics tests also run
+candidates after a D score, which the harness refuses within one process; ``Corpus.full`` therefore ends its load with
+``new_process()`` (forget the in-process "protected truth read" mark), modelling a separate scoring process. The order
+itself (capture, then truth, then no execution) is proven without that reset in ``test_plates_selection_boundary``.
 """
 
 from __future__ import annotations
 
 import atexit
+import contextlib
 import dataclasses
 import hashlib
 import io
@@ -25,6 +35,7 @@ from mavi_vision.plates.inference import PlateBox, Reading
 from tools.benchmarks.capabilities.plates import evaluator as ev
 from tools.benchmarks.capabilities.plates import queries as q
 from tools.benchmarks.capabilities.plates import selection_bundle as sb
+from tools.benchmarks.capabilities.plates import selection_freeze as sf
 
 PARAMS = q.QueryParameters(interior_offset=1, negatives_per_plate=2, seed="synthetic-seed")
 FLOOR = 0.25
@@ -150,12 +161,53 @@ def default_protocol(detectors=DETECTORS):
             "topK": 3, "topKSupportFloor": 50}
 
 
-def default_roster(detectors=DETECTORS, recognisers=RECOGNISERS):
+def default_roster(detectors=DETECTORS, recognisers=RECOGNISERS, dependent=()):
+    """``dependent``: component ids whose predeclared N4 verdict is "not demonstrably independent"."""
     return {"benchmarkOnly": ["OC5-BEST", _h("OC5-BEST")], "compositionId": EVENTS[1],
-            "detectors": [[d, _h(d)] for d in sorted(detectors)], "eventId": EVENTS[0],
+            "detectors": [[d, _h(d), d not in dependent] for d in sorted(detectors)], "eventId": EVENTS[0],
             "frozenAtUtc": "2026-10-01T00:00:00Z", "layerAGatesSha256": _h("layer-a-gates"),
             "partnerEventId": EVENTS[2], "rankingRuleSha256": ev.DETECTOR_RANKING_RULE_SHA256,
-            "recognisers": [[r, _h(r)] for r in sorted(recognisers)]}
+            "recognisers": [[r, _h(r), r not in dependent] for r in sorted(recognisers)]}
+
+
+TEST_AUTHORITY = object()   # the only value the test stub accepts (never accepted by the harness itself)
+
+
+@contextlib.contextmanager
+def authorised():
+    """TEST ONLY: stand in for the (not yet integrated) protected-D authority for the duration of the block."""
+    real = sb._authorise_protected_d
+
+    def stub(selection_state, authorization, resolution):
+        if authorization is not TEST_AUTHORITY:
+            real(selection_state, authorization, resolution)
+
+    sb._authorise_protected_d = stub
+    try:
+        yield
+    finally:
+        sb._authorise_protected_d = real
+
+
+def new_process():
+    """TEST ONLY: forget that protected truth was read in this process (a separate process in production)."""
+    sb._D_TRUTH_LOADED.clear()
+
+
+def fresh_process():
+    """TEST ONLY: as a new process: no protected-D state, no protected marks, no cached D handles."""
+    for key in [k for k, state in sb._BUNDLES.items() if state.stage != sb.SELECTION]:
+        del sb._BUNDLES[key]
+    sb._D_TRUTH_LOADED.clear()
+    sb._D_DATA_LOADED.clear()
+    for corpus in _CACHE.values():
+        corpus._full = corpus._capture = None
+
+
+def d_load(loader, directory, repo, resolution, layer_a):
+    with authorised():
+        return loader(directory, resolution=resolution, layer_a_results=layer_a, authorization=TEST_AUTHORITY,
+                      repo_root=repo)
 
 
 def write(path: Path, data: bytes) -> None:
@@ -196,11 +248,21 @@ class Corpus:
     _full: object = None
     resolution: object = None
     layer_a: list | None = None
+    _capture: object = None
+
+    @property
+    def capture(self):
+        """The D-capture bundle (D evidence, no D truth): where candidates run on protected-D Tracks."""
+        if self._capture is None:
+            self._capture = d_load(ev.load_d_capture_bundle, self.directory, self.repo, self.resolution, self.layer_a)
+        return self._capture
 
     @property
     def full(self):
+        """The protected-D bundle (D truth) for scoring; see the module note on ``new_process``."""
         if self._full is None:
-            self._full = ev.load_protected_d_bundle(self.directory, repo_root=self.repo)
+            self._full = d_load(ev.load_protected_d_bundle, self.directory, self.repo, self.resolution, self.layer_a)
+            new_process()
         return self._full
 
     @property
@@ -219,7 +281,7 @@ class Corpus:
                      for e in self.track(tid).evidence)
 
     def bundle_for(self, tid):
-        return self.full if self.track(tid) in self.d_tracks else self.sel
+        return self.capture if self.track(tid) in self.d_tracks else self.sel
 
 
 _CACHE: dict[bytes, Corpus] = {}
@@ -238,17 +300,28 @@ def documents(ab_tracks, d_tracks, crops=(), plates=()):
 
 
 def make_record(docs_bytes, sites, protocol=None, roster=None, plan_id="plan"):
-    return {"documents": {k: hashlib.sha256(v).hexdigest() for k, v in docs_bytes.items()},
+    documents = {k: hashlib.sha256(v).hexdigest() for k, v in docs_bytes.items()}
+    return {"disjointness": sb.disjointness_attestation(documents), "documents": documents,
             "partitionPlan": {"planId": plan_id, "sites": sites},
             "protocol": protocol or default_protocol(), "roster": roster or default_roster(),
             "schema": sb.RECORD_SCHEMA}
 
 
+def construct(directory, record):
+    """The real freeze-construction tool on ``directory`` (it marks protected truth read; tests then forget it)."""
+    try:
+        return sf.construct_freeze_record(directory, protocol=record["protocol"], roster=record["roster"],
+                                          partition_plan=record["partitionPlan"])
+    finally:
+        sb._D_TRUTH_LOADED.discard("freeze-construction")
+
+
 def build(tracks, crops=(), plates=(), *, partition=None, twin=None, sites=None, protocol=None, roster=None,
-          mutate=None, mutate_record=None, raw=None, resolve=True):
+          mutate=None, mutate_record=None, raw=None, resolve=True, forge_record=False):
     """One corpus. ``tracks`` go to ``partition`` (A/B when there are A/B items, else protected D); ``twin`` (default:
     one Track) is the other partition. ``mutate(docs)`` edits the document objects before serialisation (the record
     then names the edited bytes); ``raw`` replaces document bytes outright; ``mutate_record(record)`` edits the record.
+    ``forge_record`` skips the construction tool (a hand-assembled record whose attestation was never checked).
     The default baseline is resolved before any protected-D load."""
     partition = partition or (AB if crops or plates else D)
     if twin is None:
@@ -271,10 +344,12 @@ def build(tracks, crops=(), plates=(), *, partition=None, twin=None, sites=None,
     key = record_bytes + b"\x00" + b"\x00".join(docs_bytes[k] for k in sorted(docs_bytes))
     if key in _CACHE:
         return _CACHE[key]
-    repo = commit_record(record_bytes)
     directory = _ROOT / f"corpus-{hashlib.sha256(key).hexdigest()[:20]}"
     for name, data in docs_bytes.items():
         write(directory / sb.DOCUMENT_FILES[name], data)
+    if mutate_record is None and not forge_record:
+        assert construct(directory, record) == record_bytes   # the real tool builds exactly this record
+    repo = commit_record(record_bytes)
     sel = ev.load_selection_bundle(directory, repo_root=repo)
     corpus = Corpus(repo, directory, docs, record, list(tracks), sel)
     corpus.all_tracks = ab_tracks + d_tracks
@@ -359,19 +434,18 @@ def outputs_of(n, read):
 # ---------------------------------------------------------------------------------------------- baseline fixtures
 
 
-def comp(digest, candidate_id, independent, support, primary, second, third, contract_fail=False,
-         kind="detector"):
+def comp(digest, candidate_id, support, primary, second, third, contract_fail=False, kind="detector"):
     """Fixture only (private registry): a component score with chosen metrics on the partition ``digest``."""
     if not isinstance(digest, str):
         digest = digest.ab_digest
-    return ev._register(ev._COMPONENT, ev.ComponentScore(candidate_id, independent, support, primary, second, third,
+    return ev._register(ev._COMPONENT, ev.ComponentScore(candidate_id, support, primary, second, third,
                                                          contract_fail, _h(candidate_id), kind, digest, _h("m")))
 
 
 def layer_a_for(corpus, passed=("PD2-N", "PD2-S"), metrics=None, identities=None):
     metrics = metrics or {"PD1-X": (0.99, 0.0, 0.99), "PD2-N": (0.95, 0.10, 0.90), "PD2-S": (0.93, 0.05, 0.92)}
     identities = identities or {}
-    return [ev.LayerAResult(comp(corpus, d, True, 100, *metrics[d]), identities.get(d, _h(d)), d in passed)
+    return [ev.LayerAResult(comp(corpus, d, 100, *metrics[d]), identities.get(d, _h(d)), d in passed)
             for d in DETECTORS]
 
 

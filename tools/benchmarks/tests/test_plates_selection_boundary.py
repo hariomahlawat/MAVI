@@ -72,14 +72,28 @@ def _raw_load(record_bytes, docs_bytes, name, stage=sb.SELECTION):
     directory = fx._ROOT / f"{name}-corpus"
     for key, data in docs_bytes.items():
         fx.write(directory / sb.DOCUMENT_FILES[key], data)
-    loader = ev.load_selection_bundle if stage == sb.SELECTION else ev.load_protected_d_bundle
-    return loader(directory, repo_root=repo)
+    selection = ev.load_selection_bundle(directory, repo_root=repo)
+    if stage == sb.SELECTION:
+        return selection
+    layer_a = [ev.LayerAResult(comp(selection.ab_digest, d, 100, *m), _h(d), d != "PD1-X")
+               for d, m in zip(fx.DETECTORS, ((0.99, 0.0, 0.99), (0.95, 0.1, 0.9), (0.93, 0.05, 0.92)))]
+    resolution = ev.resolve_baseline(selection, layer_a, d_rows_read=0, resolved_at_utc=WHEN)
+    loader = ev.load_d_capture_bundle if stage == sb.D_CAPTURE else ev.load_protected_d_bundle
+    return fx.d_load(loader, directory, repo, resolution, layer_a)
 
 
 def _good_docs():
     corpus = population(2)
     return corpus, {k: (corpus.directory / f).read_bytes() for k, f in sb.DOCUMENT_FILES.items()}
 
+
+
+@pytest.fixture(autouse=True)
+def _each_test_is_a_fresh_scoring_process():
+    """Every test starts with no protected truth marked read in this process (see ``plate_selection_fixtures``)."""
+    fx.new_process()
+    yield
+    fx.new_process()
 
 # ---------------------------------------------------------------------------------------------- (1) independent identity
 
@@ -94,8 +108,10 @@ def test_the_api_has_no_expected_digest_or_corpus_object_parameter():
         parameters = set(inspect.signature(getattr(ev, name)).parameters)
         assert not parameters & {"manifest", "expected_manifest_digest", "config", "freeze", "partition_plan",
                                  "replicates", "seed", "mpid", "k", "minimum_support", "queries"}, name
-    for loader in (ev.load_selection_bundle, ev.load_protected_d_bundle):
-        assert set(inspect.signature(loader).parameters) == {"corpus_dir", "repo_root"}
+    assert set(inspect.signature(ev.load_selection_bundle).parameters) == {"corpus_dir", "repo_root"}
+    for loader in (ev.load_d_capture_bundle, ev.load_protected_d_bundle):
+        assert set(inspect.signature(loader).parameters) == {"corpus_dir", "resolution", "layer_a_results",
+                                                             "authorization", "repo_root"}
     for gone in ("EvaluationManifest", "ProtocolConfig", "PartitionPlan", "Truth", "TEXT", "UNSUPPORTED_TEXT",
                  "manifest_digest", "verify_manifest", "partition_plan_digest"):
         assert not hasattr(ev, gone), gone
@@ -177,6 +193,7 @@ def test_documents_parse_strictly(transform, code):
     edited = dict(docs, abIndex=data)
     record = dict(corpus.record)
     record["documents"] = dict(record["documents"], abIndex=sb.document_sha256(data))
+    record["disjointness"] = sb.disjointness_attestation(record["documents"])
     with pytest.raises(ValueError, match=code):
         _raw_load(sb.canonical_bytes(record), edited, name)
 
@@ -211,14 +228,14 @@ def test_no_caller_domain_object_reaches_scoring_probe_cold218g():
     # image substitution through the only caller hook, the byte source: refused (ii)
     substitute = fx._stored(fx._jpeg((64, 32), (1, 2, 3)))[0]
     with pytest.raises(ValueError, match="image_integrity_failed"):
-        ev.run_track(corpus.full, "t0", detector=GOOD_BOX, recogniser=fx.Recogniser(["x"]), detector_identity=DET,
+        ev.run_track(corpus.capture, "t0", detector=GOOD_BOX, recogniser=fx.Recogniser(["x"]), detector_identity=DET,
                      recogniser_identity=REC, images=lambda o, s: fx.IMAGES[substitute])
 
     class Bytes(bytes):
         pass
 
     with pytest.raises(ValueError, match="image_integrity_failed"):  # an exact-bytes rule, not a subclass
-        ev.run_track(corpus.full, "t0", detector=GOOD_BOX, recogniser=fx.Recogniser(["x"]), detector_identity=DET,
+        ev.run_track(corpus.capture, "t0", detector=GOOD_BOX, recogniser=fx.Recogniser(["x"]), detector_identity=DET,
                      recogniser_identity=REC, images=lambda o, s: Bytes(images(o, s)))
     assert score(corpus, runs).d_score == first.d_score == 1
 
@@ -358,7 +375,7 @@ def test_every_iterable_is_materialised_once():
     det_runs = [ev.run_detection(crops_corpus.sel, "c-ia", detector=GOOD_BOX, detector_identity=DET, images=images)]
     flip_det = Flip(det_runs, [])
     assert ev.evaluate_a(crops_corpus.sel, flip_det, detector=DET).outcome == ev.MEASURED and flip_det.count == 1
-    scores = [comp(selection, d, True, 100, 0.9 - i / 10, 0.1, 0.9) for i, d in enumerate(fx.DETECTORS)]
+    scores = [comp(selection, d, 100, 0.9 - i / 10, 0.1, 0.9) for i, d in enumerate(fx.DETECTORS)]
     flip_k = Flip(scores, [])
     assert ev.top_k(selection.sel, flip_k, "detector") == list(fx.DETECTORS) and flip_k.count == 1
     composition = Flip([DET, REC], [PD_BASE, OC5])
@@ -378,14 +395,25 @@ def test_every_iterable_is_materialised_once():
     (lambda r: r["protocol"].update(detectorFloors=[["PD1-X", 0.25], ["PD2-N", 0.25]]), "not_the_detector_universe"),
     (lambda r: r["protocol"].update(detectorFloors=[["PD1-X", 1.5], ["PD2-N", 0.25], ["PD2-S", 0.25]]),
      "floors_malformed"),
-    (lambda r: r["roster"].update(recognisers=[["OC1-XS", _h("OC1-XS")], ["OC5-BEST", _h("OC5-BEST")]]),
+    (lambda r: r["roster"].update(recognisers=[["OC1-XS", _h("OC1-XS"), True], ["OC5-BEST", _h("OC5-BEST"), True]]),
      "benchmark_only_component_in_a_universe"),
-    (lambda r: r["roster"].update(recognisers=[["OC1-XS", _h("PD2-S")]]), "identity_under_two_ids"),
-    (lambda r: r["roster"].update(recognisers=[["OC9-X", _h("OC5-BEST")]]), "identity_under_two_ids"),
-    (lambda r: r["roster"].update(recognisers=[["PD2-S", _h("OC9")]]), "identity_under_two_ids"),
+    (lambda r: r["roster"].update(recognisers=[["OC1-XS", _h("PD2-S"), True]]), "identity_under_two_ids"),
+    (lambda r: r["roster"].update(recognisers=[["OC9-X", _h("OC5-BEST"), True]]), "identity_under_two_ids"),
+    (lambda r: r["roster"].update(recognisers=[["PD2-S", _h("OC9"), True]]), "identity_under_two_ids"),
     (lambda r: r["roster"].update(recognisers=[]), "recognisers_malformed"),
-    (lambda r: r["roster"].update(recognisers=[["OC2-B", _h("OC2-B")], ["OC2-A", _h("OC2-A")]]),
+    (lambda r: r["roster"].update(recognisers=[["OC2-B", _h("OC2-B"), True], ["OC2-A", _h("OC2-A"), True]]),
      "recognisers_malformed"),
+    # owner point 4: the N4 verdict is a frozen bool per component, never absent, never a truthy stand-in
+    (lambda r: r["roster"].update(recognisers=[["OC1-XS", _h("OC1-XS")]]), "recognisers_malformed"),
+    (lambda r: r["roster"].update(recognisers=[["OC1-XS", _h("OC1-XS"), 1]]), "recognisers_malformed"),
+    (lambda r: r["roster"].update(detectors=[[d, _h(d), "yes"] for d in fx.DETECTORS]), "detectors_malformed"),
+    # M3 reconciliation: "C-" is M3's derived ordinary-composition namespace; the partner is the other event
+    (lambda r: r["roster"].update(compositionId="C-GATE"), "composition_id_reserved"),
+    (lambda r: r["roster"].update(partnerEventId=r["roster"]["eventId"]), "partner_event_is_the_baseline_event"),
+    # owner point 2: the disjointness result is the construction tool's, bound to the four document hashes
+    (lambda r: r.pop("disjointness"), "freeze_record_malformed"),
+    (lambda r: r["disjointness"].update(result="OVERLAP"), "disjointness_not_attested"),
+    (lambda r: r["disjointness"].update(sha256=_h("x")), "disjointness_not_attested"),
     (lambda r: r["roster"].update(rankingRuleSha256=_h("another rule")), "ranking_rule_not_the_frozen_rule"),
     (lambda r: r["roster"].update(frozenAtUtc="yesterday"), "time_malformed"),
     (lambda r: r.update(schema="v0"), "freeze_record_schema"),
@@ -421,6 +449,7 @@ def test_swapped_partitions_and_moved_sites_are_refused():
     corpus, docs = _good_docs()
     swapped = dict(docs, abIndex=docs["dIndex"], dIndex=docs["abIndex"])
     record = dict(corpus.record, documents={k: sb.document_sha256(v) for k, v in swapped.items()})
+    record["disjointness"] = sb.disjointness_attestation(record["documents"])
     with pytest.raises(ValueError, match="index_is_not_this_partition"):
         _raw_load(sb.canonical_bytes(record), swapped, "swapped-partitions")
     for n, sites in enumerate(([["site0", "AB_SELECTION"], ["site1", "PROTECTED_D"], ["twin-ab-site", "AB_SELECTION"]],
@@ -440,7 +469,7 @@ def test_each_layer_projects_only_from_its_partition_and_stage():
     corpus = _ab(T("a0", "ab-site", "KA01AB1234"), twin=[T("d0", "d-site", "KA02AB1234")])
     with pytest.raises(ValueError, match="requires_the_protected_d_bundle"):
         ev.evaluate_d(corpus.sel, [], composition=(DET, REC))   # the selection stage holds no D truth
-    with pytest.raises(ValueError, match="run_d_track_requires_the_protected_d_bundle"):
+    with pytest.raises(ValueError, match="run_track_not_in_bundle"):   # no D index at the selection stage
         run(corpus, "d0", ["KA02AB1234"], bundle=corpus.sel)
     ab_run = run(corpus, "a0", ["KA01AB1234"])
     with pytest.raises(ValueError, match="result_of_another_partition_or_bundle"):
@@ -471,16 +500,25 @@ def test_cross_partition_aliases_are_refused():
                                                            sha256=a.evidence[0]["sha256"],
                                                            sizeBytes=a.evidence[0]["sizeBytes"])]
     for code, d_track in cases.items():
-        with pytest.raises(ValueError, match=f"bundle_{code}"):
+        with pytest.raises(ValueError, match=f"bundle_{code}"):   # owner point 2: refused at freeze construction
             _ab(a, twin=[d_track])
+        # A hand-assembled record claiming disjointness: Layer A never sees D, so the selection stage loads, and the
+        # claim is re-verified on the real D index the moment D is opened (no D-stage bundle exists).
+        forged = _ab(a, twin=[d_track], forge_record=True)
+        assert forged.sel.stage == sb.SELECTION
+        with pytest.raises(ValueError, match=f"bundle_{code}"):
+            forged.capture
     evidence_sha = a.evidence[0]
     image = dict(fx.plate_image(1), sha256=evidence_sha["sha256"], sizeBytes=evidence_sha["sizeBytes"])
     with pytest.raises(ValueError, match="bundle_content_shared_by_two_images"):
         build([a], plates=[dict(plate("p0", "x0", b=1), plateImage=image)], twin=[T("y", "d-site", "KA02AB1234")])
-    d_with_items = build([T("dz", "dz-site", "KA02AB1234")],
-                         mutate=lambda docs: docs["dTruth"]["crops"].append(crop("c", "dz", 0, POLY)))
-    with pytest.raises(ValueError, match="truth_d_partition_holds_a_b_items"):
-        d_with_items.full
+    with pytest.raises(ValueError, match="truth_d_partition_holds_a_b_items"):   # refused at freeze construction
+        build([T("dz", "dz-site", "KA02AB1234")],
+              mutate=lambda docs: docs["dTruth"]["crops"].append(crop("c", "dz", 0, POLY)))
+    forged = build([T("dz", "dz-site", "KA02AB1234")], forge_record=True,
+                   mutate=lambda docs: docs["dTruth"]["crops"].append(crop("c", "dz", 0, POLY)))
+    with pytest.raises(ValueError, match="truth_d_partition_holds_a_b_items"):   # and again when D truth is opened
+        forged.full
 
 
 # ---------------------------------------------------------------------------------------------- (8) evidence / truth
@@ -520,9 +558,12 @@ def test_truth_state_manipulation_and_letter_digit_classification():
                  "ABCD", "KA01AB12३४", "[UNREADABLE]", "UNREADABLE.", "a@b"):
         assert ev.classify_truth("TEXT", text) == (ev.TruthState.UNSUPPORTED_TEXT, text, None), text
     for text in ("NO_PLATE", "no plate", "No-Plate", "UNREADABLE", "unreadable", "NO_GT_VEHICLE", "TEXT",
-                 "UNSUPPORTED_TEXT", "<NO_PLATE>", "<anything", "x>"):
+                 "UNSUPPORTED_TEXT", "<NO_PLATE>", "<no-plate>", "<unreadable>", "<no-gt-vehicle>", "<anything>",
+                 "< x >"):
         with pytest.raises(ValueError, match="reserved_syntax"):
             ev.classify_truth("TEXT", text)
+    for text in ("<anything", "x>", "<UNREADBLE", "KA01AB1234>"):   # one bracket only: not a defined encoding
+        assert ev.classify_truth("TEXT", text) == (ev.TruthState.UNSUPPORTED_TEXT, text, None), text
     for state in ("UNSUPPORTED_TEXT", "text", "No_Plate", "UNREADBLE", None, 1):
         with pytest.raises(ValueError, match="truth_state_unknown"):
             ev.classify_truth(state, "KA01AB1234")
@@ -566,7 +607,7 @@ def test_earlier_probe_attacks_stay_closed():
                  "evaluate_tracks", "evaluate_detection", "evaluate_reading", "ranking_plate_record"):
         assert not hasattr(ev, name)
     assert "evidence" not in inspect.signature(ev.run_track).parameters
-    assert set(inspect.signature(ev.detector_component).parameters) == {"independent", "result"}
+    assert set(inspect.signature(ev.detector_component).parameters) == {"result"}
     # relabelling a composition: the identity comes from the harness record
     relabelled = ev.CompositionScore(dataclasses.replace(score(corpus, good), detector=PD_BASE, recogniser=OC5))
     assert (relabelled.detector_id, relabelled.recogniser_id) == ("PD2-S", "OC1-XS")
@@ -628,6 +669,6 @@ def test_resolution_and_gate_use_only_harness_records():
     flipped = layer_a_for(corpus, passed=("PD1-X", "PD2-N", "PD2-S"))
     with pytest.raises(ev.BaselineStop, match="differs_from_frozen_derivation"):  # cold218b probe 2: gate flip
         ev.baseline_gate(corpus.full, C("PD2-S", "OC1-XS", base), C("PD2-N", "OC5-BEST", base), resolution, flipped)
-    with pytest.raises(ev.BaselineStop, match="after_d_truth_loaded"):  # cold218 P-D: no post-hoc Stage 2
+    with pytest.raises(ev.BaselineStop, match="after_d_data_loaded"):  # cold218 P-D: no post-hoc Stage 2
         ev.resolve_baseline(corpus.sel, flipped, d_rows_read=0, resolved_at_utc="2099-01-01T00:00:00Z")
     assert default_protocol()["topK"] == ev.TOP_K and ev.MPID == Fraction(4, 100)
