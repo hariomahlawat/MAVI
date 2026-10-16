@@ -651,10 +651,32 @@ def _check_decision_blocks(ctx: Context, authority: GroupAuthority) -> None:
         block = _keys(decision.get(AUTHORITY_FIELD), DECISION_KEYS, f"{rel}.{AUTHORITY_FIELD}")
         _check_binding_rows(block, state, rel, with_status=True)
         check_recorded_anchor(ctx.repo, block["anchorCommit"], state.s0, ctx.history.adds.get(rel, set()), rel)
+        # D results exist only after protected D was opened: the decision's anchor is that of a committed D manifest
+        if block["anchorCommit"] not in {m["anchorCommit"] for m in authority.d_manifests.values()}:
+            raise _fail("decision_without_d_manifest", rel)
+        _check_block_history(ctx, rel, block)
         blocks[e] = document_sha256(block)
         authority.decisions[e] = decision
     if len(set(blocks.values())) > 1:
         raise _fail("composition_authority_differs_between_group_events", state.group_id[:12])
+
+
+def _check_block_history(ctx: Context, rel: str, block: Mapping) -> None:
+    """The decision file advances with the event state, but its ``compositionAuthority`` block (the D results, gates
+    and derived ranking) is fixed once recorded: every historical version carries the same block, except that
+    ``implementationComposition`` may move once from null to the chosen ranked composition."""
+    def without_choice(value: Mapping) -> str:
+        return document_sha256({k: v for k, v in value.items() if k != "implementationComposition"})
+    blobs = ctx.history.blobs.get(rel, set())
+    texts = read_blobs(ctx.repo, blobs)
+    for blob in sorted(blobs):
+        try:
+            earlier = json.loads(texts[blob].decode("utf-8")).get(AUTHORITY_FIELD)
+        except (ValueError, AttributeError):
+            earlier = None
+        if not isinstance(earlier, dict) or without_choice(earlier) != without_choice(block) or \
+                earlier.get("implementationComposition") not in (None, block["implementationComposition"]):
+            raise _fail("composition_authority_rewritten", rel)
 
 
 def _group_of_event(ctx: Context, event_id: str) -> str | None:

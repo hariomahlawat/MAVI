@@ -96,6 +96,74 @@ jobs:
           echo "shard $SHARD_INDEX/$SHARD_COUNT runs $selected of $total collected tests"
           python -m pytest -q -rs -p no:cacheprovider @shard-tests.txt
 
+  # Diagnostic only (MSR M3 authority redesign, PR #220). An earlier head failed on Windows in production
+  # `git show <commit>:<path>` (Git for Windows 2.55). The redesign reads history by blob id and turns every Git
+  # failure into a typed refusal carrying the return code and stderr; this job additionally captures Git traces for
+  # the M3 chronology tests, once with the default configuration and once with automatic gc/maintenance disabled.
+  # It does not gate the workflow (the shards above run every test, including these), and the maintenance-race
+  # hypothesis stays unproven unless the two variants differ. Remove the job once the traces have been reviewed.
+  m3-git-diagnostic:
+    name: windows M3 git diagnostic (${{ matrix.variant }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [default, no-maintenance]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:MAVI_EXPECTED_SOURCE_SHA) {
+            throw "checked-out $head is not the expected source $env:MAVI_EXPECTED_SOURCE_SHA"
+          }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            src/vision/pyproject.toml
+            tools/requirements.txt
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
+      - name: Record the Git version and configuration
+        shell: bash
+        run: |
+          git --version
+          git config --show-origin -l || true
+      - name: Run the M3 chronology tests with Git traces
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+          TRACE_DIR: ${{ runner.temp }}/m3-git-traces
+        run: |
+          set -uo pipefail
+          mkdir -p "$TRACE_DIR/t2perf"
+          export GIT_TRACE="$TRACE_DIR/git-trace.log" GIT_TRACE_SETUP="$TRACE_DIR/git-trace-setup.log"
+          export GIT_TRACE2_PERF="$TRACE_DIR/t2perf"
+          if [ "$VARIANT" = "no-maintenance" ]; then
+            export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0
+            export GIT_CONFIG_KEY_1=maintenance.auto GIT_CONFIG_VALUE_1=false
+          fi
+          python -m pytest -q -rs -p no:cacheprovider tools/qualification/tests/test_model_selection_m3.py \
+            -k "history or anchor or chronology or flow or attack or d1 or d2 or d3" 2>&1 | tee "$TRACE_DIR/pytest.log"
+      - name: Retain the Git traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m3-git-diagnostic-${{ matrix.variant }}
+          path: ${{ runner.temp }}/m3-git-traces
+          retention-days: 14
+
   qualification-tooling-windows:
     name: qualification tooling windows
     if: always()

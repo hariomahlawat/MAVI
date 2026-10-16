@@ -1348,11 +1348,19 @@ def commit_d(built: Built, auth, run="RUN-1") -> Path:
     return path
 
 
-def commit_decisions(built: Built, auth, *, base=BASE_D):
+def commit_decisions(built: Built, auth, *, base=BASE_D, state_name="QUALIFICATION_PENDING", chosen=True,
+                     mutate=None, mutate_partner=None):
     state = built.state()
-    block_ = authority_block(state, anchor=auth.anchor_commit, base=base)
+    block_ = authority_block(state, anchor=auth.anchor_commit, base=base,
+                             implementation="C-PD-A--VC-EST" if chosen else None)
+    if mutate is not None:
+        mutate(block_)
     for event_id in (EVENT, PARTNER_EVENT):
-        summary = group_decision(state, event_id, block_=copy.deepcopy(block_))
+        own = copy.deepcopy(block_)
+        if mutate_partner is not None and event_id == PARTNER_EVENT:
+            mutate_partner(own)
+        summary = group_decision(state, event_id, block_=own, state_name=state_name,
+                                 implementation="default" if chosen else None)
         folder = folder_of(built.path, event_id)
         decision_path = write(folder / f"{event_id}-decision.json", json.dumps(summary))
         snapshot_path = write(folder / f"{event_id}-evidence-ledger-decided.json",
@@ -2093,15 +2101,26 @@ def test_cli_style_decision_check_runs_the_repository_predicate(tmp_path):
 
 def test_group_decisions_must_carry_the_identical_authority_block(tmp_path):
     built, auth, _manifest = full_flow(tmp_path / "r")
-    commit_decisions(built, auth)
-    validate_repository(built.path)
-    path = built.pfolder / f"{PARTNER_EVENT}-decision.json"
-    summary = json.loads(path.read_text())
-    summary["compositionAuthority"]["frontier"] = summary["compositionAuthority"]["rankedCompositions"][:2]
-    write(path, json.dumps(summary))
-    append(built.record(PARTNER_EVENT), f"Decision SHA-256: {lf_normalised_sha256(path)}")
-    commit(built.path, "partner decision with another frontier")
+    commit_decisions(built, auth, mutate_partner=lambda b: b.update(frontier=b["rankedCompositions"][:2]))
     refused("composition_authority_differs_between_group_events", validate_repository, built.path)
+
+
+def test_a_decision_needs_an_opened_protected_d(tmp_path):
+    built = build(tmp_path / "r")
+    auth = open_d(built)
+    git(built.path, "update-ref", "refs/remotes/origin/main", auth.anchor_commit)
+    commit_decisions(built, auth)
+    refused("decision_without_d_manifest", validate_repository, built.path)
+
+
+def test_the_recorded_composition_block_is_never_rewritten(tmp_path):
+    built, auth, _manifest = full_flow(tmp_path / "r")
+    commit_decisions(built, auth, state_name="TECHNICAL_DECISION_RECORDED", chosen=False)
+    validate_repository(built.path)
+    commit_decisions(built, auth)  # the implementation composition is chosen later: allowed
+    validate_repository(built.path)
+    commit_decisions(built, auth, mutate=lambda b: b.update(frontier=b["rankedCompositions"][:2]))
+    refused("composition_authority_rewritten", validate_repository, built.path)
 
 
 def test_a_stopped_group_holds_no_d_manifest(tmp_path):
