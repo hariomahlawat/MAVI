@@ -398,12 +398,12 @@ class GroupAuthority:
     d_manifests: dict[str, dict] = field(default_factory=dict)  # repo-relative path -> manifest
     decisions: dict[str, dict] = field(default_factory=dict)  # eventId -> decision
     abandoned: list[str] = field(default_factory=list)
-    superseded_by: str | None = None
+    superseded_by: dict[str, str] = field(default_factory=dict)  # member -> its superseding event
     checked: list[str] = field(default_factory=list)
 
     @property
     def d_authorising(self) -> bool:
-        return self.state.resolved and not self.abandoned and self.superseded_by is None
+        return self.state.resolved and not self.abandoned and not self.superseded_by
 
 
 def _commit_of(ctx: Context, path: str) -> str | None:
@@ -692,10 +692,10 @@ def _read_superseded_by(ctx: Context, authority: GroupAuthority) -> None:
             successor = ctx.frozen.get(line)
             if successor is None or (successor.get(SUPERSEDES_FIELD) or {}).get("eventId") != e:
                 raise _fail("superseded_line_without_superseding_event", f"{e}:{line}")
-            if authority.superseded_by not in (None, line):
+            if authority.superseded_by.get(e, line) != line:
                 raise _fail("event_superseded_twice", e)
-            authority.superseded_by = line
-    if authority.superseded_by is not None and authority.state.seal_status != STOPPED:
+            authority.superseded_by[e] = line
+    if authority.superseded_by and authority.state.seal_status != STOPPED:
         raise _fail("supersedes_target_not_stopped", ",".join(authority.members))
 
 
@@ -732,9 +732,11 @@ def _check_stop_blocks_later_events(ctx: Context, authority: GroupAuthority) -> 
     """E3: while a member of a STOPPED group is not superseded, every other frozen event of its capability (M1, M2 or
     M3) must have been frozen before the stop; a later one must supersede it (and so be M3 with a gate, O6)."""
     state = authority.state
-    if state.seal_status != STOPPED or authority.superseded_by is not None:
+    if state.seal_status != STOPPED:
         return
     for e in authority.members:
+        if e in authority.superseded_by:
+            continue
         capability = capability_of(e)
         for other in sorted(ctx.frozen):
             if other in authority.members or capability_of(other) != capability:
@@ -742,6 +744,8 @@ def _check_stop_blocks_later_events(ctx: Context, authority: GroupAuthority) -> 
             f_other = _commit_of(ctx, event_paths(other)["frozen"])
             if f_other is not None and state.s0 is not None and is_ancestor(ctx.repo, f_other, state.s0):
                 continue  # frozen before the stop
+            if (ctx.frozen[other].get(SUPERSEDES_FIELD) or {}).get("eventId") == e:
+                raise _fail("superseded_record_line_missing", f"{e}:{other}")  # it supersedes, the record lacks it
             raise _fail("stopped_event_not_superseded", f"{e}:{other}")
 
 
@@ -920,8 +924,8 @@ def _check_pre_d(ctx: Context, authority: GroupAuthority, remote_url: str | None
         raise _fail("d_not_authorised", "composition-universe-indeterminate")
     if authority.abandoned:
         raise _fail("d_not_authorised", "group-abandoned")
-    if authority.superseded_by is not None:
-        raise _fail("d_not_authorised", f"superseded-by:{authority.superseded_by}")
+    if authority.superseded_by:
+        raise _fail("d_not_authorised", f"superseded-by:{sorted(authority.superseded_by.values())[0]}")
     if state.s0 is None:
         raise _fail("d_not_authorised", "baseline-seal-not-committed")
     if remote_url is None or github_api is None:

@@ -2,8 +2,12 @@
   "$id": "urn:mavi:mavi-model-selection-d-manifest-v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Shape contract (MSR revision M3). The repository check additionally requires canonical JSON, the current RESOLVED seal hash per frozen gate-only composition, and a seal commit that holds those bytes and is a strict ancestor of the commit that first added this file (model_selection/baseline_seal.py).",
+  "description": "Shape contract (MSR revision M3, authority redesign). The repository check additionally requires canonical JSON, the group's RESOLVED seal hash with its first-add commit S0, the sealed U hash, and an anchorCommit with S0 <= anchor < the commit adding this file, anchor <= HEAD and anchor <= refs/remotes/origin/main (model_selection/m3_authority.py).",
   "properties": {
+    "anchorCommit": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "type": "string"
+    },
     "baselineSeals": {
       "items": {
         "additionalProperties": false,
@@ -28,15 +32,24 @@
         ],
         "type": "object"
       },
+      "maxItems": 1,
       "minItems": 1,
       "type": "array"
     },
     "eventId": {
-      "pattern": "^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-[0-9]{4}-[0-9]{2}$",
+      "pattern": "^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\\d{4}-\\d{2}$",
+      "type": "string"
+    },
+    "groupId": {
+      "pattern": "^[0-9a-f]{64}$",
       "type": "string"
     },
     "manifestId": {
       "pattern": "^[A-Za-z][A-Za-z0-9-]{0,63}$",
+      "type": "string"
+    },
+    "ordinaryCompositionsSha256": {
+      "pattern": "^[0-9a-f]{64}$",
       "type": "string"
     },
     "resultSha256": {
@@ -48,9 +61,12 @@
     }
   },
   "required": [
+    "anchorCommit",
     "baselineSeals",
     "eventId",
+    "groupId",
     "manifestId",
+    "ordinaryCompositionsSha256",
     "resultSha256",
     "schema"
   ],

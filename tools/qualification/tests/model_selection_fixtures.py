@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import os
+import subprocess
+from pathlib import Path
 
 from model_selection.credibility import (
     DECISION_SCHEMA,
@@ -333,3 +336,20 @@ def decision(document, *, frozen=None, scores=None, licence=None, state="QUALIFI
             "rationale": "strongest cleared established candidate",
         },
     }
+
+
+def commit_tree(repo: Path) -> Path:
+    """Repository verification needs full Git history (MSR M3 invariant A6: the model-selection audit domain comes
+    from one reachable-history walk). Commit a synthetic tree as one snapshot so the unchanged M1/M2 verdicts are
+    checked exactly as before. Returns ``repo``."""
+    environment = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+                       GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
+
+    def git(*args):
+        subprocess.run(["git", "-C", str(repo), "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", *args],
+                       capture_output=True, check=True, env=environment)
+    if not (Path(repo) / ".git").exists():
+        git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "--allow-empty", "-m", "synthetic snapshot")
+    return Path(repo)

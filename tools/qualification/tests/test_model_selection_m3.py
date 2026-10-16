@@ -1,6 +1,10 @@
-"""Method revision M3: benchmark-only baseline component and derived gate-only baseline composition.
+"""Method revision M3: benchmark-only baseline, composition group and group authority (PR #220 authority redesign).
 
-Synthetic fixtures only (model_selection_fixtures.py). Every name, hash and date is invented.
+Synthetic fixtures only (model_selection_fixtures.py). Every name, hash and date is invented. The group is two
+component events: the recogniser ``msr-vehicle-colour-2026-01`` (holds the benchmark-only baseline VC-BOB) and the
+detector ``msr-plate-detector-2026-01`` (holds the partner PD_BASE). Git-backed tests build real temporary
+repositories; nothing here calls the network or the GitHub API (the anchor remote is a local bare repository and the
+ruleset API is an injected fake).
 """
 
 from __future__ import annotations
@@ -8,12 +12,16 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from model_selection import baseline_seal as bs
+from model_selection import m3_authority as ma
+from model_selection import m3_git as mg
+from model_selection import m3_universe as mu
 from model_selection.credibility import (
     CredibilityError,
     canonical_json,
@@ -43,9 +51,19 @@ EVENT = "msr-vehicle-colour-2026-01"
 PARTNER_EVENT = "msr-plate-detector-2026-01"
 GATE = "GATE-BASE"
 PROTOCOL = sha("protocol")
+PARTNER_PROTOCOL = sha("partner-protocol")
 SEALED_AT = "2026-07-01T10:00:00Z"
 D_STARTED = "2026-07-02T09:00:00Z"
-GATE_IDS = ["contract", "recall-floor"]
+PD_GATES = ["contract", "recall-floor"]
+VC_GATES = ["contract"]
+S0 = "c" * 40
+ANCHOR = "a" * 40
+MPID = 0.02
+BASE_D = 0.5
+D_SCORES = {"C-PD-A--VC-EMG": 0.9, "C-PD-B--VC-EMG": 0.85, "C-PD-A--VC-EST": 0.7, "C-PD-B--VC-EST": 0.6,
+            "C-PD-A--VC-B0": 0.3, "C-PD-B--VC-B0": 0.2}
+PD_METRICS = {"PD-A": {"recall": 0.9}, "PD-B": {"recall": 0.8}}
+VC_METRICS = {"VC-B0": {"cer": 0.5, "em": 0.2}, "VC-EST": {"cer": 0.2, "em": 0.7}, "VC-EMG": {"cer": 0.1, "em": 0.9}}
 
 
 def refused(code, function, *args, **kwargs):
@@ -54,12 +72,45 @@ def refused(code, function, *args, **kwargs):
     assert str(error.value).split(":")[0] == code, str(error.value)
 
 
+def code_of(function, *args, **kwargs):
+    try:
+        function(*args, **kwargs)
+    except CredibilityError as error:
+        return str(error).split(":")[0]
+    return "accepted"
+
+
 def identity_of(label):
     return document_sha256(checkpoint_identity(label))
 
 
-def partner_ledger(*entries):
-    return ledger(*(entries or (established("PD-A", "pda"), established("PD-B", "pdb"))), capability="plate-detector")
+def universe(**changes):
+    block = {
+        "componentEvents": [
+            {"eventId": PARTNER_EVENT, "subTask": "T-VC", "rankingLayer": "A", "k": 3, "rankingGateIds": list(PD_GATES),
+             "rankingRule": {"rule": "lexicographic-v1", "keys": [{"metric": "recall", "direction": "max"}]}},
+            {"eventId": EVENT, "subTask": "T-VC", "rankingLayer": "B", "k": 3, "rankingGateIds": list(VC_GATES),
+             "rankingRule": {"rule": "lexicographic-v1", "keys": [{"metric": "em", "direction": "max"},
+                                                                  {"metric": "cer", "direction": "min"}]}},
+        ],
+        "compositionGateIds": ["baseline", "consistent-wrong"],
+        "mpid": MPID,
+        "includePackageableBaselines": True,
+    }
+    block.update(changes)
+    return block
+
+
+def as_m3(document, block=None):
+    document["methodRevision"] = "msr-v1-m3"
+    document["compositionUniverse"] = universe() if block is None else block
+    return document
+
+
+def partner_ledger(*entries, block=None):
+    document = ledger(*(entries or (established("PD-A", "pda"), established("PD-B", "pdb"))),
+                      capability="plate-detector")
+    return as_m3(document, block)
 
 
 def partners():
@@ -69,8 +120,7 @@ def partners():
 
 def stage1(**changes):
     rule = {"compositionId": GATE, "partnerEventId": PARTNER_EVENT, "eligiblePartners": partners(),
-            "excludedPartners": [], "partnerRankingRuleSha256": sha("rule"), "layerAGatesSha256": sha("gates"),
-            "layerAGateIds": list(GATE_IDS), "derivationRule": bs.DERIVATION_RULE, "gateScope": bs.GATE_SCOPE_ALL}
+            "excludedPartners": [], "derivationRule": bs.DERIVATION_RULE, "gateScope": bs.GATE_SCOPE_ALL}
     rule.update(changes)
     return rule
 
@@ -108,49 +158,86 @@ def bob(candidate_id="VC-BOB", label="bob", *, entry=None):
     return entry
 
 
-def m3_ledger(*entries, revision="msr-v1-m3", capability="vehicle-colour"):
+def m3_ledger(*entries, revision="msr-v1-m3", capability="vehicle-colour", block_=None):
     document = ledger(*(entries or (baseline(), established(), emerging(), bob())), capability=capability)
     document["methodRevision"] = revision
+    if revision == "msr-v1-m3":
+        document["compositionUniverse"] = universe() if block_ is None else block_
     return document
 
 
 def plain_ledger():
-    """The same event without its benchmark-only baseline."""
-    return m3_ledger(baseline(), established(), emerging())
+    """An M1 event with the same ordinary candidates and no M3 role."""
+    return ledger(baseline(), established(), emerging(), capability="vehicle-colour")
 
 
-def layer_a(document, partner, *, ranks=None, gates=None, **changes):
-    ranks = ranks or {"PD-A": [False, -0.9, "PD-A"], "PD-B": [False, -0.8, "PD-B"]}
-    gates = gates or {"PD-A": {g: "passed" for g in GATE_IDS}, "PD-B": {g: "passed" for g in GATE_IDS}}
-    rows = [{"candidateId": p["candidateId"], "identitySha256": p["identitySha256"], "gates": gates[p["candidateId"]],
-             "rankKey": ranks[p["candidateId"]], "measurementSha256": sha(f"layer-a-{p['candidateId']}")}
-            for p in partners()]
-    result = bs.layer_a_result_document(document, GATE, partner, rows, sha("raw-layer-a"))
-    result.update(changes)
-    return result
+def ranking(frozen, metrics=None, gates=None):
+    item = mu.component_event(frozen["compositionUniverse"], frozen["eventId"])
+    metrics = metrics or (PD_METRICS if frozen["eventId"] == PARTNER_EVENT else VC_METRICS)
+    default = {"recall": 0.1} if frozen["eventId"] == PARTNER_EVENT else {"cer": 0.9, "em": 0.1}
+    gates = gates or {}
+    identities = mu.shortlist_identities(frozen)
+    rows = [{"candidateId": c, "identitySha256": identities[c],
+             "gates": copy.deepcopy(gates.get(c)) or {g: "passed" for g in item["rankingGateIds"]},
+             "metrics": copy.deepcopy(metrics.get(c, default)), "measurementSha256": sha(f"measurement-{c}")} for c in sorted(identities)]
+    return mu.component_ranking_document(frozen, rows, sha(f"raw-{frozen['eventId']}"))
 
 
-def evidence(document, partner=None, result=None, seal=None):
+def all_failed(frozen):
+    item = mu.component_event(frozen["compositionUniverse"], frozen["eventId"])
+    return {c: {g: "failed" for g in item["rankingGateIds"]} for c in mu.shortlist_identities(frozen)}
+
+
+def rankings_of(document, partner, *, own=None, other=None):
+    return {EVENT: ranking(document) if own is None else own,
+            PARTNER_EVENT: ranking(partner) if other is None else other}
+
+
+def derive(document, partner, rankings, **kwargs):
+    return bs.derive_baseline_seal(document, GATE, protocol_sha256=kwargs.pop("protocol", PROTOCOL),
+                                   partner_ledger=partner, rankings=rankings, recorded_at=SEALED_AT,
+                                   recorded_by="synthetic-harness", **kwargs)
+
+
+def group(document=None, partner=None, rankings=None, seal="derive", s0=S0):
+    document = m3_ledger() if document is None else document
     partner = partner_ledger() if partner is None else partner
-    result = layer_a(document, partner) if result is None else result
-    if seal is None:
-        seal = bs.derive_baseline_seal(document, GATE, protocol_sha256=PROTOCOL, partner_ledger=partner,
-                                       layer_a=result, recorded_at=SEALED_AT, recorded_by="synthetic-harness")
-    return {GATE: {"seal": seal, "layerA": result, "partnerLedger": partner}}
+    rankings = rankings_of(document, partner) if rankings is None else rankings
+    if seal == "derive":
+        seal = derive(document, partner, rankings)
+    return ma.derive_group_state({EVENT: document, PARTNER_EVENT: partner}, {EVENT: PROTOCOL, PARTNER_EVENT: PARTNER_PROTOCOL},
+                                 rankings, seal, s0=s0)
 
 
-def component(event_id, candidate_id, identity):
-    return {"eventId": event_id, "candidateId": candidate_id, "identitySha256": identity}
-
-
-def composition(document, composition_id, partner_id, candidate_id, gates, score, seal_sha):
-    own = {e["candidateId"]: e for e in document["candidates"]}[candidate_id]
-    return {"compositionId": composition_id,
-            "components": [component(PARTNER_EVENT, partner_id, identity_of(partner_id.lower().replace("-", ""))),
-                           component(EVENT, candidate_id, document_sha256(own["identity"]))],
-            "gates": {GATE: gates}, "technicalGates": "passed" if score is not None else "failed",
-            "comparativeScore": score, "dResultSha256": sha(f"d-{composition_id}"),
-            "baselineSealSha256s": {GATE: seal_sha}}
+def authority_block(state, *, scores=None, base=BASE_D, anchor=ANCHOR, implementation="C-PD-A--VC-EST"):
+    scores = D_SCORES if scores is None else scores
+    rows, passing = [], {}
+    for item in state.ordinary:
+        cid = item["compositionId"]
+        score = scores.get(cid)
+        baseline_passed = score is not None and base is not None and score - base >= MPID
+        gates = {"baseline": "passed" if baseline_passed else "failed", "consistent-wrong": "passed"}
+        technical = "passed" if all(v == "passed" for v in gates.values()) else "failed"
+        if technical == "passed":
+            passing[cid] = score
+        rows.append({"compositionId": cid, "components": copy.deepcopy(item["components"]), "gates": gates,
+                     "dScore": score, "technicalGates": technical,
+                     "comparativeScore": score if technical == "passed" else None,
+                     "dResultSha256": sha(f"d-{cid}"), "baselineSealSha256s": {GATE: state.seal_sha256}})
+    ranked = sorted(passing, key=lambda c: -passing[c])
+    finalists = {e: sorted({c["candidateId"] for comp in ranked for c in
+                            next(i for i in state.ordinary if i["compositionId"] == comp)["components"]
+                            if c["eventId"] == e}) for e in (PARTNER_EVENT, EVENT)}
+    return {"groupId": state.group_id, "anchorCommit": anchor,
+            "baselineSeals": [{"compositionId": GATE, "sealSha256": state.seal_sha256, "status": "RESOLVED",
+                               "sealCommit": state.s0}],
+            "dExecutionStartedAt": D_STARTED, "incumbent": None,
+            "baseline": {"compositionId": GATE, "compositionSha256": state.seal["compositionSha256"], "dScore": base,
+                         "dResultSha256": sha("d-baseline")},
+            "topK": copy.deepcopy(state.top_k), "componentFinalists": finalists, "compositionCandidates": rows,
+            "rankedCompositions": ranked, "frontier": ranked[:1],
+            "strongestEvaluatedComposition": ranked[0] if ranked else None,
+            "implementationComposition": implementation}
 
 
 def bob_row(document, seal_sha):
@@ -162,43 +249,48 @@ def bob_row(document, seal_sha):
     return row
 
 
-def m3_block(document, proof, **changes):
-    seal = proof[GATE]["seal"]
-    digest = document_sha256(seal)
-    resolved = seal["status"] == bs.RESOLVED
-    result = {
-        "baselineSeals": [{"compositionId": GATE, "sealSha256": digest, "status": seal["status"],
-                           "sealCommit": "c" * 40}],
-        "dExecutionStartedAt": D_STARTED if resolved else seal.get("protectedDAccessedAt"),
-        "incumbent": None,
-        "topK": ["VC-EMG", "VC-EST"],
-        "componentFinalists": ["VC-EST"],
-        "compositionCandidates": [
-            composition(document, "C-B-EMG", "PD-B", "VC-EMG", "passed", 0.9, digest),
-            composition(document, "C-A-EST", "PD-A", "VC-EST", "passed", 0.7, digest),
-            composition(document, "C-A-B0", "PD-A", "VC-B0", "failed", None, digest),
-        ] if resolved else [],
-        "rankedCompositions": ["C-B-EMG", "C-A-EST"] if resolved else [],
-        "frontier": ["C-B-EMG"] if resolved else [],
-        "strongestEvaluatedComposition": "C-B-EMG" if resolved else None,
-    }
-    result.update(changes)
-    return result
-
-
-def m3_decision(document, proof=None, **kwargs):
-    proof = evidence(document) if proof is None else proof
-    summary = decision(document, **kwargs)
-    summary["evaluated"].append(bob_row(document, document_sha256(proof[GATE]["seal"])))
-    summary["benchmarkOnlyBaselines"] = m3_block(document, proof)
+def apply_rows(summary, state, event_id):
+    """Set every ordinary row to its composition-derived values and recompute the M1 derived fields."""
+    block_ = summary["compositionAuthority"]
+    passing = {r["compositionId"]: r["dScore"] for r in block_["compositionCandidates"] if r["technicalGates"] == "passed"}
+    for row in summary["evaluated"]:
+        if row["technicalGates"] == "n/a":
+            continue
+        scores = [s for comp, s in passing.items() if any(
+            c["eventId"] == event_id and c["candidateId"] == row["candidateId"]
+            for c in next(r for r in block_["compositionCandidates"] if r["compositionId"] == comp)["components"])]
+        row.update(technicalGates="passed" if scores else "failed", comparativeScore=max(scores) if scores else None)
+    technical = {r["candidateId"]: r["comparativeScore"] for r in summary["evaluated"] if r["technicalGates"] == "passed"}
+    best = max(technical, key=technical.get) if technical else None
+    summary["strongestEvaluatedTechnical"] = best
+    summary["strongestClearedPerProfile"] = {p: best for p in summary["targetProfiles"]}
     return summary
 
 
-def check(summary, document, proof):
-    validate_decision(summary, document, document, baseline_evidence=proof)
+def group_decision(state, event_id=EVENT, *, block_=None, state_name="QUALIFICATION_PENDING", implementation="default"):
+    document = state.frozen_by_event[event_id]
+    if event_id == EVENT:
+        components = ("VC-EST",) if implementation == "default" else implementation
+        summary = decision(document, state=state_name, implementation=components)
+        summary["evaluated"].append(bob_row(document, state.seal_sha256))
+    else:
+        components = ("PD-A",) if implementation == "default" else implementation
+        summary = decision(document, scores={"PD-A": 0.9, "PD-B": 0.85}, state=state_name, implementation=components)
+        summary["strongestReported"] = {"candidateId": "PD-A", "claimId": "C1",
+                                        "label": summary["strongestReported"]["label"]}
+    summary["protocolSha256"] = state.protocol_by_event[event_id]
+    if components is None and block_ is None:
+        block_ = authority_block(state, implementation=None)
+    summary["compositionAuthority"] = authority_block(state) if block_ is None else block_
+    return apply_rows(summary, state, event_id)
 
 
-# ------------------------------------------------------------------ positive
+def check(summary, state, event_id=EVENT):
+    document = state.frozen_by_event[event_id]
+    validate_decision(summary, document, document, group=state)
+
+
+# ================================================================== ledger: BOB, universe, P3, R1
 
 
 def test_benchmark_baseline_is_accepted_measured_sealed_and_never_ranked():
@@ -206,130 +298,102 @@ def test_benchmark_baseline_is_accepted_measured_sealed_and_never_ranked():
     summary = validate_ledger(document)
     assert summary["VC-BOB"] == {"class": "reference-only", "provenanceConfidence": "High",
                                  "disposition": "BENCHMARK_BASELINE"}
-    proof = evidence(document)
-    seal = proof[GATE]["seal"]
-    assert seal["status"] == "RESOLVED" and seal["partnerCandidateId"] == "PD-A"
-    assert bs.verify_baseline_seal(seal, frozen=document, protocol_sha256=PROTOCOL,
-                                   partner_ledger=proof[GATE]["partnerLedger"],
-                                   layer_a=proof[GATE]["layerA"]) == document_sha256(seal)
-    check(m3_decision(document, proof), document, proof)
+    state = group(document)
+    assert state.seal["status"] == "RESOLVED" and state.seal["partnerCandidateId"] == "PD-A"
+    assert [i["compositionId"] for i in state.ordinary] == sorted(D_SCORES)
+    assert all("VC-BOB" not in json.dumps(i) for i in state.ordinary)
+    check(group_decision(state), state)
+    check(group_decision(state, PARTNER_EVENT), state, PARTNER_EVENT)
 
 
-def test_seal_carries_every_machine_enforced_field():
-    """P2-1: every identity the enforcement depends on is a seal field, not prose."""
+def test_m3_requires_the_group_universe_and_m1_m2_refuse_it():
     document = m3_ledger()
-    proof = evidence(document)
-    seal = proof[GATE]["seal"]
-    assert set(seal) == set(bs.RESOLVED_FIELDS)
-    bob_entry = document["candidates"][-1]
-    rule = bob_entry["benchmarkBaseline"]["compositions"][0]
-    assert seal["benchmarkComponentIdentitySha256"] == bs.benchmark_component_identity_sha256(bob_entry)
-    assert seal["layerAGatesSha256"] == rule["layerAGatesSha256"]
-    assert seal["partnerRankingRuleSha256"] == rule["partnerRankingRuleSha256"]
-    assert seal["stage1RuleSha256"] == document_sha256(rule)
-    assert seal["eligibleUniverseSha256"] == document_sha256(rule["eligiblePartners"])
-    assert seal["partnerFrozenLedgerSha256"] == document_sha256(proof[GATE]["partnerLedger"])
-    assert seal["layerAResultSha256"] == document_sha256(proof[GATE]["layerA"])
-    assert seal["frozenLedgerSha256"] == document_sha256(document)
-    assert seal["protocolSha256"] == PROTOCOL
-    assert seal["gateScope"] == "all-ordinary-compositions"
-    assert seal["protectedDState"] == "NOT_STARTED"
-    assert seal["compositionSha256"] == bs.composition_sha256(EVENT, GATE, "VC-BOB",
-                                                             seal["benchmarkComponentIdentitySha256"],
-                                                             PARTNER_EVENT, "PD-A", identity_of("pda"))
-    for field in bs.RESOLVED_FIELDS:
-        if field in ("recordedAt", "recordedBy"):
-            continue
-        broken = copy.deepcopy(seal)
-        del broken[field]
-        with pytest.raises(CredibilityError):
-            bs.verify_baseline_seal(broken, frozen=document, protocol_sha256=PROTOCOL,
-                                    partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
-    self_hashed = dict(seal, recordSha256=document_sha256(seal))
-    refused("unknown_field", bs.verify_baseline_seal, self_hashed, frozen=document, protocol_sha256=PROTOCOL,
-            partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
+    del document["compositionUniverse"]
+    refused("m3_requires_composition_universe", validate_ledger, document)
+    refused("composition_universe_requires_m3", validate_ledger, as_m3(plain_ledger()) | {"methodRevision": "msr-v1-m1"})
+    m1 = plain_ledger()
+    m1["supersedes"] = {"eventId": "msr-vehicle-colour-2025-01", "frozenLedgerSha256": sha("x"),
+                        "stoppedSealSha256s": [sha("s")]}
+    refused("composition_universe_requires_m3", validate_ledger, m1)  # O6: a superseding event stays M3
+    validate_ledger(partner_ledger())  # a group member without a BOB
 
 
-def test_bob_scoring_highest_cannot_be_named_anywhere():
-    document = m3_ledger()
-    proof = evidence(document)
-    summary = m3_decision(document, proof)
-    for gates, score, quality in (("passed", 9.9, 9.9), ("n/a", 9.9, None), ("n/a", None, 9.9), ("failed", None, 0.0)):
-        changed = copy.deepcopy(summary)
-        changed["evaluated"][-1].update(technicalGates=gates, comparativeScore=score, taskQualityScore=quality)
-        refused("benchmark_baseline_row_scored", check, changed, document, proof)
-    for field in ("highestTaskQualityEvaluated", "strongestEvaluatedTechnical"):
-        changed = copy.deepcopy(summary)
-        changed[field] = "VC-BOB"
-        refused("benchmark_baseline_in_derived_output", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    changed["strongestReported"]["candidateId"] = "VC-BOB"
-    refused("benchmark_baseline_in_derived_output", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    changed["strongestClearedPerProfile"]["dev-profile"] = "VC-BOB"
-    refused("benchmark_baseline_in_derived_output", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    changed["implementation"]["components"] = ["VC-BOB"]
-    refused("benchmark_baseline_in_derived_output", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    changed["licence"]["VC-BOB"] = {"dev-profile": "CLEARED"}
-    refused("unknown_field", check, changed, document, proof)
+@pytest.mark.parametrize("mutate, code", [
+    (lambda u: u.update(componentEvents=u["componentEvents"][:1]), "composition_universe_events_invalid"),
+    (lambda u: u["componentEvents"].reverse(), "composition_universe_events_invalid"),
+    (lambda u: u["componentEvents"].append(copy.deepcopy(u["componentEvents"][0]) | {"eventId": "msr-zz-2026-01"}),
+     "composition_universe_events_invalid"),
+    (lambda u: u["componentEvents"][1].update(k=0), "composition_universe_k_invalid"),
+    (lambda u: u["componentEvents"][1].update(k=True), "composition_universe_k_invalid"),
+    (lambda u: u["componentEvents"][0].update(rankingGateIds=["z", "a"]), "ranking_gates_not_sorted_unique"),
+    (lambda u: u["componentEvents"][0]["rankingRule"].update(rule="owner-preference"), "value_not_allowed"),
+    (lambda u: u["componentEvents"][0]["rankingRule"].update(keys=[]), "ranking_rule_keys_invalid"),
+    (lambda u: u["componentEvents"][1]["rankingRule"]["keys"].append({"metric": "em", "direction": "min"}),
+     "ranking_rule_keys_invalid"),
+    (lambda u: u["componentEvents"][1]["rankingRule"]["keys"][0].update(direction="up"), "value_not_allowed"),
+    (lambda u: u["componentEvents"][1].update(subTask="T-PD"), "composition_universe_subtask_outside_event"),
+    (lambda u: u["componentEvents"][1].update(eventId="msr-vehicle-colour-2026-02"),
+     "composition_universe_excludes_own_event"),
+    (lambda u: u.update(compositionGateIds=["consistent-wrong"]), "composition_gates_invalid"),
+    (lambda u: u.update(compositionGateIds=["consistent-wrong", "baseline"]), "composition_gates_invalid"),
+    (lambda u: u.update(mpid=-0.1), "composition_universe_mpid_invalid"),
+    (lambda u: u.update(mpid="0.02"), "number_required"),
+    (lambda u: u.update(includePackageableBaselines=False), "composition_universe_must_include_packageable_baselines"),
+    (lambda u: u.update(extra=1), "unknown_field"),
+])
+def test_composition_universe_is_a_closed_machine_block(mutate, code):
+    block_ = universe()
+    mutate(block_)
+    refused(code, validate_ledger, m3_ledger(block_=block_))
 
 
-def test_bob_must_be_evaluated_on_its_pinned_bytes_and_host_manifests():
-    document = m3_ledger()
-    proof = evidence(document)
-    summary = m3_decision(document, proof)
-    changed = copy.deepcopy(summary)
-    changed["evaluated"].pop()
-    refused("evaluated_set_differs_from_shortlist", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    changed["evaluated"][-1]["hostManifestSha256s"]["dev-profile"] = sha("other bytes")
-    refused("benchmark_baseline_host_manifest_mismatch", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    del changed["evaluated"][-1]["hostManifestSha256s"]["dev-profile"]
-    refused("benchmark_baseline_host_manifest_mismatch", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    changed["evaluated"][-1]["artefactSha256s"] = [sha("re-pinned weights")]
-    refused("evaluated_artefact_differs_from_ledger", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    changed["evaluated"][0]["hostManifestSha256s"] = {}
-    refused("host_manifests_only_for_benchmark_baseline", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    changed["evaluated"][-1]["baselineSealSha256s"] = {GATE: sha("another seal")}
-    refused("benchmark_baseline_row_seal_mismatch", check, changed, document, proof)
-    changed = copy.deepcopy(summary)
-    del changed["evaluated"][-1]["baselineSealSha256s"]
-    refused("benchmark_baseline_row_seal_mismatch", check, changed, document, proof)
-
-
-def test_host_manifest_profiles_reconcile_exactly_with_target_profiles():
-    """Review P3: the pinned host manifests are exactly the decision's declared target profiles."""
-    document = m3_ledger()
-    proof = evidence(document)
-    summary = m3_decision(document, proof)
-    for profiles in (["other-profile"], ["dev-profile", "prod-profile"]):
-        changed = copy.deepcopy(summary)
-        changed["targetProfiles"] = profiles
-        changed["licence"] = {c: {p: "CLEARED" for p in profiles} for c in changed["licence"]}
-        changed["strongestClearedPerProfile"] = {p: "VC-EMG" for p in profiles}
-        refused("benchmark_baseline_host_profiles_differ_from_target_profiles", check, changed, document, proof)
-
-
-# ------------------------------------------------------------------ class restriction, pinning, permissions
+def test_bob_partner_is_the_other_group_member_and_one_baseline_per_group():
+    entry = bob()
+    entry["benchmarkBaseline"]["compositions"][0]["partnerEventId"] = EVENT
+    refused("baseline_partner_event_not_in_group", validate_ledger, m3_ledger(baseline(), established(), entry))
+    entry = bob()
+    entry["benchmarkBaseline"]["compositions"][0]["partnerEventId"] = "msr-plate-finder-2026-01"
+    refused("baseline_partner_event_not_in_group", validate_ledger, m3_ledger(baseline(), established(), entry))
+    two = bob()
+    second = copy.deepcopy(two["benchmarkBaseline"]["compositions"][0])
+    second["compositionId"] = "GATE-TWO"
+    two["benchmarkBaseline"]["compositions"].append(second)
+    refused("composition_universe_requires_one_baseline", validate_ledger, m3_ledger(baseline(), established(), two))
+    other = bob("VC-BOB2", "bob2")
+    other["benchmarkBaseline"]["compositions"][0]["compositionId"] = "GATE-TWO"
+    for item in other["benchmarkBaseline"]["hostManifests"]["dev-profile"]:
+        if item["kind"] == "data":
+            item["sha256"] = sha("weights-bob2")
+    other["benchmarkBaseline"]["evaluationPermissions"][1]["sha256s"] = [sha("weights-bob2")]
+    refused("composition_universe_requires_one_baseline", validate_ledger,
+            m3_ledger(baseline(), established(), bob(), other))
+    # a second BOB in the partner event: the group holds two baselines
+    partner_bob = bob("PD-BOB", "pdbob")
+    partner_bob["benchmarkBaseline"]["compositions"][0].update(compositionId="GATE-P", partnerEventId=EVENT,
+                                                               eligiblePartners=[
+                                                                   {"candidateId": "VC-EMG", "identitySha256": identity_of("emg")},
+                                                                   {"candidateId": "VC-EST", "identitySha256": identity_of("est")}],
+                                                               excludedPartners=[{"candidateId": "VC-B0", "identitySha256": document_sha256(
+                                                                   {"repository": "MAVI", "revision": "UNKNOWN"}), "reason": "not a recogniser"}])
+    for item in partner_bob["benchmarkBaseline"]["hostManifests"]["dev-profile"]:
+        if item["kind"] == "data":
+            item["sha256"] = sha("weights-pdbob")
+    partner_bob["benchmarkBaseline"]["evaluationPermissions"][1]["sha256s"] = [sha("weights-pdbob")]
+    two_groups = partner_ledger(established("PD-A", "pda"), established("PD-B", "pdb"), partner_bob)
+    validate_ledger(two_groups)
+    refused("composition_universe_requires_one_baseline", group, partner=two_groups, seal=None)
 
 
 @pytest.mark.parametrize("make", [established, lambda: emerging(shortlisted=False), excluded, baseline])
 def test_benchmark_baseline_is_refused_for_every_class_but_reference_only(make):
-    entry = bob(entry=make())
-    refused("benchmark_baseline_class", validate_ledger, m3_ledger(entry))
+    refused("benchmark_baseline_class", validate_ledger, m3_ledger(bob(entry=make())))
 
 
 def test_reference_only_role_requires_m3_ledger_and_v1_scope():
     refused("benchmark_baseline_requires_m3", validate_ledger, m3_ledger(revision="msr-v1-m1"))
     refused("m2_scope_unsupported", validate_ledger, m3_ledger(revision="msr-v1-m2"))
-    s2c = m3_ledger(revision="msr-v1-m2", capability="vehicle-attributes")
-    refused("benchmark_baseline_requires_m3", validate_ledger, s2c)
+    refused("benchmark_baseline_requires_m3", validate_ledger,
+            m3_ledger(revision="msr-v1-m2", capability="vehicle-attributes"))
     refused("m3_scope_unsupported", validate_ledger, m3_ledger(capability="vehicle-attributes"))
 
 
@@ -337,8 +401,7 @@ def test_bob_requires_high_provenance_manifests_and_stage1_rule():
     unpinned = bob()
     unpinned["identity"]["files"][0]["sha256"] = "UNKNOWN"
     refused("benchmark_baseline_requires_pinned_provenance", validate_ledger, m3_ledger(unpinned))
-    third_party = bob(entry=reference())
-    refused("benchmark_baseline_requires_pinned_provenance", validate_ledger, m3_ledger(third_party))
+    refused("benchmark_baseline_requires_pinned_provenance", validate_ledger, m3_ledger(bob(entry=reference())))
     for mutate, code in (
         (lambda b: b.pop("hostManifests"), "missing_field"),
         (lambda b: b.update(hostManifests={}), "benchmark_baseline_host_manifest_required"),
@@ -354,10 +417,9 @@ def test_bob_requires_high_provenance_manifests_and_stage1_rule():
         (lambda b: b["compositions"].append(copy.deepcopy(b["compositions"][0])), "duplicate_composition_id"),
         (lambda b: b["compositions"][0].update(derivationRule="the owner picks a good detector"), "value_not_allowed"),
         (lambda b: b["compositions"][0].update(gateScope="whatever the protocol says"), "value_not_allowed"),
-        (lambda b: b["compositions"][0].update(layerAGateIds=[]), "layer_a_gates_not_sorted_unique"),
-        (lambda b: b["compositions"][0].update(layerAGateIds=["z", "a"]), "layer_a_gates_not_sorted_unique"),
         (lambda b: b["compositions"][0].pop("gateScope"), "missing_field"),
         (lambda b: b["compositions"][0].update(partnerEventId="msr-x"), "malformed"),
+        (lambda b: b["compositions"][0].update(partnerRankingRuleSha256=sha("opaque")), "unknown_field"),
     ):
         entry = bob()
         mutate(entry["benchmarkBaseline"])
@@ -371,10 +433,12 @@ def test_bob_requires_high_provenance_manifests_and_stage1_rule():
     collides = bob()
     collides["benchmarkBaseline"]["compositions"][0]["compositionId"] = "VC-EST"
     refused("gate_only_composition_id_collides", validate_ledger, m3_ledger(established(), collides))
+    none = bob()
+    none["benchmarkBaseline"]["compositions"] = []
+    refused("benchmark_baseline_without_gate", validate_ledger, m3_ledger(none))  # cold review P3-6
 
 
 def test_evaluation_permission_is_bound_per_exact_artefact():
-    """Review P3: one vague permission for "all" is refused; executable, libraries and model data are bound."""
     vague = [{"artefact": "all", "decidedBy": "x", "decidedOn": RECORDED, "primarySourceSha256": sha("p")}]
     for mutate, code in (
         (lambda b: b.update(evaluationPermissions=vague), "missing_field"),
@@ -382,10 +446,8 @@ def test_evaluation_permission_is_bound_per_exact_artefact():
         (lambda b: b["evaluationPermissions"].pop(1), "benchmark_baseline_permission_required"),
         (lambda b: b["evaluationPermissions"].pop(0), "benchmark_baseline_permission_required"),
         (lambda b: b["evaluationPermissions"].pop(2), "benchmark_baseline_permission_required"),
-        # cold review P3-6: a data file cannot be filed under the executable permission, nor retyped in the manifest
         (lambda b: b["evaluationPermissions"][0].update(sha256s=sorted([sha("exe"), sha("weights-bob")])),
          "benchmark_baseline_permission_not_bound"),
-        (lambda b: b["hostManifests"]["dev-profile"][2].update(kind="executable"), "benchmark_baseline_permission_not_bound"),
         (lambda b: b["hostManifests"]["dev-profile"][2].update(kind="script"), "value_not_allowed"),
         (lambda b: b["hostManifests"]["dev-profile"][2].pop("kind"), "missing_field"),
         (lambda b: b["evaluationPermissions"].append(copy.deepcopy(b["evaluationPermissions"][0])),
@@ -396,42 +458,140 @@ def test_evaluation_permission_is_bound_per_exact_artefact():
          "benchmark_baseline_permission_not_bound"),
         (lambda b: b["evaluationPermissions"][0].update(sha256s=[]), "benchmark_baseline_permission_not_sorted_unique"),
         (lambda b: b["evaluationPermissions"][0].update(artefactKind="everything"), "value_not_allowed"),
-        (lambda b: b["hostManifests"]["dev-profile"].insert(0, {"path": "a/unpermitted.dll", "kind": "runtime-library", "sha256": sha("new"),
-                                                                 "size": 1}), "benchmark_baseline_permission_not_bound"),
+        (lambda b: b["hostManifests"]["dev-profile"].insert(0, {"path": "a/unpermitted.dll", "kind": "runtime-library",
+                                                                 "sha256": sha("new"), "size": 1}),
+         "benchmark_baseline_permission_not_bound"),
     ):
         entry = bob()
         mutate(entry["benchmarkBaseline"])
         refused(code, validate_ledger, m3_ledger(entry))
 
 
-def test_same_event_partner_universe_must_be_the_shortlisted_identities():
-    """Review P2-2: a non-shortlisted or wrongly identified partner of the same event is refused."""
-    for partner, code in (
-        ({"candidateId": "VC-EST", "identitySha256": sha("not its identity")}, "baseline_partner_not_in_partner_shortlist"),
-        ({"candidateId": "VC-REF", "identitySha256": identity_of("ref")}, "baseline_partner_not_in_partner_shortlist"),
-        ({"candidateId": "VC-ZZZ", "identitySha256": sha("z")}, "baseline_partner_not_in_partner_shortlist"),
-    ):
-        entry = bob()
-        entry["benchmarkBaseline"]["compositions"][0].update(partnerEventId=EVENT, eligiblePartners=[partner])
-        refused(code, validate_ledger, m3_ledger(baseline(), established(), reference(), entry))
-    b0 = {"candidateId": "VC-B0", "identitySha256": document_sha256({"repository": "MAVI", "revision": "UNKNOWN"}),
-          "reason": "the deterministic baseline is not a detector"}
+# ---- probe_manifest (cold review): every probe is a permanent test
+
+
+def _bob_with(mutate):
     entry = bob()
-    entry["benchmarkBaseline"]["compositions"][0].update(
-        partnerEventId=EVENT, eligiblePartners=[{"candidateId": "VC-EST", "identitySha256": identity_of("est")}],
-        excludedPartners=[b0])
-    validate_ledger(m3_ledger(baseline(), established(), entry))
-    # cold review P3-4: a silent subset of the shortlist is refused; the exclusion needs a recorded reason
-    entry["benchmarkBaseline"]["compositions"][0]["excludedPartners"] = []
-    refused("baseline_partner_universe_not_the_shortlist", validate_ledger, m3_ledger(baseline(), established(), entry))
-    entry["benchmarkBaseline"]["compositions"][0]["excludedPartners"] = [dict(b0, reason=" ")]
-    refused("text_required", validate_ledger, m3_ledger(baseline(), established(), entry))
+    mutate(entry)
+    return m3_ledger(baseline(), established(), emerging(), entry)
 
 
-# ------------------------------------------------------------------ immutability after freeze
+def test_probe_manifest_profile_without_executable_is_refused():
+    def second_profile_without_executable(b):
+        b["benchmarkBaseline"]["hostManifests"]["prod-profile"] = [
+            {"path": "share/model.bin", "kind": "data", "sha256": sha("weights-bob"), "size": 30}]
+    refused("benchmark_baseline_profile_without_executable", validate_ledger, _bob_with(second_profile_without_executable))
 
 
-def test_bob_set_identity_and_composition_rule_are_fixed_after_freeze():
+def test_probe_manifest_pinned_model_absent_from_a_host_manifest_is_refused():
+    def model_not_in_manifest(b):
+        manifest = b["benchmarkBaseline"]["hostManifests"]["dev-profile"]
+        b["benchmarkBaseline"]["hostManifests"]["dev-profile"] = [f for f in manifest if f["kind"] != "data"]
+    refused("benchmark_baseline_identity_file_not_in_manifest", validate_ledger, _bob_with(model_not_in_manifest))
+
+
+def test_probe_manifest_pinned_identity_file_retyped_is_refused():
+    def pinned_model_retyped_as_executable(b):
+        manifest = b["benchmarkBaseline"]["hostManifests"]["dev-profile"]
+        for f in manifest:
+            if f["kind"] == "data":
+                f["kind"] = "executable"
+        perms = {p["artefactKind"]: p for p in b["benchmarkBaseline"]["evaluationPermissions"]}
+        perms["executable"]["sha256s"] = sorted({f["sha256"] for f in manifest if f["kind"] == "executable"})
+    refused("benchmark_baseline_identity_file_not_data", validate_ledger, _bob_with(pinned_model_retyped_as_executable))
+
+
+def test_probe_manifest_same_bytes_under_two_kinds_is_refused():
+    def same_hash_two_kinds(b):
+        manifest = b["benchmarkBaseline"]["hostManifests"]["dev-profile"]
+        manifest.append({"path": "share/zz.bin", "kind": "data", "sha256": sha("exe"), "size": 10})
+        perms = {p["artefactKind"]: p for p in b["benchmarkBaseline"]["evaluationPermissions"]}
+        perms["model-data"]["sha256s"] = sorted({*perms["model-data"]["sha256s"], sha("exe")})
+    refused("benchmark_baseline_hash_kind_conflict", validate_ledger, _bob_with(same_hash_two_kinds))
+    def across_profiles(b):
+        b["benchmarkBaseline"]["hostManifests"]["prod-profile"] = [
+            {"path": "bin/tool.exe", "kind": "runtime-library", "sha256": sha("exe"), "size": 10},
+            {"path": "bin/x.exe", "kind": "executable", "sha256": sha("x-exe"), "size": 10},
+            {"path": "share/model.bin", "kind": "data", "sha256": sha("weights-bob"), "size": 30}]
+    refused("benchmark_baseline_hash_kind_conflict", validate_ledger, _bob_with(across_profiles))
+
+
+def test_probe_manifest_runtime_library_retyped_executable_is_the_declared_residual():
+    """O7 residual: semantic misclassification inside the BOB's OWN manifest stays a reviewer item."""
+    def dll_under_executable(b):
+        manifest = b["benchmarkBaseline"]["hostManifests"]["dev-profile"]
+        for f in manifest:
+            if f["kind"] == "runtime-library":
+                f["kind"] = "executable"
+        perms = b["benchmarkBaseline"]["evaluationPermissions"]
+        b["benchmarkBaseline"]["evaluationPermissions"] = [p for p in perms if p["artefactKind"] != "runtime-libraries"]
+        for p in b["benchmarkBaseline"]["evaluationPermissions"]:
+            if p["artefactKind"] == "executable":
+                p["sha256s"] = sorted({sha("exe"), sha("dll")})
+    validate_ledger(_bob_with(dll_under_executable))
+
+
+# ---- R1 / owner decision O7: BOB payload bytes are forbidden in every ordinary candidate
+
+
+def _ordinary_pinning(file_hash, label="clone"):
+    entry = emerging("VC-CLN", label)
+    entry["identity"]["files"].append({"path": "extra/file.bin", "sha256": file_hash})
+    return entry
+
+
+def bob_with_vocabulary():
+    entry = bob()
+    entry["benchmarkBaseline"]["hostManifests"]["dev-profile"].append(
+        {"path": "share/vocab.bin", "kind": "data", "sha256": sha("vocab"), "size": 5})
+    entry["benchmarkBaseline"]["evaluationPermissions"][1]["sha256s"] = sorted([sha("weights-bob"), sha("vocab")])
+    return entry
+
+
+@pytest.mark.parametrize("payload", ["exe", "vocab"])
+def test_ordinary_candidate_pinning_a_bob_payload_file_is_refused_whatever_its_kind(payload):
+    document = m3_ledger(baseline(), established(), emerging(), _ordinary_pinning(sha(payload)), bob_with_vocabulary())
+    refused("benchmark_baseline_bytes_in_ordinary_candidate", validate_ledger, document)
+    # the BOB's pinned identity file is refused too (already by the M1 one-entry-per-checkpoint rule)
+    assert code_of(validate_ledger, m3_ledger(baseline(), established(), emerging(),
+                                              _ordinary_pinning(sha("weights-bob")), bob())) != "accepted"
+
+
+def test_ordinary_candidate_may_share_a_bob_runtime_library():
+    validate_ledger(m3_ledger(baseline(), established(), emerging(), _ordinary_pinning(sha("dll")), bob()))
+
+
+def test_relabelling_a_bob_executable_as_a_runtime_library_in_an_ordinary_candidate_is_no_bypass():
+    """Ordinary candidates carry no kind: every one of their files is compared with every BOB payload hash."""
+    clone = _ordinary_pinning(sha("exe"))
+    clone["identity"]["files"][-1]["path"] = "lib/runtime-library-really.dll"
+    refused("benchmark_baseline_bytes_in_ordinary_candidate", validate_ledger,
+            m3_ledger(baseline(), established(), emerging(), clone, bob()))
+
+
+def test_partner_event_candidate_pinning_bob_bytes_is_refused_by_the_group():
+    twin = established("PD-TESS", "bob")  # the BOB weights under another identity in the partner event
+    twin["identity"]["tag"] = "v1.0-mirror"
+    partner = partner_ledger(established("PD-A", "pda"), established("PD-B", "pdb"), twin)
+    rule_doc = m3_ledger()
+    rule = rule_doc["candidates"][-1]["benchmarkBaseline"]["compositions"][0]
+    rule["excludedPartners"] = [{"candidateId": "PD-TESS", "identitySha256": document_sha256(twin["identity"]),
+                                 "reason": "not a release of interest"}]
+    document = m3_ledger(*rule_doc["candidates"])
+    refused("benchmark_baseline_bytes_in_ordinary_candidate", group, document, partner, seal=None)
+    rule["eligiblePartners"] = sorted(partners() + [{"candidateId": "PD-TESS",
+                                                     "identitySha256": document_sha256(twin["identity"])}],
+                                      key=lambda p: p["candidateId"])
+    rule["excludedPartners"] = []
+    document = m3_ledger(*rule_doc["candidates"])
+    refused("benchmark_baseline_bytes_as_partner", bs.check_partner_universe, rule, partner, "p",
+            document["candidates"][-1])
+
+
+# ---- immutability after freeze
+
+
+def test_bob_set_identity_universe_and_composition_rule_are_fixed_after_freeze():
     frozen = m3_ledger()
     for mutate in (
         lambda e: e["benchmarkBaseline"]["hostManifests"]["dev-profile"][0].update(sha256=sha("swapped")) or
@@ -440,20 +600,23 @@ def test_bob_set_identity_and_composition_rule_are_fixed_after_freeze():
         lambda e: e["benchmarkBaseline"].update(adapterSha256=sha("other adapter")),
         lambda e: e["benchmarkBaseline"]["compositions"][0]["eligiblePartners"].append(
             {"candidateId": "PD-C", "identitySha256": sha("PD-C")}),
-        lambda e: e["benchmarkBaseline"]["compositions"][0].update(partnerRankingRuleSha256=sha("new rule")),
-        lambda e: e["benchmarkBaseline"]["compositions"][0].update(layerAGateIds=["contract"]),
         lambda e: e["benchmarkBaseline"]["evaluationPermissions"][0].update(decidedBy="someone else"),
         lambda e: e["disposition"].update(reason="changed after freeze"),
     ):
         later = copy.deepcopy(frozen)
         mutate(later["candidates"][-1])
         refused("frozen_benchmark_baseline_field_changed", validate_evolution, frozen, later)
+    for field, value in (("compositionUniverse", universe(mpid=0.5)),
+                         ("supersedes", {"eventId": "msr-vehicle-colour-2025-01", "frozenLedgerSha256": sha("x"),
+                                         "stoppedSealSha256s": [sha("s")]})):
+        later = copy.deepcopy(frozen)
+        later[field] = value
+        refused("frozen_ledger_scope_changed", validate_evolution, frozen, later)
     removed = copy.deepcopy(frozen)
     removed["candidates"][-1]["disposition"] = {"status": "REFERENCE_ONLY", "reasonClass": "credibility",
                                                 "reason": "held", "revisitTrigger": "never", "decidedBy": "x"}
     del removed["candidates"][-1]["benchmarkBaseline"]
     refused("benchmark_baselines_changed_after_freeze", validate_evolution, frozen, removed)
-    refused("benchmark_baselines_changed_after_freeze", validate_evolution, plain_ledger(), frozen)
 
 
 def test_bob_cannot_promote_itself():
@@ -465,445 +628,587 @@ def test_bob_cannot_promote_itself():
          "retrievedSha256": sha("run"), "recordedAt": RECORDED, "summary": "MAVI bake-off D-score",
          "scope": "method", "independenceBasis": "MAVI", "subTask": "T-VC", "objectClass": "vehicle"})
     refused("mavi_evidence_in_ledger", validate_ledger, promoted)
-    established_bob = bob(entry=established("VC-BOB", "bob"))
-    refused("benchmark_baseline_class", validate_ledger, m3_ledger(established_bob))
+    refused("benchmark_baseline_class", validate_ledger, m3_ledger(bob(entry=established("VC-BOB", "bob"))))
 
 
-# ------------------------------------------------------------------ P1-2: the committed pre-D seal
+def test_listed_compositions_scope_is_disabled():
+    entry = bob()
+    entry["benchmarkBaseline"]["compositions"][0]["gateScope"] = "listed-compositions"
+    refused("gate_scope_listed_compositions_disabled", validate_ledger, m3_ledger(entry))
+    assert bs.GATE_SCOPES == ("all-ordinary-compositions",)
+
+
+# ================================================================== component ranking, top-K and U (C1)
+
+
+def test_rank_key_is_derived_from_metrics_by_the_frozen_rule():
+    document = m3_ledger()
+    result = mu.check_component_ranking(ranking(document), document)
+    assert result["VC-EMG"]["key"] == (-0.9, 0.1) and result["VC-B0"]["key"] == (-0.2, 0.5)
+    authored = ranking(document)
+    authored["rows"][0]["rankKey"] = [0]
+    refused("unknown_field", mu.check_component_ranking, authored, document)
+    # changing a metric changes the order: no author key can be smuggled in
+    swapped = ranking(document, metrics=dict(VC_METRICS, **{"VC-EST": {"cer": 0.0, "em": 0.95}}))
+    assert mu.derive_top_k(mu.check_component_ranking(swapped, document), 1) == ["VC-EST"]
+
+
+@pytest.mark.parametrize("mutate, code", [
+    (lambda r: r["rows"][0].update(identitySha256=sha("retrained")), "component_ranking_identity_mismatch"),
+    (lambda r: r["rows"][0].update(candidateId="VC-REF"), "component_ranking_candidate_not_shortlisted"),
+    (lambda r: r["rows"][0].update(candidateId="VC-BOB"), "component_ranking_candidate_not_shortlisted"),
+    (lambda r: r["rows"].pop(), "component_ranking_not_the_shortlist"),
+    (lambda r: r["rows"].append(copy.deepcopy(r["rows"][0])), "component_ranking_not_the_shortlist"),
+    (lambda r: r["rows"][0]["gates"].pop("contract"), "component_ranking_gates_mismatch"),
+    (lambda r: r["rows"][0]["gates"].update(extra="passed"), "component_ranking_gates_mismatch"),
+    (lambda r: r["rows"][0]["gates"].update(contract="maybe"), "value_not_allowed"),
+    (lambda r: r["rows"][0]["metrics"].pop("em"), "component_ranking_metrics_mismatch"),
+    (lambda r: r["rows"][0]["metrics"].update(extra=1.0), "component_ranking_metrics_mismatch"),
+    (lambda r: r["rows"][0]["metrics"].update(em=float("inf")), "number_required"),
+    (lambda r: r["rows"][0]["metrics"].update(em=True), "number_required"),
+    (lambda r: r.update(rankingRuleSha256=sha("another rule")), "component_ranking_rule_mismatch"),
+    (lambda r: r.update(rankingGateIds=[]), "component_ranking_rule_mismatch"),
+    (lambda r: r.update(compositionUniverseSha256=sha("x")), "component_ranking_universe_mismatch"),
+    (lambda r: r.update(eventId=PARTNER_EVENT), "component_ranking_not_for_this_event"),
+    (lambda r: r.update(frozenLedgerSha256=sha("x")), "component_ranking_not_for_this_event"),
+    (lambda r: r.update(schema="mavi-model-selection-layer-a-result-v1"), "schema_unsupported"),
+])
+def test_component_ranking_must_reconcile_with_the_frozen_inputs(mutate, code):
+    document = m3_ledger()
+    result = ranking(document)
+    mutate(result)
+    refused(code, mu.check_component_ranking, result, document)
+
+
+def test_top_k_tie_at_the_boundary_stops_before_protected_d():
+    """Owner decision O3: an unresolved tie across the top-K boundary is a STOP before protected D."""
+    document = m3_ledger(block_=universe(componentEvents=[universe()["componentEvents"][0],
+                                                          dict(universe()["componentEvents"][1], k=1)]))
+    partner = partner_ledger(block=document["compositionUniverse"])
+    tie = ranking(document, metrics=dict(VC_METRICS, **{"VC-EST": dict(VC_METRICS["VC-EMG"])}))
+    refused("component_rank_ambiguous", mu.derive_top_k, mu.check_component_ranking(tie, document), 1)
+    seal = derive(document, partner, rankings_of(document, partner, own=tie))
+    assert seal["status"] == "STOPPED" and seal["stopReason"] == "component-rank-ambiguous"
+    bs.verify_baseline_seal(seal, frozen=document, protocol_sha256=PROTOCOL, partner_ledger=partner,
+                            rankings=rankings_of(document, partner, own=tie))
+    # a tie inside the top K is harmless
+    inside = ranking(document, metrics=dict(VC_METRICS, **{"VC-B0": dict(VC_METRICS["VC-EST"])}))
+    assert sorted(mu.derive_top_k(mu.check_component_ranking(inside, document), 3)) == ["VC-B0", "VC-EMG", "VC-EST"]
+
+
+def test_partner_tie_stops_and_a_failing_partner_is_skipped():
+    document, partner = m3_ledger(), partner_ledger()
+    tie = ranking(partner, metrics={"PD-A": {"recall": 0.8}, "PD-B": {"recall": 0.8}})
+    seal = derive(document, partner, rankings_of(document, partner, other=tie))
+    assert seal["status"] == "STOPPED" and seal["stopReason"] == "resolution-ambiguous"
+    gates = {"PD-A": {"contract": "passed", "recall-floor": "failed"}}
+    skip = ranking(partner, gates=gates)
+    seal = derive(document, partner, rankings_of(document, partner, other=skip))
+    assert seal["partnerCandidateId"] == "PD-B"
+    wrong = dict(seal, partnerCandidateId="PD-A", partnerIdentitySha256=identity_of("pda"))
+    refused("baseline_seal_partner_not_derived", bs.verify_baseline_seal, wrong, frozen=document,
+            protocol_sha256=PROTOCOL, partner_ledger=partner, rankings=rankings_of(document, partner, other=skip))
+
+
+def test_ordinary_universe_is_derived_with_packageable_baselines_and_never_the_bob():
+    state = group()
+    assert [i["compositionId"] for i in state.ordinary] == sorted(D_SCORES)
+    assert state.top_k == {PARTNER_EVENT: ["PD-A", "PD-B"], EVENT: ["VC-EMG", "VC-EST", "VC-B0"]}
+    narrow = universe(componentEvents=[dict(universe()["componentEvents"][0], k=1),
+                                       dict(universe()["componentEvents"][1], k=1)])
+    document = m3_ledger(block_=narrow)
+    partner = partner_ledger(block=narrow)
+    state = group(document, partner)
+    # top-1 per event plus the packageable baseline VC-B0 (plan §4.1), never the BOB
+    assert [i["compositionId"] for i in state.ordinary] == ["C-PD-A--VC-B0", "C-PD-A--VC-EMG"]
+    assert mu.composition_id(["PD-A", "VC-EST"]) == "C-PD-A--VC-EST"
+    assert mu.COMPOSITION_ID_RE.match("C-PD-A--VC-EST") and not mu.COMPOSITION_ID_RE.match("C-PD-A-VC-EST")
+
+
+# ================================================================== the seal
+
+
+def test_seal_carries_every_machine_enforced_field():
+    document, partner = m3_ledger(), partner_ledger()
+    rankings = rankings_of(document, partner)
+    seal = derive(document, partner, rankings)
+    assert set(seal) == set(bs.RESOLVED_FIELDS)
+    entry = document["candidates"][-1]
+    rule = entry["benchmarkBaseline"]["compositions"][0]
+    assert seal["benchmarkComponentIdentitySha256"] == bs.benchmark_component_identity_sha256(entry)
+    assert seal["stage1RuleSha256"] == document_sha256(rule)
+    assert seal["eligibleUniverseSha256"] == document_sha256(rule["eligiblePartners"])
+    assert seal["layerAGatesSha256"] == document_sha256(PD_GATES)
+    assert seal["partnerRankingRuleSha256"] == document_sha256(universe()["componentEvents"][0]["rankingRule"])
+    assert seal["compositionUniverseSha256"] == mu.group_id(universe())
+    assert seal["componentRankingSha256s"] == {e: document_sha256(r) for e, r in rankings.items()}
+    assert seal["ordinaryCompositionsSha256"] == mu.ordinary_compositions_sha256(group(document, partner).ordinary)
+    assert seal["partnerFrozenLedgerSha256"] == document_sha256(partner)
+    assert seal["frozenLedgerSha256"] == document_sha256(document)
+    assert seal["gateScope"] == "all-ordinary-compositions" and seal["protectedDState"] == "NOT_STARTED"
+    for field in bs.RESOLVED_FIELDS:
+        if field in ("recordedAt", "recordedBy"):
+            continue
+        broken = copy.deepcopy(seal)
+        del broken[field]
+        with pytest.raises(CredibilityError):
+            bs.verify_baseline_seal(broken, frozen=document, protocol_sha256=PROTOCOL, partner_ledger=partner,
+                                    rankings=rankings)
+    refused("unknown_field", bs.verify_baseline_seal, dict(seal, recordSha256=document_sha256(seal)), frozen=document,
+            protocol_sha256=PROTOCOL, partner_ledger=partner, rankings=rankings)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("protocolSha256", sha("other protocol")), ("frozenLedgerSha256", sha("x")),
+    ("benchmarkComponentIdentitySha256", sha("x")), ("stage1RuleSha256", sha("x")),
+    ("eligibleUniverseSha256", sha("x")), ("layerAGatesSha256", sha("x")), ("partnerRankingRuleSha256", sha("x")),
+    ("partnerFrozenLedgerSha256", sha("x")), ("compositionSha256", sha("x")), ("compositionUniverseSha256", sha("x")),
+    ("ordinaryCompositionsSha256", sha("x")), ("componentRankingSha256s", {EVENT: sha("x"), PARTNER_EVENT: sha("y")}),
+    ("partnerEventId", "msr-plate-detector-2026-02"),
+])
+def test_every_seal_binding_is_rederived(field, value):
+    document, partner = m3_ledger(), partner_ledger()
+    rankings = rankings_of(document, partner)
+    changed = dict(derive(document, partner, rankings), **{field: value})
+    refused("baseline_seal_differs_from_frozen_inputs", bs.verify_baseline_seal, changed, frozen=document,
+            protocol_sha256=PROTOCOL, partner_ledger=partner, rankings=rankings)
 
 
 def test_reseal_to_another_partner_with_a_recomputed_hash_is_refused():
     """The reviewer's attack: seal PD-A, bind D to it, then reseal to PD-B and recompute the seal's own hash."""
-    document = m3_ledger()
-    proof = evidence(document)
-    summary = m3_decision(document, proof)
-    check(summary, document, proof)
-    swapped = dict(proof[GATE]["seal"], partnerCandidateId="PD-B", partnerIdentitySha256=identity_of("pdb"))
-    swapped["compositionSha256"] = bs.composition_sha256(EVENT, GATE, "VC-BOB", swapped["benchmarkComponentIdentitySha256"],
-                                                         PARTNER_EVENT, "PD-B", identity_of("pdb"))
-    attack = {GATE: dict(proof[GATE], seal=swapped)}
-    # 1. the swapped seal is not what the frozen rule derives from the committed Layer-A result
-    refused("baseline_seal_partner_not_derived", check, summary, document, attack)
-    # 2. the decision is re-pointed at the new seal hash as well: still not derivable
-    rebound = copy.deepcopy(summary)
-    digest = document_sha256(swapped)
-    rebound["benchmarkOnlyBaselines"] = m3_block(document, attack)
-    rebound["evaluated"][-1]["baselineSealSha256s"] = {GATE: digest}
-    refused("baseline_seal_partner_not_derived", check, rebound, document, attack)
-    # 3. the Layer-A result is forged too so that PD-B derives: the D results and the BOB row still carry PD-A's seal
-    forged = layer_a(document, proof[GATE]["partnerLedger"], ranks={"PD-A": [False, -0.5, "PD-A"],
-                                                                    "PD-B": [False, -0.8, "PD-B"]})
-    resealed = evidence(document, partner=proof[GATE]["partnerLedger"], result=forged)
-    assert resealed[GATE]["seal"]["partnerCandidateId"] == "PD-B"
-    refused("decision_baseline_seal_mismatch", check, summary, document, resealed)
-    half = copy.deepcopy(summary)
-    half["benchmarkOnlyBaselines"]["baselineSeals"][0]["sealSha256"] = document_sha256(resealed[GATE]["seal"])
-    refused("benchmark_baseline_row_seal_mismatch", check, half, document, resealed)
-    half["evaluated"][-1]["baselineSealSha256s"] = {GATE: document_sha256(resealed[GATE]["seal"])}
-    refused("d_result_baseline_seal_mismatch", check, half, document, resealed)
+    document, partner = m3_ledger(), partner_ledger()
+    state = group(document, partner)
+    summary = group_decision(state)
+    check(summary, state)
+    swapped = dict(state.seal, partnerCandidateId="PD-B", partnerIdentitySha256=identity_of("pdb"))
+    refused("baseline_seal_partner_not_derived", group, document, partner, seal=swapped)
+    forged = rankings_of(document, partner, other=ranking(partner, metrics={"PD-A": {"recall": 0.5},
+                                                                             "PD-B": {"recall": 0.8}}))
+    resealed = group(document, partner, rankings=forged)
+    assert resealed.seal["partnerCandidateId"] == "PD-B"
+    # the BOB row, then the seal row, then the baseline composition and the sealed U still carry the first seal
+    refused("benchmark_baseline_row_seal_mismatch", check, summary, resealed)
+    summary["evaluated"][-1]["baselineSealSha256s"] = {GATE: resealed.seal_sha256}
+    refused("decision_baseline_seal_mismatch", check, summary, resealed)
+    summary["compositionAuthority"]["baselineSeals"][0]["sealSha256"] = resealed.seal_sha256
+    refused("decision_baseline_composition_mismatch", check, summary, resealed)
 
 
-def test_layer_a_result_hash_is_bound():
-    document = m3_ledger()
-    proof = evidence(document)
-    arbitrary = dict(proof[GATE]["seal"], layerAResultSha256=sha("anything at all"))
-    refused("baseline_seal_differs_from_frozen_inputs", bs.verify_baseline_seal, arbitrary, frozen=document,
-            protocol_sha256=PROTOCOL, partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
-    for field, value in (("protocolSha256", sha("other protocol")), ("frozenLedgerSha256", sha("x")),
-                         ("benchmarkComponentIdentitySha256", sha("x")), ("stage1RuleSha256", sha("x")),
-                         ("eligibleUniverseSha256", sha("x")), ("layerAGatesSha256", sha("x")),
-                         ("partnerRankingRuleSha256", sha("x")), ("partnerFrozenLedgerSha256", sha("x")),
-                         ("compositionSha256", sha("x")), ("partnerEventId", "msr-plate-detector-2026-02")):
-        changed = dict(proof[GATE]["seal"], **{field: value})
-        refused("baseline_seal_differs_from_frozen_inputs", bs.verify_baseline_seal, changed, frozen=document,
-                protocol_sha256=PROTOCOL, partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
-    for field, value, code in (("protectedDState", "ACCESSED", "baseline_seal_d_state_contradicted"),
-                               ("recordedAt", "2026-06-09T23:59:59Z", "baseline_resolved_before_freeze"),
-                               ("recordedAt", "2026-07-01 10:00:00", "instant_malformed"),
-                               ("compositionId", "GATE-OTHER", "gate_only_composition_not_frozen"),
-                               ("schema", "mavi-model-selection-baseline-seal-v0", "schema_unsupported")):
-        changed = dict(proof[GATE]["seal"], **{field: value})
-        refused(code, bs.verify_baseline_seal, changed, frozen=document, protocol_sha256=PROTOCOL,
-                partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
-
-
-def test_partner_event_must_exist_and_reconcile():
-    """Review P2-2: the partner event exists, and the frozen universe is its shortlist with the same identities."""
-    document = m3_ledger()
-    proof = evidence(document)
-    seal = proof[GATE]["seal"]
+def test_partner_event_must_exist_reconcile_and_share_the_group():
+    document, partner = m3_ledger(), partner_ledger()
+    rankings = rankings_of(document, partner)
+    seal = derive(document, partner, rankings)
     refused("baseline_seal_not_derivable", bs.verify_baseline_seal, seal, frozen=document, protocol_sha256=PROTOCOL,
-            partner_ledger=None, layer_a=proof[GATE]["layerA"])
+            partner_ledger=None, rankings=rankings)
     unshortlisted = partner_ledger(established("PD-A", "pda"), reference("PD-B", "pdb"))
-    refused("baseline_partner_not_in_partner_shortlist", check, m3_decision(document, proof), document,
-            {GATE: dict(proof[GATE], partnerLedger=unshortlisted)})
-    other_event = ledger(established("PD-A", "pda"), established("PD-B", "pdb"), capability="plate-finder")
-    refused("baseline_partner_event_mismatch", check, m3_decision(document, proof), document,
-            {GATE: dict(proof[GATE], partnerLedger=other_event)})
-    retrained = partner_ledger(established("PD-A", "pda-retrained"), established("PD-B", "pdb"))
-    refused("baseline_partner_not_in_partner_shortlist", check, m3_decision(document, proof), document,
-            {GATE: dict(proof[GATE], partnerLedger=retrained)})
+    assert derive(document, unshortlisted, rankings)["stopReason"] == "partner-universe-inconsistent"
+    other_group = partner_ledger(block=universe(mpid=0.1))
+    assert derive(document, other_group, rankings)["stopReason"] == "partner-event-inconsistent"
+    refused("composition_universe_differs_between_events", group, document, other_group, rankings, seal=None)
 
 
-@pytest.mark.parametrize("mutate, code", [
-    (lambda r: r["results"][0].update(identitySha256=sha("PD-A retrained")), "layer_a_identity_mismatch"),
-    (lambda r: r["results"][0].update(candidateId="PD-Z"), "layer_a_partner_outside_frozen_universe"),
-    (lambda r: r["results"].pop(), "layer_a_result_inconsistent_with_frozen_universe"),
-    (lambda r: r["results"].append(copy.deepcopy(r["results"][0])), "layer_a_result_inconsistent_with_frozen_universe"),
-    (lambda r: r["results"][0]["gates"].pop("contract"), "layer_a_gates_mismatch"),
-    (lambda r: r["results"][0]["gates"].update(extra="passed"), "layer_a_gates_mismatch"),
-    (lambda r: r["results"][0]["gates"].update(contract="maybe"), "value_not_allowed"),
-    (lambda r: r["results"][1].update(rankKey=[False, -0.9, "PD-A"]), "layer_a_rank_ambiguous"),
-    (lambda r: r["results"][1].update(rankKey=[0, -0.8, "PD-B"]), "layer_a_rank_key_malformed"),
-    (lambda r: r["results"][1].update(rankKey=[]), "layer_a_rank_key_malformed"),
-    (lambda r: r["results"][1].update(rankKey=[None]), "layer_a_rank_key_malformed"),
-    (lambda r: r.update(partnerRankingRuleSha256=sha("another rule")), "baseline_ranking_rule_mismatch"),
-    (lambda r: r.update(layerAGatesSha256=sha("other gates")), "layer_a_gates_mismatch"),
-    (lambda r: r.update(compositionId="GATE-OTHER"), "layer_a_result_not_for_this_composition"),
-    (lambda r: r.update(partnerFrozenLedgerSha256=sha("x")), "baseline_partner_event_mismatch"),
-])
-def test_layer_a_result_must_reconcile_with_the_frozen_rule(mutate, code):
-    document = m3_ledger()
-    partner = partner_ledger()
-    result = layer_a(document, partner)
-    mutate(result)
-    refused(code, bs.check_layer_a_result, result, document, GATE, partner)
+# ---- STOPPED (terminal, O1)
 
 
-def test_derivation_is_the_highest_ranked_partner_passing_every_gate():
-    document = m3_ledger()
-    partner = partner_ledger()
-    gates = {"PD-A": {"contract": "passed", "recall-floor": "failed"}, "PD-B": {g: "passed" for g in GATE_IDS}}
-    result = layer_a(document, partner, gates=gates)
-    proof = evidence(document, partner=partner, result=result)
-    assert proof[GATE]["seal"]["partnerCandidateId"] == "PD-B"
-    wrong = dict(proof[GATE]["seal"], partnerCandidateId="PD-A", partnerIdentitySha256=identity_of("pda"))
-    refused("baseline_seal_partner_not_derived", bs.verify_baseline_seal, wrong, frozen=document,
-            protocol_sha256=PROTOCOL, partner_ledger=partner, layer_a=result)
-
-
-# ------------------------------------------------------------------ P2-5: STOPPED baseline resolution
-
-
-def stopped_evidence(document):
-    partner = partner_ledger()
-    gates = {p: {g: "failed" for g in GATE_IDS} for p in ("PD-A", "PD-B")}
-    return evidence(document, partner=partner, result=layer_a(document, partner, gates=gates))
+def stopped_group(document=None, partner=None):
+    document = m3_ledger() if document is None else document
+    partner = partner_ledger() if partner is None else partner
+    rankings = rankings_of(document, partner, other=ranking(partner, gates=all_failed(partner)))
+    return group(document, partner, rankings)
 
 
 def test_no_passing_partner_produces_an_immutable_stopped_record():
-    document = m3_ledger()
-    proof = stopped_evidence(document)
-    seal = proof[GATE]["seal"]
+    state = stopped_group()
+    seal = state.seal
     assert seal["status"] == "STOPPED" and seal["stopReason"] == "no-partner-passed-layer-a"
-    assert set(seal) == set(bs.STOPPED_FIELDS)
-    assert "partnerCandidateId" not in seal and "compositionSha256" not in seal
-    bs.verify_baseline_seal(seal, frozen=document, protocol_sha256=PROTOCOL,
-                            partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
-    # a STOPPED record cannot name a replacement baseline
-    named = dict(seal, partnerCandidateId="PD-A")
-    refused("unknown_field", bs.verify_baseline_seal, named, frozen=document, protocol_sha256=PROTOCOL,
-            partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
-    # its stop reason must not contradict the inputs
-    resolvable = evidence(document)
-    fake = dict(seal, layerAResultSha256=document_sha256(resolvable[GATE]["layerA"]))
-    refused("baseline_stop_reason_contradicted", bs.verify_baseline_seal, fake, frozen=document,
-            protocol_sha256=PROTOCOL, partner_ledger=resolvable[GATE]["partnerLedger"],
-            layer_a=resolvable[GATE]["layerA"])
-    refused("baseline_stop_evidence_required", bs.verify_baseline_seal, dict(seal, stopEvidenceSha256s=[]),
-            frozen=document, protocol_sha256=PROTOCOL, partner_ledger=proof[GATE]["partnerLedger"],
-            layer_a=proof[GATE]["layerA"])
-    refused("value_not_allowed", bs.verify_baseline_seal, dict(seal, stopReason="owner preferred another"),
-            frozen=document, protocol_sha256=PROTOCOL, partner_ledger=proof[GATE]["partnerLedger"],
-            layer_a=proof[GATE]["layerA"])
+    assert set(seal) == set(bs.STOPPED_FIELDS) and state.ordinary is None
+    args = dict(frozen=state.frozen_by_event[EVENT], protocol_sha256=PROTOCOL,
+                partner_ledger=state.frozen_by_event[PARTNER_EVENT], rankings=state.rankings)
+    refused("unknown_field", bs.verify_baseline_seal, dict(seal, partnerCandidateId="PD-A"), **args)
+    refused("baseline_stop_evidence_required", bs.verify_baseline_seal, dict(seal, stopEvidenceSha256s=[]), **args)
+    refused("value_not_allowed", bs.verify_baseline_seal, dict(seal, stopReason="owner preferred another"), **args)
+    refused("baseline_stop_reason_contradicted", bs.verify_baseline_seal, dict(seal, stopReason="identity-mismatch"),
+            **args)
 
 
-@pytest.mark.parametrize("partner, result, accessed, reason", [
+@pytest.mark.parametrize("partner, rank, accessed, reason", [
     (None, "default", 0, "partner-event-missing"),
     ("unshortlisted", "default", 0, "partner-universe-inconsistent"),
     ("default", None, 0, "prerequisite-failed"),
     ("default", "tie", 0, "resolution-ambiguous"),
     ("default", "identity", 0, "identity-mismatch"),
+    ("default", "malformed", 0, "component-ranking-inconsistent"),
     ("default", "default", 3, "protected-d-accessed"),
 ])
-def test_every_failed_prerequisite_stops_without_a_baseline(partner, result, accessed, reason):
+def test_every_failed_prerequisite_stops_without_a_baseline(partner, rank, accessed, reason):
     document = m3_ledger()
     good = partner_ledger()
     partner_doc = {None: None, "default": good,
                    "unshortlisted": partner_ledger(established("PD-A", "pda"), reference("PD-B", "pdb"))}[partner]
-    result_doc = None if result is None else layer_a(document, good)
-    if result == "tie":
-        result_doc["results"][1]["rankKey"] = list(result_doc["results"][0]["rankKey"])
-    if result == "identity":
-        result_doc["results"][0]["identitySha256"] = sha("PD-A retrained")
+    rankings = rankings_of(document, good)
+    if rank is None:
+        rankings[PARTNER_EVENT] = None
+    elif rank == "tie":
+        rankings[PARTNER_EVENT] = ranking(good, metrics={"PD-A": {"recall": 0.5}, "PD-B": {"recall": 0.5}})
+    elif rank == "identity":
+        rankings[PARTNER_EVENT]["rows"][0]["identitySha256"] = sha("PD-A retrained")
+    elif rank == "malformed":
+        rankings[EVENT]["rows"].pop()
     seal = bs.derive_baseline_seal(document, GATE, protocol_sha256=PROTOCOL, partner_ledger=partner_doc,
-                                   layer_a=result_doc, recorded_at=SEALED_AT, recorded_by="synthetic-harness",
+                                   rankings=rankings, recorded_at=SEALED_AT, recorded_by="synthetic-harness",
                                    protected_d_rows_read=accessed,
                                    protected_d_accessed_at="2026-07-01T09:00:00Z" if accessed else None)
     assert seal["status"] == "STOPPED" and seal["stopReason"] == reason
     assert seal["protectedDState"] == ("ACCESSED" if accessed else "NOT_STARTED")
     bs.verify_baseline_seal(seal, frozen=document, protocol_sha256=PROTOCOL, partner_ledger=partner_doc,
-                            layer_a=result_doc)
+                            rankings=rankings)
 
 
-def test_stopped_event_holds_no_decision_summary_at_all():
-    """Convergence review P1-A (owner, strict): a STOPPED all-gating baseline refuses every decision summary, before
-    any M1 rule runs. No outcome is fabricated: the event stays PLANNED for owner action."""
-    document = m3_ledger()
-    proof = stopped_evidence(document)
-    for state in ("TECHNICAL_DECISION_RECORDED", "QUALIFICATION_PENDING", "CLOSED"):
-        for implementation in (None, ("VC-EST",), ("VC-B0",)):
-            summary = m3_decision(document, proof, state=state, implementation=implementation)
-            for outcome in ((None,) if state != "CLOSED" else
-                            ("INCUMBENT_RETAINED", "NO_QUALIFIABLE_CANDIDATE", "BASELINE_SELECTED",
-                             "SELECTED_FOR_PACKAGING")):
-                summary["outcome"] = outcome
-                refused("baseline_stopped_decision_refused", check, summary, document, proof)
-
-# ------------------------------------------------------------------ P2-4: outcome invariance
+def test_fabricated_stop_is_refused_when_the_inputs_exist():
+    """Cold review P3-1: a stop cannot claim a supplied input was absent; with every input its reason is derived."""
+    document, partner = m3_ledger(), partner_ledger()
+    rankings = rankings_of(document, partner)
+    for supplied_partner, supplied in ((None, {EVENT: None, PARTNER_EVENT: None}),
+                                       (partner, {EVENT: rankings[EVENT], PARTNER_EVENT: None})):
+        fake = derive(document, supplied_partner, supplied)
+        assert fake["status"] == "STOPPED"
+        refused("baseline_stop_reason_contradicted", bs.verify_baseline_seal, fake, frozen=document,
+                protocol_sha256=PROTOCOL, partner_ledger=partner, rankings=rankings)
 
 
-def _ordinary_variants():
-    """Ordinary M1 decisions (some valid, some not) over the event without its benchmark-only baseline."""
-    def closed(outcome, implementation, failed=()):
-        def build(document):
-            summary = decision(document, state="CLOSED", implementation=implementation)
-            for row in summary["evaluated"]:
-                if row["candidateId"] in failed:
-                    row.update(technicalGates="failed", comparativeScore=None)
-            passing = {r["candidateId"]: r["comparativeScore"] for r in summary["evaluated"]
-                       if r["technicalGates"] == "passed"}
-            best = max(passing, key=passing.get) if passing else None
-            summary.update(strongestEvaluatedTechnical=best, strongestClearedPerProfile={"dev-profile": best},
-                           outcome=outcome)
-            return summary
-        return build
-    every = ("VC-B0", "VC-EST", "VC-EMG")
-    return {
-        "selected": closed("SELECTED_FOR_PACKAGING", ("VC-EST",)),
-        "incumbent-retained-some-pass": closed("INCUMBENT_RETAINED", None),
-        "incumbent-retained-all-failed": closed("INCUMBENT_RETAINED", None, failed=every),
-        "nqc-all-failed": closed("NO_QUALIFIABLE_CANDIDATE", None, failed=every),
-        "nqc-some-pass": closed("NO_QUALIFIABLE_CANDIDATE", None),
-        "baseline-selected": closed("BASELINE_SELECTED", ("VC-B0",)),
-        "baseline-selected-all-learned-failed": closed("BASELINE_SELECTED", ("VC-B0",), failed=("VC-EST", "VC-EMG")),
-        "baseline-selected-without-baseline": closed("BASELINE_SELECTED", None, failed=every),
-        "selected-without-implementation": closed("SELECTED_FOR_PACKAGING", None),
-        "selected-baseline-only": closed("SELECTED_FOR_PACKAGING", ("VC-B0",)),
-        "incumbent-with-implementation": closed("INCUMBENT_RETAINED", ("VC-EST",)),
-        "emerging-implemented": closed("SELECTED_FOR_PACKAGING", ("VC-EMG",)),
-        "failed-gate-implemented": closed("SELECTED_FOR_PACKAGING", ("VC-EST",), failed=("VC-EST",)),
-    }
+def test_an_accessed_stop_records_the_d_access():
+    document, partner = m3_ledger(), partner_ledger()
+    rankings = rankings_of(document, partner)
+    with pytest.raises(CredibilityError):
+        derive(document, partner, rankings, protected_d_rows_read=5)
+    seal = derive(document, partner, rankings, protected_d_rows_read=5,
+                  protected_d_accessed_at="2026-07-01T09:00:00Z")
+    assert seal["protectedDState"] == "ACCESSED"
+    args = dict(frozen=document, protocol_sha256=PROTOCOL, partner_ledger=partner, rankings=rankings)
+    bs.verify_baseline_seal(seal, **args)
+    refused("instant_malformed", bs.verify_baseline_seal, dict(seal, protectedDAccessedAt=None), **args)
+    refused("baseline_seal_d_state_contradicted", bs.verify_baseline_seal,
+            dict(seal, protectedDAccessedAt="2026-07-02T09:00:00Z"), **args)
 
 
-def _verdict(function, *args, **kwargs):
-    try:
-        function(*args, **kwargs)
-    except CredibilityError as error:
-        return str(error).split(":")[0]
-    return "valid"
+@pytest.mark.parametrize("state_name, implementation, outcome", [
+    ("TECHNICAL_DECISION_RECORDED", None, None), ("QUALIFICATION_PENDING", ("VC-EST",), None),
+    ("CLOSED", None, "INCUMBENT_RETAINED"), ("CLOSED", None, "NO_QUALIFIABLE_CANDIDATE"),
+    ("CLOSED", ("VC-B0",), "BASELINE_SELECTED"), ("CLOSED", ("VC-EST",), "SELECTED_FOR_PACKAGING"),
+])
+def test_stopped_group_holds_no_decision_summary_at_all(state_name, implementation, outcome):
+    state = stopped_group()
+    resolved = group()
+    summary = group_decision(resolved, state_name=state_name, implementation=implementation)
+    summary["outcome"] = outcome
+    summary["evaluated"][-1]["baselineSealSha256s"] = {GATE: state.seal_sha256}
+    refused("baseline_stopped_decision_refused", check, summary, state)
 
 
-@pytest.mark.parametrize("name", sorted(_ordinary_variants()))
-def test_adding_a_benchmark_only_baseline_never_changes_the_m1_outcome(name):
-    build = _ordinary_variants()[name]
-    plain = plain_ledger()
-    without = _verdict(validate_decision, build(plain), plain, plain)
-    for stopped in (False, True):
-        document = m3_ledger()
-        proof = stopped_evidence(document) if stopped else evidence(document)
-        summary = build(document)
-        summary["evaluated"].append(bob_row(document, document_sha256(proof[GATE]["seal"])))
-        summary["benchmarkOnlyBaselines"] = m3_block(document, proof)
-        # RESOLVED: the M1 verdict is unchanged. STOPPED (all-gating, the only scope): no decision beyond PLANNED.
-        expected = "baseline_stopped_decision_refused" if stopped else without
-        assert _verdict(check, summary, document, proof) == expected, (name, stopped)
+# ================================================================== the decision binding (C2-C6, probe_gate)
 
 
-def test_removing_the_benchmark_only_baseline_never_changes_the_m1_outcome():
-    for name, build in sorted(_ordinary_variants().items()):
-        document = m3_ledger()
-        proof = evidence(document)
-        summary = build(document)
-        summary["evaluated"].append(bob_row(document, document_sha256(proof[GATE]["seal"])))
-        summary["benchmarkOnlyBaselines"] = m3_block(document, proof)
-        with_bob = _verdict(check, summary, document, proof)
-        plain = plain_ledger()
-        stripped = build(plain)
-        assert _verdict(validate_decision, stripped, plain, plain) == with_bob, name
+def _rebuild(state, summary, event_id=EVENT):
+    """Keep a hand-edited block self-consistent for the M1 rules (rows re-derived)."""
+    return apply_rows(summary, state, event_id)
 
 
-def test_known_valid_outcomes_stay_valid_with_a_bob():
-    variants = _ordinary_variants()
-    for name in ("selected", "incumbent-retained-all-failed", "incumbent-retained-some-pass", "baseline-selected",
-                 "nqc-all-failed"):
-        document = m3_ledger()
-        proof = evidence(document)
-        summary = variants[name](document)
-        summary["evaluated"].append(bob_row(document, document_sha256(proof[GATE]["seal"])))
-        summary["benchmarkOnlyBaselines"] = m3_block(document, proof)
-        check(summary, document, proof)
+def test_probe_gate_1_every_composition_failing_the_baseline_cannot_leave_a_winner():
+    state = group()
+    low = {cid: BASE_D for cid in D_SCORES}  # every composition misses the baseline gate by MPID
+    honest = group_decision(state, block_=authority_block(state, scores=low, implementation=None),
+                            state_name="TECHNICAL_DECISION_RECORDED", implementation=None)
+    check(honest, state)
+    assert honest["strongestEvaluatedTechnical"] is None
+    assert all(r["technicalGates"] == "failed" for r in honest["evaluated"] if r["technicalGates"] != "n/a")
+    # the probe: candidates keep being top-K / finalists / frontier / winner while their compositions failed
+    attack = copy.deepcopy(honest)
+    attack["compositionAuthority"]["frontier"] = ["VC-EST"]
+    refused("frontier_member_not_ranked_composition", check, attack, state)
+    attack = copy.deepcopy(honest)
+    attack["compositionAuthority"]["componentFinalists"] = {PARTNER_EVENT: ["PD-A"], EVENT: ["VC-EST"]}
+    refused("component_finalists_not_derived", check, attack, state)
+    attack = copy.deepcopy(honest)
+    row = next(r for r in attack["evaluated"] if r["candidateId"] == "VC-EST")
+    row.update(technicalGates="passed", comparativeScore=0.7)
+    attack["strongestEvaluatedTechnical"] = "VC-EST"
+    attack["strongestClearedPerProfile"] = {"dev-profile": "VC-EST"}
+    refused("row_technical_gates_not_composition_derived", check, attack, state)
+    attack = copy.deepcopy(honest)
+    attack["strongestEvaluatedTechnical"] = "VC-EMG"
+    refused("strongest_technical_without_passing_candidate", check, attack, state)
+    attack = group_decision(state, block_=authority_block(state, scores=low, implementation=None),
+                            implementation=("VC-EST",))
+    refused("implementation_failed_technical_gate", check, attack, state)  # its row is composition-derived: failed
 
 
-# ------------------------------------------------------------------ P2-3: mandatory exclusion from ranking
+def test_probe_gate_2_and_3_an_incomplete_composition_set_is_refused():
+    state = group()
+    empty = group_decision(state)
+    block_ = empty["compositionAuthority"]
+    block_.update(compositionCandidates=[], rankedCompositions=[], frontier=[], strongestEvaluatedComposition=None)
+    refused("composition_set_differs_from_sealed_universe", check, empty, state)
+    omitted = group_decision(state)
+    block_ = omitted["compositionAuthority"]
+    block_["compositionCandidates"] = [c for c in block_["compositionCandidates"] if c["technicalGates"] == "passed"]
+    refused("composition_set_differs_from_sealed_universe", check, omitted, state)
 
 
-def test_m3_block_is_mandatory_when_the_event_holds_a_bob():
-    document = m3_ledger()
-    proof = evidence(document)
-    summary = m3_decision(document, proof)
-    del summary["benchmarkOnlyBaselines"]
-    refused("missing_field", check, summary, document, proof)
-    for field in bs.M3_DECISION_KEYS:
-        changed = m3_decision(document, proof)
-        del changed["benchmarkOnlyBaselines"][field]
-        refused("missing_field", check, changed, document, proof)
-    refused("m3_decision_requires_baseline_evidence", validate_decision, m3_decision(document, proof), document,
-            document)
+def test_probe_gate_4_implementation_from_a_failed_composition_is_refused():
+    state = group()
+    summary = group_decision(state, implementation=("VC-B0",))
+    summary["compositionAuthority"]["implementationComposition"] = "C-PD-A--VC-B0"
+    refused("implementation_composition_not_ranked", check, summary, state)
+    other = group_decision(state, block_=authority_block(state, implementation="C-PD-A--VC-EMG"))
+    refused("implementation_not_composition_component", check, other, state)  # VC-EST is not that composition's
+    required = group_decision(state)
+    required["compositionAuthority"]["implementationComposition"] = None
+    refused("implementation_composition_required", check, required, state)
+    none = group_decision(state, implementation=None)
+    none["compositionAuthority"]["implementationComposition"] = "C-PD-A--VC-EST"
+    refused("implementation_composition_without_implementation", check, none, state)
 
 
-@pytest.mark.parametrize("field", ["topK", "componentFinalists", "frontier", "rankedCompositions"])
-@pytest.mark.parametrize("intruder", ["VC-BOB", GATE])
-def test_bob_and_gate_only_composition_never_enter_a_ranked_set(field, intruder):
-    document = m3_ledger()
-    proof = evidence(document)
-    summary = m3_decision(document, proof)
-    summary["benchmarkOnlyBaselines"][field] = summary["benchmarkOnlyBaselines"][field] + [intruder]
-    refused("benchmark_baseline_in_ranked_set", check, summary, document, proof)
-
-
-@pytest.mark.parametrize("field", ["incumbent", "strongestEvaluatedComposition"])
-@pytest.mark.parametrize("intruder", ["VC-BOB", GATE])
-def test_bob_and_gate_only_composition_are_never_incumbent_or_winner(field, intruder):
-    document = m3_ledger()
-    proof = evidence(document)
-    summary = m3_decision(document, proof)
-    summary["benchmarkOnlyBaselines"][field] = intruder
-    refused("benchmark_baseline_in_derived_output", check, summary, document, proof)
-
-
-def test_bob_never_enters_an_ordinary_composition_candidate():
-    document = m3_ledger()
-    proof = evidence(document)
-    digest = document_sha256(proof[GATE]["seal"])
-    bob_identity = document_sha256(document["candidates"][-1]["identity"])
-    cases = []
-    as_component = composition(document, "C-A-EST", "PD-A", "VC-EST", "passed", 0.7, digest)
-    as_component["components"][1] = component(EVENT, "VC-BOB", bob_identity)
-    cases.append(as_component)
-    disguised = composition(document, "C-A-EST", "PD-A", "VC-EST", "passed", 0.7, digest)
-    disguised["components"][1]["identitySha256"] = bob_identity
-    cases.append(disguised)
-    named = composition(document, GATE, "PD-A", "VC-EST", "passed", 0.7, digest)
-    cases.append(named)
-    for intruder in cases:
-        summary = m3_decision(document, proof)
-        summary["benchmarkOnlyBaselines"]["compositionCandidates"][1] = intruder
-        refused("benchmark_baseline_in_composition_candidate", check, summary, document, proof)
+def test_probe_gate_5_frontier_of_individual_candidates_is_refused():
+    state = group()
+    summary = group_decision(state)
+    summary["compositionAuthority"]["frontier"] = ["VC-EMG", "VC-EST"]
+    refused("frontier_member_not_ranked_composition", check, summary, state)
 
 
 @pytest.mark.parametrize("mutate, code", [
-    (lambda c: c["components"][0].update(candidateId="PD-Z"), "composition_component_not_in_partner_shortlist"),
-    (lambda c: c["components"][0].update(identitySha256=sha("wrong")), "composition_component_identity_mismatch"),
-    (lambda c: c["components"][0].update(eventId="msr-unrelated-2026-01"), "composition_component_event_not_declared"),
-    (lambda c: c["components"][1].update(candidateId="VC-REF"), "composition_component_not_evaluated"),
-    (lambda c: c["components"].pop(), "composition_components_invalid"),
-    (lambda c: c["components"].reverse(), "composition_components_invalid"),
-    (lambda c: c.update(gates={}), "composition_hard_gate_mapping_invalid"),
-    (lambda c: c.update(gates={"GATE-OTHER": "passed"}), "composition_hard_gate_mapping_invalid"),
-    (lambda c: c["gates"].update({GATE: "failed"}), "composition_failed_hard_gate_ranked"),
-    (lambda c: c.update(baselineSealSha256s={GATE: sha("another seal")}), "d_result_baseline_seal_mismatch"),
-    (lambda c: c.update(baselineSealSha256s={}), "d_result_baseline_seal_mismatch"),
-    (lambda c: c.update(compositionId="VC-EST"), "composition_id_collides"),
-    (lambda c: c.update(dResultSha256="UNKNOWN"), "malformed"),
+    (lambda b: b["compositionCandidates"].append(dict(copy.deepcopy(b["compositionCandidates"][0]),
+                                                      compositionId="C-PD-C--VC-EST")),
+     "composition_set_differs_from_sealed_universe"),
+    (lambda b: b["compositionCandidates"][0].update(compositionId="C-PD-Z--VC-B0"),
+     "composition_set_differs_from_sealed_universe"),
+    (lambda b: b["compositionCandidates"].append(copy.deepcopy(b["compositionCandidates"][0])),
+     "composition_set_differs_from_sealed_universe"),
+    (lambda b: b["compositionCandidates"][0]["components"][1].update(candidateId="VC-EMG"),
+     "composition_components_not_derived"),
+    (lambda b: b["compositionCandidates"][0]["components"][1].update(identitySha256=sha("x")),
+     "composition_components_not_derived"),
+    (lambda b: next(c for c in b["compositionCandidates"] if c["compositionId"] == "C-PD-A--VC-B0")["gates"].update(
+        baseline="passed"), "composition_baseline_gate_not_derived"),
+    (lambda b: next(c for c in b["compositionCandidates"] if c["compositionId"] == "C-PD-A--VC-EMG")["gates"].update(
+        baseline="failed"), "composition_baseline_gate_not_derived"),
+    (lambda b: next(c for c in b["compositionCandidates"] if c["compositionId"] == "C-PD-A--VC-EMG").update(
+        technicalGates="failed", comparativeScore=None), "composition_technical_gates_not_derived"),
+    (lambda b: next(c for c in b["compositionCandidates"] if c["compositionId"] == "C-PD-A--VC-EMG").update(
+        comparativeScore=0.99), "composition_score_not_derived"),
+    (lambda b: b["compositionCandidates"][0]["gates"].pop("consistent-wrong"), "composition_hard_gate_mapping_invalid"),
+    (lambda b: b["compositionCandidates"][0]["gates"].update({"consistent-wrong": "maybe"}), "value_not_allowed"),
+    (lambda b: b["compositionCandidates"][0].update(baselineSealSha256s={GATE: sha("x")}),
+     "d_result_baseline_seal_mismatch"),
+    (lambda b: b["compositionCandidates"][0].update(dResultSha256="UNKNOWN"), "malformed"),
+    (lambda b: b["compositionCandidates"][0].update(compositionId=GATE), "benchmark_baseline_in_composition_candidate"),
+    (lambda b: b.update(rankedCompositions=list(reversed(b["rankedCompositions"]))), "ranked_compositions_not_derived"),
+    (lambda b: b.update(rankedCompositions=b["rankedCompositions"][:-1]), "ranked_compositions_not_derived"),
+    (lambda b: b.update(rankedCompositions=b["rankedCompositions"] + ["C-PD-A--VC-B0"]),
+     "ranked_compositions_not_derived"),
+    (lambda b: b.update(strongestEvaluatedComposition="C-PD-A--VC-EST"), "strongest_composition_not_derived"),
+    (lambda b: b.update(strongestEvaluatedComposition=None), "strongest_composition_not_derived"),
+    (lambda b: b.update(frontier=["C-PD-A--VC-B0"]), "frontier_member_not_ranked_composition"),
+    (lambda b: b["topK"][EVENT].reverse(), "top_k_not_derived"),
+    (lambda b: b["topK"].update({EVENT: ["VC-EST", "VC-EMG", "VC-B0", "VC-REF"]}), "top_k_not_derived"),
+    (lambda b: b["componentFinalists"][EVENT].append("VC-B0"), "component_finalists_not_derived"),
+    (lambda b: b.update(incumbent="VC-REF"), "incumbent_not_evaluated"),
+    (lambda b: b.update(groupId=sha("other group")), "d_artefact_group_mismatch"),
+    (lambda b: b.update(anchorCommit="HEAD"), "malformed"),
+    (lambda b: b["baseline"].update(compositionSha256=sha("x")), "decision_baseline_composition_mismatch"),
+    (lambda b: b["baseline"].update(dScore=None), "baseline_d_unavailable"),
 ])
-def test_every_ordinary_composition_maps_to_the_single_sealed_baseline(mutate, code):
-    document = m3_ledger()
-    proof = evidence(document)
-    summary = m3_decision(document, proof)
-    mutate(summary["benchmarkOnlyBaselines"]["compositionCandidates"][1])
-    refused(code, check, summary, document, proof)
+def test_the_decision_block_is_recomputed_never_trusted(mutate, code):
+    state = group()
+    summary = group_decision(state)
+    mutate(summary["compositionAuthority"])
+    refused(code, check, summary, state)
 
 
-def test_ranked_compositions_and_winner_are_derived():
-    document = m3_ledger()
-    proof = evidence(document)
-    for field, value, code in (
-        ("rankedCompositions", ["C-A-EST", "C-B-EMG"], "ranked_compositions_not_derived"),
-        ("rankedCompositions", ["C-B-EMG"], "ranked_compositions_not_derived"),
-        ("rankedCompositions", ["C-B-EMG", "C-A-EST", "C-A-B0"], "ranked_compositions_not_derived"),
-        ("strongestEvaluatedComposition", "C-A-EST", "strongest_composition_not_derived"),
-        ("strongestEvaluatedComposition", None, "strongest_composition_not_derived"),
-        ("frontier", ["C-A-B0"], "frontier_member_not_passing"),
-        ("topK", ["VC-REF"], "ranked_set_member_not_evaluated"),
-        ("topK", ["VC-EST", "VC-EST"], "ranked_set_not_unique"),
-        ("incumbent", "VC-REF", "incumbent_not_evaluated"),
+@pytest.mark.parametrize("field", ["rankedCompositions", "frontier"])
+@pytest.mark.parametrize("intruder", ["VC-BOB", GATE])
+def test_bob_and_gate_only_composition_never_enter_a_ranked_set(field, intruder):
+    state = group()
+    summary = group_decision(state)
+    summary["compositionAuthority"][field] = summary["compositionAuthority"][field] + [intruder]
+    refused("benchmark_baseline_in_ranked_set", check, summary, state)
+
+
+@pytest.mark.parametrize("field", ["incumbent", "strongestEvaluatedComposition", "implementationComposition"])
+@pytest.mark.parametrize("intruder", ["VC-BOB", GATE])
+def test_bob_and_gate_only_composition_are_never_incumbent_winner_or_implementation(field, intruder):
+    state = group()
+    summary = group_decision(state)
+    summary["compositionAuthority"][field] = intruder
+    refused("benchmark_baseline_in_derived_output", check, summary, state)
+
+
+def test_bob_never_in_top_k_or_finalists():
+    state = group()
+    for field in ("topK", "componentFinalists"):
+        summary = group_decision(state)
+        summary["compositionAuthority"][field][EVENT].append("VC-BOB")
+        refused("benchmark_baseline_in_ranked_set", check, summary, state)
+
+
+def test_bob_scoring_highest_cannot_be_named_anywhere():
+    state = group()
+    summary = group_decision(state)
+    for gates, score, quality in (("passed", 9.9, 9.9), ("n/a", 9.9, None), ("n/a", None, 9.9), ("failed", None, 0.0)):
+        changed = copy.deepcopy(summary)
+        changed["evaluated"][-1].update(technicalGates=gates, comparativeScore=score, taskQualityScore=quality)
+        refused("benchmark_baseline_row_scored", check, changed, state)
+    for field in ("highestTaskQualityEvaluated", "strongestEvaluatedTechnical"):
+        changed = copy.deepcopy(summary)
+        changed[field] = "VC-BOB"
+        refused("benchmark_baseline_in_derived_output", check, changed, state)
+    changed = copy.deepcopy(summary)
+    changed["strongestReported"]["candidateId"] = "VC-BOB"
+    refused("benchmark_baseline_in_derived_output", check, changed, state)
+    changed = copy.deepcopy(summary)
+    changed["strongestClearedPerProfile"]["dev-profile"] = "VC-BOB"
+    refused("benchmark_baseline_in_derived_output", check, changed, state)
+    changed = copy.deepcopy(summary)
+    changed["implementation"]["components"] = ["VC-BOB"]
+    refused("benchmark_baseline_in_derived_output", check, changed, state)
+    changed = copy.deepcopy(summary)
+    changed["licence"]["VC-BOB"] = {"dev-profile": "CLEARED"}
+    refused("unknown_field", check, changed, state)
+
+
+def test_bob_must_be_evaluated_on_its_pinned_bytes_and_host_manifests():
+    state = group()
+    summary = group_decision(state)
+    for mutate, code in (
+        (lambda s: s["evaluated"].pop(), "evaluated_set_differs_from_shortlist"),
+        (lambda s: s["evaluated"][-1]["hostManifestSha256s"].update({"dev-profile": sha("other")}),
+         "benchmark_baseline_host_manifest_mismatch"),
+        (lambda s: s["evaluated"][-1]["hostManifestSha256s"].pop("dev-profile"),
+         "benchmark_baseline_host_manifest_mismatch"),
+        (lambda s: s["evaluated"][-1].update(artefactSha256s=[sha("re-pinned weights")]),
+         "evaluated_artefact_differs_from_ledger"),
+        (lambda s: s["evaluated"][0].update(hostManifestSha256s={}), "host_manifests_only_for_benchmark_baseline"),
+        (lambda s: s["evaluated"][-1].update(baselineSealSha256s={GATE: sha("another seal")}),
+         "benchmark_baseline_row_seal_mismatch"),
+        (lambda s: s["evaluated"][-1].pop("baselineSealSha256s"), "benchmark_baseline_row_seal_mismatch"),
     ):
-        summary = m3_decision(document, proof)
-        summary["benchmarkOnlyBaselines"][field] = value
-        refused(code, check, summary, document, proof)
-    summary = m3_decision(document, proof)
-    summary["benchmarkOnlyBaselines"]["incumbent"] = "VC-EST"
-    check(summary, document, proof)
+        changed = copy.deepcopy(summary)
+        mutate(changed)
+        refused(code, check, changed, state)
+    for profiles in (["other-profile"], ["dev-profile", "prod-profile"]):
+        changed = copy.deepcopy(summary)
+        changed["targetProfiles"] = profiles
+        changed["licence"] = {c: {p: "CLEARED" for p in profiles} for c in changed["licence"]}
+        changed["strongestClearedPerProfile"] = {p: "VC-EMG" for p in profiles}
+        refused("benchmark_baseline_host_profiles_differ_from_target_profiles", check, changed, state)
+
+
+def test_row_values_are_composition_derived_in_both_group_events():
+    state = group()
+    for event_id, candidate in ((EVENT, "VC-EMG"), (PARTNER_EVENT, "PD-B")):
+        summary = group_decision(state, event_id)
+        check(summary, state, event_id)
+        changed = copy.deepcopy(summary)
+        next(r for r in changed["evaluated"] if r["candidateId"] == candidate)["comparativeScore"] = 0.1
+        refused("row_score_not_composition_derived", check, changed, state, event_id)
+    summary = group_decision(state)
+    row = next(r for r in summary["evaluated"] if r["candidateId"] == "VC-B0")
+    assert row["technicalGates"] == "failed"  # VC-B0's compositions miss the baseline gate
+    row.update(technicalGates="passed", comparativeScore=0.3)
+    refused("row_technical_gates_not_composition_derived", check, summary, state)
 
 
 def test_seal_and_d_start_are_consistent():
-    """Review P3: one D start for the event, strictly after every seal and no later than the decision."""
-    document = m3_ledger()
-    proof = evidence(document)
+    state = group()
     for value, code in ((SEALED_AT, "baseline_resolved_after_d_started"),
                         ("2026-06-30T10:00:00Z", "baseline_resolved_after_d_started"),
-                        ("2026-09-02T00:00:00Z", "d_started_after_decision"),
-                        (None, "instant_malformed")):
-        summary = m3_decision(document, proof)
-        summary["benchmarkOnlyBaselines"]["dExecutionStartedAt"] = value
-        refused(code, check, summary, document, proof)
-    for mutate, code in (
-        (lambda s: s.update(sealSha256=sha("x")), "decision_baseline_seal_mismatch"),
-        (lambda s: s.update(status="STOPPED"), "decision_baseline_seal_mismatch"),
-        (lambda s: s.update(compositionId="GATE-OTHER"), "gate_only_composition_not_frozen"),
-    ):
-        summary = m3_decision(document, proof)
-        mutate(summary["benchmarkOnlyBaselines"]["baselineSeals"][0])
-        refused(code, check, summary, document, proof)
-    summary = m3_decision(document, proof)
-    summary["benchmarkOnlyBaselines"]["baselineSeals"] = []
-    refused("gate_only_composition_unresolved", check, summary, document, proof)
-    summary = m3_decision(document, proof)
-    summary["benchmarkOnlyBaselines"]["baselineSeals"] *= 2
-    refused("gate_only_composition_resolved_twice", check, summary, document, proof)
-    unsealed = {GATE: dict(proof[GATE], seal=None)}
-    refused("gate_only_composition_unresolved", check, m3_decision(document, proof), document, unsealed)
+                        ("2026-09-02T00:00:00Z", "d_started_after_decision"), (None, "instant_malformed")):
+        summary = group_decision(state)
+        summary["compositionAuthority"]["dExecutionStartedAt"] = value
+        refused(code, check, summary, state)
+    for mutate, code in ((lambda s: s.update(sealSha256=sha("x")), "decision_baseline_seal_mismatch"),
+                         (lambda s: s.update(status="STOPPED"), "decision_baseline_seal_mismatch"),
+                         (lambda s: s.update(sealCommit="d" * 40), "decision_baseline_seal_mismatch"),
+                         (lambda s: s.update(compositionId="GATE-OTHER"), "decision_baseline_seal_mismatch")):
+        summary = group_decision(state)
+        mutate(summary["compositionAuthority"]["baselineSeals"][0])
+        refused(code, check, summary, state)
+    summary = group_decision(state)
+    summary["compositionAuthority"]["baselineSeals"] *= 2
+    refused("gate_only_composition_unresolved", check, summary, state)
+    refused("gate_only_composition_unresolved", check, group_decision(state), group(seal=None))
 
 
-# ------------------------------------------------------------------ scope
-
-
-def test_decision_v2_refuses_any_bob_and_is_otherwise_unchanged():
-    document = m3_ledger()
+def test_decision_requires_group_authority_and_v2_refuses_m3():
+    state = group()
+    document = state.frozen_by_event[EVENT]
+    refused("m3_decision_requires_group_authority", validate_decision, group_decision(state), document, document)
     v2 = {"schema": "mavi-model-selection-decision-v2", "eventId": document["eventId"]}
     refused("m3_v2_unsupported", validate_decision, v2, document, document)
-    plain = ledger(baseline(), established(), emerging(), capability="vehicle-colour")
-    with pytest.raises(CredibilityError) as error:  # without a BOB the v2 path is reached exactly as before
+    partner = state.frozen_by_event[PARTNER_EVENT]
+    refused("m3_v2_unsupported", validate_decision, v2 | {"eventId": PARTNER_EVENT}, partner, partner)
+    plain = plain_ledger()
+    with pytest.raises(CredibilityError) as error:  # without M3 the v2 path is reached exactly as before
         validate_decision(v2, plain, plain)
     assert str(error.value).startswith("decision_v2_requires_repository")
+    other = group(m3_ledger(block_=universe(mpid=0.1)), partner_ledger(block=universe(mpid=0.1)))
+    refused("d_artefact_group_mismatch", validate_decision, group_decision(state), document, document, group=other)
 
 
-def test_m1_decisions_without_bob_reject_m3_fields():
-    plain = ledger(baseline(), established(), emerging(), capability="vehicle-colour")
+def test_m1_decisions_without_m3_reject_m3_fields():
+    plain = plain_ledger()
     summary = decision(plain)
     validate_decision(summary, plain, plain)
-    for field in ("benchmarkOnlyBaselines", "gateOnlyBaselineResolutions", "rankedSets"):
-        with_field = copy.deepcopy(summary)
-        with_field[field] = []
-        refused("unknown_field", validate_decision, with_field, plain, plain)
+    for field in ("compositionAuthority", "benchmarkOnlyBaselines", "rankedSets"):
+        refused("unknown_field", validate_decision, dict(copy.deepcopy(summary), **{field: {}}), plain, plain)
     row = copy.deepcopy(summary)
-    row["evaluated"][0]["technicalGates"] = "n/a"
-    row["evaluated"][0]["comparativeScore"] = None
+    row["evaluated"][0].update(technicalGates="n/a", comparativeScore=None)
     refused("value_not_allowed", validate_decision, row, plain, plain)
 
 
-# ------------------------------------------------------------------ repository mode
+def _outcome_variants():
+    return {"selected": ("CLOSED", ("VC-EST",), "SELECTED_FOR_PACKAGING"),
+            "incumbent": ("CLOSED", None, "INCUMBENT_RETAINED"),
+            "nqc": ("CLOSED", None, "NO_QUALIFIABLE_CANDIDATE"),
+            "baseline-selected": ("CLOSED", ("VC-B0",), "BASELINE_SELECTED"),
+            "selected-without-implementation": ("CLOSED", None, "SELECTED_FOR_PACKAGING"),
+            "incumbent-with-implementation": ("CLOSED", ("VC-EST",), "INCUMBENT_RETAINED"),
+            "emerging-implemented": ("CLOSED", ("VC-EMG",), "SELECTED_FOR_PACKAGING")}
+
+
+@pytest.mark.parametrize("name", sorted(_outcome_variants()))
+def test_outcome_is_the_ordinary_m1_outcome_over_composition_derived_rows(name):
+    """Rule 5 restated: the BOB never appears in an output; with the rows the compositions derive, the ordinary M1
+    outcome rules decide exactly as they do for the same rows on an M1 event without any M3 role."""
+    state_name, implementation, outcome = _outcome_variants()[name]
+    state = group()
+    impl_comp = {("VC-EST",): "C-PD-A--VC-EST", ("VC-EMG",): "C-PD-A--VC-EMG",
+                 ("VC-B0",): "C-PD-A--VC-B0", None: None}[implementation]
+    summary = group_decision(state, state_name=state_name, implementation=implementation,
+                             block_=authority_block(state, implementation=impl_comp))
+    summary["outcome"] = outcome
+    with_m3 = code_of(check, summary, state)
+    plain = plain_ledger()
+    stripped = copy.deepcopy(summary)
+    del stripped["compositionAuthority"]
+    stripped["evaluated"] = [r for r in stripped["evaluated"] if r["candidateId"] != "VC-BOB"]
+    stripped.update(ledgerSha256=document_sha256(plain), frozenLedgerSha256=document_sha256(plain))
+    without = code_of(validate_decision, stripped, plain, plain)
+    if with_m3 == "implementation_composition_not_ranked":
+        assert without in ("implementation_failed_technical_gate", "accepted") or without.startswith("outcome")
+    else:
+        assert with_m3 == without, (name, with_m3, without)
+
+
+# ================================================================== git-backed: repository, history, anchors
+
+
+def git(repo: Path, *args: str) -> str:
+    environment = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+                       GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
+    return subprocess.run(["git", "-C", str(repo), "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false",
+                           "-c", "init.defaultBranch=main", *args],
+                          capture_output=True, text=True, check=True, env=environment).stdout.strip()
 
 
 def write(path: Path, text: str) -> Path:
@@ -912,168 +1217,906 @@ def write(path: Path, text: str) -> Path:
     return path
 
 
-def write_frozen_event(repo: Path, document, *, record_extra=""):
-    folder = repo / "docs" / "qualification" / "model-selection" / document["capabilityId"]
+def folder_of(repo: Path, event_id: str) -> Path:
+    return repo / "docs" / "qualification" / "model-selection" / bs.capability_of(event_id)
+
+
+def write_event(repo: Path, document, *, record_extra="") -> str:
+    folder = folder_of(repo, document["eventId"])
     event = document["eventId"]
     write(folder / f"{event}-evidence-ledger.json", json.dumps(document))
     write(folder / f"{event}-evidence-ledger-frozen.json", json.dumps(document))
     protocol = write(folder / f"{event}-protocol.md",
                      f"Frozen ledger SHA-256: {document_sha256(document)}\nFrozen on: {document['frozenOn']}\n")
     write(folder / f"{event}.md", f"Protocol SHA-256: {lf_normalised_sha256(protocol)}\n{record_extra}")
-    return folder, lf_normalised_sha256(protocol)
+    return lf_normalised_sha256(protocol)
 
 
-def build_repository(repo: Path, *, stopped=False, with_decision=True, cite_seal=True, commit=True):
-    document = m3_ledger()
-    partner = partner_ledger()
-    write_frozen_event(repo, partner)
-    folder, protocol_sha = write_frozen_event(repo, document)
-    gates = {p: {g: "failed" for g in GATE_IDS} for p in ("PD-A", "PD-B")} if stopped else None
-    result = layer_a(document, partner, gates=gates)
-    seal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
-                                   layer_a=result, recorded_at=SEALED_AT, recorded_by="synthetic-harness")
-    write(bs.layer_a_path(repo, document, GATE), canonical_json(result).decode())
-    write(bs.seal_path(repo, document, GATE), canonical_json(seal).decode())
-    record = folder / f"{EVENT}.md"
-    if cite_seal:
-        write(record, record.read_text() + bs.seal_citation(GATE, document_sha256(seal)) + "\n")
-    if commit or with_decision:
-        # The shared seal predicate requires full Git history (convergence review P1-C), and a decision holds D
-        # results, so the seal is committed first, in a strict ancestor (owner decision 2).
-        git(repo, "init", "-q")
-        git(repo, "add", "-A")
-        git(repo, "commit", "-q", "-m", "freeze and seal")
-    if with_decision:
-        proof = {GATE: {"seal": seal, "layerA": result, "partnerLedger": partner}}
-        summary = m3_decision(document, proof, **({"state": "TECHNICAL_DECISION_RECORDED", "implementation": None}
-                                                  if stopped else {}))
-        summary["protocolSha256"] = protocol_sha
-        summary["benchmarkOnlyBaselines"]["baselineSeals"][0]["sealCommit"] = git(repo, "rev-parse", "HEAD")
-        decision_path = write(folder / f"{EVENT}-decision.json", json.dumps(summary))
-        snapshot_path = write(folder / f"{EVENT}-evidence-ledger-decided.json", json.dumps(document))
-        write(record, record.read_text() + f"Decision SHA-256: {lf_normalised_sha256(decision_path)}\n"
-              f"Snapshot SHA-256: {lf_normalised_sha256(snapshot_path)}\n")
-        git(repo, "add", "-A")
-        git(repo, "commit", "-q", "-m", "decision")
-    return document, partner, seal, folder
+def append(path: Path, line: str) -> None:
+    write(path, path.read_text(encoding="utf-8") + line + "\n")
 
 
-def test_repository_scan_verifies_committed_seal_and_decision(tmp_path):
-    build_repository(tmp_path)
-    checked = validate_repository(tmp_path)
-    assert any(path.endswith(f"{bs.SEAL_INFIX}{GATE}.json") for path in checked)
-    assert any(path.endswith(f"{bs.LAYER_A_INFIX}{GATE}.json") for path in checked)
-
-
-def test_repository_scan_accepts_a_stopped_event_without_decision(tmp_path):
-    build_repository(tmp_path, stopped=True, with_decision=False)
-    validate_repository(tmp_path)
-
-
-def test_repository_scan_refuses_uncited_noncanonical_or_orphan_seals(tmp_path):
-    build_repository(tmp_path / "a", with_decision=False, cite_seal=False)
-    refused("baseline_seal_not_recorded", validate_repository, tmp_path / "a")
-    document, _partner, seal, folder = build_repository(tmp_path / "b", with_decision=False)
-    write(bs.seal_path(tmp_path / "b", document, GATE), json.dumps(seal, indent=2))
-    refused("baseline_seal_not_canonical", validate_repository, tmp_path / "b")
-    document, _partner, seal, folder = build_repository(tmp_path / "c", with_decision=False)
-    write(folder / f"{EVENT}{bs.SEAL_INFIX}GATE-STRAY.json", canonical_json(seal).decode())
-    refused("baseline_seal_not_recorded", validate_repository, tmp_path / "c")
-    build_repository(tmp_path / "d", with_decision=False)
-    partner_file = tmp_path / "d" / "docs" / "qualification" / "model-selection" / "plate-detector" / \
-        f"{PARTNER_EVENT}-evidence-ledger-frozen.json"
-    partner_file.unlink()
-    (partner_file.parent / f"{PARTNER_EVENT}-protocol.md").unlink()
-    (partner_file.parent / f"{PARTNER_EVENT}.md").unlink()
-    refused("baseline_seal_not_derivable", validate_repository, tmp_path / "d")
-
-
-def test_repository_scan_refuses_a_decision_without_seal(tmp_path):
-    document, _partner, seal, folder = build_repository(tmp_path)
-    bs.seal_path(tmp_path, document, GATE).unlink()
-    refused("baseline_seal_cited_without_file", validate_repository, tmp_path)
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text().replace(bs.seal_citation(GATE, document_sha256(seal)) + "\n", ""))
-    refused("baseline_artefact_rewritten_in_history", validate_repository, tmp_path)  # a committed seal removed
-
-
-def test_repository_scan_refuses_a_reseal_after_d(tmp_path):
-    """P1-2 in repository mode: D and the decision bound to PD-A; seal and Layer-A rewritten to PD-B."""
-    document, partner, seal, folder = build_repository(tmp_path)
-    forged = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
-                                     layer_a=forged, recorded_at=SEALED_AT, recorded_by="synthetic-harness")
-    assert reseal["partnerCandidateId"] == "PD-B"
-    write(bs.layer_a_path(tmp_path, document, GATE), canonical_json(forged).decode())
-    write(bs.seal_path(tmp_path, document, GATE), canonical_json(reseal).decode())
-    refused("baseline_seal_not_recorded", validate_repository, tmp_path)
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text() + bs.seal_citation(GATE, document_sha256(reseal)) + "\n")
-    refused("baseline_seal_cited_twice", validate_repository, tmp_path)
-    write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
-    refused("baseline_seal_cited_twice", validate_repository, tmp_path)
-    write(record, record.read_text().replace(bs.seal_citation(GATE, document_sha256(reseal)) + "\n", "", 1))
-    refused("baseline_artefact_rewritten_in_history", validate_repository, tmp_path)
-
-
-# ------------------------------------------------------------------ harness API (git)
-
-
-def git(repo: Path, *args: str) -> str:
-    environment = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
-                       GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
-    return subprocess.run(["git", "-C", str(repo), "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", *args],
-                          capture_output=True, text=True, check=True, env=environment).stdout.strip()
-
-
-def committed_repository(repo: Path, **kwargs):
-    return build_repository(repo, with_decision=False, **kwargs)
-
-
-def test_harness_requires_the_exact_committed_resolved_seal(tmp_path):
-    document, _partner, seal, folder = committed_repository(tmp_path / "a")
-    binding = bs.require_committed_baseline_seal(tmp_path / "a", EVENT, "vehicle-colour", GATE)
-    assert binding.seal_sha256 == document_sha256(seal) and binding.partner_candidate_id == "PD-A"
-    assert binding.seal_commit == git(tmp_path / "a", "rev-parse", "HEAD")
-    write(bs.seal_path(tmp_path / "a", document, GATE), canonical_json(dict(seal, recordedBy="someone")).decode())
-    refused("baseline_seal_not_recorded", bs.require_committed_baseline_seal, tmp_path / "a", EVENT,
-            "vehicle-colour", GATE)
-    committed_repository(tmp_path / "b", stopped=True)
-    refused("baseline_seal_stopped_no_d", bs.require_committed_baseline_seal, tmp_path / "b", EVENT,
-            "vehicle-colour", GATE)
-
-
-def test_d_manifest_bound_to_a_seal_refuses_a_later_reseal(tmp_path):
-    repo = tmp_path / "r"
-    document, partner, seal, folder = committed_repository(repo)
-    binding = bs.require_committed_baseline_seal(repo, EVENT, "vehicle-colour", GATE)
-    manifest = {"baselineSeals": [{"compositionId": GATE, "sealSha256": binding.seal_sha256,
-                                   "sealCommit": binding.seal_commit}]}
-    bs.verify_d_manifest_binding(manifest, repo, EVENT, "vehicle-colour")
-    for rows in ([], [dict(manifest["baselineSeals"][0], sealSha256=sha("x"))],
-                 [dict(manifest["baselineSeals"][0], compositionId="GATE-OTHER")]):
-        refused("d_manifest_baseline_seal_mismatch", bs.verify_d_manifest_binding, {"baselineSeals": rows}, repo,
-                EVENT, "vehicle-colour")
-    # Later commit: Layer-A forged so PD-B derives, seal recomputed, record re-cited. The D manifest still cites A.
-    forged = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
-                                     layer_a=forged, recorded_at=SEALED_AT, recorded_by="synthetic-harness")
-    write(bs.layer_a_path(repo, document, GATE), canonical_json(forged).decode())
-    write(bs.seal_path(repo, document, GATE), canonical_json(reseal).decode())
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
+def commit(repo: Path, message: str) -> str:
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "reseal")
-    refused("baseline_artefact_rewritten_in_history", bs.verify_d_manifest_binding, manifest, repo, EVENT,
-            "vehicle-colour")
-    stale_commit = dict(manifest["baselineSeals"][0], sealSha256=document_sha256(reseal))
-    refused("baseline_artefact_rewritten_in_history", bs.verify_d_manifest_binding, {"baselineSeals": [stale_commit]},
-            repo, EVENT, "vehicle-colour")
+    git(repo, "commit", "-q", "--allow-empty", "-m", message)
+    return git(repo, "rev-parse", "HEAD")
 
 
-# ------------------------------------------------------------------ committed ledgers are untouched
+class Built:
+    """A real temporary repository holding one composition group."""
+
+    def __init__(self, path: Path, document, partner, protocols):
+        self.path, self.document, self.partner, self.protocols = path, document, partner, protocols
+        self.rankings: dict = {EVENT: None, PARTNER_EVENT: None}
+        self.seal = None
+        self.commits: dict[str, str] = {}
+        self.remote: str | None = None
+
+    @property
+    def folder(self) -> Path:
+        return folder_of(self.path, EVENT)
+
+    @property
+    def pfolder(self) -> Path:
+        return folder_of(self.path, PARTNER_EVENT)
+
+    def record(self, event_id=EVENT) -> Path:
+        return folder_of(self.path, event_id) / f"{event_id}.md"
+
+    def seal_path(self) -> Path:
+        return bs.seal_path(self.path, self.document, GATE)
+
+    def state(self):
+        return ma.derive_group_state({EVENT: self.document, PARTNER_EVENT: self.partner}, self.protocols,
+                                     self.rankings, self.seal, s0=self.commits.get("S0"))
+
+
+def write_rankings(built: Built, *, stopped=False):
+    partner_gates = all_failed(built.partner) if stopped else None
+    built.rankings = rankings_of(built.document, built.partner, other=ranking(built.partner, gates=partner_gates))
+    for event_id, document in built.rankings.items():
+        path = folder_of(built.path, event_id) / f"{event_id}{bs.RANKING_SUFFIX}"
+        ma.write_canonical(path, document)
+        append(built.record(event_id), ma.ranking_citation(event_id, document_sha256(document)))
+
+
+def write_seal(built: Built):
+    built.seal = derive(built.document, built.partner, built.rankings, protocol=built.protocols[EVENT])
+    ma.write_canonical(built.seal_path(), built.seal)
+    append(built.record(), bs.seal_citation(GATE, document_sha256(built.seal)))
+
+
+def build(path: Path, *, stopped=False, stages=("freeze", "rank", "seal"), document=None, partner=None) -> Built:
+    path.mkdir(parents=True, exist_ok=True)
+    git(path, "init", "-q")
+    document = m3_ledger() if document is None else document
+    partner = partner_ledger() if partner is None else partner
+    protocols = {EVENT: write_event(path, document), PARTNER_EVENT: write_event(path, partner)}
+    built = Built(path, document, partner, protocols)
+    built.commits["F"] = commit(path, "F: freeze the group")
+    if "rank" in stages:
+        write_rankings(built, stopped=stopped)
+        built.commits["R"] = commit(path, "R: component rankings")
+    if "seal" in stages:
+        write_seal(built)
+        built.commits["S0"] = commit(path, "S0: baseline seal")
+    return built
+
+
+def publish(built: Built) -> str:
+    """The canonical repository stand-in: a local bare repository whose default branch is the current HEAD."""
+    bare = built.path.parent / f"{built.path.name}-canonical.git"
+    if not bare.exists():
+        git(built.path.parent, "init", "-q", "--bare", str(bare))
+    git(built.path, "push", "-q", "-f", str(bare), "HEAD:refs/heads/main")
+    built.remote = str(bare)
+    return built.remote
+
+
+def protected_api(*, enforcement="active", include=("~DEFAULT_BRANCH",), exclude=(),
+                  rules=("deletion", "non_fast_forward"), bypass=(), applied=True, fail=None):
+    calls = []
+
+    def api(path):
+        calls.append(path)
+        if fail is not None and fail in path:
+            raise CredibilityError("protected_default_branch_unverifiable:simulated API failure")
+        if path.endswith("rulesets?includes_parents=true"):
+            return [{"id": 7, "enforcement": enforcement, "target": "branch"}]
+        if path.endswith("rules/branches/main"):
+            return [{"type": t, "ruleset_id": 7} for t in rules] if applied else []
+        if path.endswith("rulesets/7"):
+            return {"id": 7, "enforcement": enforcement, "target": "branch",
+                    "conditions": {"ref_name": {"include": list(include), "exclude": list(exclude)}},
+                    "rules": [{"type": t} for t in rules], "bypass_actors": list(bypass)}
+        raise AssertionError(f"unexpected API path {path}")
+    api.calls = calls
+    return api
+
+
+def open_d(built: Built, *, remote=None, api=None):
+    return ma.open_protected_d(built.path, EVENT, remote_url=remote or built.remote or publish(built),
+                               github_api=api or protected_api())
+
+
+def commit_d(built: Built, auth, run="RUN-1") -> Path:
+    manifest = ma.d_manifest_document(auth, run, sha(f"d-{run}"))
+    path = built.folder / f"{EVENT}{bs.D_MANIFEST_INFIX}{run}.json"
+    ma.write_canonical(path, manifest)
+    built.commits[run] = commit(built.path, f"protected D {run}")
+    git(built.path, "update-ref", "refs/remotes/origin/main", auth.anchor_commit)  # what CI's checkout fetches
+    return path
+
+
+def commit_decisions(built: Built, auth, *, base=BASE_D):
+    state = built.state()
+    block_ = authority_block(state, anchor=auth.anchor_commit, base=base)
+    for event_id in (EVENT, PARTNER_EVENT):
+        summary = group_decision(state, event_id, block_=copy.deepcopy(block_))
+        folder = folder_of(built.path, event_id)
+        decision_path = write(folder / f"{event_id}-decision.json", json.dumps(summary))
+        snapshot_path = write(folder / f"{event_id}-evidence-ledger-decided.json",
+                              json.dumps(state.frozen_by_event[event_id]))
+        append(built.record(event_id), f"Decision SHA-256: {lf_normalised_sha256(decision_path)}")
+        append(built.record(event_id), f"Decision snapshot SHA-256: {lf_normalised_sha256(snapshot_path)}")
+    built.commits["decision"] = commit(built.path, "technical decision")
+
+
+def full_flow(path: Path):
+    built = build(path)
+    auth = open_d(built)
+    git(built.path, "update-ref", "refs/remotes/origin/main", auth.anchor_commit)
+    ma.verify_d_manifest_binding(ma.d_manifest_document(auth, "RUN-1", sha("d-RUN-1")), built.path)  # before scoring
+    manifest = commit_d(built, auth)
+    return built, auth, manifest
+
+
+# ---- positive
+
+
+def test_repository_accepts_a_sealed_group_and_reports_its_files(tmp_path):
+    built = build(tmp_path / "r")
+    checked = validate_repository(built.path)
+    assert built.seal_path().relative_to(built.path).as_posix() in checked and "git-history:full" in checked
+    assert (built.folder / f"{EVENT}{bs.RANKING_SUFFIX}").relative_to(built.path).as_posix() in checked
+
+
+@pytest.mark.parametrize("stages", [("freeze",), ("freeze", "rank")])
+def test_repository_accepts_every_stage_before_the_seal(tmp_path, stages):
+    validate_repository(build(tmp_path / "r", stages=stages).path)
+
+
+def test_repository_accepts_a_stopped_group_without_d(tmp_path):
+    built = build(tmp_path / "r", stopped=True)
+    assert built.seal["status"] == "STOPPED"
+    validate_repository(built.path)
+
+
+def test_full_protected_d_flow(tmp_path):
+    """F < R < S0 -> published -> open_protected_d (anchor) -> D manifest -> decisions in both group events."""
+    built, auth, manifest = full_flow(tmp_path / "r")
+    assert auth.anchor_commit == built.commits["S0"] and auth.seals[0].seal_commit == built.commits["S0"]
+    assert auth.ordinary_compositions_sha256 == built.seal["ordinaryCompositionsSha256"]
+    commit_decisions(built, auth)
+    checked = validate_repository(built.path)
+    assert manifest.relative_to(built.path).as_posix() in checked
+
+
+def test_open_protected_d_uses_only_the_injected_ruleset_api(tmp_path):
+    built = build(tmp_path / "r")
+    api = protected_api()
+    open_d(built, api=api)
+    assert any("rulesets" in c for c in api.calls) and any("rules/branches/main" in c for c in api.calls)
+    assert ma.CANONICAL_ORIGIN == "https://github.com/hariomahlawat/MAVI.git"
+
+
+# ---- record citations and stray artefacts
+
+
+def test_rankings_and_seal_must_be_cited_exactly_once_and_canonical(tmp_path):
+    built = build(tmp_path / "a", stages=("freeze",))
+    write_rankings(built)
+    citation = ma.ranking_citation(EVENT, document_sha256(built.rankings[EVENT]))
+    write(built.record(), built.record().read_text().replace(citation + "\n", ""))
+    refused("component_ranking_not_recorded", validate_repository, built.path)
+    append(built.record(), citation)
+    append(built.record(), citation)
+    refused("component_ranking_cited_twice", validate_repository, built.path)
+    built = build(tmp_path / "b", stages=("freeze", "rank"))
+    write_seal(built)
+    write(built.seal_path(), json.dumps(built.seal, indent=2))
+    commit(built.path, "a non-canonical seal")
+    refused("baseline_seal_not_canonical", validate_repository, built.path)
+    built = build(tmp_path / "b2")
+    write(built.seal_path(), json.dumps(built.seal, indent=2))
+    refused("baseline_artefact_rewritten_in_history", validate_repository, built.path)  # committed, then edited
+    built = build(tmp_path / "c")
+    ma.write_canonical(built.folder / f"{EVENT}{bs.SEAL_INFIX}GATE-STRAY.json", built.seal)
+    refused("baseline_artefact_without_frozen_composition", validate_repository, built.path)
+    built = build(tmp_path / "d")
+    ma.write_canonical(built.folder / f"{EVENT}{bs.LEGACY_LAYER_A_INFIX}{GATE}.json", {"schema": "legacy"})
+    refused("legacy_layer_a_artefact", validate_repository, built.path)
+    built = build(tmp_path / "e")
+    ma.write_canonical(built.pfolder / f"{PARTNER_EVENT}{bs.SEAL_INFIX}{GATE}.json", built.seal)
+    refused("baseline_artefact_without_frozen_composition", validate_repository, built.path)
+    built = build(tmp_path / "f", stages=("freeze",))
+    append(built.record(), bs.seal_citation(GATE, sha("no file")))
+    refused("baseline_seal_cited_without_file", validate_repository, built.path)
+
+
+def test_no_ranking_no_seal_means_no_protected_d(tmp_path):
+    refused("d_not_authorised", open_d, build(tmp_path / "a", stages=("freeze",)))
+    refused("d_not_authorised", open_d, build(tmp_path / "b", stages=("freeze", "rank")))
+
+
+# ---- A: the sticky audit domain (probe_vanish and its variants)
+
+
+def _rewrite_frozen_to(built: Built, document):
+    write_event(built.path, document, record_extra=built.record().read_text().split("\n", 1)[1])
+
+
+def _rewrite_protocol(built: Built):
+    """An honest-looking revision in place: the protocol changes and the record cites the new hash as well."""
+    protocol = built.folder / f"{EVENT}-protocol.md"
+    append(protocol, "Revision 2: a looser gate.")
+    append(built.record(), f"Protocol SHA-256: {lf_normalised_sha256(protocol)}")
+
+
+A_ATTACKS = {
+    "frozen-to-non-m3": (lambda b: _rewrite_frozen_to(b, plain_ledger()), "m3_frozen_file_rewritten"),
+    "bob-dropped": (lambda b: _rewrite_frozen_to(b, m3_ledger(baseline(), established(), emerging())),
+                    "m3_frozen_file_rewritten"),
+    "all-artefacts-deleted": (lambda b: [p.unlink() for p in list(b.folder.glob(f"{EVENT}-*.json"))
+                                         if ma.artefact_event(p.name)], "baseline_artefact_deleted_in_history"),
+    "protocol-rewritten": (lambda b: _rewrite_protocol(b), "m3_frozen_file_rewritten"),
+    "record-line-removed": (lambda b: write(b.record(), "\n".join(
+        line for line in b.record().read_text().splitlines() if not line.startswith("Component ranking")) + "\n"),
+        "m3_record_line_removed"),
+    "seal-deleted": (lambda b: b.seal_path().unlink(), "baseline_artefact_deleted_in_history"),
+    "event-erased": (lambda b: shutil.rmtree(b.folder), "m3_event_erased"),
+}
+
+
+def _apply(built: Built, mutate, mode: str):
+    repo = built.path
+    if mode == "direct":
+        mutate(built)
+        commit(repo, "attack")
+        return
+    if mode == "merge-resolution":
+        git(repo, "checkout", "-q", "-b", "side")
+        commit(repo, "side work")
+        git(repo, "checkout", "-q", "main")
+        commit(repo, "main work")
+        git(repo, "merge", "-q", "--no-ff", "--no-commit", "side")
+        mutate(built)
+        commit(repo, "merge whose resolution carries the attack")
+        return
+    git(repo, "checkout", "-q", "-b", "side")
+    mutate(built)
+    commit(repo, "attack on a side branch")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge the side branch", "side")
+
+
+@pytest.mark.parametrize("mode", ["direct", "merge-resolution", "side-branch"])
+@pytest.mark.parametrize("attack", sorted(A_ATTACKS))
+def test_a_history_attack_is_refused_in_every_shape(tmp_path, attack, mode):
+    mutate, code = A_ATTACKS[attack]
+    built = build(tmp_path / "r", stopped=(attack == "seal-deleted"))
+    _apply(built, mutate, mode)
+    refused(code, validate_repository, built.path)
+
+
+@pytest.mark.parametrize("variant", ["resolved-with-d", "stopped"])
+def test_probe_vanish_erasing_every_m3_artefact_under_a_bob_free_revision_is_refused(tmp_path, variant):
+    if variant == "stopped":
+        built = build(tmp_path / "r", stopped=True)
+    else:
+        built, _auth, _manifest = full_flow(tmp_path / "r")
+    validate_repository(built.path)
+    _rewrite_frozen_to(built, plain_ledger())
+    write(built.record(), f"Protocol SHA-256: {lf_normalised_sha256(built.folder / f'{EVENT}-protocol.md')}\n")
+    for path in list(built.folder.glob(f"{EVENT}-*.json")):
+        if ma.artefact_event(path.name):
+            path.unlink()
+    commit(built.path, "revision drops the BOB and erases its seal, rankings and D manifests")
+    refused("m3_frozen_file_rewritten", validate_repository, built.path)
+
+
+def test_the_domain_is_sticky_and_comes_from_the_walk_only(tmp_path):
+    built = build(tmp_path / "r", stopped=True)
+    shutil.rmtree(built.folder)
+    shutil.rmtree(built.pfolder)
+    commit(built.path, "erase both events completely")
+    history = mg.model_selection_history(built.path)
+    domain = ma.model_selection_domain(built.path, history)
+    assert {EVENT, PARTNER_EVENT} <= set(domain.events)
+    refused("m3_event_erased", validate_repository, built.path)
+
+
+# ---- probe_repo A: the gate and the repository refuse with the same code
+
+
+@pytest.mark.parametrize("attack", ["record-without-protocol-line", "shortlist-edited"])
+def test_probe_repo_a_gate_and_repository_refuse_with_the_same_code(tmp_path, attack):
+    built = build(tmp_path / "r")
+    publish(built)
+    if attack == "record-without-protocol-line":
+        write(built.record(), "\n".join(line for line in built.record().read_text().splitlines()
+                                        if not line.startswith("Protocol SHA-256")) + "\n")
+    else:
+        working = built.folder / f"{EVENT}-evidence-ledger.json"
+        document = json.loads(working.read_text())
+        for entry in document["candidates"]:
+            if entry["candidateId"] == "VC-EMG":
+                entry["disposition"] = {"status": "NOT_SHORTLISTED", "reasonClass": "technical",
+                                        "reason": "dropped after results", "revisitTrigger": None, "decidedBy": "x"}
+        write(working, json.dumps(document))
+    commit(built.path, attack)
+    repository = code_of(validate_repository, built.path)
+    gate = code_of(open_d, built)
+    assert repository == gate and repository != "accepted", (repository, gate)
+
+
+# ---- B: one predicate; D only with the group's seal RESOLVED (P2-1)
+
+
+def test_p2_1_a_stopped_or_missing_composition_keeps_d_closed(tmp_path):
+    refused("d_not_authorised", open_d, build(tmp_path / "stopped", stopped=True))
+    refused("d_not_authorised", open_d, build(tmp_path / "unsealed", stages=("freeze", "rank")))
+
+
+def test_shared_predicate_is_the_only_authority_path():
+    import inspect
+    assert "check_group_authority(" in inspect.getsource(ma.validate_repository_m3)
+    assert "check_group_authority(" in inspect.getsource(ma.open_protected_d)
+    assert "_validate_repository(" in inspect.getsource(ma.open_protected_d)
+    assert "_validate_repository(" in inspect.getsource(ma.verify_d_manifest_binding)
+    assert not hasattr(bs, "require_committed_baseline_seal") and not hasattr(bs, "_git_ok")
+    source = inspect.getsource(ma) + inspect.getsource(mg) + inspect.getsource(bs)
+    assert '"show"' not in source and "continue  # the record was deleted" not in source
+
+
+# ---- E/O1/O6: STOPPED is terminal; revision = new events with supersedes (probe_repo B)
+
+
+NEW_EVENT, NEW_PARTNER = "msr-vehicle-colour-2026-02", "msr-plate-detector-2026-02"
+
+
+def superseding_group(built: Built, *, seal_hashes=None, line=True):
+    """Re-freeze both group events under new ids that supersede the STOPPED ones."""
+    revised = universe(componentEvents=[dict(universe()["componentEvents"][0], eventId=NEW_PARTNER),
+                                        dict(universe()["componentEvents"][1], eventId=NEW_EVENT)])
+    stopped_seal = document_sha256(built.seal)
+    for old, new, make in ((EVENT, NEW_EVENT, lambda: m3_ledger(block_=revised)),
+                           (PARTNER_EVENT, NEW_PARTNER, lambda: partner_ledger(block=revised))):
+        document = make()
+        document["eventId"] = new
+        if new == NEW_EVENT:
+            document["candidates"][-1]["benchmarkBaseline"]["compositions"][0]["partnerEventId"] = NEW_PARTNER
+        document["frozenOn"] = "2026-07-05"
+        old_doc = built.document if old == EVENT else built.partner
+        document["supersedes"] = {"eventId": old, "frozenLedgerSha256": document_sha256(old_doc),
+                                  "stoppedSealSha256s": seal_hashes or [stopped_seal]}
+        write_event(built.path, document)
+        if line:
+            append(built.record(old), ma.superseded_line(new))
+
+
+def test_probe_repo_b1_rewriting_a_stopped_event_is_refused_and_the_new_event_route_works(tmp_path):
+    built = build(tmp_path / "r", stopped=True)
+    validate_repository(built.path)
+    refused("d_not_authorised", open_d, built)
+    # B1: the stopped event's frozen ledger is revised in place to drop the BOB
+    rewrite = build(tmp_path / "b1", stopped=True)
+    _rewrite_frozen_to(rewrite, m3_ledger(baseline(), established(), emerging()))
+    commit(rewrite.path, "drop the benchmark-only baseline after the stop")
+    refused("m3_frozen_file_rewritten", validate_repository, rewrite.path)
+    # a new event of the stopped capability without supersedes is refused while the stop is unsuperseded
+    other = build(tmp_path / "plain-new", stopped=True)
+    later = plain_ledger()
+    later["eventId"] = NEW_EVENT
+    later["frozenOn"] = "2026-07-05"
+    write_event(other.path, later)
+    commit(other.path, "a new M1 event of the stopped capability")
+    refused("stopped_event_not_superseded", validate_repository, other.path)
+    # the legitimate route: both group events superseded by new M3 events; the old ones stay audited
+    superseding_group(built)
+    commit(built.path, "re-freeze under new event ids that supersede the stopped group")
+    validate_repository(built.path)
+    history = mg.model_selection_history(built.path)
+    assert {EVENT, PARTNER_EVENT} <= set(ma.model_selection_domain(built.path, history).events)
+    refused("d_not_authorised", open_d, built)  # the superseded group never opens D
+
+
+@pytest.mark.parametrize("defect, code", [("seal-hash", "supersedes_target_not_stopped"),
+                                          ("record-line", "superseded_record_line_missing")])
+def test_supersession_must_cite_the_stop_exactly(tmp_path, defect, code):
+    built = build(tmp_path / "r", stopped=True)
+    if defect == "seal-hash":
+        superseding_group(built, seal_hashes=[sha("another seal")])
+    else:
+        superseding_group(built, line=False)
+    commit(built.path, "supersede")
+    refused(code, validate_repository, built.path)
+
+
+def test_a_resolved_group_cannot_be_superseded(tmp_path):
+    built = build(tmp_path / "r")
+    superseding_group(built)
+    commit(built.path, "supersede a resolved group")
+    refused("supersedes_target_not_stopped", validate_repository, built.path)
+
+
+def test_a_superseded_line_needs_its_superseding_event(tmp_path):
+    built = build(tmp_path / "r", stopped=True)
+    append(built.record(), ma.superseded_line("msr-vehicle-colour-2026-09"))
+    commit(built.path, "claim a successor that does not exist")
+    refused("superseded_line_without_superseding_event", validate_repository, built.path)
+
+
+# ---- O4: baseline D unavailable after D opened -> ABANDONED, no M1 outcome
+
+
+def test_baseline_d_unavailable_refuses_the_decision_and_abandons_the_group(tmp_path):
+    built, auth, manifest = full_flow(tmp_path / "r")
+    state = built.state()
+    summary = group_decision(state, block_=authority_block(state, base=None, anchor=auth.anchor_commit))
+    refused("baseline_d_unavailable", check, summary, state)
+    evidence = json.loads(manifest.read_text())["resultSha256"]
+    for event_id in (EVENT, PARTNER_EVENT):
+        append(built.record(event_id), ma.abandonment_line("baseline-d-unavailable", evidence))
+    commit(built.path, "ABANDONED: the baseline D result cannot be evaluated")
+    validate_repository(built.path)
+    refused("d_not_authorised", open_d, built)
+    commit_decisions(built, auth)
+    refused("event_abandoned_decision_refused", validate_repository, built.path)
+
+
+def test_abandonment_must_cover_the_group_and_cite_a_d_result(tmp_path):
+    built, auth, manifest = full_flow(tmp_path / "r")
+    evidence = json.loads(manifest.read_text())["resultSha256"]
+    append(built.record(), ma.abandonment_line("baseline-d-unavailable", evidence))
+    commit(built.path, "abandon one event only")
+    refused("group_abandonment_incomplete", validate_repository, built.path)
+    built = build(tmp_path / "b")
+    for event_id in (EVENT, PARTNER_EVENT):
+        append(built.record(event_id), ma.abandonment_line("baseline-d-unavailable", sha("no D was opened")))
+    commit(built.path, "abandon without protected D")
+    refused("abandonment_without_protected_d", validate_repository, built.path)
+    refused("abandonment_reason_not_allowed", ma.abandonment_line, "owner-preferred", sha("x"))
+
+
+# ---- D: chronology and the external anchor
+
+
+def test_d1_ranking_in_the_seal_or_freeze_commit_is_refused(tmp_path):
+    built = build(tmp_path / "rs", stages=("freeze",))
+    write_rankings(built)
+    write_seal(built)
+    commit(built.path, "rankings and seal in one commit")
+    refused("m3_chronology_violated", validate_repository, built.path)
+    path = tmp_path / "fr"
+    path.mkdir()
+    git(path, "init", "-q")
+    document, partner = m3_ledger(), partner_ledger()
+    built = Built(path, document, partner, {EVENT: write_event(path, document),
+                                            PARTNER_EVENT: write_event(path, partner)})
+    write_rankings(built)
+    commit(path, "freeze and rankings in one commit")
+    refused("m3_chronology_violated", validate_repository, path)
+    built = build(tmp_path / "uncommitted", stages=("freeze",))
+    write_rankings(built)
+    write_seal(built)
+    refused("m3_chronology_unproven", validate_repository, built.path)
+
+
+def test_d2_the_seal_must_be_published_on_the_canonical_default_branch(tmp_path):
+    built = build(tmp_path / "r", stages=("freeze", "rank"))
+    remote = publish(built)  # published before the seal
+    write_seal(built)
+    built.commits["S0"] = commit(built.path, "S0 not pushed")
+    refused("seal_not_published", open_d, built, remote=remote)
+    # a forged local remote-tracking ref and origin URL are never read at D open
+    git(built.path, "update-ref", "refs/remotes/origin/main", built.commits["S0"])
+    git(built.path, "remote", "add", "origin", str(tmp_path / "anything"))
+    refused("seal_not_published", open_d, built, remote=remote)
+    publish(built)
+    assert open_d(built, remote=remote).anchor_commit == built.commits["S0"]
+
+
+def test_d2_offline_or_ambiguous_remote_refuses(tmp_path):
+    built = build(tmp_path / "r")
+    refused("anchor_unavailable", open_d, built, remote=str(tmp_path / "no-such-remote.git"))
+    bare = tmp_path / "empty.git"
+    git(tmp_path, "init", "-q", "--bare", str(bare))
+    refused("anchor_unavailable", open_d, built, remote=str(bare))  # no refs/heads/main: ls-remote exits 2
+
+
+def test_d2_the_validated_state_is_the_published_state(tmp_path):
+    built = build(tmp_path / "r")
+    publish(built)
+    append(built.record(), "a local, uncommitted note")
+    refused("group_state_not_clean", open_d, built)
+    git(built.path, "checkout", "-q", "--", ".")
+    append(built.record(PARTNER_EVENT), "Note: committed but never published")
+    commit(built.path, "unpublished group change")
+    refused("group_state_differs_from_anchor", open_d, built)
+
+
+def test_d3_recorded_anchor_is_reverified(tmp_path):
+    built, auth, manifest = full_flow(tmp_path / "r")
+    validate_repository(built.path)
+    git(built.path, "update-ref", "-d", "refs/remotes/origin/main")
+    refused("anchor_unverifiable", validate_repository, built.path)
+    git(built.path, "update-ref", "refs/remotes/origin/main", built.commits["F"])  # stale
+    refused("anchor_unverifiable", validate_repository, built.path)
+
+
+def test_d3_a_d_manifest_must_descend_from_its_anchor(tmp_path):
+    built = build(tmp_path / "r")
+    auth = open_d(built)
+    git(built.path, "checkout", "-q", "-b", "early", built.commits["R"])
+    path = built.folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-9.json"
+    ma.write_canonical(path, ma.d_manifest_document(auth, "RUN-9", sha("d-9")))
+    commit(built.path, "a D manifest committed before the anchor")
+    git(built.path, "checkout", "-q", "main")
+    git(built.path, "merge", "-q", "--no-ff", "-m", "merge the early D manifest", "early")
+    git(built.path, "update-ref", "refs/remotes/origin/main", auth.anchor_commit)
+    refused("d_artefact_not_after_anchor", validate_repository, built.path)
+
+
+def test_d3_manifest_rows_are_bound_to_the_authority(tmp_path):
+    built = build(tmp_path / "r")
+    auth = open_d(built)
+    git(built.path, "update-ref", "refs/remotes/origin/main", auth.anchor_commit)
+    base = ma.d_manifest_document(auth, "RUN-1", sha("d"))
+    ma.verify_d_manifest_binding(base, built.path)
+    for mutate, code in ((lambda m: m.update(groupId=sha("x")), "d_artefact_group_mismatch"),
+                         (lambda m: m.update(ordinaryCompositionsSha256=sha("x")), "d_artefact_universe_mismatch"),
+                         (lambda m: m["baselineSeals"][0].update(sealSha256=sha("x")),
+                          "d_manifest_baseline_seal_mismatch"),
+                         (lambda m: m["baselineSeals"][0].update(sealCommit=built.commits["R"]),
+                          "d_manifest_baseline_seal_mismatch"),
+                         (lambda m: m.update(anchorCommit=built.commits["R"]), "anchor_precedes_seal"),
+                         (lambda m: m.update(anchorCommit="e" * 40), "anchor_not_in_head")):
+        manifest = copy.deepcopy(base)
+        mutate(manifest)
+        refused(code, ma.verify_d_manifest_binding, manifest, built.path)
+
+
+def _orphan_replay(built: Built, stages) -> None:
+    git(built.path, "checkout", "-q", "--orphan", "rewritten", built.commits["F"])
+    commit(built.path, "F' replayed")
+    for stage in stages:
+        git(built.path, "checkout", "-q", built.commits[stage], "--", ".")
+        commit(built.path, f"{stage}' replayed")
+    git(built.path, "branch", "-D", "main")
+    git(built.path, "update-ref", "-d", "refs/remotes/origin/main")
+    git(built.path, "reflog", "expire", "--expire=now", "--all")
+    git(built.path, "gc", "-q", "--prune=now")
+
+
+def test_probe_repo_c1_orphan_rewrite_is_refused(tmp_path):
+    """The whole history replayed on an orphan branch (each stage its own commit, so the chronology still holds) and
+    the original pruned: the D manifest's S0 and anchor are no longer in HEAD's history; rebinding it is a rewrite;
+    and a fresh anchor is unobtainable because the canonical default branch still holds the original history."""
+    built, auth, manifest = full_flow(tmp_path / "r")
+    validate_repository(built.path)
+    _orphan_replay(built, ("R", "S0", "RUN-1"))
+    assert code_of(validate_repository, built.path) in ("d_manifest_baseline_seal_mismatch", "anchor_not_in_head")
+    rebound = json.loads(manifest.read_text())
+    rebound["baselineSeals"][0]["sealCommit"] = git(built.path, "rev-parse", "HEAD~1")
+    ma.write_canonical(manifest, rebound)
+    commit(built.path, "rebind the D manifest to the replayed seal commit")
+    refused("baseline_artefact_rewritten_in_history", validate_repository, built.path)
+    fresh = build(tmp_path / "fresh")
+    publish(fresh)
+    _orphan_replay(fresh, ("R", "S0"))
+    validate_repository(fresh.path)
+    refused("seal_not_published", open_d, fresh)
+
+
+def test_probe_repo_c1_main_rewrite_is_blocked_by_the_ruleset_check(tmp_path):
+    built = build(tmp_path / "r")
+    for api, code in ((protected_api(enforcement="disabled"), "protected_default_branch_unverified"),
+                      (protected_api(include=()), "protected_default_branch_unverified"),
+                      (protected_api(include=("refs/heads/release",)), "protected_default_branch_unverified"),
+                      (protected_api(exclude=("~DEFAULT_BRANCH",)), "protected_default_branch_unverified"),
+                      (protected_api(rules=("deletion",)), "protected_default_branch_unverified"),
+                      (protected_api(rules=("non_fast_forward",)), "protected_default_branch_unverified"),
+                      (protected_api(bypass=({"actor_type": "RepositoryRole", "actor_id": 5},)),
+                       "protected_default_branch_unverified"),
+                      (protected_api(applied=False), "protected_default_branch_unverified"),
+                      (protected_api(fail="rulesets"), "protected_default_branch_unverifiable")):
+        refused(code, open_d, built, api=api)
+    assert ma.verify_default_branch_protection(protected_api(include=("refs/heads/main",))) == 7
+
+
+def test_ruleset_api_shape_errors_fail_closed():
+    refused("protected_default_branch_unverifiable", ma.verify_default_branch_protection,
+            lambda path: {"message": "x"})
+
+    def raises(path):
+        raise OSError("gh not installed")
+    refused("protected_default_branch_unverifiable", ma.verify_default_branch_protection, raises)
+    base = protected_api()
+
+    def no_bypass_field(path):
+        detail = base(path)
+        if isinstance(detail, dict):
+            detail.pop("bypass_actors")
+        return detail
+    refused("protected_default_branch_unverified", ma.verify_default_branch_protection, no_bypass_field)
+
+
+# ---- A6 / clarification 4: Git errors are classified refusals, never verdicts
+
+
+def test_probe_repo_e1_injected_git_failure_is_a_typed_refusal(tmp_path, monkeypatch):
+    built = build(tmp_path / "r")
+    original = mg._run
+
+    def failing(repo, args, data=None):
+        if args and args[0] == "cat-file":
+            return subprocess.CompletedProcess(["git", *args], 128, b"", b"fatal: simulated object store failure")
+        return original(repo, args, data)
+    monkeypatch.setattr(mg, "_run", failing)
+    with pytest.raises(mg.GitCommandError) as error:
+        validate_repository(built.path)
+    assert error.value.code == "git_command_failed" and error.value.returncode == 128
+    assert "simulated object store failure" in error.value.stderr
+    assert str(error.value).startswith("git_command_failed:cat-file")
+
+
+def test_p2_2_a_missing_object_is_git_object_missing_never_accepted(tmp_path):
+    built = build(tmp_path / "r")
+    blob = git(built.path, "rev-parse", f"HEAD:{built.record().relative_to(built.path).as_posix()}")
+    loose = built.path / ".git" / "objects" / blob[:2] / blob[2:]
+    os.chmod(loose, 0o666)  # loose objects are read-only (Windows refuses to delete them otherwise)
+    loose.unlink()
+    refused("git_object_missing", validate_repository, built.path)
+
+
+def test_history_must_be_full_and_unaltered(tmp_path):
+    built = build(tmp_path / "deep")
+    commit(built.path, "later work")
+    shallow = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "-q", "--depth", "1", built.path.as_uri(), str(shallow)], check=True,
+                   capture_output=True)
+    refused("model_selection_history_unavailable", validate_repository, shallow)
+    nogit = tmp_path / "nogit"
+    shutil.copytree(built.path, nogit, ignore=shutil.ignore_patterns(".git"))
+    refused("model_selection_history_unavailable", validate_repository, nogit)
+    write(built.path / ".git" / "info" / "grafts", built.commits["S0"] + "\n")
+    with pytest.raises(CredibilityError) as error:
+        validate_repository(built.path)
+    assert str(error.value).startswith("model_selection_history_unavailable") and "grafts_present" in str(error.value)
+
+
+def test_replace_objects_are_ignored(tmp_path):
+    built = build(tmp_path / "r")
+    record_rel = built.record().relative_to(built.path).as_posix()
+    blob = git(built.path, "rev-parse", f"HEAD:{record_rel}")
+    forged = subprocess.run(["git", "-C", str(built.path), "hash-object", "-w", "--stdin"], input=b"forged\n",
+                            capture_output=True, check=True).stdout.decode().strip()
+    git(built.path, "replace", blob, forged)
+    assert mg.read_blobs(built.path, [blob])[blob] == built.record().read_bytes().replace(b"\r\n", b"\n")
+    validate_repository(built.path)
+
+
+def test_git_environment_cannot_redirect_the_repository(tmp_path, monkeypatch):
+    built = build(tmp_path / "r")
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    git(decoy, "init", "-q")
+    commit(decoy, "decoy")
+    monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(decoy))
+    assert "GIT_DIR" not in mg.git_environment() and mg.git_environment()["GIT_NO_REPLACE_OBJECTS"] == "1"
+    assert mg.resolve_commit(built.path, "HEAD") == built.commits["S0"]
+
+
+def test_first_add_is_the_earliest_by_ancestry_not_lexical_order(tmp_path):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    first = commit(repo, "first")
+    second = first
+    for attempt in range(200):
+        second = commit(repo, f"second {attempt}")
+        if second < first:
+            break
+        git(repo, "reset", "-q", "--hard", first)
+    assert second < first  # the descendant sorts first lexically
+    assert mg.first_add_commit(repo, {first, second}, "x") == first
+    git(repo, "checkout", "-q", "--orphan", "island")
+    island = commit(repo, "unrelated root")
+    refused("artefact_first_add_ambiguous", mg.first_add_commit, repo, {second, island}, "x")
+
+
+def test_a_d_manifest_added_inside_a_merge_is_found(tmp_path):
+    built = build(tmp_path / "r")
+    auth = open_d(built)
+    git(built.path, "checkout", "-q", "-b", "side")
+    commit(built.path, "side work")
+    git(built.path, "checkout", "-q", "main")
+    commit(built.path, "main work")
+    git(built.path, "merge", "-q", "--no-ff", "--no-commit", "side")
+    path = built.folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json"
+    ma.write_canonical(path, ma.d_manifest_document(auth, "RUN-1", sha("d")))
+    merge = commit(built.path, "a merge adds the D manifest")
+    git(built.path, "update-ref", "refs/remotes/origin/main", auth.anchor_commit)
+    history = mg.model_selection_history(built.path)
+    assert history.adds[path.relative_to(built.path).as_posix()] == {merge}
+    validate_repository(built.path)
+
+
+# ---- convergence P1-C history attacks, re-run against the one predicate
+
+
+def _attack_stopped_to_resolved_in_place(tmp_path):
+    built = build(tmp_path / "s2r", stopped=True)
+    old = document_sha256(built.seal)
+    good = rankings_of(built.document, built.partner)
+    for event_id, document in good.items():
+        old_ranking = document_sha256(built.rankings[event_id])
+        ma.write_canonical(folder_of(built.path, event_id) / f"{event_id}{bs.RANKING_SUFFIX}", document)
+        write(built.record(event_id), built.record(event_id).read_text().replace(old_ranking,
+                                                                                 document_sha256(document)))
+    built.rankings = good
+    resolved = derive(built.document, built.partner, built.rankings, protocol=built.protocols[EVENT])
+    ma.write_canonical(built.seal_path(), resolved)
+    write(built.record(), built.record().read_text().replace(old, document_sha256(resolved)))
+    commit(built.path, "reseal in place")
+    return built
+
+
+def _attack_deleted_d_manifest(tmp_path):
+    built, _auth, manifest = full_flow(tmp_path / "del")
+    manifest.unlink()
+    commit(built.path, "drop D manifest")
+    return built
+
+
+def _attack_delete_and_recreate(tmp_path):
+    built = build(tmp_path / "rec")
+    data = built.seal_path().read_bytes()
+    built.seal_path().unlink()
+    commit(built.path, "delete seal")
+    built.seal_path().write_bytes(data)
+    commit(built.path, "re-create")
+    return built
+
+
+def _attack_rename_and_back(tmp_path):
+    built = build(tmp_path / "ren")
+    rel = built.seal_path().relative_to(built.path).as_posix()
+    git(built.path, "mv", rel, rel + ".tmp")
+    commit(built.path, "rename away")
+    git(built.path, "mv", rel + ".tmp", rel)
+    commit(built.path, "rename back")
+    return built
+
+
+def _attack_mode_change(tmp_path):
+    built = build(tmp_path / "mode")
+    git(built.path, "update-index", "--chmod=+x", built.seal_path().relative_to(built.path).as_posix())
+    git(built.path, "commit", "-q", "-m", "chmod")
+    return built
+
+
+def _attack_citation_changed_and_reverted(tmp_path):
+    built = build(tmp_path / "cite")
+    original = built.record().read_text()
+    write(built.record(), original.replace(document_sha256(built.seal), "0" * 64))
+    commit(built.path, "bad citation")
+    write(built.record(), original)
+    commit(built.path, "revert citation")
+    return built
+
+
+def _attack_evil_merge_rewrite(tmp_path):
+    built = build(tmp_path / "evil")
+    git(built.path, "checkout", "-q", "-b", "side")
+    commit(built.path, "side")
+    git(built.path, "checkout", "-q", "main")
+    commit(built.path, "main")
+    git(built.path, "merge", "-q", "--no-ff", "--no-commit", "side")
+    changed = dict(built.seal, recordedBy="someone else")
+    ma.write_canonical(built.seal_path(), changed)
+    write(built.record(), built.record().read_text().replace(document_sha256(built.seal), document_sha256(changed)))
+    commit(built.path, "evil merge")
+    return built
+
+
+def _attack_branch_reseal_merged(tmp_path):
+    built = build(tmp_path / "branch")
+    git(built.path, "checkout", "-q", "-b", "side", built.commits["R"])
+    changed = dict(built.seal, recordedBy="side branch")
+    ma.write_canonical(built.seal_path(), changed)
+    append(built.record(), bs.seal_citation(GATE, document_sha256(changed)))
+    commit(built.path, "side reseal")
+    git(built.path, "checkout", "-q", "main")
+    subprocess.run(["git", "-C", str(built.path), "-c", "user.name=t", "-c", "user.email=t@example.invalid", "merge",
+                    "-q", "--no-ff", "--no-commit", "-X", "theirs", "side"], capture_output=True, check=False)
+    ma.write_canonical(built.seal_path(), changed)
+    commit(built.path, "merge side reseal")
+    return built
+
+
+def _attack_shallow_clone(tmp_path):
+    built = build(tmp_path / "deep")
+    shallow = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "-q", "--depth", "1", built.path.as_uri(), str(shallow)], check=True,
+                   capture_output=True)
+    built.path = shallow
+    return built
+
+
+HISTORY_ATTACKS = {
+    "stopped-to-resolved-in-place": _attack_stopped_to_resolved_in_place,
+    "deleted-d-manifest": _attack_deleted_d_manifest,
+    "delete-and-recreate": _attack_delete_and_recreate,
+    "rename-and-back": _attack_rename_and_back,
+    "mode-change": _attack_mode_change,
+    "citation-changed-and-reverted": _attack_citation_changed_and_reverted,
+    "evil-merge-rewrite": _attack_evil_merge_rewrite,
+    "branch-reseal-merged": _attack_branch_reseal_merged,
+    "shallow-clone": _attack_shallow_clone,
+}
+
+
+@pytest.mark.parametrize("attack", sorted(HISTORY_ATTACKS))
+def test_gate_and_repository_refuse_every_history_attack(tmp_path, attack):
+    built = HISTORY_ATTACKS[attack](tmp_path)
+    repository = code_of(validate_repository, built.path)
+    gate = code_of(ma.open_protected_d, built.path, EVENT, remote_url=str(tmp_path / "unused.git"),
+                   github_api=protected_api())
+    assert repository != "accepted" and gate != "accepted", (attack, repository, gate)
+    assert repository == gate, (attack, repository, gate)  # the gate runs the repository predicate first
+
+
+def test_cli_style_decision_check_runs_the_repository_predicate(tmp_path):
+    built, auth, _manifest = full_flow(tmp_path / "r")
+    commit_decisions(built, auth)
+    decision_doc = json.loads((built.folder / f"{EVENT}-decision.json").read_text())
+    snapshot = json.loads((built.folder / f"{EVENT}-evidence-ledger-decided.json").read_text())
+    validate_decision(decision_doc, snapshot, snapshot, repo=built.path)
+    shallow = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "-q", "--depth", "1", built.path.as_uri(), str(shallow)], check=True,
+                   capture_output=True)
+    refused("model_selection_history_unavailable", validate_decision, decision_doc, snapshot, snapshot, repo=shallow)
+
+
+def test_group_decisions_must_carry_the_identical_authority_block(tmp_path):
+    built, auth, _manifest = full_flow(tmp_path / "r")
+    commit_decisions(built, auth)
+    validate_repository(built.path)
+    path = built.pfolder / f"{PARTNER_EVENT}-decision.json"
+    summary = json.loads(path.read_text())
+    summary["compositionAuthority"]["frontier"] = summary["compositionAuthority"]["rankedCompositions"][:2]
+    write(path, json.dumps(summary))
+    append(built.record(PARTNER_EVENT), f"Decision SHA-256: {lf_normalised_sha256(path)}")
+    commit(built.path, "partner decision with another frontier")
+    refused("composition_authority_differs_between_group_events", validate_repository, built.path)
+
+
+def test_a_stopped_group_holds_no_d_manifest(tmp_path):
+    built = build(tmp_path / "r", stopped=True)
+    manifest = {"schema": bs.D_MANIFEST_SCHEMA, "eventId": EVENT, "manifestId": "RUN-1",
+                "groupId": built.state().group_id, "resultSha256": sha("d"), "anchorCommit": built.commits["S0"],
+                "ordinaryCompositionsSha256": sha("u"),
+                "baselineSeals": [{"compositionId": GATE, "sealSha256": document_sha256(built.seal),
+                                   "sealCommit": built.commits["S0"]}]}
+    ma.write_canonical(built.folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", manifest)
+    commit(built.path, "D under a stop")
+    refused("baseline_stopped_no_d_result", validate_repository, built.path)
+
+
+# ================================================================== repository-wide guards
 
 
 IMMUTABLE_SUFFIXES = ("-evidence-ledger-frozen.json", "-evidence-ledger-decided.json", "-protocol.md")
@@ -1085,10 +2128,10 @@ def _git_in_repo(*args):
 
 
 def test_committed_frozen_artefacts_never_change_and_no_ledger_turns_m3_retroactively():
-    """Against the merge-base with origin/main: a frozen ledger, decision snapshot, protocol, seal, Layer-A result or
-    D manifest that existed there is never modified or deleted, and no ledger that existed there switches to
-    msr-v1-m3 (M3 is not retroactive). Added files are allowed (a new event, PR-2's own ledgers). CI checks out full
-    history for this test; outside CI it is skipped only when origin/main is unavailable."""
+    """Against the merge-base with origin/main: a frozen ledger, decision snapshot, protocol or M3 artefact that existed
+    there is never modified or deleted, and no ledger that existed there switches to msr-v1-m3 (M3 is not
+    retroactive). CI checks out full history for this test; outside CI it is skipped only when origin/main is
+    unavailable."""
     base = _git_in_repo("merge-base", "origin/main", "HEAD")
     if base.returncode != 0:
         if os.environ.get("GITHUB_ACTIONS") == "true":
@@ -1103,8 +2146,7 @@ def test_committed_frozen_artefacts_never_change_and_no_ledger_turns_m3_retroact
         name = Path(path).name
         if status[0] == "A":
             continue
-        immutable = name.startswith("msr-") and name.endswith(IMMUTABLE_SUFFIXES) or name.startswith("msr-") and any(
-            infix in name for infix in (bs.SEAL_INFIX, bs.LAYER_A_INFIX, bs.D_MANIFEST_INFIX))
+        immutable = name.startswith("msr-") and (name.endswith(IMMUTABLE_SUFFIXES) or ma.artefact_event(name))
         assert not immutable, f"{status} {path}"
         if status[0] == "M" and name.endswith("-evidence-ledger.json"):
             before = json.loads(_git_in_repo("show", f"{base_sha}:{path}").stdout)
@@ -1112,848 +2154,23 @@ def test_committed_frozen_artefacts_never_change_and_no_ledger_turns_m3_retroact
             assert not (before.get("methodRevision") != "msr-v1-m3" and after.get("methodRevision") == "msr-v1-m3"), path
 
 
-def test_published_schemas_accept_derived_seals_and_layer_a_results():
+def test_published_schemas_accept_the_derived_documents():
     jsonschema = pytest.importorskip("jsonschema")
     schemas = Path(__file__).resolve().parents[1] / "model_selection" / "schemas"
-    seal_schema = json.loads((schemas / "mavi-model-selection-baseline-seal-v1.schema.json").read_text())
-    layer_schema = json.loads((schemas / "mavi-model-selection-layer-a-result-v1.schema.json").read_text())
-    document = m3_ledger()
-    for proof in (evidence(document), stopped_evidence(document)):
-        jsonschema.validate(proof[GATE]["seal"], seal_schema)
-        jsonschema.validate(proof[GATE]["layerA"], layer_schema)
+
+    def load(name):
+        return json.loads((schemas / name).read_text())
+    seal_schema = load("mavi-model-selection-baseline-seal-v1.schema.json")
+    ranking_schema = load("mavi-model-selection-component-ranking-v1.schema.json")
+    d_schema = load("mavi-model-selection-d-manifest-v1.schema.json")
+    assert not (schemas / "mavi-model-selection-layer-a-result-v1.schema.json").exists()
+    state = group()
+    jsonschema.validate(state.seal, seal_schema)
+    jsonschema.validate(stopped_group().seal, seal_schema)
+    for document in state.rankings.values():
+        jsonschema.validate(document, ranking_schema)
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(dict(stopped_evidence(document)[GATE]["seal"], partnerCandidateId="PD-A"), seal_schema)
-    d_schema = json.loads((schemas / "mavi-model-selection-d-manifest-v1.schema.json").read_text())
-    binding = bs.SealBinding(GATE, document_sha256(evidence(document)[GATE]["seal"]), "a" * 40, "PD-A",
-                             identity_of("pda"), sha("composition"))
-    jsonschema.validate(bs.d_manifest_document(document, "RUN-1", sha("d"), [binding]), d_schema)
-
-
-def test_a_stop_survives_later_inputs_and_a_protocol_revision(tmp_path):
-    """A STOPPED seal is immutable history after a protocol revision with a new composition id. While its frozen
-    composition is current, a stop that claims an input was absent is refused once that input is supplied (cold
-    review P3-1). A superseded RESOLVED seal is refused."""
-    document = m3_ledger()
-    missing = bs.derive_baseline_seal(document, GATE, protocol_sha256=PROTOCOL, partner_ledger=None, layer_a=None,
-                                      recorded_at=SEALED_AT, recorded_by="synthetic-harness")
-    assert missing["stopReason"] == "partner-event-missing"
-    proof = evidence(document)
-    bs.verify_baseline_seal(missing, frozen=document, protocol_sha256=PROTOCOL, partner_ledger=None, layer_a=None)
-    refused("baseline_stop_reason_contradicted", bs.verify_baseline_seal, missing, frozen=document,
-            protocol_sha256=PROTOCOL, partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
-
-    repo = tmp_path / "revised"
-    old, _partner, stopped_seal, folder = build_repository(repo, stopped=True, with_decision=False)
-    revised_entry = bob()
-    revised_entry["benchmarkBaseline"]["compositions"][0]["compositionId"] = "GATE-BASE-R1"
-    revised = m3_ledger(baseline(), established(), emerging(), revised_entry)
-    revised["frozenOn"] = "2026-07-05"
-    record = folder / f"{EVENT}.md"
-    history = record.read_text()
-    write_frozen_event(repo, revised, record_extra=history)
-    validate_repository(repo)
-    write(record, record.read_text().replace(document_sha256(stopped_seal), "0" * 64))
-    refused("baseline_seal_not_recorded", validate_repository, repo)
-
-    repo = tmp_path / "resolved"
-    old, _partner, resolved_seal, folder = build_repository(repo, with_decision=False)
-    for path in folder.glob(f"{EVENT}-decision.json"):
-        path.unlink()
-    record = folder / f"{EVENT}.md"
-    write_frozen_event(repo, revised, record_extra=record.read_text())
-    refused("baseline_artefact_without_frozen_composition", validate_repository, repo)
-
-
-# ------------------------------------------------------------------ cold review of f24dcf5e (every confirmed probe)
-
-NL = chr(10)
-
-
-def cite(record, composition_id, digest):
-    write(record, record.read_text() + bs.seal_citation(composition_id, digest) + NL)
-
-
-def test_cold_p1_1_stopped_seal_replaced_in_place_by_resolved_is_refused(tmp_path):
-    """Probe 1: a cited STOPPED seal; Layer-A rewritten so the gates pass; the seal overwritten RESOLVED and its hash
-    appended to the record. Without Git the double citation is refused; with Git the modify commit is refused."""
-    document, partner, stopped_seal, folder = build_repository(tmp_path, stopped=True, with_decision=False)
-    validate_repository(tmp_path)
-    good = layer_a(document, partner)
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    resolved = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
-                                       layer_a=good, recorded_at="2026-07-03T10:00:00Z", recorded_by="later")
-    write(bs.layer_a_path(tmp_path, document, GATE), canonical_json(good).decode())
-    write(bs.seal_path(tmp_path, document, GATE), canonical_json(resolved).decode())
-    record = folder / f"{EVENT}.md"
-    refused("baseline_seal_not_recorded", validate_repository, tmp_path)
-    cite(record, GATE, document_sha256(resolved))
-    refused("baseline_seal_cited_twice", validate_repository, tmp_path)
-
-
-def test_cold_p1_1_resolved_seal_swapped_before_the_decision_is_refused(tmp_path):
-    """Probe 3: PD-A sealed and cited; Layer-A, seal and record rewritten to PD-B before any decision."""
-    document, partner, seal, folder = build_repository(tmp_path, with_decision=False)
-    forged = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
-                                     layer_a=forged, recorded_at=SEALED_AT, recorded_by="x")
-    write(bs.layer_a_path(tmp_path, document, GATE), canonical_json(forged).decode())
-    write(bs.seal_path(tmp_path, document, GATE), canonical_json(reseal).decode())
-    record = folder / f"{EVENT}.md"
-    cite(record, GATE, document_sha256(reseal))
-    refused("baseline_seal_cited_twice", validate_repository, tmp_path)
-
-
-def test_cold_p1_1_git_history_makes_seals_add_only(tmp_path):
-    """With full Git history an in-place rewrite of the seal and of its record line is refused even when the
-    working tree is self-consistent; without history the state is reported, never claimed."""
-    repo = tmp_path / "g"
-    document, partner, seal, folder = committed_repository(repo)
-    assert any(item == "git-history:full" for item in validate_repository(repo))
-    forged = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
-                                     layer_a=forged, recorded_at=SEALED_AT, recorded_by="x")
-    write(bs.layer_a_path(repo, document, GATE), canonical_json(forged).decode())
-    write(bs.seal_path(repo, document, GATE), canonical_json(reseal).decode())
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
-    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)  # uncommitted modification
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "reseal in place")
-    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)  # a modify commit
-    # the record line alone rewritten in history (seal file re-added under the same name after a delete)
-    repo2 = tmp_path / "h"
-    document, partner, seal, folder = committed_repository(repo2)
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text().replace(document_sha256(seal), "f" * 64))
-    git(repo2, "commit", "-q", "-am", "edit citation")
-    write(record, record.read_text().replace("f" * 64, document_sha256(seal)))
-    git(repo2, "commit", "-q", "-am", "restore citation")
-    refused("baseline_seal_citation_changed", validate_repository, repo2)
-    plain_dir = tmp_path / "nogit"
-    build_repository(plain_dir, with_decision=False, commit=False)
-    refused("baseline_seal_history_unavailable", validate_repository, plain_dir)  # fail closed (P1-C)
-
-
-def test_cold_p3_1_fabricated_stop_is_refused_when_the_inputs_exist(tmp_path):
-    """Probe 2: a STOPPED partner-event-missing seal committed while the partner frozen ledger and a resolvable
-    Layer-A result are in the repository."""
-    document, partner, seal, folder = build_repository(tmp_path, with_decision=False)
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    for partner_doc, result_doc in ((None, None), (partner, None)):
-        fake = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner_doc,
-                                       layer_a=result_doc, recorded_at=SEALED_AT, recorded_by="x")
-        assert fake["status"] == "STOPPED"
-        record = folder / f"{EVENT}.md"
-        write(record, record.read_text().replace(document_sha256(seal), document_sha256(fake)))
-        write(bs.seal_path(tmp_path, document, GATE), canonical_json(fake).decode())
-        refused("baseline_stop_reason_contradicted", validate_repository, tmp_path)
-        seal = fake
-    # a stop whose reason differs from the one the inputs derive is refused too
-    wrong = dict(stopped_evidence(document)[GATE]["seal"], stopReason="identity-mismatch")
-    proof = stopped_evidence(document)
-    refused("baseline_stop_reason_contradicted", bs.verify_baseline_seal, wrong, frozen=document,
-            protocol_sha256=PROTOCOL, partner_ledger=proof[GATE]["partnerLedger"], layer_a=proof[GATE]["layerA"])
-
-
-def test_cold_p3_2_an_accessed_stop_records_the_d_access():
-    """A protected-d-accessed stop records when D was accessed; its seal is checked, and no decision may follow it."""
-    document = m3_ledger()
-    partner = partner_ledger()
-    result = layer_a(document, partner)
-    with pytest.raises(CredibilityError):
-        bs.derive_baseline_seal(document, GATE, protocol_sha256=PROTOCOL, partner_ledger=partner, layer_a=result,
-                                recorded_at=SEALED_AT, recorded_by="x", protected_d_rows_read=5)
-    seal = bs.derive_baseline_seal(document, GATE, protocol_sha256=PROTOCOL, partner_ledger=partner, layer_a=result,
-                                   recorded_at=SEALED_AT, recorded_by="x", protected_d_rows_read=5,
-                                   protected_d_accessed_at="2026-07-01T09:00:00Z")
-    assert seal["protectedDState"] == "ACCESSED" and seal["protectedDAccessedAt"] == "2026-07-01T09:00:00Z"
-    bs.verify_baseline_seal(seal, frozen=document, protocol_sha256=PROTOCOL, partner_ledger=partner, layer_a=result)
-    proof = {GATE: {"seal": seal, "layerA": result, "partnerLedger": partner}}
-    summary = m3_decision(document, proof, state="TECHNICAL_DECISION_RECORDED", implementation=None)
-    refused("baseline_stopped_decision_refused", check, summary, document, proof)
-    for field, value in (("protectedDAccessedAt", None), ("protectedDAccessedAt", "2026-07-02T09:00:00Z")):
-        refused("baseline_seal_d_state_contradicted" if value else "instant_malformed", bs.verify_baseline_seal,
-                dict(seal, **{field: value}), frozen=document, protocol_sha256=PROTOCOL, partner_ledger=partner,
-                layer_a=result)
-    not_accessed = stopped_evidence(document)[GATE]["seal"]
-    refused("baseline_seal_d_state_contradicted", bs.verify_baseline_seal,
-            dict(not_accessed, protectedDAccessedAt=SEALED_AT), frozen=document, protocol_sha256=PROTOCOL,
-            partner_ledger=stopped_evidence(document)[GATE]["partnerLedger"],
-            layer_a=stopped_evidence(document)[GATE]["layerA"])
-
-def test_cold_p3_3_bob_bytes_under_another_identity_are_refused():
-    """Probe 7b: the BOB's weights re-listed in the partner event as PD-TESS (another identity document)."""
-    document = m3_ledger()
-    twin = established("PD-TESS", "bob")
-    twin["identity"]["tag"] = "v1.0-mirror"
-    partner = partner_ledger(established("PD-A", "pda"), established("PD-B", "pdb"), twin)
-    tess = {"candidateId": "PD-TESS", "identitySha256": document_sha256(twin["identity"]),
-            "reason": "not a detector release of interest"}
-    excluded_doc = copy.deepcopy(document)
-    excluded_doc["candidates"][-1]["benchmarkBaseline"]["compositions"][0]["excludedPartners"] = [tess]
-    excluded_doc = m3_ledger(*[e for e in excluded_doc["candidates"]])
-    proof = evidence(excluded_doc, partner=partner)
-    summary = m3_decision(excluded_doc, proof)
-    digest = document_sha256(proof[GATE]["seal"])
-    est = next(e for e in excluded_doc["candidates"] if e["candidateId"] == "VC-EST")
-    smuggled = {"compositionId": "C-TESS", "components": [
-        component(PARTNER_EVENT, "PD-TESS", document_sha256(twin["identity"])),
-        component(EVENT, "VC-EST", document_sha256(est["identity"]))],
-        "gates": {GATE: "passed"}, "technicalGates": "passed", "comparativeScore": 0.95,
-        "dResultSha256": sha("d"), "baselineSealSha256s": {GATE: digest}}
-    block_ = summary["benchmarkOnlyBaselines"]
-    block_["compositionCandidates"].append(smuggled)
-    block_["rankedCompositions"] = ["C-TESS"] + block_["rankedCompositions"]
-    block_["strongestEvaluatedComposition"] = "C-TESS"
-    block_["frontier"] = ["C-TESS"]
-    refused("benchmark_baseline_in_composition_candidate", check, summary, excluded_doc, proof)
-    # and as an eligible partner of the gate-only composition
-    as_partner = copy.deepcopy(document)
-    rule = as_partner["candidates"][-1]["benchmarkBaseline"]["compositions"][0]
-    rule["eligiblePartners"] = sorted(partners() + [{k: tess[k] for k in ("candidateId", "identitySha256")}],
-                                      key=lambda p: p["candidateId"])
-    as_partner = m3_ledger(*as_partner["candidates"])
-    refused("benchmark_baseline_bytes_as_partner", bs.check_partner_universe,
-            as_partner["candidates"][-1]["benchmarkBaseline"]["compositions"][0], partner, "p",
-            as_partner["candidates"][-1])
-
-
-def test_cold_p3_4_partner_universe_subset_needs_recorded_exclusions():
-    """Probe 4: the frozen universe is the partner shortlist exactly; an excluded partner carries its reason."""
-    document = m3_ledger()
-    rule = document["candidates"][-1]["benchmarkBaseline"]["compositions"][0]
-    rule["eligiblePartners"] = [partners()[1]]
-    subset = m3_ledger(*document["candidates"])
-    refused("baseline_partner_universe_not_the_shortlist", bs.check_partner_universe,
-            subset["candidates"][-1]["benchmarkBaseline"]["compositions"][0], partner_ledger(), "p",
-            subset["candidates"][-1])
-    rule["excludedPartners"] = [dict(partners()[0], reason="fails the frozen input-size requirement")]
-    recorded = m3_ledger(*document["candidates"])
-    bs.check_partner_universe(recorded["candidates"][-1]["benchmarkBaseline"]["compositions"][0], partner_ledger(),
-                              "p", recorded["candidates"][-1])
-    rule["excludedPartners"] = [dict(partners()[1], reason="duplicate")]
-    refused("excluded_partners_not_sorted_unique_disjoint", validate_ledger, m3_ledger(*document["candidates"]))
-
-
-def test_cold_p3_5_decision_seal_commit_is_bound_where_git_history_exists(tmp_path):
-    repo = tmp_path / "r"
-    document, partner, seal, folder = committed_repository(repo)
-    commit = git(repo, "rev-parse", "HEAD")
-    proof = {GATE: {"seal": seal, "layerA": json.loads(bs.layer_a_path(repo, document, GATE).read_text()),
-                    "partnerLedger": partner}}
-    summary = m3_decision(document, proof)
-    summary["protocolSha256"] = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    summary["benchmarkOnlyBaselines"]["baselineSeals"][0]["sealCommit"] = commit
-    decision_path = write(folder / f"{EVENT}-decision.json", json.dumps(summary))
-    snapshot_path = write(folder / f"{EVENT}-evidence-ledger-decided.json", json.dumps(document))
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text() + f"Decision SHA-256: {lf_normalised_sha256(decision_path)}" + NL +
-          f"Snapshot SHA-256: {lf_normalised_sha256(snapshot_path)}" + NL)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "decision")
-    validate_repository(repo)
-    summary["benchmarkOnlyBaselines"]["baselineSeals"][0]["sealCommit"] = "0" * 40
-    write(decision_path, json.dumps(summary))
-    write(record, record.read_text() + f"Decision SHA-256: {lf_normalised_sha256(decision_path)}" + NL)
-    refused("d_artefact_seal_commit_mismatch", validate_repository, repo)
-    refused("malformed", check, dict(summary, benchmarkOnlyBaselines=dict(
-        summary["benchmarkOnlyBaselines"], baselineSeals=[dict(summary["benchmarkOnlyBaselines"]["baselineSeals"][0],
-                                                                sealCommit="HEAD")])), document, proof)
-
-
-def test_cold_p3_6_bob_without_a_gate_is_refused():
-    """Probe 14: a benchmark-only component with zero gate-only compositions."""
-    entry = bob()
-    entry["benchmarkBaseline"]["compositions"] = []
-    refused("benchmark_baseline_without_gate", validate_ledger, m3_ledger(entry))
-
-
-
-# ------------------------------------------------------------------ owner decision 2: seal chronology (real git)
-
-
-def seal_then_d(tmp_path, name="d1"):
-    """A committed seal, then a protected-D manifest bound to it in a later commit."""
-    repo = tmp_path / name
-    document, partner, seal, folder = committed_repository(repo)
-    binding = bs.require_committed_baseline_seal(repo, EVENT, "vehicle-colour", GATE)
-    manifest = bs.d_manifest_document(document, "RUN-1", sha("d-result"), [binding])
-    path = folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json"
-    write(path, canonical_json(manifest).decode())
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "protected D run 1")
-    return repo, document, partner, seal, folder, manifest, path
-
-
-def test_chronology_seal_strictly_before_d_is_accepted(tmp_path):
-    repo, *_ = seal_then_d(tmp_path)
-    checked = validate_repository(repo)
-    assert any(bs.D_MANIFEST_INFIX in item for item in checked) and "git-history:full" in checked
-
-
-def test_chronology_seal_and_d_in_the_same_commit_is_refused(tmp_path):
-    """The seal and its first protected-D manifest first appear in one commit: not proof that the seal came first."""
-    repo = tmp_path / "same"
-    document, partner, seal, folder = committed_repository(repo)
-    sealed = git(repo, "rev-parse", "HEAD")
-    manifest = {"schema": bs.D_MANIFEST_SCHEMA, "eventId": EVENT, "manifestId": "RUN-1", "resultSha256": sha("d"),
-                "baselineSeals": [{"compositionId": GATE, "sealSha256": document_sha256(seal), "sealCommit": sealed}]}
-    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", canonical_json(manifest).decode())
-    validate_repository(repo)  # not yet committed: the seal commit is in HEAD's history
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "--amend", "-m", "seal and D manifest in one commit")
-    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo)
-    # citing the very commit that added both is refused too (the manifest had to be rewritten to name it)
-    together = git(repo, "rev-parse", "HEAD")
-    manifest["baselineSeals"][0]["sealCommit"] = together
-    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", canonical_json(manifest).decode())
-    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)
-    repo2 = tmp_path / "self"
-    document, partner, seal, folder = build_repository(repo2, with_decision=False, commit=False)
-    git(repo2, "init", "-q")
-    git(repo2, "add", "-A")
-    git(repo2, "commit", "-q", "-m", "seal")
-    manifest["baselineSeals"][0]["sealCommit"] = git(repo2, "rev-parse", "HEAD")
-    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", canonical_json(manifest).decode())
-    git(repo2, "add", "-A")
-    git(repo2, "commit", "-q", "--amend", "--no-edit")
-    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo2)
-
-
-def test_chronology_non_ancestor_seal_commit_is_refused(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path)
-    # a side branch holding the same seal bytes: it contains the seal but is not an ancestor of the manifest
-    git(repo, "checkout", "-q", "-b", "side", "HEAD~1")
-    git(repo, "commit", "-q", "--allow-empty", "-m", "side commit")
-    side = git(repo, "rev-parse", "HEAD")
-    git(repo, "checkout", "-q", "-")
-    other = dict(manifest, manifestId="RUN-2",
-                 baselineSeals=[dict(manifest["baselineSeals"][0], sealCommit=side)])
-    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-2.json", canonical_json(other).decode())
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "protected D run 2")
-    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo)
-
-
-def test_chronology_modified_seal_and_second_hash_are_refused(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path)
-    changed = dict(seal, recordedBy="someone else")
-    write(bs.seal_path(repo, document, GATE), canonical_json(changed).decode())
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text().replace(document_sha256(seal), document_sha256(changed)))
-    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)  # D cites the first hash
-    git(repo, "commit", "-q", "-am", "modify the seal")
-    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)
-    # a second D manifest citing the new hash: two hashes for one composition across D artefacts
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "d2")
-    second = dict(manifest, manifestId="RUN-2",
-                  baselineSeals=[dict(manifest["baselineSeals"][0], sealSha256=sha("another seal"))])
-    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-2.json", canonical_json(second).decode())
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "second hash")
-    refused("d_manifest_baseline_seal_mismatch", validate_repository, repo)
-
-
-@pytest.mark.parametrize("swap", ["stopped-to-resolved", "pd-a-to-pd-b"])
-def test_chronology_reseal_after_d_is_refused(tmp_path, swap):
-    repo = tmp_path / swap
-    if swap == "stopped-to-resolved":
-        document, partner, seal, folder = committed_repository(repo, stopped=True)
-        manifest = {"schema": bs.D_MANIFEST_SCHEMA, "eventId": EVENT, "manifestId": "RUN-1",
-                    "resultSha256": sha("d"), "baselineSeals": [{"compositionId": GATE,
-                                                                 "sealSha256": document_sha256(seal),
-                                                                 "sealCommit": git(repo, "rev-parse", "HEAD")}]}
-        write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", canonical_json(manifest).decode())
-        git(repo, "add", "-A")
-        git(repo, "commit", "-q", "-m", "D under a stop")
-        refused("baseline_stopped_no_d_result", validate_repository, repo)
-        new_layer = layer_a(document, partner)
-    else:
-        repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, swap)
-        validate_repository(repo)
-        new_layer = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
-                                     layer_a=new_layer, recorded_at="2026-07-03T10:00:00Z", recorded_by="later")
-    assert reseal["status"] == "RESOLVED"
-    write(bs.layer_a_path(repo, document, GATE), canonical_json(new_layer).decode())
-    write(bs.seal_path(repo, document, GATE), canonical_json(reseal).decode())
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
-    git(repo, "commit", "-q", "-am", "reseal")
-    reseal_commit = git(repo, "rev-parse", "HEAD")
-    for item in folder.glob(f"{EVENT}{bs.D_MANIFEST_INFIX}*.json"):
-        bound = json.loads(item.read_text())
-        bound["baselineSeals"][0].update(sealSha256=document_sha256(reseal), sealCommit=reseal_commit)
-        write(item, canonical_json(bound).decode())
-    git(repo, "commit", "-q", "-am", "rebind D")
-    # the rebound D manifests cite a seal commit newer than the commit that added them
-    refused("baseline_artefact_rewritten_in_history", validate_repository, repo)
-
-
-def test_chronology_needs_full_history_for_an_event_with_d(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path)
-    shallow = tmp_path / "shallow"
-    subprocess.run(["git", "clone", "-q", "--depth", "1", repo.as_uri(), str(shallow)], check=True,
-                   capture_output=True)
-    refused("baseline_seal_history_unavailable", validate_repository, shallow)
-    copy_dir = tmp_path / "nogit"
-    import shutil
-    shutil.copytree(repo, copy_dir, ignore=shutil.ignore_patterns(".git"))
-    refused("baseline_seal_history_unavailable", validate_repository, copy_dir)
-
-
-
-# ------------------------------------------------------------------ final round, item 1: scoped STOPPED semantics
-
-
-def test_stopped_pr2_shape_permits_no_protected_d_and_no_selection():
-    """PR-2 shape, strict: with the one gate-only baseline STOPPED, nothing beyond PLANNED is recorded: no winner,
-    frontier, top-K, finalists, ranked or scored composition, no implementation and no outcome of any kind."""
-    document = m3_ledger()
-    proof = stopped_evidence(document)
-    base = m3_decision(document, proof, state="TECHNICAL_DECISION_RECORDED", implementation=None)
-    resolved = m3_block(document, evidence(document))
-    variants = {"empty": lambda b, s: None}
-    for field in ("topK", "componentFinalists"):
-        variants[field] = lambda b, s, f=field: b.update({f: ["VC-EST"]})
-    variants["frontier"] = lambda b, s: b.update(frontier=["VC-EST"])
-    variants["winner"] = lambda b, s: s.update(strongestEvaluatedTechnical="VC-EMG")
-    variants["compositions"] = lambda b, s: b.update(
-        compositionCandidates=resolved["compositionCandidates"], rankedCompositions=resolved["rankedCompositions"],
-        strongestEvaluatedComposition=resolved["strongestEvaluatedComposition"], frontier=resolved["frontier"],
-        dExecutionStartedAt=D_STARTED)
-    variants["incumbent"] = lambda b, s: b.update(incumbent="VC-EST")
-    for name, mutate in variants.items():
-        for state, implementation, outcome in (("TECHNICAL_DECISION_RECORDED", None, None),
-                                               ("QUALIFICATION_PENDING", ("VC-EST",), None),
-                                               ("CLOSED", None, "INCUMBENT_RETAINED"),
-                                               ("CLOSED", None, "NO_QUALIFIABLE_CANDIDATE"),
-                                               ("CLOSED", ("VC-B0",), "BASELINE_SELECTED"),
-                                               ("CLOSED", ("VC-EST",), "SELECTED_FOR_PACKAGING")):
-            summary = m3_decision(document, proof, state=state, implementation=implementation)
-            summary["outcome"] = outcome
-            mutate(summary["benchmarkOnlyBaselines"], summary)
-            refused("baseline_stopped_decision_refused", check, summary, document, proof)
-    assert base["eventState"] == "TECHNICAL_DECISION_RECORDED"
-
-def test_listed_compositions_scope_is_disabled():
-    """Convergence review P1-B: listing gated compositions by free-text id is disabled."""
-    entry = bob()
-    entry["benchmarkBaseline"]["compositions"][0]["gateScope"] = "listed-compositions"
-    refused("gate_scope_listed_compositions_disabled", validate_ledger, m3_ledger(entry))
-    entry["benchmarkBaseline"]["compositions"][0]["gatedCompositionIds"] = ["C-A-EST"]
-    with pytest.raises(CredibilityError):
-        validate_ledger(m3_ledger(entry))
-    assert bs.GATE_SCOPES == ("all-ordinary-compositions",)
-
-
-def test_renamed_composition_cannot_escape_the_gate_or_coexist_with_its_original():
-    """The reviewer's rename probe: C-A-EST renamed C-Z-EST with the same components. Every ordinary composition is
-    gated, so dropping the gate is refused; a renamed duplicate beside its original is refused too."""
-    document = m3_ledger()
-    proof = evidence(document)
-    summary = m3_decision(document, proof)
-    block_ = summary["benchmarkOnlyBaselines"]
-    gated = next(c for c in block_["compositionCandidates"] if c["compositionId"] == "C-A-EST")
-    renamed = copy.deepcopy(gated)
-    renamed.update(compositionId="C-Z-EST", gates={}, baselineSealSha256s={})
-    escaped = copy.deepcopy(summary)
-    escaped["benchmarkOnlyBaselines"].update(compositionCandidates=[renamed], rankedCompositions=["C-Z-EST"],
-                                             strongestEvaluatedComposition="C-Z-EST", frontier=["C-Z-EST"])
-    refused("composition_hard_gate_mapping_invalid", check, escaped, document, proof)
-    failed = copy.deepcopy(gated)
-    failed.update(gates={GATE: "failed"}, technicalGates="failed", comparativeScore=None)
-    duplicate = copy.deepcopy(gated)
-    duplicate["compositionId"] = "C-Z-EST"
-    both = copy.deepcopy(summary)
-    both["benchmarkOnlyBaselines"].update(compositionCandidates=[failed, duplicate], rankedCompositions=["C-Z-EST"],
-                                          strongestEvaluatedComposition="C-Z-EST", frontier=["C-Z-EST"])
-    refused("composition_components_duplicate", check, both, document, proof)
-
-
-# ------------------------------------------------------------------ final round, item 4: full reachable-history audit
-
-
-def staged_repo(repo):
-    """Commit C0: both events frozen, no Layer-A result and no seal yet. Returns the saved seal artefacts."""
-    document, partner, seal, folder = build_repository(repo, with_decision=False, commit=False)
-    seal_p, la_p, record = bs.seal_path(repo, document, GATE), bs.layer_a_path(repo, document, GATE), folder / f"{EVENT}.md"
-    saved = (seal_p.read_bytes(), la_p.read_bytes(), record.read_bytes())
-    citation = (bs.seal_citation(GATE, document_sha256(seal)) + NL).encode()
-    seal_p.unlink()
-    la_p.unlink()
-    record.write_bytes(saved[2].replace(citation, b""))
-    git(repo, "init", "-q")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "C0 freeze")
-    return document, partner, seal, folder, (seal_p, la_p, record), saved, citation
-
-
-def commit_manifest(repo, document, folder, run, binding):
-    manifest = bs.d_manifest_document(document, run, sha(f"d-{run}"), [binding])
-    path = folder / f"{EVENT}{bs.D_MANIFEST_INFIX}{run}.json"
-    write(path, canonical_json(manifest).decode())
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", f"D {run}")
-    return path
-
-
-def test_history_merge_branch_reseal_is_refused(tmp_path):
-    """Reviewer chrono.py merge_reseal_attack: PD-A sealed and D bound on main; PD-B resealed with its own D on a side
-    branch from C0; a merge takes the side's seal and drops the PD-A manifest."""
-    repo = tmp_path / "merge"
-    document, partner, seal, folder, (seal_p, la_p, record), saved, citation = staged_repo(repo)
-    main = git(repo, "branch", "--show-current")
-    git(repo, "branch", "side")
-    seal_p.write_bytes(saved[0])
-    la_p.write_bytes(saved[1])
-    record.write_bytes(saved[2])
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "C1 seal PD-A")
-    commit_manifest(repo, document, folder, "RUN-1", bs.require_committed_baseline_seal(repo, EVENT, "vehicle-colour", GATE))
-    validate_repository(repo)
-    git(repo, "checkout", "-q", "side")
-    forged = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
-                                     layer_a=forged, recorded_at="2026-07-03T10:00:00Z", recorded_by="later")
-    write(la_p, canonical_json(forged).decode())
-    write(seal_p, canonical_json(reseal).decode())
-    new_citation = (bs.seal_citation(GATE, document_sha256(reseal)) + NL).encode()
-    record.write_bytes(saved[2].replace(citation, new_citation))
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "X reseal PD-B")
-    commit_manifest(repo, document, folder, "RUN-2", bs.require_committed_baseline_seal(repo, EVENT, "vehicle-colour", GATE))
-    git(repo, "checkout", "-q", main)
-    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid", "merge", "-q",
-                    "--no-ff", "--no-commit", "-X", "theirs", "side"], capture_output=True, check=False)
-    seal_p.write_bytes(canonical_json(reseal))
-    la_p.write_bytes(canonical_json(forged))
-    record.write_bytes(saved[2].replace(citation, new_citation))
-    git(repo, "rm", "-q", "-f", str(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json"))
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "merge side (PD-B wins)")
-    assert bs.read_canonical(seal_p, "x")["partnerCandidateId"] == "PD-B"
-    with pytest.raises(CredibilityError) as error:
-        validate_repository(repo)
-    assert str(error.value).split(":")[0] in ("baseline_artefact_rewritten_in_history",
-                                              "baseline_artefact_deleted_in_history"), str(error.value)
-
-
-def test_history_deleted_d_manifest_is_refused(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "deleted")
-    git(repo, "rm", "-q", str(path))
-    git(repo, "commit", "-q", "-m", "drop D manifest")
-    refused("baseline_artefact_deleted_in_history", validate_repository, repo)
-
-
-def test_history_deleted_layer_a_then_fabricated_stop_is_refused(tmp_path):
-    """Reviewer chrono2.py: a committed resolvable Layer-A result deleted, then a STOPPED 'no Layer-A' seal."""
-    repo = tmp_path / "fab"
-    document, partner, seal, folder, (seal_p, la_p, record), saved, citation = staged_repo(repo)
-    la_p.write_bytes(saved[1])
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "Layer-A result")
-    validate_repository(repo)
-    git(repo, "rm", "-q", str(la_p))
-    git(repo, "commit", "-q", "-m", "drop Layer-A")
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    stop = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner, layer_a=None,
-                                   recorded_at="2026-07-03T10:00:00Z", recorded_by="x")
-    assert stop["status"] == "STOPPED"
-    write(seal_p, canonical_json(stop).decode())
-    record.write_bytes(record.read_bytes() + (bs.seal_citation(GATE, document_sha256(stop)) + NL).encode())
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "STOPPED: no Layer-A")
-    refused("baseline_artefact_deleted_in_history", validate_repository, repo)
-
-
-def test_history_delete_and_recreate_is_refused(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "recreate")
-    seal_p = bs.seal_path(repo, document, GATE)
-    data = seal_p.read_bytes()
-    git(repo, "rm", "-q", str(seal_p))
-    git(repo, "commit", "-q", "-m", "delete seal")
-    seal_p.write_bytes(data)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "re-create the same seal")
-    refused("baseline_artefact_deleted_in_history", validate_repository, repo)
-
-
-def test_history_seal_rewritten_inside_a_merge_is_refused(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "evil")
-    main = git(repo, "branch", "--show-current")
-    git(repo, "checkout", "-q", "-b", "side")
-    git(repo, "commit", "-q", "--allow-empty", "-m", "side")
-    git(repo, "checkout", "-q", main)
-    git(repo, "commit", "-q", "--allow-empty", "-m", "main")
-    git(repo, "merge", "-q", "--no-ff", "--no-commit", "side")
-    changed = dict(seal, recordedBy="someone else")
-    write(bs.seal_path(repo, document, GATE), canonical_json(changed).decode())
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text().replace(document_sha256(seal), document_sha256(changed)))
-    for item in folder.glob(f"{EVENT}{bs.D_MANIFEST_INFIX}*.json"):
-        bound = json.loads(item.read_text())
-        bound["baselineSeals"][0]["sealSha256"] = document_sha256(changed)
-        write(item, canonical_json(bound).decode())
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "evil merge rewrites the seal, record and D manifest")
-    with pytest.raises(CredibilityError) as error:
-        validate_repository(repo)
-    assert str(error.value).split(":")[0] in ("baseline_artefact_rewritten_in_history",
-                                              "d_artefact_seal_commit_mismatch"), str(error.value)
-
-
-def test_history_d_manifest_added_inside_a_merge_is_found(tmp_path):
-    """A D manifest first added by a merge commit: its add is found (no history simplification) and the seal commit
-    must be a strict ancestor of that merge."""
-    repo = tmp_path / "merge-add"
-    document, partner, seal, folder, (seal_p, la_p, record), saved, citation = staged_repo(repo)
-    main = git(repo, "branch", "--show-current")
-    git(repo, "checkout", "-q", "-b", "side")
-    seal_p.write_bytes(saved[0])
-    la_p.write_bytes(saved[1])
-    record.write_bytes(saved[2])
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "S seal")
-    binding = bs.require_committed_baseline_seal(repo, EVENT, "vehicle-colour", GATE)
-    git(repo, "checkout", "-q", main)
-    git(repo, "commit", "-q", "--allow-empty", "-m", "main work")
-    git(repo, "merge", "-q", "--no-ff", "--no-commit", "side")
-    manifest = bs.d_manifest_document(document, "RUN-1", sha("d"), [binding])
-    manifest_path = folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json"
-    write(manifest_path, canonical_json(manifest).decode())
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "merge adds the D manifest")
-    merge = git(repo, "rev-parse", "HEAD")
-    history = bs.artefact_history(repo, folder.relative_to(repo).as_posix())
-    assert history["adds"][manifest_path.relative_to(repo).as_posix()] == {merge}
-    validate_repository(repo)  # the side seal commit is a strict ancestor of the merge
-    # the same merge citing a seal commit that is not its ancestor is refused
-    repo2 = tmp_path / "merge-add-2"
-    document, partner, seal, folder, (seal_p, la_p, record), saved, citation = staged_repo(repo2)
-    main = git(repo2, "branch", "--show-current")
-    git(repo2, "checkout", "-q", "-b", "side")
-    seal_p.write_bytes(saved[0])
-    la_p.write_bytes(saved[1])
-    record.write_bytes(saved[2])
-    git(repo2, "add", "-A")
-    git(repo2, "commit", "-q", "-m", "S seal")
-    git(repo2, "checkout", "-q", "-b", "other", "HEAD~1")
-    seal_p.write_bytes(saved[0])
-    la_p.write_bytes(saved[1])
-    record.write_bytes(saved[2])
-    git(repo2, "add", "-A")
-    git(repo2, "commit", "-q", "-m", "same seal on an unrelated branch")
-    stray = git(repo2, "rev-parse", "HEAD")
-    git(repo2, "checkout", "-q", main)
-    git(repo2, "merge", "-q", "--no-ff", "--no-commit", "side")
-    manifest = bs.d_manifest_document(document, "RUN-1", sha("d"),
-                                      [bs.SealBinding(GATE, document_sha256(seal), stray, "PD-A", identity_of("pda"),
-                                                      sha("c"))])
-    write(folder / f"{EVENT}{bs.D_MANIFEST_INFIX}RUN-1.json", canonical_json(manifest).decode())
-    git(repo2, "add", "-A")
-    git(repo2, "commit", "-q", "-m", "merge adds a D manifest citing an unrelated commit")
-    refused("d_artefact_seal_commit_not_ancestral", validate_repository, repo2)
-
-
-
-# ------------------------------------------------------------------ convergence P1-C: one shared seal predicate
-
-
-def _attack_resolved(tmp_path):
-    return committed_repository(tmp_path / "ok")[0] and tmp_path / "ok"
-
-
-def _attack_stopped_to_resolved_in_place(tmp_path):
-    """The reviewer's probe: a committed STOPPED seal rewritten in place to RESOLVED and committed again."""
-    repo = tmp_path / "s2r"
-    document, partner, seal, folder = committed_repository(repo, stopped=True)
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    good = layer_a(document, partner)
-    resolved = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
-                                       layer_a=good, recorded_at=SEALED_AT, recorded_by="x")
-    write(bs.layer_a_path(repo, document, GATE), canonical_json(good).decode())
-    write(bs.seal_path(repo, document, GATE), canonical_json(resolved).decode())
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text().replace(document_sha256(seal), document_sha256(resolved)))
-    git(repo, "commit", "-q", "-am", "reseal in place")
-    return repo
-
-
-def _attack_shallow_clone(tmp_path):
-    repo = tmp_path / "deep"
-    committed_repository(repo)
-    git(repo, "commit", "-q", "--allow-empty", "-m", "later work")
-    shallow = tmp_path / "shallow"
-    subprocess.run(["git", "clone", "-q", "--depth", "1", repo.as_uri(), str(shallow)], check=True,
-                   capture_output=True)
-    return shallow
-
-
-def _attack_no_git(tmp_path):
-    repo = tmp_path / "nogit"
-    build_repository(repo, with_decision=False, commit=False)
-    return repo
-
-
-def _attack_deleted_d_manifest(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "deleted")
-    git(repo, "rm", "-q", str(path))
-    git(repo, "commit", "-q", "-m", "drop D manifest")
-    return repo
-
-
-def _attack_delete_and_recreate(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "recreate")
-    seal_p = bs.seal_path(repo, document, GATE)
-    data = seal_p.read_bytes()
-    git(repo, "rm", "-q", str(seal_p))
-    git(repo, "commit", "-q", "-m", "delete seal")
-    seal_p.write_bytes(data)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "re-create")
-    return repo
-
-
-def _attack_rename_and_back(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "rename")
-    seal_p = bs.seal_path(repo, document, GATE)
-    git(repo, "mv", str(seal_p), str(seal_p.with_name("tmp.json")))
-    git(repo, "commit", "-q", "-m", "rename away")
-    git(repo, "mv", str(seal_p.with_name("tmp.json")), str(seal_p))
-    git(repo, "commit", "-q", "-m", "rename back")
-    return repo
-
-
-def _attack_mode_change(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "mode")
-    git(repo, "update-index", "--chmod=+x", bs.seal_path(repo, document, GATE).relative_to(repo).as_posix())
-    git(repo, "commit", "-q", "-m", "chmod")
-    return repo
-
-
-def _attack_citation_changed_and_reverted(tmp_path):
-    repo = tmp_path / "cite"
-    document, partner, seal, folder = committed_repository(repo)
-    record = folder / f"{EVENT}.md"
-    original = record.read_text()
-    write(record, original.replace(document_sha256(seal), "0" * 64))
-    git(repo, "commit", "-q", "-am", "bad citation")
-    write(record, original)
-    git(repo, "commit", "-q", "-am", "revert citation")
-    return repo
-
-
-def _attack_evil_merge_rewrite(tmp_path):
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "evil")
-    main = git(repo, "branch", "--show-current")
-    git(repo, "checkout", "-q", "-b", "side")
-    git(repo, "commit", "-q", "--allow-empty", "-m", "side")
-    git(repo, "checkout", "-q", main)
-    git(repo, "commit", "-q", "--allow-empty", "-m", "main")
-    git(repo, "merge", "-q", "--no-ff", "--no-commit", "side")
-    changed = dict(seal, recordedBy="someone else")
-    write(bs.seal_path(repo, document, GATE), canonical_json(changed).decode())
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text().replace(document_sha256(seal), document_sha256(changed)))
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "evil merge")
-    return repo
-
-
-def _attack_branch_reseal_merged(tmp_path):
-    """A PD-B reseal on a side branch merged over the PD-A seal (one path, two blobs)."""
-    repo, document, partner, seal, folder, manifest, path = seal_then_d(tmp_path, "branch")
-    main = git(repo, "branch", "--show-current")
-    git(repo, "checkout", "-q", "-b", "side", "HEAD~1")
-    forged = layer_a(document, partner, ranks={"PD-A": [False, -0.5, "PD-A"], "PD-B": [False, -0.8, "PD-B"]})
-    protocol_sha = lf_normalised_sha256(folder / f"{EVENT}-protocol.md")
-    reseal = bs.derive_baseline_seal(document, GATE, protocol_sha256=protocol_sha, partner_ledger=partner,
-                                     layer_a=forged, recorded_at=SEALED_AT, recorded_by="x")
-    write(bs.layer_a_path(repo, document, GATE), canonical_json(forged).decode())
-    write(bs.seal_path(repo, document, GATE), canonical_json(reseal).decode())
-    record = folder / f"{EVENT}.md"
-    write(record, record.read_text().replace(document_sha256(seal), document_sha256(reseal)))
-    git(repo, "commit", "-q", "-am", "side reseal")
-    git(repo, "checkout", "-q", main)
-    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid", "merge", "-q",
-                    "--no-ff", "--no-commit", "-X", "theirs", "side"], capture_output=True, check=False)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "merge side reseal")
-    return repo
-
-
-HISTORY_ATTACKS = {
-    "stopped-to-resolved-in-place": _attack_stopped_to_resolved_in_place,
-    "shallow-clone": _attack_shallow_clone,
-    "no-git": _attack_no_git,
-    "deleted-d-manifest": _attack_deleted_d_manifest,
-    "delete-and-recreate": _attack_delete_and_recreate,
-    "rename-and-back": _attack_rename_and_back,
-    "mode-change": _attack_mode_change,
-    "citation-changed-and-reverted": _attack_citation_changed_and_reverted,
-    "evil-merge-rewrite": _attack_evil_merge_rewrite,
-    "branch-reseal-merged": _attack_branch_reseal_merged,
-}
-
-
-def _verdicts(repo):
-    out = []
-    for check_call in (lambda: validate_repository(repo),
-                       lambda: bs.require_committed_baseline_seal(repo, EVENT, "vehicle-colour", GATE)):
-        try:
-            check_call()
-            out.append("accepted")
-        except CredibilityError as error:
-            out.append(str(error).split(":")[0])
-    return out
-
-
-@pytest.mark.parametrize("attack", sorted(HISTORY_ATTACKS))
-def test_pre_d_gate_and_repository_mode_agree_on_every_history_attack(tmp_path, attack):
-    """Convergence review P1-C: the gate runs the same predicate as repository verification, so both refuse."""
-    repository, gate = _verdicts(HISTORY_ATTACKS[attack](tmp_path))
-    assert repository != "accepted" and gate != "accepted", (attack, repository, gate)
-
-
-def test_pre_d_gate_and_repository_mode_agree_on_a_valid_seal(tmp_path):
-    repo = tmp_path / "ok"
-    committed_repository(repo)
-    assert _verdicts(repo) == ["accepted", "accepted"]
-
-
-def test_shared_predicate_is_the_only_seal_validity_path():
-    import inspect
-    for function in (bs.validate_repository_seals, bs.require_committed_baseline_seal):
-        assert "check_event_seal_validity(" in inspect.getsource(function), function.__name__
-    assert "require_committed_baseline_seal(" in inspect.getsource(bs.verify_d_manifest_binding)
-
-
-def test_a_seal_filed_under_another_composition_id_is_refused():
-    """Identity by label: a valid seal of one composition cannot stand in for another composition's seal."""
-    entry = bob()
-    second = copy.deepcopy(entry["benchmarkBaseline"]["compositions"][0])
-    second["compositionId"] = "GATE-TWO"
-    entry["benchmarkBaseline"]["compositions"].append(second)
-    document = m3_ledger(baseline(), established(), emerging(), entry)
-    proof = evidence(document)
-    refused("baseline_seal_composition_mismatch", bs.verify_event_seals, {"GATE-TWO": proof[GATE]}, document,
-            PROTOCOL)
-
-
-def test_cli_style_repository_decision_check_runs_the_shared_predicate(tmp_path):
-    """validate_decision(repo=...) runs the same seal predicate, so a shallow clone is refused there too."""
-    repo = tmp_path / "deep"
-    document, partner, seal, folder = build_repository(repo)
-    shallow = tmp_path / "shallow"
-    subprocess.run(["git", "clone", "-q", "--depth", "1", repo.as_uri(), str(shallow)], check=True,
-                   capture_output=True)
-    sfolder = shallow / folder.relative_to(repo)
-    decision_doc = json.loads((sfolder / f"{EVENT}-decision.json").read_text())
-    snapshot = json.loads((sfolder / f"{EVENT}-evidence-ledger-decided.json").read_text())
-    validate_decision(json.loads((folder / f"{EVENT}-decision.json").read_text()), snapshot, snapshot, repo=repo)
-    refused("baseline_seal_history_unavailable", validate_decision, decision_doc, snapshot, snapshot, repo=shallow)
+        jsonschema.validate(dict(stopped_group().seal, partnerCandidateId="PD-A"), seal_schema)
+    binding = bs.SealBinding(GATE, state.seal_sha256, S0, "PD-A", identity_of("pda"), state.seal["compositionSha256"])
+    auth = ma.DAuthorization(state.group_id, ANCHOR, (binding,), state.seal["ordinaryCompositionsSha256"], EVENT)
+    jsonschema.validate(ma.d_manifest_document(auth, "RUN-1", sha("d")), d_schema)

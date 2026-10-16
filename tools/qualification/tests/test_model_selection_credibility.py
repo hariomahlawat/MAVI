@@ -27,6 +27,7 @@ from model_selection.credibility import (
     validate_repository,
 )
 from model_selection_fixtures import (
+    commit_tree,
     baseline,
     claim,
     commit,
@@ -1087,6 +1088,14 @@ def test_committed_ledgers_and_decisions_validate():
     validate_repository(REPO)
 
 
+def test_repository_verification_requires_full_git_history(tmp_path):
+    """MSR M3 invariant A6: without a repository (or with a shallow clone) the sticky audit domain cannot be computed,
+    so repository verification refuses even an event set with no M3 content."""
+    complete_event(tmp_path)
+    refused("model_selection_history_unavailable", validate_repository, tmp_path)
+    assert len(validate_repository(commit_tree(tmp_path))) == 4
+
+
 def complete_event(tmp_path, current=None):
     folder, _ = write_event(tmp_path, frozen=full(), snapshot=full(), current=current)
     summary = decision(full())
@@ -1102,7 +1111,7 @@ def complete_event(tmp_path, current=None):
 
 def test_repository_scan_accepts_a_complete_event(tmp_path):
     complete_event(tmp_path)
-    assert len(validate_repository(tmp_path)) == 4
+    assert len(validate_repository(commit_tree(tmp_path))) == 4
 
 
 def test_nothing_added_after_the_decision_is_dated_before_it(tmp_path):
@@ -1112,7 +1121,7 @@ def test_nothing_added_after_the_decision_is_dated_before_it(tmp_path):
                                        scope="exact-checkpoint", reproducedArtefact=exact("emg")))
     settle(entry, at="2026-08-02")
     complete_event(tmp_path, current=current)
-    refused("appended_before_freeze", validate_repository, tmp_path)
+    refused("appended_before_freeze", validate_repository, commit_tree(tmp_path))
 
 
 def test_record_carries_decision_and_snapshot_hashes(tmp_path):
@@ -1121,12 +1130,12 @@ def test_record_carries_decision_and_snapshot_hashes(tmp_path):
     rewritten = json.loads(snapshot_path.read_text())
     entry_of(rewritten, "VC-EXC")["caveats"].append("rewritten after the decision")
     snapshot_path.write_text(json.dumps(rewritten))
-    refused("decision_hash_not_recorded_in_record", validate_repository, tmp_path)
+    refused("decision_hash_not_recorded_in_record", validate_repository, commit_tree(tmp_path))
 
 
 def test_orphan_snapshot_is_refused(tmp_path):
     folder, _ = write_event(tmp_path, frozen=full(), snapshot={})
-    refused("snapshot_without_decision", validate_repository, tmp_path)
+    refused("snapshot_without_decision", validate_repository, commit_tree(tmp_path))
 
 
 def test_working_ledger_and_snapshot_need_not_carry_frozen_on(tmp_path):
@@ -1141,13 +1150,13 @@ def test_working_ledger_and_snapshot_need_not_carry_frozen_on(tmp_path):
     snapshot_path = folder / "msr-synthetic-colour-2026-01-evidence-ledger-decided.json"
     record_path.write_text(record_path.read_text() + f"{lf_normalised_sha256(decision_path)}\n"
                            f"{lf_normalised_sha256(snapshot_path)}\n")
-    assert len(validate_repository(tmp_path)) == 4
+    assert len(validate_repository(commit_tree(tmp_path))) == 4
 
 
 def test_decision_requires_its_ledger_snapshot(tmp_path):
     folder = complete_event(tmp_path)
     (folder / "msr-synthetic-colour-2026-01-evidence-ledger-decided.json").unlink()
-    refused("decision_without_snapshot", validate_repository, tmp_path)
+    refused("decision_without_snapshot", validate_repository, commit_tree(tmp_path))
 
 
 def test_frozen_on_cannot_predate_the_frozen_contents():
@@ -1187,36 +1196,36 @@ def test_shared_bytes_are_checked_against_every_earlier_entry():
 
 def test_repository_scan_binds_the_protocol_hash(tmp_path):
     write_event(tmp_path, frozen=full(), snapshot=full(), decision_doc=decision(full()))
-    refused("decision_protocol_hash_mismatch", validate_repository, tmp_path)
+    refused("decision_protocol_hash_mismatch", validate_repository, commit_tree(tmp_path))
 
 
 def test_repository_scan_requires_protocol_to_cite_frozen_ledger(tmp_path):
     folder, _ = write_event(tmp_path, frozen=full())
     (folder / "msr-synthetic-colour-2026-01-protocol.md").write_text("no hash here\n")
-    refused("frozen_ledger_not_cited_by_protocol", validate_repository, tmp_path)
+    refused("frozen_ledger_not_cited_by_protocol", validate_repository, commit_tree(tmp_path))
 
 
 def test_repository_scan_refuses_decision_without_frozen_ledger(tmp_path):
     write_event(tmp_path, protocol=False, decision_doc={})
-    refused("decision_without_frozen_ledger", validate_repository, tmp_path)
+    refused("decision_without_frozen_ledger", validate_repository, commit_tree(tmp_path))
 
 
 def test_protocol_requires_frozen_ledger_and_record_citation(tmp_path):
     folder, _ = write_event(tmp_path)
-    refused("protocol_without_frozen_ledger", validate_repository, tmp_path)
+    refused("protocol_without_frozen_ledger", validate_repository, commit_tree(tmp_path))
     folder, _ = write_event(tmp_path / "b", frozen=full(), record=False)
-    refused("protocol_hash_not_recorded_in_record", validate_repository, tmp_path / "b")
+    refused("protocol_hash_not_recorded_in_record", validate_repository, commit_tree(tmp_path / "b"))
     folder = tmp_path / "c" / "docs" / "qualification" / "model-selection" / "synthetic-colour"
     folder.mkdir(parents=True)
     (folder / "msr-synthetic-colour-2026-01-protocol.md").write_text("protocol without any ledger\n")
-    refused("protocol_without_frozen_ledger", validate_repository, tmp_path / "c")
+    refused("protocol_without_frozen_ledger", validate_repository, commit_tree(tmp_path / "c"))
 
 
 def test_repository_scan_refuses_misplaced_ledger(tmp_path):
     folder = tmp_path / "docs" / "qualification" / "model-selection" / "person-attributes"
     folder.mkdir(parents=True)
     (folder / "msr-synthetic-colour-2026-01-evidence-ledger.json").write_text(json.dumps(full()))
-    refused("ledger_location_mismatch", validate_repository, tmp_path)
+    refused("ledger_location_mismatch", validate_repository, commit_tree(tmp_path))
 
 
 def test_cli_reports_classes_and_refusals(tmp_path):

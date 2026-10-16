@@ -1,7 +1,7 @@
 {
   "$id": "urn:mavi:mavi-model-selection-baseline-seal-v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Shape contract (MSR revision M3). A seal is valid only if model_selection/baseline_seal.py re-derives it from the frozen ledger, protocol hash, partner frozen ledger and Layer-A result; its identity is its canonical SHA-256 and the file must be canonical JSON.",
+  "description": "Shape contract (MSR revision M3, authority redesign). A seal is valid only if model_selection/baseline_seal.py re-derives it from the frozen ledger, the protocol hash, the partner event's frozen ledger and both component rankings; a RESOLVED seal binds the derived ordinary composition set U (ordinaryCompositionsSha256). Its identity is its canonical SHA-256 and the file must be canonical JSON. M3 was never merged before this redesign, so the schema changed in place.",
   "oneOf": [
     {
       "additionalProperties": false,
@@ -18,11 +18,28 @@
           "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
           "type": "string"
         },
+        "componentRankingSha256s": {
+          "additionalProperties": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "maxProperties": 2,
+          "minProperties": 2,
+          "propertyNames": {
+            "pattern": "^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\\d{4}-\\d{2}$",
+            "type": "string"
+          },
+          "type": "object"
+        },
         "compositionId": {
           "pattern": "^[A-Za-z][A-Za-z0-9-]{0,63}$",
           "type": "string"
         },
         "compositionSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "compositionUniverseSha256": {
           "pattern": "^[0-9a-f]{64}$",
           "type": "string"
         },
@@ -45,7 +62,7 @@
           "pattern": "^[0-9a-f]{64}$",
           "type": "string"
         },
-        "layerAResultSha256": {
+        "ordinaryCompositionsSha256": {
           "pattern": "^[0-9a-f]{64}$",
           "type": "string"
         },
@@ -99,14 +116,16 @@
         "benchmarkBaselineId",
         "benchmarkComponentIdentitySha256",
         "capabilityId",
+        "componentRankingSha256s",
         "compositionId",
         "compositionSha256",
+        "compositionUniverseSha256",
         "eligibleUniverseSha256",
         "eventId",
         "frozenLedgerSha256",
         "gateScope",
         "layerAGatesSha256",
-        "layerAResultSha256",
+        "ordinaryCompositionsSha256",
         "partnerCandidateId",
         "partnerEventId",
         "partnerFrozenLedgerSha256",
@@ -137,8 +156,32 @@
           "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
           "type": "string"
         },
+        "componentRankingSha256s": {
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxProperties": 2,
+          "minProperties": 2,
+          "propertyNames": {
+            "pattern": "^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\\d{4}-\\d{2}$",
+            "type": "string"
+          },
+          "type": "object"
+        },
         "compositionId": {
           "pattern": "^[A-Za-z][A-Za-z0-9-]{0,63}$",
+          "type": "string"
+        },
+        "compositionUniverseSha256": {
+          "pattern": "^[0-9a-f]{64}$",
           "type": "string"
         },
         "eligibleUniverseSha256": {
@@ -160,23 +203,12 @@
           "pattern": "^[0-9a-f]{64}$",
           "type": "string"
         },
-        "layerAResultSha256": {
-          "anyOf": [
-            {
-              "pattern": "^[0-9a-f]{64}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "partnerEventId": {
           "pattern": "^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\\d{4}-\\d{2}$",
           "type": "string"
         },
         "partnerFrozenLedgerSha256": {
-          "anyOf": [
+          "oneOf": [
             {
               "pattern": "^[0-9a-f]{64}$",
               "type": "string"
@@ -191,7 +223,7 @@
           "type": "string"
         },
         "protectedDAccessedAt": {
-          "anyOf": [
+          "oneOf": [
             {
               "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
               "type": "string"
@@ -250,6 +282,8 @@
             "partner-universe-inconsistent",
             "identity-mismatch",
             "resolution-ambiguous",
+            "component-rank-ambiguous",
+            "component-ranking-inconsistent",
             "protected-d-accessed",
             "prerequisite-failed"
           ]
@@ -259,13 +293,14 @@
         "benchmarkBaselineId",
         "benchmarkComponentIdentitySha256",
         "capabilityId",
+        "componentRankingSha256s",
         "compositionId",
+        "compositionUniverseSha256",
         "eligibleUniverseSha256",
         "eventId",
         "frozenLedgerSha256",
         "gateScope",
         "layerAGatesSha256",
-        "layerAResultSha256",
         "partnerEventId",
         "partnerFrozenLedgerSha256",
         "partnerRankingRuleSha256",
