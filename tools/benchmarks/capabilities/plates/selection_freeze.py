@@ -3,7 +3,8 @@
 It is the only harness code that reads BOTH partitions together outside the protected-D stages (owner point 2). It
 reads the four corpus documents, parses each strictly, validates each partition against the partition plan, checks
 cross-partition disjointness (R2), and returns the canonical freeze-record bytes. The record names the four document
-SHA-256s and the disjointness result with its hash (``selection_bundle.disjointness_attestation``).
+SHA-256s and a disjointness attestation (``selection_bundle.disjointness_attestation``): a deterministic hash of those
+SHA-256s and the result, which anyone can compute, so it records the check rather than proving it.
 
 The selection process never runs this tool: it loads only the committed record and the A/B documents, so Layer A
 neither parses nor needs D metadata. The D stages re-run the disjointness check on the real D index when they open it.

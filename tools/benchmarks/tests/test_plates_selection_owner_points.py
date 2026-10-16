@@ -626,3 +626,145 @@ def test_m3_exact_mpid_boundary_differs_through_json_floats():
                    fx.C("PD2-N", "OC5-BEST", fx.with_d(base, baseline))) == ev.PASS
     m3_mpid = m3_authority._exact(0.04)
     assert m3_authority._exact(float(candidate)) - m3_authority._exact(float(baseline)) < m3_mpid   # M3: FAIL
+
+
+# ---------------------------------------------------------------------------------------------- cold review 5735c63c
+
+
+class _Meta(type):
+    @property
+    def __name__(cls):   # a metaclass that makes the class name itself hostile
+        raise RuntimeError("no name")
+
+
+class _Unprintable:
+    def __str__(self):
+        raise RuntimeError("no text")
+
+
+class EvilStr(Exception):
+    def __str__(self):
+        raise RuntimeError("no message")
+
+
+class NonStr(Exception):
+    def __str__(self):
+        return 5   # noqa: PLE0307 - deliberately not a str
+
+
+class EvilRepr(Exception):
+    def __repr__(self):
+        raise RuntimeError("no repr")
+
+    def __str__(self):
+        raise RuntimeError("no message")
+
+
+class EvilName(Exception, metaclass=_Meta):
+    pass
+
+
+class Odd(BaseException):   # not an Exception: passes straight through PR-3's ``except Exception`` handlers
+    pass
+
+
+RAISES = {"evil __str__": lambda: EvilStr(), "__str__ returns non-str": lambda: NonStr(),
+          "evil __repr__": lambda: EvilRepr(), "evil class name (metaclass)": lambda: EvilName("x"),
+          "evil argument": lambda: ValueError(_Unprintable()), "BaseException subclass": lambda: Odd("x"),
+          "GeneratorExit": lambda: GeneratorExit()}
+
+
+class _RaisingDetector:
+    def __init__(self, make):
+        self.make = make
+
+    def detect(self, crop_image, verified):
+        raise self.make()
+
+
+class _RaisingRecogniser:
+    def __init__(self, make):
+        self.make = make
+
+    def read(self, region, verified, box):
+        raise self.make()
+
+
+def _exception_corpus():
+    return fx.build([T("x0", "x-site", "KA01AB1234")], [crop("cx", "x0", 0, POLY)], [plate("px", "x0", b=7)],
+                    twin=[T("xd", "xd-site", "KA02AB1234")])
+
+
+def _paths(corpus, make):
+    """Every envelope with the raising detector and with the raising recogniser: A, B, C and D."""
+    cap = corpus.capture
+    yield "A detector", lambda: ev.run_detection(corpus.sel, "cx", detector=_RaisingDetector(make),
+                                                 detector_identity=DET, images=images)
+    yield "B recogniser", lambda: ev.run_reading(corpus.sel, "px", recogniser=_RaisingRecogniser(make),
+                                                 recogniser_identity=REC, images=images)
+    for layer, bundle, tid in (("C", corpus.sel, "x0"), ("D", cap, "xd")):
+        yield f"{layer} detector", lambda b=bundle, t=tid: ev.run_track(
+            b, t, detector=_RaisingDetector(make), recogniser=fx.Recogniser(["KA01AB1234"]), detector_identity=DET,
+            recogniser_identity=REC, images=images)
+        yield f"{layer} recogniser", lambda b=bundle, t=tid: ev.run_track(
+            b, t, detector=GOOD_BOX, recogniser=_RaisingRecogniser(make), detector_identity=DET,
+            recogniser_identity=REC, images=images)
+
+
+@pytest.mark.parametrize("kind", sorted(RAISES))
+def test_cold_p2_1_any_candidate_exception_is_contract_fail_never_completed(kind):
+    """P2-1 (cold review of 5735c63c): a candidate exception whose text, repr, class name or base class is hostile was
+    abstained by PR-3 and recorded COMPLETED. The guard is now flagged first by a formatter that cannot fail."""
+    corpus = _exception_corpus()
+    for name, call in _paths(corpus, RAISES[kind]):
+        result = call()
+        assert result.state == ev.CONTRACT_FAIL, (kind, name)
+        assert "runtime_error" in result.contract_violation and type(result.contract_violation) is str, (kind, name)
+
+
+@pytest.mark.parametrize("abort", [KeyboardInterrupt, SystemExit])
+def test_cold_p2_1_interrupts_are_recorded_contract_fail_and_re_raised(abort):
+    corpus = _exception_corpus()
+    for name, call in _paths(corpus, abort):
+        with pytest.raises(abort):
+            call()
+        kind, record = list(ev._RESULTS.values())[-1]
+        assert record.state == ev.CONTRACT_FAIL and "runtime_error" in record.contract_violation, name
+    assert sb._CANDIDATE_ACTIVE[0] == 0
+
+
+def test_cold_p2_1_the_formatter_cannot_fail():
+    for make in RAISES.values():
+        text = ev._exception_evidence(make())
+        assert type(text) is str and ":" in text
+    # The message is BaseException's own rendering of ``args``; the candidate's ``__str__`` is never called.
+    assert ev._exception_evidence(EvilStr("m")) == "EvilStr:m" and ev._exception_evidence(NonStr()) == "NonStr:"
+    assert ev._exception_evidence(ValueError(_Unprintable())) == "ValueError:<unprintable>"
+    assert ev._exception_evidence(EvilName("x")) == "EvilName:x"   # the slot, not the metaclass property
+
+
+def test_cold_p3_1_the_private_loader_cannot_skip_the_authority():
+    """P3-1: ``_load`` took an injectable precondition that could open D truth; the authority is now unconditional."""
+    corpus = fx.population(2)
+    with Opens() as opened:
+        for stage in (sb.D_CAPTURE, sb.PROTECTED):
+            with pytest.raises(ValueError, match="m3_authority_not_integrated"):
+                sb._load(corpus.directory, corpus.repo, stage, lambda s: None)
+            with pytest.raises(ValueError, match="m3_authority_not_integrated"):
+                sb._load(corpus.directory, corpus.repo, stage, lambda s: None, fx.TEST_AUTHORITY)
+            with pytest.raises(ValueError, match="no_stage_2_resolution"):
+                sb._load(corpus.directory, corpus.repo, stage)
+    assert opened.touched(*D_FILES) == [] and not sb.d_data_loaded(corpus.sel.record_sha256)
+
+
+@pytest.mark.parametrize("mutate, code", [
+    (lambda d: d["abTruth"]["crops"][0].update(trackId=["x0"]), "truth_crop_malformed"),
+    (lambda d: d["abTruth"]["crops"][0].update(observationId={"o": 1}), "truth_crop_malformed"),
+    (lambda d: d["abTruth"]["crops"][0].update(observationId=7), "truth_crop_malformed"),
+    (lambda d: d["abTruth"]["plates"][0].update(trackId=["x0"]), "truth_plate_malformed"),
+    (lambda d: d["abTruth"]["plates"][0].update(observationId=["o"]), "truth_plate_malformed"),
+])
+def test_cold_p3_4_wrong_typed_document_fields_are_typed_refusals(mutate, code):
+    with pytest.raises(ValueError, match=code):
+        fx.build([T("x0", "x-site", "KA01AB1234")], [crop("cx", "x0", 0, POLY)], [plate("px", "x0", b=7, c=0)],
+                 twin=[T("xd", "xd-site", "KA02AB1234")], mutate=mutate)

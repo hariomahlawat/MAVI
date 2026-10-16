@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
-for path in (ROOT, HERE):
+for path in (ROOT, HERE, ROOT / "src" / "vision"):   # mavi_vision from this checkout (as tools/qualification/tests)
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 

@@ -79,10 +79,10 @@ def TOPK(corpus, scores, kind):  # noqa: N802
 
 @pytest.fixture(autouse=True)
 def _each_test_is_a_fresh_scoring_process():
-    """Every test starts with no protected truth marked read in this process (see ``plate_selection_fixtures``)."""
-    fx.new_process()
+    """Every test starts as a fresh process: no protected-D state, marks or cached D handles (fixture isolation)."""
+    fx.fresh_process()
     yield
-    fx.new_process()
+    fx.fresh_process()
 
 # ---------------------------------------------------------------------------------------------- queries
 

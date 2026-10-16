@@ -18,8 +18,9 @@ anchor) is the mandated integration PR (decision record §6). The record holds:
   freeze time;
 - the site-level partition plan;
 - the SHA-256 of each of the four corpus documents: A/B index, A/B truth, D index and D truth;
-- the cross-partition disjointness result and its hash, established by the freeze-construction tool
-  (``selection_freeze``) when the record was built.
+- the cross-partition disjointness attestation written by the freeze-construction tool (``selection_freeze``): a
+  deterministic, self-computable hash of the document SHA-256s and the result, i.e. a record that the check ran, not a
+  proof. The guarantee is the re-check on the real D index whenever a D stage opens it.
 
 **Content.** The four corpus documents are read from a caller-named directory under fixed file names. Each must hash
 to its frozen SHA-256, then parse STRICTLY:
@@ -683,6 +684,8 @@ def _truth(value: object, partition: Partition, index: list[dict]) -> tuple[dict
         _fail("truth_d_partition_holds_a_b_items")   # A/B/C project only from the A/B partition
     for row in crop_rows:
         c = _obj(row, ("cropId", "trackId", "observationId", "polygons"), "truth_crop_malformed")
+        _str(c["trackId"], "truth_crop_malformed", _ID_RE)   # typed before any lookup (no TypeError on a list)
+        _uuid(c["observationId"], "truth_crop_malformed")
         track = by_track.get(c["trackId"])
         if track is None or c["observationId"] not in {e.observation_id for e in track["evidence"]}:
             _fail("truth_crop_not_an_evidence_image_of_this_partition")
@@ -695,6 +698,9 @@ def _truth(value: object, partition: Partition, index: list[dict]) -> tuple[dict
     _sorted_unique([c.crop_id for c in crops], "truth_crops_not_in_canonical_order")
     for row in plate_rows:
         p = _obj(row, ("plateId", "trackId", "plateImage", "observationId"), "truth_plate_malformed")
+        _str(p["trackId"], "truth_plate_malformed", _ID_RE)   # typed before any lookup
+        if p["observationId"] is not None:
+            _uuid(p["observationId"], "truth_plate_malformed")
         track = by_track.get(p["trackId"])
         if track is None or truths[p["trackId"]][0] not in (TruthState.TEXT, TruthState.UNSUPPORTED_TEXT):
             _fail("truth_plate_not_on_a_text_track_of_this_partition")
@@ -747,11 +753,13 @@ def partition_digest(record_sha256: str, partition: Partition) -> str:
 
 
 def _load(corpus_dir: object, repo_root: object, stage: str,
-          precondition: Callable[[_State], None] | None = None) -> Bundle:
+          resolution_check: Callable[[_State], object] | None = None, authorization: object = None) -> Bundle:
     """Open ONLY what the stage needs (owner point 2). ``SELECTION``: the record and the two A/B documents; no D path
     is constructed or opened. ``D_CAPTURE`` adds the D index; ``PROTECTED_D`` adds the D truth. For a D stage,
-    ``precondition(selection_state)`` (the verified Stage-2 resolution and the protected-D authority, supplied by the
-    evaluator) runs before any D path is touched; the D data is marked read before it is opened (fail safe)."""
+    ``resolution_check(selection_state)`` (the evaluator's verified Stage-2 resolution) runs, and then
+    ``_authorise_protected_d`` is ALWAYS called here, before any D path is touched: no argument can replace or skip
+    the authority (a permissive ``resolution_check`` only removes a check that the authority then still applies). The
+    D data is marked read before it is opened (fail safe)."""
     if stage not in (SELECTION, D_CAPTURE, PROTECTED):
         _fail("bundle_stage_unknown")
     if not isinstance(corpus_dir, (str, os.PathLike)):
@@ -775,9 +783,10 @@ def _load(corpus_dir: object, repo_root: object, stage: str,
 
     state = state_for(SELECTION, _part(Partition.PROTECTED_D, d_digest, None, None))
     if stage != SELECTION:
-        if precondition is None:
-            _fail("protected_d_not_authorised:no_precondition")
-        precondition(state)
+        if resolution_check is None:
+            _fail("protected_d_not_authorised:no_stage_2_resolution")
+        resolution = resolution_check(state)
+        _authorise_protected_d(state, authorization, resolution)   # unconditional: the only gate to D data
         if stage == PROTECTED and _CANDIDATE_ACTIVE[0]:
             _fail("protected_d_truth_load_during_candidate_execution")
         _D_DATA_LOADED.add(record_sha)

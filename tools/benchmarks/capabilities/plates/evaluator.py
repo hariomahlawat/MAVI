@@ -388,8 +388,33 @@ class _Guard:
             self.violation = text
 
 
+# Candidate code may raise ANY BaseException, including one whose ``__str__``/``__repr__``, class name or metaclass is
+# hostile. The evidence formatter below cannot fail: the message is ``BaseException.__str__`` (the exception's ``args``;
+# the candidate's own ``__str__``/``__repr__`` is never called), the class name is read through ``type``'s own slot (a
+# metaclass cannot intercept it), both inside a ``BaseException`` catch, and any failure or non-``str`` result becomes
+# a stable placeholder. Every guard is flagged BEFORE anything else happens, so a
+# candidate exception is always a CONTRACT_FAIL (decision record, Contract row; N9), never a COMPLETED run.
+# ``KeyboardInterrupt`` and ``SystemExit`` raised inside candidate code are recorded as CONTRACT_FAIL for that run and
+# then re-raised, so an operator interrupt or a process exit is honoured; the event cannot score without that run.
+_UNPRINTABLE, _NON_STR = "<unprintable>", "<non-str>"
+_ABORTS = (KeyboardInterrupt, SystemExit)
+_TYPE_NAME = type.__dict__["__name__"]
+
+
+def _safe_text(read: Callable[[], object]) -> str:
+    try:
+        value = read()
+    except BaseException:  # noqa: BLE001 - a hostile __str__/__name__ must never escape the formatter
+        return _UNPRINTABLE
+    return value if type(value) is str else _NON_STR
+
+
 def _exception_evidence(exc: BaseException) -> str:
-    return f"{type(exc).__name__}:{str(exc)[:160]}"
+    """``<class name>:<message>`` of a candidate exception; never raises, never returns a non-``str``."""
+    cls = type(exc)
+    name = _safe_text(lambda: _TYPE_NAME.__get__(cls, type))
+    message = _safe_text(lambda: BaseException.__str__(exc))
+    return f"{name}:{message[:160]}"
 
 
 class _CheckedDetector:
@@ -402,7 +427,7 @@ class _CheckedDetector:
         where = f"obs={verified.observation_id}"
         try:
             boxes = self.inner.detect(crop, verified)
-        except Exception as exc:  # noqa: BLE001 - recorded as a FAIL, then re-raised for PR-3's own handling
+        except BaseException as exc:  # noqa: BLE001 - flagged FIRST (a FAIL), then re-raised for PR-3's own handling
             self.guard.flag(f"plate_detector_runtime_error@{where}:{_exception_evidence(exc)}")
             raise
         width, height = crop.size
@@ -421,7 +446,7 @@ class _CheckedRecogniser:
         where = f"obs={verified.observation_id}"
         try:
             readings = self.inner.read(region, verified, box)
-        except Exception as exc:  # noqa: BLE001
+        except BaseException as exc:  # noqa: BLE001 - flagged FIRST (a FAIL), then re-raised
             self.guard.flag(f"plate_recogniser_runtime_error@{where}:{_exception_evidence(exc)}")
             raise
         violation = recogniser_output_violation(readings, self.bound)
@@ -544,14 +569,21 @@ def _run_track(bundle, track_id, detector, recogniser, detector_identity, recogn
         try:
             record = analyse_crop(observation, verified, checked_detector, checked_recogniser, parameters)
         except OutputInvalid as exc:
-            return result(CONTRACT_FAIL, None, guard.violation or str(exc))
+            return result(CONTRACT_FAIL, None, guard.violation or _safe_text(lambda: str(exc)))
+        except BaseException as exc:  # a non-Exception candidate raise passes through PR-3's Exception handlers
+            if guard.violation is None:
+                raise   # not candidate-attributable: harness or infrastructure fault
+            failed = result(CONTRACT_FAIL, None, guard.violation)
+            if isinstance(exc, _ABORTS):
+                raise
+            return failed
         if guard.violation is not None:
             return result(CONTRACT_FAIL, None, guard.violation)
         records.append(record)
     try:
         summary = summarise_track(lease, tuple(records))
     except OutputInvalid as exc:
-        return result(CONTRACT_FAIL, None, str(exc))
+        return result(CONTRACT_FAIL, None, _safe_text(lambda: str(exc)))
     return result(COMPLETED, summary, None)
 
 
@@ -604,9 +636,12 @@ def _run_detection(bundle, crop_id, detector, detector_identity, images) -> Dete
 
     try:
         boxes = detector.detect(image, verified)
-    except Exception as exc:  # noqa: BLE001
-        return result(CONTRACT_FAIL, (), f"plate_detector_runtime_error@obs={ref.observation_id}:"
-                                         f"{_exception_evidence(exc)}")
+    except BaseException as exc:  # noqa: BLE001 - any candidate raise is a recorded FAIL (aborts re-raised after)
+        failed = result(CONTRACT_FAIL, (), f"plate_detector_runtime_error@obs={ref.observation_id}:"
+                                           f"{_exception_evidence(exc)}")
+        if isinstance(exc, _ABORTS):
+            raise
+        return failed
     violation = detector_output_violation(boxes, width, height, MAXIMUM_DETECTIONS_PER_CROP)
     if violation is not None:
         return result(CONTRACT_FAIL, (), f"{violation}:obs={ref.observation_id}")
@@ -663,9 +698,12 @@ def _run_reading(bundle, plate_id, recogniser, recogniser_identity, images) -> R
 
     try:
         readings = recogniser.read(image, verified, PlateBox(0, 0, image.size[0], image.size[1], 1.0))
-    except Exception as exc:  # noqa: BLE001
-        return result(CONTRACT_FAIL, None, f"plate_recogniser_runtime_error@obs={ref.observation_id}:"
-                                           f"{_exception_evidence(exc)}")
+    except BaseException as exc:  # noqa: BLE001 - any candidate raise is a recorded FAIL (aborts re-raised after)
+        failed = result(CONTRACT_FAIL, None, f"plate_recogniser_runtime_error@obs={ref.observation_id}:"
+                                             f"{_exception_evidence(exc)}")
+        if isinstance(exc, _ABORTS):
+            raise
+        return failed
     violation = recogniser_output_violation(readings, MAXIMUM_READINGS_PER_PLATE)
     if violation is not None:
         return result(CONTRACT_FAIL, None, f"{violation}:obs={ref.observation_id}")
@@ -1684,15 +1722,14 @@ def verify_resolution(bundle: object, resolution, results) -> None:
     _verified_resolution(sb._state_of(bundle), resolution, results)
 
 
-def _pre_d(resolution: object, layer_a_results: object, authorization: object) -> Callable:
-    """The precondition of both D stages, run on the selection state before any D path is opened: the sealed Stage-2
-    resolution must re-derive from the frozen record and the Layer-A results, then the protected-D authority decides
-    (fail closed in #218)."""
+def _pre_d(resolution: object, layer_a_results: object) -> Callable:
+    """The Stage-2 check of both D stages, run on the selection state before any D path is opened: the sealed
+    resolution must re-derive from the frozen record and the Layer-A results. The loader then always applies the
+    protected-D authority itself (fail closed in #218)."""
     layer_a = _materialise(layer_a_results, "layer_a_results_malformed")
 
-    def check(selection_state) -> None:
-        stored = _verified_resolution(selection_state, resolution, layer_a)
-        sb._authorise_protected_d(selection_state, authorization, stored)
+    def check(selection_state) -> BaselineResolution:
+        return _verified_resolution(selection_state, resolution, layer_a)
 
     return check
 
@@ -1701,14 +1738,14 @@ def load_d_capture_bundle(corpus_dir, *, resolution, layer_a_results, authorizat
     """The D-capture stage: the selection documents plus the D INDEX (evidence, no truth), for candidate execution on
     protected-D evidence. Requires the verified Stage-2 resolution and the protected-D authority (fails closed in
     #218: ``protected_d_not_authorised:m3_authority_not_integrated``)."""
-    return sb._load(corpus_dir, repo_root, sb.D_CAPTURE, _pre_d(resolution, layer_a_results, authorization))
+    return sb._load(corpus_dir, repo_root, sb.D_CAPTURE, _pre_d(resolution, layer_a_results), authorization)
 
 
 def load_protected_d_bundle(corpus_dir, *, resolution, layer_a_results, authorization, repo_root=None) -> Bundle:
     """The protected-D stage: adds the D TRUTH, for scoring. Same precondition as the D-capture stage. Loading it ends
     candidate execution in this process (owner point 5), so every candidate output on D evidence is captured on the
     D-capture bundle first; it is refused while a candidate callable is running."""
-    return sb._load(corpus_dir, repo_root, sb.PROTECTED, _pre_d(resolution, layer_a_results, authorization))
+    return sb._load(corpus_dir, repo_root, sb.PROTECTED, _pre_d(resolution, layer_a_results), authorization)
 
 
 def assert_resolution_unchanged(sealed, current) -> None:
