@@ -324,6 +324,17 @@
       "setupIntegration": "CUDA Runtime Pack installation/repair must verify the required VC runtime before loading MMCV native extensions",
       "verification": "signed installer identity plus an import/load smoke test for mmcv native ops on the installed runtime",
       "licenceHandling": "approved Microsoft Visual C++ redistributable retained as a controlled prerequisite if packaging is required"
+    },
+    {
+      "id": "github-cli-msr-protected-d-check",
+      "scope": [
+        "development-qualification-online"
+      ],
+      "stagingPath": "external:github-cli (gh) installed and authenticated by the operator of the connected Development qualification host",
+      "packagedAs": "not packaged: never needed on an offline Development or Production machine and never part of a Runtime or Model Pack",
+      "setupIntegration": "none: used only by tools/qualification/model_selection/m3_authority.open_protected_d, the network-only pre-D step of an MSR M3 event (owner decisions O2 and O8); absent, unauthenticated or offline it refuses (protected_default_branch_unverifiable / anchor_unavailable); the production runtime is unaffected",
+      "verification": "read-only `gh api` calls verify the active default-branch ruleset (deletion, non_fast_forward, no bypass actors); git ls-remote/fetch of the fixed canonical URL verifies the anchor; tests inject a fake API and a local bare repository and never use the network",
+      "licenceHandling": "MIT-licensed GitHub CLI installed by the qualification operator; not redistributed by MAVI"
     }
   ],
   "requiredChangeReview": [
