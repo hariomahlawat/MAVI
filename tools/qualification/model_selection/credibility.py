@@ -19,12 +19,13 @@ module enforces the rules marked **[checked]** there, on three documents:
   ``established`` class on the decision date.
 
 Method revision M3 (``proposals/m3-benchmark-only-baseline.md``) adds the
-``BENCHMARK_BASELINE`` disposition. It applies to ``reference-only`` candidates in
-``msr-v1-m3`` ledgers and decision summary v1 only. Such a candidate is measured solely
-to define frozen comparative gates, is never ranked, derived or implemented, has no
-influence on the outcome, and is refused anywhere in decision v2. Its committed pre-D
-baseline seal, Layer-A result, mandatory decision block and harness API live in
-``baseline_seal.py``.
+``BENCHMARK_BASELINE`` disposition and the composition group. It applies to
+``msr-v1-m3`` ledgers and decision summary v1 only, and is refused anywhere in decision
+v2. Every M3 event belongs to a composition group (a frozen ``compositionUniverse``
+shared by its two component events); a benchmark-only candidate is measured solely to
+define the group's frozen baseline gate and is never ranked, derived or implemented.
+The seal is ``baseline_seal.py``; the derived composition set ``m3_universe.py``; the
+history, chronology, anchors, decision binding and the pre-D gate ``m3_authority.py``.
 
 Standard library only; nothing here reads the network, a model or imagery.
 """
@@ -1077,6 +1078,20 @@ def _check_benchmark_baseline(entry: dict, computed: str, confidence: str, where
         _text(item["decidedBy"], f"{pat}.decidedBy")
         _date(item["decidedOn"], f"{pat}.decidedOn")
         _match(item["primarySourceSha256"], SHA256_RE, f"{pat}.primarySourceSha256")
+    # Owner decision O7 / design P3: one hash has one kind across every profile, a pinned identity file is `data`
+    # wherever it is listed and is listed in every profile, and every profile holds at least one executable.
+    kind_of: dict[str, str] = {}
+    pinned = set(_pinned_files(entry["identity"]))
+    for profile, files in manifests.items():
+        if not any(item["kind"] == "executable" for item in files):
+            raise _fail("benchmark_baseline_profile_without_executable", f"{at}.hostManifests.{profile}")
+        for item in files:
+            if kind_of.setdefault(item["sha256"], item["kind"]) != item["kind"]:
+                raise _fail("benchmark_baseline_hash_kind_conflict", f"{at}.hostManifests.{profile}.{item['path']}")
+            if item["sha256"] in pinned and item["kind"] != "data":
+                raise _fail("benchmark_baseline_identity_file_not_data", f"{at}.hostManifests.{profile}.{item['path']}")
+        if pinned - {item["sha256"] for item in files}:
+            raise _fail("benchmark_baseline_identity_file_not_in_manifest", f"{at}.hostManifests.{profile}")
     by_kind = {kind: {item["sha256"] for files in manifests.values() for item in files if item["kind"] == kind}
                for kind in MANIFEST_FILE_KINDS}
     expected = {"executable": by_kind["executable"], "runtime-libraries": by_kind["runtime-library"],
@@ -1099,6 +1114,9 @@ def _check_benchmark_baseline(entry: dict, computed: str, confidence: str, where
     if not ids:
         # M3 rule 1: a benchmark-only component is admitted only to define a frozen gate (cold review P3-6)
         raise _fail("benchmark_baseline_without_gate", f"{at}.compositions")
+    if len(ids) != 1:
+        # the group's one baseline gate is measured against exactly one gate-only composition
+        raise _fail("composition_universe_requires_one_baseline", f"{at}.compositions")
 
 
 def _benchmark_baselines(ledger: Mapping) -> set[str]:
@@ -1112,7 +1130,7 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
         ledger,
         ("schema", "eventId", "capabilityId", "objectClass", "subTasks", "methodRevision", "candidates"),
         "ledger",
-        optional=("frozenOn", "identifierExemptions"),
+        optional=("frozenOn", "identifierExemptions", "compositionUniverse", "supersedes"),
     )
     if "frozenOn" in ledger:
         _date(ledger["frozenOn"], "ledger.frozenOn")
@@ -1177,13 +1195,39 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
             "disposition": entry["disposition"]["status"],
         }
     _check_identifier_exemptions(ledger)
-    # M3 rule 4: a partner universe in this same event reconciles here; another event's in repository mode and in
-    # the seal verification (baseline_seal.check_partner_universe), where the partner event must exist.
-    from .baseline_seal import check_partner_universe, frozen_compositions
-    for composition_id, (_entry, rule) in sorted(frozen_compositions(ledger).items()):
-        if rule["partnerEventId"] == ledger["eventId"]:
-            check_partner_universe(rule, ledger, f"ledger.compositions.{composition_id}", _entry)
+    _check_m3_group_fields(ledger)
     return summary
+
+
+def _check_m3_group_fields(ledger: Mapping) -> None:
+    """M3 authority redesign: every ``msr-v1-m3`` event is a composition-group member (``compositionUniverse``,
+    refused in M1/M2 ledgers); a benchmark-only baseline's partner is the other group member; ``supersedes`` only on an
+    M3 group event (owner decision O6); and no shortlisted ordinary candidate pins a BOB executable, model, data or
+    identity file, whatever kind it gives it (owner decision O7; runtime libraries may be shared)."""
+    from .baseline_seal import bob_payload_hashes, candidate_file_hashes, frozen_compositions
+    from .m3_universe import SUPERSEDES_FIELD, UNIVERSE_FIELD, check_supersedes_block, check_universe_block
+    m3 = ledger["methodRevision"] == METHOD_REVISION_M3
+    for field in (UNIVERSE_FIELD, SUPERSEDES_FIELD):
+        if field in ledger and not m3:
+            raise _fail("composition_universe_requires_m3", f"ledger.{field}")
+    if m3 and UNIVERSE_FIELD not in ledger:
+        raise _fail("m3_requires_composition_universe", "ledger")
+    if not m3:
+        return
+    check_universe_block(ledger)
+    if SUPERSEDES_FIELD in ledger:
+        check_supersedes_block(ledger)
+    members = {item["eventId"] for item in ledger[UNIVERSE_FIELD]["componentEvents"]}
+    bobs = [e for e in ledger["candidates"] if e["disposition"]["status"] == BENCHMARK_BASELINE]
+    if len(bobs) > 1:
+        raise _fail("composition_universe_requires_one_baseline", "ledger.candidates")
+    for composition_id, (entry, rule) in sorted(frozen_compositions(ledger).items()):
+        if rule["partnerEventId"] == ledger["eventId"] or rule["partnerEventId"] not in members:
+            raise _fail("baseline_partner_event_not_in_group", f"ledger.compositions.{composition_id}")
+        forbidden = bob_payload_hashes(entry)
+        for other in ledger["candidates"]:
+            if other["disposition"]["status"] == SHORTLISTED and candidate_file_hashes(other) & forbidden:
+                raise _fail("benchmark_baseline_bytes_in_ordinary_candidate", f"ledger.{other['candidateId']}")
 
 
 def _shortlist(ledger: Mapping) -> set[str]:
@@ -1237,6 +1281,9 @@ def validate_evolution(older: dict, newer: dict, since: date | None = None) -> N
         raise _fail("identifier_exemptions_changed_after_freeze", "ledger.identifierExemptions")
     for field in ("capabilityId", "objectClass", "subTasks", "methodRevision"):
         if newer[field] != older[field]:
+            raise _fail("frozen_ledger_scope_changed", f"ledger.{field}")
+    for field in ("compositionUniverse", "supersedes"):  # M3: the group and its supersession are frozen
+        if newer.get(field) != older.get(field):
             raise _fail("frozen_ledger_scope_changed", f"ledger.{field}")
     if _shortlist(older) != _shortlist(newer):
         raise _fail("shortlist_changed_after_freeze", "ledger.candidates")
@@ -1302,20 +1349,24 @@ def _maximal(scores: Mapping[str, float]) -> set[str]:
 
 
 def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Path | None = None,
-                      baseline_evidence: Mapping[str, Mapping] | None = None) -> None:
+                      group: object | None = None) -> None:
     """Validate a decision summary against its decision snapshot and frozen ledger (§8).
 
     ``ledger`` is the ledger as it stood at the decision (``<event-id>-evidence-ledger-
     decided.json``); nothing it holds may postdate the decision.
 
-    M3: when the frozen ledger declares gate-only baseline compositions, their committed seals, Layer-A results and
-    partner frozen ledgers are verified too. They come from ``baseline_evidence`` (``{compositionId: {"seal",
-    "layerA", "partnerLedger"}}``) or, when it is not given, from the committed files under ``repo``.
+    M3: for a composition-group event the mandatory ``compositionAuthority`` block is bound to the group state
+    (``m3_authority.GroupState``): the sealed composition set U, the recomputed hard gates, ranking, strongest
+    composition, top-K and finalists, and each ordinary row's technical gates and comparative score are derived from
+    the passing end-to-end compositions (``m3_authority.check_composition_decision``). The group state is ``group``
+    or, when it is not given, the one repository verification computes under ``repo``.
     """
     validate_evolution(frozen, ledger)
     benchmark = _benchmark_baselines(frozen)
-    if isinstance(decision, dict) and decision.get("schema") == "mavi-model-selection-decision-v2" and benchmark:
-        raise _fail("m3_v2_unsupported", "decision.schema")  # M3 §2 rule 8: v2 is unchanged and takes no BOB
+    universe = frozen.get("compositionUniverse")
+    if isinstance(decision, dict) and decision.get("schema") == "mavi-model-selection-decision-v2" and \
+            (benchmark or universe is not None):
+        raise _fail("m3_v2_unsupported", "decision.schema")  # M3 §2 rule 8: v2 is unchanged and takes no M3 event
     if isinstance(decision, dict) and decision.get("schema") == "mavi-model-selection-decision-v2":
         if repo is None:
             raise _fail("decision_v2_requires_repository", "decision")
@@ -1334,7 +1385,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         ("schema", "eventId", "eventState", "outcome", "decidedOn", "ledgerSha256", "frozenLedgerSha256",
          "protocolSha256", "targetProfiles", "evaluated", "licence", "strongestReported",
          "highestTaskQualityEvaluated", "strongestEvaluatedTechnical", "strongestClearedPerProfile", "implementation",
-         *(("benchmarkOnlyBaselines",) if benchmark else ())),  # M3: mandatory exactly when the event holds a BOB
+         *(("compositionAuthority",) if universe is not None else ())),  # M3: mandatory exactly for group events
         "decision",
     )
     if decision["schema"] != DECISION_SCHEMA:
@@ -1346,21 +1397,22 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
     if decision["frozenLedgerSha256"] != document_sha256(frozen):
         raise _fail("decision_frozen_ledger_hash_mismatch", "decision.frozenLedgerSha256")
     _match(decision["protocolSha256"], SHA256_RE, "decision.protocolSha256")
-    if benchmark:
-        # M3 convergence P1-A: a STOPPED gate-only baseline refuses every decision summary before any M1 rule runs.
-        from .baseline_seal import (check_event_seal_validity, event_folder, frozen_compositions,
-                                    load_baseline_evidence, refuse_decision_after_stop, verify_event_seals)
-        if frozen_compositions(frozen):
-            if baseline_evidence is None:
-                if repo is None:
-                    raise _fail("m3_decision_requires_baseline_evidence", "decision")
-                # from a repository, the decision is checked under the same shared seal predicate (P1-C)
-                event = event_folder(Path(repo), frozen["capabilityId"]) / frozen["eventId"]
-                verified = check_event_seal_validity(Path(repo), event, frozen, decision["protocolSha256"])
-                baseline_evidence = load_baseline_evidence(Path(repo), frozen)
-            else:
-                verified = verify_event_seals(baseline_evidence, frozen, decision["protocolSha256"])
-            refuse_decision_after_stop(verified)
+    if universe is not None:
+        # M3: the group state comes first; a STOPPED or missing seal refuses every decision before any M1 rule runs.
+        from .m3_universe import group_id
+        if group is None:
+            if repo is None:
+                raise _fail("m3_decision_requires_group_authority", "decision")
+            from .m3_authority import repository_group_authority
+            group = repository_group_authority(Path(repo), group_id(universe)).state
+        if group.group_id != group_id(universe) or group.frozen_by_event.get(frozen["eventId"]) != frozen:
+            raise _fail("d_artefact_group_mismatch", "decision.compositionAuthority")
+        if group.protocol_by_event.get(frozen["eventId"]) != decision["protocolSha256"]:
+            raise _fail("decision_protocol_hash_mismatch", "decision.protocolSha256")
+        if group.seal is None:
+            raise _fail("gate_only_composition_unresolved", "decision.compositionAuthority.baselineSeals")
+        if group.seal_status != "RESOLVED":
+            raise _fail("baseline_stopped_decision_refused", f"{group.composition_id}:{group.seal['stopReason']}")
     state = _enum(decision["eventState"], EVENT_STATES, "decision.eventState")
     decided_on = _date(decision["decidedOn"], "decision.decidedOn")
     _check_sealed_on(ledger, decided_on, "decision_snapshot_postdates_decision")
@@ -1399,6 +1451,8 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
             if sorted(manifests) != sorted(profiles):
                 # review P3: one pinned host manifest per declared target profile, and no other
                 raise _fail("benchmark_baseline_host_profiles_differ_from_target_profiles", f"{at}.hostManifestSha256s")
+            if row.get("baselineSealSha256s") != {group.composition_id: group.seal_sha256}:
+                raise _fail("benchmark_baseline_row_seal_mismatch", f"{at}.baselineSealSha256s")
             _check_evaluated_artefact(entries[candidate_id], row, at)
             evaluated[candidate_id] = row
             continue
@@ -1431,15 +1485,20 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
     for field, candidate_id in named:
         if isinstance(candidate_id, str) and candidate_id in benchmark:
             raise _fail("benchmark_baseline_in_derived_output", f"decision.{field}")
-    if benchmark:
-        # M3 rules 3, 4a and 9: the mandatory M3 block (seals, hard-gate mapping, ranked sets and compositions).
-        from .baseline_seal import check_m3_decision, frozen_compositions, load_baseline_evidence
-        if baseline_evidence is None and frozen_compositions(frozen):
-            if repo is None:
-                raise _fail("m3_decision_requires_baseline_evidence", "decision")
-            baseline_evidence = load_baseline_evidence(Path(repo), frozen)
-        check_m3_decision(decision, entries=entries, frozen=frozen, evaluated=evaluated, ranked=ranked,
-                          evidence=baseline_evidence or {})
+    implementation_composition = None
+    if universe is not None:
+        # M3 C2-C6: implementation authority comes only from passing end-to-end compositions. Every ordinary row's
+        # technical gates and comparative score are the composition-derived values, so a candidate whose every
+        # composition failed a hard gate (the baseline gate included) is failed for every M1 rule below.
+        from .m3_authority import check_composition_decision
+        derived = check_composition_decision(decision, group, frozen["eventId"])
+        for candidate_id, row in sorted(ranked.items()):
+            gates, score = derived.get(candidate_id, ("failed", None))
+            if row["technicalGates"] != gates:
+                raise _fail("row_technical_gates_not_composition_derived", f"decision.evaluated.{candidate_id}")
+            if row["comparativeScore"] != score:
+                raise _fail("row_score_not_composition_derived", f"decision.evaluated.{candidate_id}")
+        implementation_composition = decision["compositionAuthority"]["implementationComposition"]
 
     licence = _keys(decision["licence"], ranked, "decision.licence")
     for candidate_id in ranked:
@@ -1487,14 +1546,23 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
 
     if implementation is not None:
         _check_implementation(implementation, state, ranked, licence, profiles, entries)
+        if universe is not None:
+            from .m3_authority import implementation_component
+            if implementation_composition is None:
+                raise _fail("implementation_composition_required", "decision.compositionAuthority")
+            own = implementation_component(group, implementation_composition, frozen["eventId"])
+            if implementation["components"] != [own]:
+                raise _fail("implementation_not_composition_component", "decision.implementation.components")
+    elif implementation_composition is not None:
+        raise _fail("implementation_composition_without_implementation", "decision.compositionAuthority")
     outcome = decision["outcome"]
     if state != "CLOSED":
         if outcome is not None:
             raise _fail("outcome_before_closed", "decision.outcome")
         return
     _enum(outcome, OUTCOMES, "decision.outcome")
-    # M3 rule 5: the outcome is the ordinary M1 outcome. Benchmark-only rows were removed from every domain above
-    # (``ranked``), so their presence or absence cannot change it.
+    # M3 rule 5: the outcome is the ordinary M1 outcome over the composition-derived rows. Benchmark-only rows were
+    # removed from every domain above (``ranked``) and never appear in any output.
     components = [] if implementation is None else implementation["components"]
     baseline_only = bool(components) and all(entries[c]["candidateKind"] == BASELINE for c in components)
     if outcome == "SELECTED_FOR_PACKAGING" and (not components or baseline_only):
@@ -1572,7 +1640,14 @@ def _check_implementation(
 
 
 def validate_repository(repo: Path) -> list[str]:
-    """Validate every committed ledger, frozen ledger and decision summary; return the paths checked."""
+    """Validate every committed ledger, frozen ledger and decision summary; return the paths checked.
+
+    Requires full Git history (M3 authority redesign, invariant A6): the sticky M3 audit domain comes from one
+    reachable-history walk, so a shallow clone, a graft or a directory outside Git is refused."""
+    return _validate_repository(repo)[0]
+
+
+def _validate_repository(repo: Path) -> tuple[list[str], object]:
     root = repo / MODEL_SELECTION_DIR
     checked: list[str] = []
     ledgers: dict[Path, dict] = {}
@@ -1608,11 +1683,11 @@ def validate_repository(repo: Path) -> list[str]:
         record = event.parent / f"{event.name}.md"
         if not record.is_file() or lf_normalised_sha256(protocol) not in record.read_text(encoding="utf-8"):
             raise _fail("protocol_hash_not_recorded_in_record", relative(protocol))
-    # M3: committed Layer-A results and pre-D baseline seals (baseline_seal.py).
-    from .baseline_seal import validate_repository_seals
-    protocol_shas = {event: lf_normalised_sha256(event.parent / f"{event.name}{PROTOCOL_SUFFIX}")
-                     for event in frozen_ledgers}
-    checked += validate_repository_seals(repo, root, frozen_ledgers, protocol_shas)
+    # M3 (authority redesign): the sticky history audit and every composition group (m3_authority.py). The history
+    # walk runs for every repository; nothing is added to the output while the M3 domain is empty.
+    from .m3_authority import validate_repository_m3
+    m3_checked, m3 = validate_repository_m3(repo, frozen_ledgers)
+    checked += m3_checked
     for path in sorted(root.glob(f"*/msr-*{DECISION_SUFFIX}")):
         event = path.parent / path.name[: -len(DECISION_SUFFIX)]
         if event not in frozen_ledgers:
@@ -1651,10 +1726,12 @@ def validate_repository(repo: Path) -> list[str]:
         record_text = (event.parent / f"{event.name}.md").read_text(encoding="utf-8")
         if lf_normalised_sha256(path) not in record_text or lf_normalised_sha256(snapshot_path) not in record_text:
             raise _fail("decision_hash_not_recorded_in_record", relative(path))
-        validate_decision(decision, snapshot, frozen_ledgers[event], repo=repo)
-        from .baseline_seal import check_decision_seal_commits, frozen_compositions
-        if frozen_compositions(frozen_ledgers[event]):
-            check_decision_seal_commits(repo, decision, frozen_ledgers[event], path)
+        universe = frozen_ledgers[event].get("compositionUniverse")
+        group = None
+        if universe is not None:
+            from .m3_universe import group_id
+            group = m3.authorities[group_id(universe)].state
+        validate_decision(decision, snapshot, frozen_ledgers[event], repo=repo, group=group)
         # After the decision the working ledger only grows, and nothing is dated before it.
         validate_evolution(snapshot, ledgers[event], since=date.fromisoformat(decision["decidedOn"]))
         checked.append(relative(snapshot_path))
@@ -1662,4 +1739,4 @@ def validate_repository(repo: Path) -> list[str]:
     for path in sorted(root.glob(f"*/msr-*{SNAPSHOT_SUFFIX}")):
         if relative(path) not in checked:
             raise _fail("snapshot_without_decision", relative(path))
-    return checked
+    return checked, m3
