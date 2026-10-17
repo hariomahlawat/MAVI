@@ -8,6 +8,7 @@ import {
   objectSubclassLabel,
   type CrossingDirection,
   type MotionDirection,
+  type PlateMatch,
   type TrackObjectClass,
   type TrackObjectSubclass,
   type ZoneRelation,
@@ -47,6 +48,8 @@ export type SearchDraft = {
   videoAssetId: string;
   objectClass: '' | TrackObjectClass;
   objectSubclass: '' | TrackObjectSubclass;
+  plateText: string;
+  plateMatch: PlateMatch;
   fromLocal: string;
   toLocal: string;
   minimumDurationSeconds: string;
@@ -66,6 +69,8 @@ export const emptyDraft: SearchDraft = {
   videoAssetId: '',
   objectClass: '',
   objectSubclass: '',
+  plateText: '',
+  plateMatch: 'contains',
   fromLocal: '',
   toLocal: '',
   minimumDurationSeconds: '',
@@ -234,7 +239,7 @@ export default function SearchFilterRail({
             </select>
           )}
         </Field>
-        <Field label="Object class">
+        <Field label="Object class" error={errors.objectClass}>
           {(control) => (
             <select
               {...control}
@@ -269,6 +274,36 @@ export default function SearchFilterRail({
               {OBJECT_SUBCLASSES.map((subclass) => (
                 <option key={subclass} value={subclass}>{objectSubclassLabel(subclass)}</option>
               ))}
+            </select>
+          )}
+        </Field>
+        <Field
+          label="Plate text"
+          error={errors.plateText}
+          help="Spaces and dashes are ignored; letters are not substituted."
+        >
+          {(control) => (
+            <input
+              {...control}
+              value={draft.plateText}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="e.g. KA01AB1234"
+              onChange={(event) => onDraftChange({ plateText: event.target.value })}
+            />
+          )}
+        </Field>
+        <Field label="Plate match">
+          {(control) => (
+            <select
+              {...control}
+              value={draft.plateMatch}
+              disabled={!draft.plateText.trim()}
+              onChange={(event) => onDraftChange({ plateMatch: event.target.value as PlateMatch })}
+            >
+              <option value="contains">Contains</option>
+              <option value="prefix">Starts with</option>
+              <option value="exact">Exact</option>
             </select>
           )}
         </Field>
