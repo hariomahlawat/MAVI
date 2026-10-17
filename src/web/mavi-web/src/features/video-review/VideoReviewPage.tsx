@@ -288,7 +288,7 @@ export default function VideoReviewPage() {
                   record's identifiers are Provenance's, one disclosure away. */}
               <Panel title="Evidence Set">
                 <TrackEvidenceSet detail={detail}
-                  selectedObservationId={plateSelection?.observationId}
+                  plateSelection={plateSelection ? { observationId: plateSelection.observationId, serial: plateSelection.seek.serial } : null}
                   />
               </Panel>
               {detail.plates ? (

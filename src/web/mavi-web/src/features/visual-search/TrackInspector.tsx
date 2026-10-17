@@ -197,7 +197,7 @@ export default function TrackInspector({
                 matchedText={summary?.plate?.matchedText} onSelectObservation={selectPlateSource} />
             ) : null}
             <TrackEvidenceSet detail={detail} compact
-              selectedObservationId={plateSelection?.observationId}
+              plateSelection={plateSelection ? { observationId: plateSelection.observationId, serial: plateSelection.seek.serial } : null}
               />
             <details className="disclosure">
               <summary>Identifiers</summary>

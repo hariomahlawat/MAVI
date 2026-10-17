@@ -200,7 +200,18 @@ const REGISTERED = [
       // A manual crop choice afterwards inspects that crop and does not seek.
       await op.tabTo({ name: /^Late diverse/, role: 'button', within: 'Evidence Set' }, { max: 30, note: 'another crop in the Evidence Set' });
       await op.press('Enter', { note: 'inspect it' });
-      await op.done('the chosen crop is inspected and the player stayed at the source', '(() => { const v = document.querySelector("video"); const f = document.querySelector("figure.evidence-set__inspection"); return v && Math.abs(v.currentTime - 2.2) < 0.05 && f && /^Inspecting Late diverse/.test(f.getAttribute("aria-label") || "") && "t=" + v.currentTime.toFixed(2) + " · " + f.getAttribute("aria-label"); })()');
+      await op.until('the chosen crop is inspected and the player stayed at the source', '(() => { const v = document.querySelector("video"); const f = document.querySelector("figure.evidence-set__inspection"); return v && Math.abs(v.currentTime - 2.2) < 0.05 && f && /^Inspecting Late diverse/.test(f.getAttribute("aria-label") || "") && "t=" + v.currentTime.toFixed(2) + " · " + f.getAttribute("aria-label"); })()');
+      // Every "View source at" press is a selection the Evidence Set inspects:
+      // the same source again after the manual choice, then another, then back.
+      await op.tabTo({ name: 'View source at 00:02.2', role: 'button' }, { reverse: true, max: 30, note: 'the same plate source again' });
+      await op.press('Enter', { note: 'view the same source again' });
+      await op.until('the same source is inspected again', '(() => { const v = document.querySelector("video"); const f = document.querySelector("figure.evidence-set__inspection"); return v && Math.abs(v.currentTime - 2.2) < 0.05 && f && /^Inspecting Near view/.test(f.getAttribute("aria-label") || "") && "t=" + v.currentTime.toFixed(2) + " · " + f.getAttribute("aria-label"); })()');
+      await op.tabTo({ name: 'View source at 00:01.6', role: 'button' }, { reverse: true, max: 10, note: 'another plate source' });
+      await op.press('Enter', { note: 'view the other source' });
+      await op.until('the other source is inspected, the player at it (1.6 s)', '(() => { const v = document.querySelector("video"); const f = document.querySelector("figure.evidence-set__inspection"); return v && Math.abs(v.currentTime - 1.6) < 0.05 && f && /^Inspecting Representative/.test(f.getAttribute("aria-label") || "") && "t=" + v.currentTime.toFixed(2) + " · " + f.getAttribute("aria-label"); })()');
+      await op.tabTo({ name: 'View source at 00:02.2', role: 'button' }, { max: 10, note: 'back to the first plate source' });
+      await op.press('Enter', { note: 'view the first source again' });
+      await op.done('back at the first source: the player and the inspected crop agree', '(() => { const v = document.querySelector("video"); const f = document.querySelector("figure.evidence-set__inspection"); return v && Math.abs(v.currentTime - 2.2) < 0.05 && f && /^Inspecting Near view/.test(f.getAttribute("aria-label") || "") && "t=" + v.currentTime.toFixed(2) + " · " + f.getAttribute("aria-label"); })()');
     },
   },
   {

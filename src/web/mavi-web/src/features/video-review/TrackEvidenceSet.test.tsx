@@ -222,7 +222,7 @@ describe('crop inspection after a plate selection (Stage-4 PR-5)', () => {
     render(
       <>
         <TrackEvidence detail={detail} />
-        <TrackEvidenceSet detail={detail} selectedObservationId={nearViewId()} />
+        <TrackEvidenceSet detail={detail} plateSelection={{ observationId: nearViewId(), serial: 1 }} />
       </>,
     );
     seek(20);
@@ -241,15 +241,61 @@ describe('crop inspection after a plate selection (Stage-4 PR-5)', () => {
   it('gives a new plate selection priority over an earlier manual choice', async () => {
     const user = userEvent.setup();
     const detail = full();
-    const r = render(<TrackEvidenceSet detail={detail} selectedObservationId={nearViewId()} />);
+    const r = render(<TrackEvidenceSet detail={detail} plateSelection={{ observationId: nearViewId(), serial: 1 }} />);
     await user.click(control('Early diverse · 00:10.4'));
     expect(inspection()).toHaveAccessibleName('Inspecting Early diverse · 00:10.4');
 
-    r.rerender(<TrackEvidenceSet detail={detail} selectedObservationId={lateDiverseId()} />);
+    r.rerender(<TrackEvidenceSet detail={detail} plateSelection={{ observationId: lateDiverseId(), serial: 2 }} />);
     expect(inspection()).toHaveAccessibleName('Inspecting Late diverse · 00:16.8');
 
     await user.click(control('Representative · 00:12.0'));
     expect(inspection()).toHaveAccessibleName('Inspecting Representative · 00:12.0');
+  });
+});
+
+describe('every plate selection is inspected, even one the operator made before (P2-5)', () => {
+  const near = () => full().observations[1].observationId;
+  const late = () => full().observations[3].observationId;
+  const at = (observationId: string, serial: number) => ({ observationId, serial });
+
+  it('returns to the first source after A, a manual crop, B and A again', async () => {
+    const user = userEvent.setup();
+    const detail = full();
+    const r = render(<TrackEvidenceSet detail={detail} plateSelection={at(near(), 1)} />);
+    await user.click(control('Early diverse · 00:10.4'));
+    expect(inspection()).toHaveAccessibleName('Inspecting Early diverse · 00:10.4');
+    r.rerender(<TrackEvidenceSet detail={detail} plateSelection={at(late(), 2)} />);
+    expect(inspection()).toHaveAccessibleName('Inspecting Late diverse · 00:16.8');
+    r.rerender(<TrackEvidenceSet detail={detail} plateSelection={at(near(), 3)} />);
+    expect(inspection()).toHaveAccessibleName('Inspecting Near view · 00:14.6');
+    expect(control('Near view · 00:14.6')).toHaveAttribute('aria-current', 'true');
+    expect(control('Early diverse · 00:10.4')).not.toHaveAttribute('aria-current');
+  });
+
+  it('inspects the same source again when the same plate is selected again after a manual crop', async () => {
+    const user = userEvent.setup();
+    const detail = full();
+    const r = render(<TrackEvidenceSet detail={detail} plateSelection={at(near(), 1)} />);
+    await user.click(control('Late diverse · 00:16.8'));
+    expect(inspection()).toHaveAccessibleName('Inspecting Late diverse · 00:16.8');
+    r.rerender(<TrackEvidenceSet detail={detail} plateSelection={at(near(), 2)} />);
+    expect(inspection()).toHaveAccessibleName('Inspecting Near view · 00:14.6');
+    // And a manual choice after that still only inspects.
+    await user.click(control('Representative · 00:12.0'));
+    expect(inspection()).toHaveAccessibleName('Inspecting Representative · 00:12.0');
+  });
+
+  it('keeps a manual choice across re-renders of the same selection, and without any plate selection', async () => {
+    const user = userEvent.setup();
+    const detail = full();
+    const r = render(<TrackEvidenceSet detail={detail} plateSelection={at(near(), 1)} />);
+    await user.click(control('Late diverse · 00:16.8'));
+    r.rerender(<TrackEvidenceSet detail={detail} plateSelection={at(near(), 1)} />);
+    expect(inspection()).toHaveAccessibleName('Inspecting Late diverse · 00:16.8');
+    r.rerender(<TrackEvidenceSet detail={detail} plateSelection={null} />);
+    await user.click(control('Early diverse · 00:10.4'));
+    r.rerender(<TrackEvidenceSet detail={detail} plateSelection={null} />);
+    expect(inspection()).toHaveAccessibleName('Inspecting Early diverse · 00:10.4');
   });
 });
 

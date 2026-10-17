@@ -296,6 +296,49 @@ describe('VideoReviewPage', () => {
     expect(video.currentTime).toBeCloseTo(14.6, 3);
   });
 
+  it('inspects every plate source it seeks to: A, manual crop, B, A again, and the same plate again (P2-5)', async () => {
+    const user = userEvent.setup();
+    const observations = evidenceSet(FULL_EVIDENCE_SET_ROLES);
+    const [, nearView, earlyDiverse] = observations;
+    vi.mocked(getTrack).mockResolvedValue(detail({
+      objectClass: 'Vehicle',
+      startOffsetMs: 10_000,
+      endOffsetMs: 18_000,
+      ...trackEvidence(observations),
+      plates: readyPlates([plateObservationFor(nearView), plateObservationFor(earlyDiverse)]),
+    }));
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId,
+      routePath: '/review/video/:videoAssetId',
+    });
+    const video = await screen.findByLabelText(/source video evidence$/) as HTMLVideoElement;
+    Object.defineProperty(video, 'duration', { configurable: true, value: 600 });
+    Object.defineProperty(video, 'readyState', { configurable: true, value: 4 });
+    fireEvent.loadedMetadata(video);
+    const readings = await screen.findByRole('region', { name: 'Plate readings' });
+    const set = screen.getByRole('region', { name: 'Evidence Set' });
+    const strip = within(set).getByRole('list', { name: 'Evidence Set observations' });
+    const inspected = () => within(set).getByRole('figure', { name: /^Inspecting / });
+    const source = (offset: string) => user.click(within(readings).getByRole('button', { name: 'View source at ' + offset }));
+    const crop = (name: string) => user.click(within(strip).getByRole('button', { name }));
+
+    await source('00:14.6');
+    await crop('Late diverse · 00:16.8');
+    await source('00:10.4');
+    expect(video.currentTime).toBeCloseTo(10.4, 3);
+    expect(inspected()).toHaveAccessibleName('Inspecting Early diverse · 00:10.4');
+    await source('00:14.6');
+    expect(video.currentTime).toBeCloseTo(14.6, 3);
+    expect(inspected()).toHaveAccessibleName('Inspecting Near view · 00:14.6');
+
+    // The same plate again, after a manual crop: inspected again.
+    await crop('Representative · 00:12.0');
+    expect(video.currentTime).toBeCloseTo(14.6, 3);
+    await source('00:14.6');
+    expect(inspected()).toHaveAccessibleName('Inspecting Near view · 00:14.6');
+    expect(within(strip).getByRole('button', { name: 'Near view · 00:14.6' })).toHaveAttribute('aria-current', 'true');
+  });
+
   it('rejects malformed route video and missing Track identity without API calls', async () => {
     const invalidVideo = renderWithApp(<VideoReviewPage />, {
       route: '/review/video/not-a-guid?trackId=' + trackId,

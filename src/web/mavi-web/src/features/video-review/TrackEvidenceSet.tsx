@@ -9,7 +9,12 @@ type Props = {
   detail: TrackDetail;
   /** The Investigation inspector: no host panel, so the set names itself. */
   compact?: boolean;
-  selectedObservationId?: string | null;
+  /**
+   * The host's latest plate selection ("View source at …"): the source
+   * Observation and the selection's own serial, so every press — the same
+   * source again included — is a new selection the set inspects.
+   */
+  plateSelection?: { observationId: string; serial: number } | null;
 };
 
 /**
@@ -33,12 +38,16 @@ type Props = {
  * contract rather than a second suppression mechanism. The crop controls are
  * plain buttons: Enter and Space select, and no other key is redefined.
  */
-export default function TrackEvidenceSet({ detail, compact = false, selectedObservationId }: Props) {
+export default function TrackEvidenceSet({ detail, compact = false, plateSelection }: Props) {
   const observations = detail.observations;
   // A plate selection takes priority when it arrives, but manual Evidence Set
   // selection afterwards still only inspects a crop — it does not seek.
-  const [localChoice, setLocalChoice] = useState<{ id: string; source: string | null | undefined } | null>(null);
-  const selectedId = localChoice?.source === selectedObservationId ? localChoice?.id : selectedObservationId;
+  // The manual choice is keyed to the selection it was made under, by serial
+  // rather than by Observation id: a later press that returns to the same
+  // source is still a new selection and takes priority.
+  const selectionSerial = plateSelection?.serial;
+  const [localChoice, setLocalChoice] = useState<{ id: string; source: number | undefined } | null>(null);
+  const selectedId = localChoice && localChoice.source === selectionSerial ? localChoice.id : plateSelection?.observationId;
   // Keyed by URL, so a failure belongs to the bytes that failed and not to a
   // position in a strip that another Track may reuse.
   const [failedUrls, setFailedUrls] = useState<ReadonlySet<string>>(() => new Set());
@@ -89,7 +98,7 @@ export default function TrackEvidenceSet({ detail, compact = false, selectedObse
                     // label's words, in sequence, are in the accessible name).
                     aria-label={(state === 'available' ? '' : 'No image, ') + name}
                     data-role={observation.evidenceRole}
-                    onClick={() => setLocalChoice({ id: observation.observationId, source: selectedObservationId })}
+                    onClick={() => setLocalChoice({ id: observation.observationId, source: selectionSerial })}
                   >
                     <span className="evidence-set__thumb">
                       {state === 'available' ? (

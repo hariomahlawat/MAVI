@@ -179,6 +179,18 @@ describe('VisualSearchPage', () => {
         outcome: 'Read',
         readings: [{ rank: 0, rawText: 'KA 01 AB 1234', rawLineCount: 1,
           normalisedText: 'KA01AB1234', normalisationOutcome: 'ok', confidence: 0.95 }],
+      }, {
+        plateObservationId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21466',
+        sourceObservationId: record.observations[2].observationId,
+        role: record.observations[2].evidenceRole,
+        offsetMs: record.observations[2].videoOffsetMs,
+        sourceFrameNumber: record.observations[2].sourceFrameNumber,
+        timestampUtc: record.observations[2].timestampUtc,
+        box: { x: 4, y: 5, width: 16, height: 8, cropWidth: 100, cropHeight: 50 },
+        detectorConfidence: 0.81,
+        outcome: 'Read',
+        readings: [{ rank: 0, rawText: 'KA 01 AB 1284', rawLineCount: 1,
+          normalisedText: 'KA01AB1284', normalisationOutcome: 'ok', confidence: 0.6 }],
       }],
     };
     vi.mocked(searchTracks).mockResolvedValue({
@@ -204,7 +216,7 @@ describe('VisualSearchPage', () => {
     const inspector = await screen.findByRole('complementary', { name: 'Track inspector' });
     const readings = await within(inspector).findByRole('region', { name: 'Plate readings' });
     expect(within(readings).getByText(/Conflicting readings/)).toBeInTheDocument();
-    await user.click(within(readings).getByRole('button', { name: /View source at/ }));
+    await user.click(within(readings).getAllByRole('button', { name: /View source at/ })[0]);
     const evidence = within(inspector).getByRole('region', { name: 'Evidence Set' });
     const crops = within(evidence).getAllByRole('button');
     expect(crops[1]).toHaveAttribute('aria-current', 'true');
@@ -213,6 +225,17 @@ describe('VisualSearchPage', () => {
     await user.click(crops[3]);
     expect(crops[3]).toHaveAttribute('aria-current', 'true');
     expect(crops[1]).not.toHaveAttribute('aria-current');
+    // P2-5: every "View source at" press inspects its source, even one the
+    // operator chose before a manual crop: the same plate again, then B, then A.
+    const viewSource = (n: number) => within(readings).getAllByRole('button', { name: /View source at/ })[n];
+    await user.click(viewSource(0));
+    expect(crops[1]).toHaveAttribute('aria-current', 'true');
+    await user.click(viewSource(1));
+    expect(crops[2]).toHaveAttribute('aria-current', 'true');
+    await user.click(crops[0]);
+    await user.click(viewSource(0));
+    expect(crops[1]).toHaveAttribute('aria-current', 'true');
+    expect(crops[0]).not.toHaveAttribute('aria-current');
   });
 
   it('loads the default unfiltered first page', async () => {
