@@ -5,6 +5,7 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence } from '../../shared/format/format';
 import { reviewPath } from './TrackResultList';
+import TrackPlateMatch from './TrackPlateMatch';
 import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
 import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 
@@ -91,7 +92,7 @@ export default memo(function TrackResultCard({
           <div><dt>Confidence</dt><dd>{formatConfidence(track.meanConfidence, 'list')} mean</dd></div>
           <div><dt>Detections</dt><dd>{track.detectionCount}</dd></div>
         </dl>
-
+        {track.plate ? <TrackPlateMatch plate={track.plate} searchContext={searchContext} /> : null}
       </div>
 
       <div className="track-card__foot">
