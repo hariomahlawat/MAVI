@@ -1455,9 +1455,11 @@ def test_rankings_and_seal_must_be_cited_exactly_once_and_canonical(tmp_path):
     write_rankings(built)
     citation = ma.ranking_citation(EVENT, document_sha256(built.rankings[EVENT]))
     write(built.record(), built.record().read_text().replace(citation + "\n", ""))
+    commit(built.path, "R without the record citation")  # committed: the work tree is never authority (P2-1)
     refused("component_ranking_not_recorded", validate_repository, built.path)
     append(built.record(), citation)
     append(built.record(), citation)
+    commit(built.path, "the citation, twice")
     refused("component_ranking_cited_twice", validate_repository, built.path)
     built = build(tmp_path / "b", stages=("freeze", "rank"))
     write_seal(built)
@@ -1478,6 +1480,7 @@ def test_rankings_and_seal_must_be_cited_exactly_once_and_canonical(tmp_path):
     refused("baseline_artefact_without_frozen_composition", validate_repository, built.path)
     built = build(tmp_path / "f", stages=("freeze",))
     append(built.record(), bs.seal_citation(GATE, sha("no file")))
+    commit(built.path, "a seal citation without a seal file")
     refused("baseline_seal_cited_without_file", validate_repository, built.path)
 
 
@@ -1771,6 +1774,10 @@ def test_d1_ranking_in_the_seal_or_freeze_commit_is_refused(tmp_path):
     built = build(tmp_path / "uncommitted", stages=("freeze",))
     write_rankings(built)
     write_seal(built)
+    refused("m3_file_differs_from_commit", validate_repository, built.path)  # uncommitted record citations (P2-1)
+    git(built.path, "add", "--", built.record().relative_to(built.path).as_posix(),
+        built.record(PARTNER_EVENT).relative_to(built.path).as_posix())
+    git(built.path, "commit", "-q", "-m", "record citations committed, ranking and seal files not")
     refused("m3_chronology_unproven", validate_repository, built.path)
 
 
@@ -1800,7 +1807,7 @@ def test_d2_the_validated_state_is_the_published_state(tmp_path):
     built = build(tmp_path / "r")
     publish(built)
     append(built.record(), "a local, uncommitted note")
-    refused("group_state_not_clean", open_d, built)
+    refused("m3_file_differs_from_commit", open_d, built)  # the repository predicate refuses it first (P2-1)
     git(built.path, "checkout", "-q", "--", ".")
     append(built.record(PARTNER_EVENT), "Note: committed but never published")
     commit(built.path, "unpublished group change")
@@ -2497,8 +2504,9 @@ def test_p2_3_a_modified_committed_file_beyond_max_path_is_detected(tmp_path):
                             rel], capture_output=True, text=True, env=mg.git_environment())
     assert plain.returncode == 0 and plain.stdout == "" and plain.stderr.strip()
     assert mg.worktree_status(built.path, [rel]) == {rel: " M"}
-    refused("group_state_not_clean", open_d, built)
+    refused("m3_file_differs_from_commit", open_d, built)  # the content check also reads beyond MAX_PATH (P2-1)
     git(built.path, "checkout", "-q", "--", rel)
+    validate_repository(built.path)  # and a clean file beyond MAX_PATH matches its blob
     frozen.write_text(frozen.read_text() + " ")
     refused("m3_frozen_file_rewritten", validate_repository, built.path)
 
@@ -2984,3 +2992,113 @@ def test_ip5_test_seams_are_referenced_only_under_tests():
             if name in seams:
                 offenders.append(f"{rel}:{getattr(node, 'lineno', 0)}:{name}")
     assert offenders == [], offenders
+
+
+# ---- cold review #222 P2-1: every committed event file is content-checked (repository mode and before protected D)
+
+
+def test_ip5_cold_p2_1_probe_a_stat_blind_record_edit_cannot_open_d(tmp_path):
+    """The cold-review probe (``probe_record_stat_blind.py``): the committed record lacks the seal citation (the
+    committed tree is refused), and a same-size, mtime-preserving work-tree edit restores it. Git's status is blind to
+    the edit on Windows; both the repository check and the gate must refuse it."""
+    built = build(tmp_path / "r", stages=("freeze", "rank"))
+    write_seal(built)
+    record = built.record()
+    text = record.read_text(encoding="utf-8")
+    citation = text.rstrip("\n").split("\n")[-1]
+    padding = "N" * len(citation)
+    write(record, text.replace(citation, padding))
+    built.commits["S0"] = commit(built.path, "S0: seal committed, citation replaced by same-length prose")
+    publish(built)
+    assert code_of(validate_repository, built.path) == "baseline_seal_not_recorded"
+    old = 1_600_000_000_000_000_000
+    os.utime(record, ns=(old, old))
+    git(built.path, "update-index", "--refresh")
+    _stat_preserving_edit(record, record.read_bytes().replace(padding.encode(), citation.encode()))
+    rel = record.relative_to(built.path).as_posix()
+    if os.name == "nt":
+        assert git(built.path, "status", "--porcelain", "--", rel) == ""  # the reproduction
+    refused("m3_file_differs_from_commit", validate_repository, built.path)
+    refused("m3_file_differs_from_commit", open_d, built)
+
+
+def _versioned_paths(built: Built) -> dict[str, Path]:
+    folder = built.folder
+    return {"record": built.record(), "partner-record": built.record(PARTNER_EVENT),
+            "working-ledger": folder / f"{EVENT}-evidence-ledger.json",
+            "decision": folder / f"{EVENT}-decision.json",
+            "decided-ledger": folder / f"{EVENT}-evidence-ledger-decided.json"}
+
+
+def _neutral_edit(path: Path) -> None:
+    """An edit no other check sees: trailing prose in Markdown, trailing whitespace in JSON (same document)."""
+    data = path.read_bytes()
+    path.write_bytes(data + (b"hidden prose\n" if path.suffix == ".md" else b" "))
+
+
+@pytest.mark.parametrize("kind", ["record", "partner-record", "working-ledger", "decision", "decided-ledger"])
+def test_ip5_cold_p2_1_a_status_blind_edit_of_any_committed_event_file_is_refused_by_repository_mode(tmp_path, kind,
+                                                                                          monkeypatch):
+    built, auth, _manifest = full_flow(tmp_path / "r")
+    commit_decisions(built, auth)
+    validate_repository(built.path)
+    _neutral_edit(_versioned_paths(built)[kind])
+    monkeypatch.setattr(ma, "worktree_status", lambda repo, paths: {})  # any status blind spot
+    refused("m3_file_differs_from_commit", validate_repository, built.path)
+
+
+@pytest.mark.parametrize("kind", ["record", "partner-record", "working-ledger"])
+def test_ip5_cold_p2_1_a_status_blind_edit_before_d_is_refused_by_the_gate(tmp_path, kind, monkeypatch):
+    built = build(tmp_path / "r")
+    publish(built)
+    _neutral_edit(_versioned_paths(built)[kind])
+    monkeypatch.setattr(ma, "worktree_status", lambda repo, paths: {})
+    monkeypatch.setattr(mg, "worktree_status", lambda repo, paths: {})
+    refused("m3_file_differs_from_commit", open_d, built)
+
+
+@pytest.mark.parametrize("kind", ["record", "working-ledger"])
+def test_ip5_cold_p2_1_a_visible_uncommitted_edit_is_refused_too(tmp_path, kind):
+    built = build(tmp_path / "r")
+    _neutral_edit(_versioned_paths(built)[kind])
+    refused("m3_file_differs_from_commit", validate_repository, built.path)
+
+
+def test_ip5_cold_p2_1_a_missing_versioned_file_hidden_from_status_is_refused(tmp_path, monkeypatch):
+    built = build(tmp_path / "r")
+    built.record().unlink()
+    monkeypatch.setattr(ma, "worktree_status", lambda repo, paths: {})
+    assert code_of(validate_repository, built.path) != "accepted"
+
+
+def test_ip5_cold_p2_1_committed_version_updates_remain_valid(tmp_path):
+    built, auth, _manifest = full_flow(tmp_path / "r")
+    commit_decisions(built, auth)
+    append(built.record(), "A later prose note in the record.")
+    write(built.folder / f"{EVENT}-addenda.md", "2026-07-03: addendum.\n")
+    commit(built.path, "a committed record version and addenda")
+    validate_repository(built.path)
+    append(built.folder / f"{EVENT}-addenda.md", "2026-07-04: second addendum.")
+    commit(built.path, "a second addenda version")
+    validate_repository(built.path)
+
+
+def test_ip5_cold_p2_1_a_crlf_checkout_of_a_decided_group_is_accepted(tmp_path):
+    built, auth, _manifest = full_flow(tmp_path / "r")
+    commit_decisions(built, auth)
+    git(built.path, "config", "core.autocrlf", "true")
+    for path in list(built.folder.parent.rglob("*")):
+        if path.is_file():
+            path.unlink()
+    git(built.path, "-c", "core.autocrlf=true", "checkout", "-q", "--", ".")
+    assert b"\r\n" in built.record().read_bytes()
+    validate_repository(built.path)
+
+
+def test_ip5_cold_p2_1_every_registered_class_has_a_content_policy():
+    """Enumerated from the registry, not hand-listed: every class except FORBIDDEN is content-checked; the LF-only
+    (blob id) policy is exactly the canonical-JSON classes, and every other class is compared LF-normalised."""
+    canonical = {cls for cls, _s, policy, _w in ma.EVENT_FILE_CLASSES if policy == ma.IMMUTABLE and cls not in
+                 ("frozen-ledger", "protocol")}
+    assert ma.CANONICAL_JSON_CLASSES == canonical
+    assert {cls for cls, _s, policy, _w in ma.EVENT_FILE_CLASSES if policy == ma.FORBIDDEN} == {"legacy-layer-a"}

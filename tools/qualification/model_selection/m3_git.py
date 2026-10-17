@@ -15,10 +15,13 @@ with ``GIT_CEILING_DIRECTORIES`` at that directory's parent, so no enclosing rep
 normalisation for work-tree status (``core.autocrlf``/``core.eol``, validated, read without any injected
 ``GIT_CONFIG_*``; IP-5 I4), so a normal Windows checkout is not misread as modified.
 
-Work-tree cleanliness (``worktree_status``) is complete and fail closed (IP-5 I2): ignored files are reported (``!!``)
-and count as dirty; a ``filter``, ``ident`` or ``working-tree-encoding`` attribute on a checked path (from any
-attributes source) refuses before ``git status`` runs (no clean filter is ever executed); and an immutable file can be
-checked against its committed blob by content (``immutable_blob_matches``), which Git's stat cache cannot hide.
+Work-tree status (``worktree_status``) closes the filter, ignore and index-flag routes (IP-5 I2): ignored files are
+reported (``!!``) and count as dirty; a ``filter``, ``ident`` or ``working-tree-encoding`` attribute on a checked path
+(from any attributes source) refuses before ``git status`` runs (no clean filter is ever executed). ``git status``
+still trusts Git's stat cache, so a same-size, mtime-preserving edit can stay invisible to it (reproduced on Windows,
+where ctime is the creation time). Status alone is therefore never the integrity check for a file whose content
+matters: callers compare such a file with its committed blob by content (``immutable_blob_matches``); M3 does so for
+every committed event file (``m3_authority.check_event_history``).
 
 A non-zero exit raises ``GitCommandError`` (code ``git_command_failed``) carrying the arguments, the return code and
 the tail of stderr. It is a ``CredibilityError``, so it is always a refusal, and it is never mapped by a caller to
@@ -339,6 +342,9 @@ def immutable_blob_matches(repo: Path, path: str, blob_id: str, *, lf_only: bool
       committed blob bytes (read by id).
     A missing, non-regular or unreadable work-tree file never matches."""
     target = Path(repo) / path
+    if os.name == "nt":  # an extended-length path: a work-tree file beyond MAX_PATH is still read, never misjudged
+        absolute = str(target.resolve())
+        target = Path(absolute if absolute.startswith("\\\\") else "\\\\?\\" + absolute)
     try:
         work = target.read_bytes() if target.is_file() and not target.is_symlink() else None
     except OSError:

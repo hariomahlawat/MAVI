@@ -219,6 +219,13 @@ EVENT_FILE_CLASSES = (
     ("legacy-layer-a", rf"-layer-a-{_ID}\.json", FORBIDDEN, "the pre-redesign Layer-A result"),
 )
 ARTEFACT_CLASSES = frozenset({"component-ranking", "seal", "d-manifest", "legacy-layer-a"})
+# Committed-content line-ending policy (IP-5 I2 and cold-review P2-1). EVERY committed event file except FORBIDDEN ones
+# must match its HEAD blob by content (``immutable_blob_matches``), whatever Git's stat cache reports, in repository
+# mode and therefore before protected D. Canonical-JSON classes are LF-only by construction and are compared by blob id
+# (``lf_only=True``); every other class (Markdown records, protocol and addenda; the ordinary JSON ledgers and decision,
+# whose JSON cannot carry a raw CR or LF inside a value) may legitimately be checked out with CRLF and is compared
+# LF-normalised (``lf_only=False``).
+CANONICAL_JSON_CLASSES = frozenset({"component-ranking", "seal", "d-manifest"})
 _POLICY = {cls: policy for cls, _suffix, policy, _why in EVENT_FILE_CLASSES}
 _SUFFIX_RES = tuple((cls, re.compile(suffix)) for cls, suffix, _p, _w in EVENT_FILE_CLASSES)
 
@@ -253,6 +260,19 @@ def event_files(history: History, event_id: str) -> dict[str, str]:
             raise _fail("m3_unclassified_event_file", path)
         found[path] = sorted(classes)[0]
     return found
+
+
+def _check_committed_content(repo: Path, history: History, path: str, cls: str) -> None:
+    """P2-1: a committed MUTABLE or VERSIONED event file (working ledger, record, addenda, decision, decided ledger) is
+    read from the work tree by the authority (``_record_text``, ``read_json``), so its work-tree content must equal its
+    HEAD blob (``m3_file_differs_from_commit``): an uncommitted edit, visible or hidden from Git's stat cache, is never
+    authority. A missing or unreadable file never matches; a Git failure reading the blob raises ``GitCommandError``.
+    Committed version updates are unaffected (the HEAD blob is the newest version; the history rules are unchanged)."""
+    blob = history.head_tree.get(path)
+    if blob is None:
+        return  # not committed: governed by the other checks (e.g. an uncommitted working ledger before freeze)
+    if not immutable_blob_matches(repo, path, blob, lf_only=cls in CANONICAL_JSON_CLASSES):
+        raise _fail("m3_file_differs_from_commit", path)
 
 
 def decision_in_history(history: History, event_id: str) -> bool:
@@ -362,6 +382,7 @@ def check_event_history(repo: Path, history: History, event_id: str, record_text
         if policy == FORBIDDEN:
             raise _fail("legacy_layer_a_artefact", path)
         if policy == MUTABLE:
+            _check_committed_content(repo, history, path, cls)
             continue
         frozen_kind = cls in ("frozen-ledger", "protocol")
         if policy == IMMUTABLE:
@@ -388,6 +409,7 @@ def check_event_history(repo: Path, history: History, event_id: str, record_text
         # VERSIONED, APPEND_LINES, DECISION: modified in place by later versions, never deleted once committed
         if history.deletes.get(path) or path not in history.head_tree or "D" in work:
             raise _fail("m3_versioned_file_deleted", path)
+        _check_committed_content(repo, history, path, cls)
     current = structured_lines(record_text or "")
     record_blobs = history.blobs.get(paths["record"], set())
     texts = read_blobs(repo, record_blobs)
