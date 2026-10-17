@@ -1,4 +1,4 @@
-import type { AnalyticsCoverage } from '../../api/tracks';
+import type { AnalyticsCoverage, PlateCoverage } from '../../api/tracks';
 import { ButtonLink } from '../components/Button';
 import Icon from '../components/Icon';
 import { formatCount } from '../format/format';
@@ -45,31 +45,44 @@ export function coverageHeadline(coverage: AnalyticsCoverage, scopeNoun = 'searc
 
 export default function CoverageStrip({
   coverage,
+  plateCoverage,
   geometry,
   scopeNoun,
 }: {
-  coverage: AnalyticsCoverage;
+  coverage?: AnalyticsCoverage;
+  plateCoverage?: PlateCoverage;
   geometry?: GeometryNames;
   /** What the scope is, for the case where it holds no runs at all. */
   scopeNoun?: string;
 }) {
-  const tone = coverage.staleRuns > 0 ? 'stale' : coverage.complete ? 'success' : 'info';
-  const revision = coverage.sceneRevisionId === null
+  if (!coverage && !plateCoverage) return null;
+  const plateComplete = plateCoverage
+    ? plateCoverage.ready === plateCoverage.vehicleTracksInScope : true;
+  const tone = (coverage?.staleRuns ?? 0) > 0 || (plateCoverage?.stale ?? 0) > 0
+    ? 'stale' : (coverage?.complete ?? true) && plateComplete ? 'success' : 'info';
+  const revision = !coverage || coverage.sceneRevisionId === null
     ? 'no scene configured'
     : geometry?.revisionNumber !== null && geometry?.revisionNumber !== undefined
       ? `Revision ${geometry.revisionNumber}`
       : `Revision ${shortId(coverage.sceneRevisionId)}`;
-  const sentences = coverageSentences(coverage);
+  const sentences = coverage ? coverageSentences(coverage) : [];
+  const plateSentences = plateCoverage
+    ? [
+        plateCoverage.pending > 0 ? `${formatCount(plateCoverage.pending)} pending` : null,
+        plateCoverage.failed > 0 ? `${formatCount(plateCoverage.failed)} failed` : null,
+        plateCoverage.stale > 0 ? `${formatCount(plateCoverage.stale)} from an earlier configuration` : null,
+      ].filter((item): item is string => item !== null)
+    : [];
   // Processing is offered only for runs it can act on — pending, failed or
   // analysed against an earlier revision. A run with no scene, or with
   // analytics disabled by the scene, is repaired in the scene, not there.
-  const processingCanHelp = coverage.pendingRuns + coverage.failedRuns + coverage.staleRuns > 0;
+  const processingCanHelp = coverage ? coverage.pendingRuns + coverage.failedRuns + coverage.staleRuns > 0 : false;
 
   return (
     <div className={`coverage coverage--${tone}`} role="region" aria-label="Analytics coverage">
       <Icon name={tone === 'success' ? 'check' : 'info'} size="sm" />
       <div className="coverage__body">
-        <span className="coverage__headline">
+        {coverage ? <span className="coverage__headline">
           <strong>{coverageHeadline(coverage, scopeNoun)}</strong>
           {/* The identity is a line of its own, its revision and engine each
               unbroken: when the scene's names are withdrawn, "Revision 4"
@@ -83,16 +96,24 @@ export default function CoverageStrip({
             {' '}
             <span className="coverage__engine">{engineLabel(coverage.algorithmVersion)}</span>
           </span>
-        </span>
+        </span> : null}
         {sentences.length > 0 ? <span className="coverage__buckets">{sentences.join(' · ')}</span> : null}
-        <span className="coverage__tracks">
+        {coverage ? <span className="coverage__tracks">
           {plural(coverage.analysedTracks, 'Track')} analysed
           {coverage.unavailableTracks > 0
             ? <> · <span className="text-warn">{plural(coverage.unavailableTracks, 'Track')} could not be analysed</span></>
             : null}
-        </span>
+        </span> : null}
+        {plateCoverage ? (
+          <span className="coverage__tracks">
+            {plateCoverage.notConfigured === plateCoverage.vehicleTracksInScope
+              ? 'Plate reading is not configured in this installation'
+              : `Plate readings available for ${formatCount(plateCoverage.ready)} of ${formatCount(plateCoverage.vehicleTracksInScope)} vehicle tracks in scope`}
+            {plateSentences.length ? ` · ${plateSentences.join(' · ')}` : null}
+          </span>
+        ) : null}
       </div>
-      {!coverage.complete && processingCanHelp ? (
+      {coverage && !coverage.complete && processingCanHelp ? (
         <ButtonLink size="sm" variant="ghost" to="/processing" icon="activity">Processing</ButtonLink>
       ) : null}
     </div>
