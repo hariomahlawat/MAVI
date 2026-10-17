@@ -151,6 +151,93 @@ describe('VisualSearchPage', () => {
     });
   });
 
+  it('searches a plate, reports coverage, inspects the uncertain reading and selects source evidence', async () => {
+    const user = userEvent.setup();
+    const row = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451', {
+      objectClass: 'Vehicle',
+      plate: {
+        matchedText: 'KA01AB1234', matchKind: 'exact', supportCount: 1,
+        plateObservationCount: 2, distinctTextCount: 2, maxConfidence: 0.95,
+        bestPlateObservationId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21465',
+      },
+    });
+    const record = detail(row, 7);
+    const source = record.observations[1];
+    record.plates = {
+      readiness: 'Ready', trackOutcome: 'Analysed', agreement: 'conflicting',
+      texts: [{ normalisedText: 'KA01AB1234', supportCount: 1, maxConfidence: 0.95,
+        bestPlateObservationId: row.plate!.bestPlateObservationId }],
+      observations: [{
+        plateObservationId: row.plate!.bestPlateObservationId,
+        sourceObservationId: source.observationId,
+        role: source.evidenceRole,
+        offsetMs: source.videoOffsetMs,
+        sourceFrameNumber: source.sourceFrameNumber,
+        timestampUtc: source.timestampUtc,
+        box: { x: 4, y: 5, width: 16, height: 8, cropWidth: 100, cropHeight: 50 },
+        detectorConfidence: 0.97,
+        outcome: 'Read',
+        readings: [{ rank: 0, rawText: 'KA 01 AB 1234', rawLineCount: 1,
+          normalisedText: 'KA01AB1234', normalisationOutcome: 'ok', confidence: 0.95 }],
+      }, {
+        plateObservationId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21466',
+        sourceObservationId: record.observations[2].observationId,
+        role: record.observations[2].evidenceRole,
+        offsetMs: record.observations[2].videoOffsetMs,
+        sourceFrameNumber: record.observations[2].sourceFrameNumber,
+        timestampUtc: record.observations[2].timestampUtc,
+        box: { x: 4, y: 5, width: 16, height: 8, cropWidth: 100, cropHeight: 50 },
+        detectorConfidence: 0.81,
+        outcome: 'Read',
+        readings: [{ rank: 0, rawText: 'KA 01 AB 1284', rawLineCount: 1,
+          normalisedText: 'KA01AB1284', normalisationOutcome: 'ok', confidence: 0.6 }],
+      }],
+    };
+    vi.mocked(searchTracks).mockResolvedValue({
+      items: [row], nextCursor: null,
+      plateCoverage: { identityFingerprint: 'a'.repeat(64), vehicleTracksInScope: 2,
+        ready: 1, pending: 1, failed: 0, stale: 0, notConfigured: 0 },
+    });
+    vi.mocked(getTrack).mockResolvedValue(record);
+
+    renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
+    await user.type(screen.getByLabelText('Plate text'), 'ka-01-ab-1234');
+    await user.click(within(screen.getByRole('group', { name: 'Plate match' })).getByRole('button', { name: 'Exact' }));
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledWith(
+      expect.objectContaining({ objectClass: 'Vehicle', plateText: 'KA01AB1234', plateMatch: 'exact' }),
+      expect.any(AbortSignal),
+    ));
+    expect(await screen.findByRole('region', { name: 'Plate coverage' })).toHaveTextContent('1 of 2');
+    expect(screen.getByText(/Read as/)).toHaveTextContent('1 of 2 plates');
+    const rows = within(screen.getByRole('list', { name: 'Track results' })).getAllByRole('listitem');
+    await user.click(within(rows[0]).getByRole('button', { name: /^Select / }));
+    const inspector = await screen.findByRole('complementary', { name: 'Track inspector' });
+    const readings = await within(inspector).findByRole('region', { name: 'Plate readings' });
+    expect(within(readings).getByText(/Conflicting readings/)).toBeInTheDocument();
+    await user.click(within(readings).getAllByRole('button', { name: /View source at/ })[0]);
+    const evidence = within(inspector).getByRole('region', { name: 'Evidence Set' });
+    const crops = within(evidence).getAllByRole('button');
+    expect(crops[1]).toHaveAttribute('aria-current', 'true');
+    // P2-1: a manual crop click after the plate selection still inspects the
+    // clicked crop (and only inspects it), in the Investigation inspector.
+    await user.click(crops[3]);
+    expect(crops[3]).toHaveAttribute('aria-current', 'true');
+    expect(crops[1]).not.toHaveAttribute('aria-current');
+    // P2-5: every "View source at" press inspects its source, even one the
+    // operator chose before a manual crop: the same plate again, then B, then A.
+    const viewSource = (n: number) => within(readings).getAllByRole('button', { name: /View source at/ })[n];
+    await user.click(viewSource(0));
+    expect(crops[1]).toHaveAttribute('aria-current', 'true');
+    await user.click(viewSource(1));
+    expect(crops[2]).toHaveAttribute('aria-current', 'true');
+    await user.click(crops[0]);
+    await user.click(viewSource(0));
+    expect(crops[1]).toHaveAttribute('aria-current', 'true');
+    expect(crops[0]).not.toHaveAttribute('aria-current');
+  });
+
   it('loads the default unfiltered first page', async () => {
     renderWithApp(<VisualSearchPage />, { route: '/search' });
     await searchDrawn();
@@ -974,6 +1061,22 @@ describe('VisualSearchPage', () => {
       expect(screen.getByLabelText('Camera')).toHaveValue(camera.id);
       expect(screen.getByLabelText('Object class')).toHaveValue('');
       expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('80');
+    });
+
+    it('removes the plate predicate with the class chip, never a remove control that does nothing (Stage-4 PR-5)', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search?objectClass=Vehicle&plateText=KA01&plateMatch=exact' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+      expect(screen.getByLabelText('Current search location')).toHaveTextContent('plateText=KA01');
+
+      await user.click(screen.getByRole('button', { name: 'Remove class filter' }));
+
+      await waitFor(() => expect(screen.getByLabelText('Current search location')).toHaveTextContent(/^\/search$/));
+      const last = vi.mocked(searchTracks).mock.calls.at(-1)![0];
+      expect(last.objectClass).toBeUndefined();
+      expect(last.plateText).toBeUndefined();
+      expect(last.plateMatch).toBeUndefined();
+      expect(screen.queryByRole('button', { name: /^Remove plate/ })).not.toBeInTheDocument();
     });
 
     it('settles the draft when a search commits the state it was already in', async () => {

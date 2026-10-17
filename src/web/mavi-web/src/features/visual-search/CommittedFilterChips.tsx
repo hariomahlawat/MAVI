@@ -92,12 +92,25 @@ export function committedChips(
   }
 
   if (filters.objectClass) {
-    // The vehicle type refines Vehicle, so removing the class removes it too.
+    // The vehicle type refines Vehicle, and a plate predicate implies it, so
+    // removing the class removes them too. Otherwise the plate would put the
+    // class straight back and the chip's remove control would do nothing.
+    const removes: ChipCriterion[] = ['objectClass'];
+    if (filters.objectSubclass) removes.push('objectSubclass');
+    if (filters.plateText) removes.push('plateText', 'plateMatch');
     chips.push({
       key: 'objectClass',
       label: 'Class',
       value: filters.objectClass,
-      removes: filters.objectSubclass ? ['objectClass', 'objectSubclass'] : ['objectClass'],
+      removes,
+    });
+  }
+  if (filters.plateText) {
+    chips.push({
+      key: 'plateText',
+      label: filters.plateMatch === 'exact' ? 'Plate is' : filters.plateMatch === 'prefix' ? 'Plate starts with' : 'Plate contains',
+      value: filters.plateText,
+      removes: ['plateText', 'plateMatch'],
     });
   }
   if (filters.objectSubclass) {

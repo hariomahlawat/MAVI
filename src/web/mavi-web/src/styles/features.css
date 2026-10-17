@@ -146,6 +146,17 @@
    card-inside-card section 11 calls a defect. */
 .filter-rail { display: grid; gap: var(--s-4); align-content: start; }
 .filter-rail__section { display: grid; gap: var(--s-3); }
+/* Stage-4 plate match belongs to this filter rail. At WCAG 1.4.12 text
+   spacing the label may wrap to two lines; unlike the toolbar's single-line
+   small segmented buttons, it must be allowed to grow rather than clip. */
+.filter-rail__section .segmented--sm .segmented__item {
+  height: auto;
+  min-height: var(--control-h-sm);
+  padding-block: var(--s-1);
+  line-height: 1.3;
+  white-space: normal;
+}
+
 .filter-rail__section h2 {
   color: var(--text-muted); font-size: var(--fs-0); font-weight: 600;
   letter-spacing: 0.06em; text-transform: uppercase;
@@ -284,6 +295,21 @@
 .result-row__meta { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); color: var(--text-muted); font-size: var(--fs-1); margin-top: var(--s-hair); }
 .result-row__meta b { color: var(--text-secondary); font-weight: 500; }
 .result-row__side { display: grid; justify-items: end; gap: var(--s-1); }
+/* A plate match is model evidence, one subdued line rather than a status badge. */
+.track-plate-match {
+  display: block; min-width: 0; color: var(--text-secondary);
+  font-size: var(--fs-1); overflow-wrap: anywhere; line-height: 1.4;
+}
+.track-plate-match .mono { font-variant-numeric: tabular-nums; }
+.plate-region {
+  display: flex; justify-content: center; align-items: center;
+  min-height: 42px; max-height: 124px; overflow: hidden; padding: var(--s-2);
+  background: var(--surface-app); color: var(--text-muted);
+  border: var(--stroke-hair) solid var(--border-subtle);
+  font-size: var(--fs-1);
+}
+.plate-region canvas { display: block; max-height: 106px; object-fit: contain; }
+.plate-region canvas[hidden] { display: none; }
 .result-row__side time { color: var(--text-muted); font-size: var(--fs-0); white-space: nowrap; }
 
 .track-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); padding: var(--s-3); }

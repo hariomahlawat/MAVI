@@ -93,6 +93,8 @@ function draftFromFilters(filters: CommittedTrackSearch, timeZoneId: string | un
     videoAssetId: filters.videoAssetId ?? '',
     objectClass: filters.objectClass ?? '',
     objectSubclass: filters.objectSubclass ?? '',
+    plateText: filters.plateText ?? '',
+    plateMatch: filters.plateMatch ?? 'contains',
     fromLocal: wallValue(filters.fromUtc, timeZoneId),
     toLocal: wallValue(filters.toUtc, timeZoneId),
     minimumDurationSeconds: millisecondsToSecondsText(filters.minimumDurationMs),
@@ -296,6 +298,8 @@ export default function VisualSearchPage() {
   // Coverage is part of the snapshot: page one computed it and every continuation
   // carries the same block, so the first page is the one to read it from.
   const coverage = analytic ? tracks.data?.pages[0]?.analyticsCoverage : undefined;
+  const plateCoverage = committed.isValid && activeFilters.plateText
+    ? tracks.data?.pages[0]?.plateCoverage : undefined;
 
   // The camera the analytics group is about: the draft's camera, the draft's
   // video's camera, or — for a committed run scope the rail has no control for —
@@ -818,7 +822,9 @@ export default function VisualSearchPage() {
           {/* §17: the coverage strip sits immediately beneath the header and chips
               and persists for the snapshot, so an incomplete answer is never
               read as a complete one. */}
-          {coverage ? <CoverageStrip coverage={coverage} geometry={resultGeometryNames} /> : null}
+          {coverage || plateCoverage
+            ? <CoverageStrip coverage={coverage} plateCoverage={plateCoverage} geometry={resultGeometryNames} />
+            : null}
 
           {/* The results are one column region (§37.1). The first page decides
               its state; a later page failing is a continuation failure and is
@@ -834,7 +840,7 @@ export default function VisualSearchPage() {
             // Either view loads as its own skeleton, never a spinner (§38).
             skeleton={{ rows: 'default', pitch: shownView === 'list' ? 'list' : 'grid' }}
             isEmpty={(found) => found.length === 0}
-            empty={resultsEmpty(coverage)}
+            empty={resultsEmpty(coverage, plateCoverage, activeFilters.plateText)}
             unavailableMessage={(error) => describeError(error, 'The search could not be completed.')}
             degradedMessage="Showing the results that arrived last; refreshing them failed."
             onRetry={() => void tracks.refetch()}
@@ -928,7 +934,28 @@ export default function VisualSearchPage() {
  * genuinely nothing) and keeps its own words and hatch; a plain search's empty
  * answer is the one sentence every empty search gets.
  */
-function resultsEmpty(coverage: Parameters<typeof analyticEmptyState>[0] | undefined): EmptySpec {
+function resultsEmpty(
+  coverage: Parameters<typeof analyticEmptyState>[0] | undefined,
+  plateCoverage?: import('../../api/tracks').PlateCoverage,
+  plateText?: string,
+): EmptySpec {
+  if (plateText && plateCoverage) {
+    const notConfigured = plateCoverage.vehicleTracksInScope > 0
+      && plateCoverage.notConfigured === plateCoverage.vehicleTracksInScope;
+    const incomplete = plateCoverage.ready !== plateCoverage.vehicleTracksInScope || Boolean(coverage && !coverage.complete);
+    return {
+      icon: 'search',
+      title: notConfigured
+        ? 'Plate reading is not configured in this installation.'
+        : `No vehicle track has a reading matching ${plateText}.`,
+      body: notConfigured
+        ? 'Configure a plate analysis before using this filter.'
+        : incomplete
+          ? 'Some vehicle tracks or scene analytics are not yet analysed. A match may exist in unprocessed evidence; see coverage above.'
+          : 'All vehicle tracks in this search scope have been checked for plate readings. Adjust the plate or other filters.',
+      hatched: incomplete,
+    };
+  }
   if (coverage) {
     const state = analyticEmptyState(coverage);
     return { icon: 'search', title: state.title, body: state.body, hatched: state.hatched };

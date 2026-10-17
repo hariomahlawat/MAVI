@@ -699,8 +699,10 @@ not having done so (`engine.mjs` `vacuous` skips producer rules, `resolve`
 refuses them in a case), and the journey aggregate is its evidence.
 
 `journeys.mjs` runs the six frozen journeys of plan §5.3, registered in
-`journey-registry.mjs` in the plan's order, at the workstation compositions
-(`JOURNEY_CONDITION`: 1366×768 Tier A, 1024×768 and 768×1024 Tier B) — 18
+`journey-registry.mjs` in the plan's order, and after them the journeys a later
+plan appends (`LATER_ORDER`, each naming its plan; the six are never renamed,
+merged, dropped or reordered), at the workstation compositions
+(`JOURNEY_CONDITION`: 1366×768 Tier A, 1024×768 and 768×1024 Tier B) — 21
 executions — the browser launched in `en-GB` (`--lang`) and the page's locale
 emulated the same:
 
@@ -712,6 +714,7 @@ emulated the same:
 | 4 | Configure scene → analyse → search analytic → why matched → inspect (`scene-analytic-why`) | `/cameras/{id}/scene` | Zone tool; on the frame, Shift+arrows and Space place four vertices, Enter completes; name it; Save revision; Processing → the video's detail → Re-analyse camera; Open results; Zone the new zone, Search; inspect — Scene analytics names the zone and revision 5 |
 | 5 | Cameras / Videos / Processing monitoring (`monitoring`) | `/` | the rail to Cameras (24 cameras), a row's action; Videos (24), the failed video's Retry; Processing, the failed run's detail and its Retry processing |
 | 6 | Error / retry / recovery (`error-retry-recovery`) | `/search` | Load more; the continuation fails (its own retry too); Retry load more; page two arrives, the snapshot ends — focus on its first new result |
+| 7 | Plate search → inspect → seek (`plate-search-inspect-seek`; Stage 4 plan PR-5) | `/search` | Plate text `zz-00-ts-0001`, Exact, Search (the Filters drawer at Tier B) — the server's `plateText=ZZ00TS0001&plateMatch=exact`; the coverage line and the result's "Read as" name; inspect — each plate region drawn; View source at 00:02.2 — the player at 2.2 s, Near view inspected; the Late diverse crop — inspected, the player not moved |
 
 **Real keys only.** After the one direct load of the journey's start, every
 action is a key through the input pipeline (`cdp.mjs` `press`: `rawKeyDown`,
@@ -808,7 +811,11 @@ job for the rendered result.
 ## Fixtures and footage
 
 `fixtures/*.json` are served for `/api/...`; a file name is the path with `/`
-replaced by `_`. A state can override one in `states.mjs`: a literal value is
+replaced by `_`. The Stage 4 plate states (UI spec §17.2.8) and the plate
+journey are served from `plate-fixtures.mjs`, shaped to the backend's plate
+contracts (`TrackPlateContracts.cs`), with synthetic plate text only; their
+source crops are `crops.json` `eeeeeee4`–`eeeeeee7`, cut at boxes the 1920×1080
+footage divides exactly, so each plate region is drawn rather than refused. A state can override one in `states.mjs`: a literal value is
 served as the response, `'unavailable'` answers 503, and `'hang'` never answers,
 which is how the loading state is held still long enough to look at; such a
 state declares `holds: 'loading'`, and settles on its loading presentation.

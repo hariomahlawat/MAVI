@@ -36,6 +36,42 @@
     "width": 0.15,
     "height": 0.33
    }
+  },
+  "eeeeeee4-eeee-7eee-8eee-eeeeeeeeeee4": {
+   "offsetMs": 1600,
+   "boundingBox": {
+    "x": 0.3125,
+    "y": 0.25,
+    "width": 0.25,
+    "height": 0.5
+   }
+  },
+  "eeeeeee5-eeee-7eee-8eee-eeeeeeeeeee5": {
+   "offsetMs": 2200,
+   "boundingBox": {
+    "x": 0.375,
+    "y": 0.3,
+    "width": 0.25,
+    "height": 0.4
+   }
+  },
+  "eeeeeee6-eeee-7eee-8eee-eeeeeeeeeee6": {
+   "offsetMs": 880,
+   "boundingBox": {
+    "x": 0.25,
+    "y": 0.3,
+    "width": 0.125,
+    "height": 0.4
+   }
+  },
+  "eeeeeee7-eeee-7eee-8eee-eeeeeeeeeee7": {
+   "offsetMs": 3120,
+   "boundingBox": {
+    "x": 0.5,
+    "y": 0.25,
+    "width": 0.1875,
+    "height": 0.5
+   }
   }
  }
 }

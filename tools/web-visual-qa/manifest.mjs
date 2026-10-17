@@ -356,14 +356,15 @@ export const RULES = {
     tiers: s1(),
   },
   // --- Known rules not yet evaluated by any code ------------------------------
-  // X2 (§23, plan §5.3): the six operator journeys, completed keyboard-only.
+  // X2 (§23, plan §5.3): the six operator journeys, and the Stage 4 PR-5 plate
+  // journey appended after them, completed keyboard-only.
   // Not a per-state rule: a journey crosses routes, so its producer is the
   // journey runner (journeys.mjs, JOURNEY_CONDITION), never the sweep — the
   // sweep neither evaluates it nor faults for not having done so; the journey
   // aggregate proves every planned execution ran once and passed.
   'a11y.keyboard-journeys': {
     section: '§23 (plan §5.3)', kind: 'assertion', producer: 'journeys',
-    summary: 'Each of the six frozen operator journeys completes keyboard-only — every action a key through the input pipeline, every target reached by Tab and named by the accessibility tree, focus valid after every action, every step on an observable checkpoint, the journey on a terminal one — at every workstation composition.',
+    summary: 'Each of the six frozen operator journeys, and the Stage 4 plate journey appended after them, completes keyboard-only — every action a key through the input pipeline, every target reached by Tab and named by the accessibility tree, focus valid after every action, every step on an observable checkpoint, the journey on a terminal one — at every workstation composition.',
     tiers: {
       A: blocking(),
       B: blocking(),

@@ -8,6 +8,7 @@ import {
 } from './searchState';
 import { configuredWallTimeToUtc } from '../../shared/time/wallTime';
 import type { SearchDraft } from './SearchFilterRail';
+import { normalisePlateText } from './plateText';
 
 /**
  * Turning a draft into a committed search, field by field.
@@ -31,7 +32,7 @@ import type { SearchDraft } from './SearchFilterRail';
 
 export type SearchFieldKey =
   | 'fromLocal' | 'toLocal' | 'minimumDurationSeconds' | 'minimumConfidencePercent'
-  | 'minDwellSeconds' | 'minStationarySeconds';
+  | 'minDwellSeconds' | 'minStationarySeconds' | 'plateText' | 'objectClass';
 
 export type SearchFieldErrors = Partial<Record<SearchFieldKey, string>>;
 
@@ -79,6 +80,25 @@ export function commitDraft({
     next.objectSubclass = draft.objectSubclass;
   } else {
     delete next.objectSubclass;
+  }
+
+  if (draft.plateText.trim()) {
+    if (draft.objectClass === 'Person') {
+      errors.objectClass = 'Plate text requires the Vehicle class.';
+    } else {
+      const normalised = normalisePlateText(draft.plateText);
+      if (normalised === null) {
+        errors.plateText = 'Enter 3 to 15 letters or digits';
+      } else {
+        next.objectClass = 'Vehicle';
+        next.plateText = normalised;
+        if (draft.plateMatch === 'contains') delete next.plateMatch;
+        else next.plateMatch = draft.plateMatch;
+      }
+    }
+  } else {
+    delete next.plateText;
+    delete next.plateMatch;
   }
 
   if (numericDirty.duration) {

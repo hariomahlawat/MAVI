@@ -1,5 +1,6 @@
 /**
- * X2 (§23, plan §5.3): the six operator journeys, completed keyboard-only in
+ * X2 (§23, plan §5.3): the six operator journeys (and those a later plan
+ * appends, journey-registry.mjs `LATER_ORDER`), completed keyboard-only in
  * real Chromium and recorded step by step.
  *
  *   node tools/web-visual-qa/journeys.mjs [--journeys a,b] [--viewports 1366x768] [--workers 3] [--shard i/n]

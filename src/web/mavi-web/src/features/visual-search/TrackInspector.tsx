@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useSaidLater } from '../../shared/components/StatusSlot';
 import { ApiError } from '../../api/client';
 import { getTrack, objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
@@ -15,6 +15,7 @@ import { Inspector } from '../../shared/workspace';
 import { TrackSummary } from '../video-review/TrackDetailsPanels';
 import TrackEvidence from '../video-review/TrackEvidence';
 import TrackEvidenceSet from '../video-review/TrackEvidenceSet';
+import TrackPlateReadings from '../video-review/TrackPlateReadings';
 import TrackAnalyticsExplanation from '../video-review/TrackAnalyticsExplanation';
 import { buildAnalyticsEvidence } from '../video-review/analyticsEvidence';
 import { pinnedNames, pinnedRevision, useAnalyticsScene } from '../video-review/useAnalyticsScene';
@@ -78,6 +79,15 @@ export default function TrackInspector({
     retry: (count, error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500) && count < 1,
   });
   const detail = track.data;
+  const [plateSelection, setPlateSelection] = useState<{
+    observationId: string; seek: { serial: number; offsetMs: number };
+  } | null>(null);
+  const selectPlateSource = (observationId: string, offsetMs: number) => {
+    setPlateSelection((previous) => ({
+      observationId,
+      seek: { serial: (previous?.seek.serial ?? 0) + 1, offsetMs },
+    }));
+  };
   const trajectory = useTrajectory(detail?.trajectoryArtifactId ?? null, detail?.trajectoryContentUrl ?? null);
 
   // The same pinned revision the full Review page resolves, through the same
@@ -155,6 +165,7 @@ export default function TrackInspector({
               trajectoryError={fromQuery(trajectory).kind === 'unavailable'}
               onRetryTrajectory={() => void trajectory.refetch()}
               compact
+              seekRequest={plateSelection?.seek}
             />
             {/* The Track's number is the heading's; its identifier is forensic
                 (§37.2, F18) and sits in the disclosure at the foot. */}
@@ -181,7 +192,13 @@ export default function TrackInspector({
             {/* In the old Representative-frame disclosure's place, uncollapsed:
                 the same component Review shows, and its rank 0 is the
                 Representative crop, so the crop is not rendered a second time. */}
-            <TrackEvidenceSet detail={detail} compact />
+            {detail.plates ? (
+              <TrackPlateReadings detail={detail} compact
+                matchedText={summary?.plate?.matchedText} onSelectObservation={selectPlateSource} />
+            ) : null}
+            <TrackEvidenceSet detail={detail} compact
+              plateSelection={plateSelection ? { observationId: plateSelection.observationId, serial: plateSelection.seek.serial } : null}
+              />
             <details className="disclosure">
               <summary>Identifiers</summary>
               <div className="disclosure__body">

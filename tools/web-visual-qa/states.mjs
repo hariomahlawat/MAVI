@@ -50,6 +50,9 @@
 
 import { readFileSync } from 'node:fs';
 import { ZOOM_CONDITION } from './manifest.mjs';
+import {
+  EMPTY_PARTIAL_PLATE_PAGE, LONG_RAW, PLATE_DETAILS, PLATE_PAGE, PLATE_QUERY, PLATE_TRACK, VEHICLE_PAGE,
+} from './plate-fixtures.mjs';
 
 const CAM = '11111111-1111-7111-8111-111111111111';
 const VIDEO = '22222222-2222-7222-8222-222222222222';
@@ -255,6 +258,18 @@ const SEEK = `(() => {
   if (jump) jump.click();
   v.pause();
   return Boolean(jump);
+})()`;
+
+/**
+ * Stage 4 PR-5: bring the plate readings into the capture. A condition set-up,
+ * not an operator interaction: the section is scrolled into its host's view so
+ * the human pass sees the plate evidence rather than the fold above it.
+ */
+const SHOW_PLATES = `(() => {
+  const section = document.querySelector('section[aria-label="Plate readings"]');
+  if (!section) return false;
+  section.scrollIntoView({ block: 'start' });
+  return true;
 })()`;
 
 /**
@@ -4131,6 +4146,109 @@ export const STATES = [
     // explanation states it rather than "no line crossed", and it names the
     // revision in the fuller wording section 16 settles on.
     expectText: [...INSPECTOR_LOADED, 'Scene revision 4 · Engine v1', 'Loading bay', 'Gate A · 1 crossing'],
+  },
+
+  // --- Stage 4 PR-5: plate search and plate evidence (UI spec §17.2.8). -------
+  // The fixtures are plate-fixtures.mjs, shaped to the backend contracts. A
+  // plate region is drawn only when its source crop decodes at the declared
+  // size, so every state holding one forbids both "Loading plate image" (not
+  // yet decoded) and "No image" (refused): the region was cut and drawn.
+  {
+    // A plate search with partial coverage: the coverage line, and each row's
+    // "Read as" line — consistent, conflicting, single — with its support,
+    // confidence and other readings.
+    name: 'search-plate-results', path: `/search?objectClass=Vehicle&plateText=${PLATE_QUERY}`,
+    fullWidth: true, archetype: 'investigation',
+    api: { '/api/tracks': PLATE_PAGE },
+    expectText: [
+      'Plate readings available for 3 of 5 vehicle tracks in scope · 1 pending · 1 from an earlier configuration',
+      'Read as ZZ00TS0001 · on 3 of 3 plates · 97%', 'on 2 of 4 plates · 93% · 1 other reading', 'Plate contains',
+    ],
+    forbidText: ['No vehicle track has a reading matching', 'Confirmed'],
+  },
+  {
+    // An empty plate page under incomplete coverage is never "no such vehicle".
+    name: 'search-plate-empty-partial', path: `/search?objectClass=Vehicle&plateText=${PLATE_QUERY}`,
+    fullWidth: true, archetype: 'investigation',
+    api: { '/api/tracks': EMPTY_PARTIAL_PLATE_PAGE },
+    expectText: [`No vehicle track has a reading matching ${PLATE_QUERY}`, 'A match may exist', 'Plate readings available for 3 of 5 vehicle tracks in scope'],
+    forbidText: 'No Tracks matched',
+  },
+  {
+    // Ready, consistent, opened from the plate search: the matched text marked,
+    // the region drawn, raw and normalised readings labelled, the source seek.
+    name: 'search-plate-inspecting-consistent', path: `/search?objectClass=Vehicle&plateText=${PLATE_QUERY}&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': PLATE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.consistent },
+    expectText: [...INSPECTOR_LOADED, 'Consistent readings', 'on 3 of 3 plates', 'Normalised:', 'View source at 00:02.2'],
+    forbidText: ['Loading plate image', 'No image'],
+  },
+  {
+    name: 'search-plate-inspecting-conflicting', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.conflicting },
+    expectText: [...INSPECTOR_LOADED, 'Conflicting readings · 2 texts', 'ZZ00TS0081', '2 other readings', 'Unreadable plate'],
+    forbidText: ['Loading plate image', 'No image'],
+  },
+  {
+    name: 'search-plate-inspecting-unreadable', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.unreadable },
+    expectText: [...INSPECTOR_LOADED, 'No searchable reading', 'Unreadable plate'],
+    forbidText: ['Loading plate image', 'No image', 'Normalised:'],
+  },
+  {
+    name: 'search-plate-inspecting-rejected', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.rejected },
+    expectText: [...INSPECTOR_LOADED, 'No searchable reading', 'ZZ#0?', 'Not searchable — does not normalise to letters and digits'],
+    forbidText: ['Loading plate image', 'No image', 'Normalised:'],
+  },
+  {
+    name: 'search-plate-inspecting-pending', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.pending },
+    expectText: [...INSPECTOR_LOADED, 'Plate reading pending'], forbidText: ['ZZ00TS0001', 'Consistent readings'],
+  },
+  {
+    name: 'search-plate-inspecting-no-plate', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.noPlate },
+    expectText: [...INSPECTOR_LOADED, 'No plate found in the evidence'], forbidText: 'ZZ00TS0001',
+  },
+  {
+    name: 'search-plate-inspecting-unavailable', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.unavailable },
+    expectText: [...INSPECTOR_LOADED, 'Plate reading unavailable for this track · evidence_missing'], forbidText: 'ZZ00TS0001',
+  },
+  {
+    name: 'search-plate-inspecting-not-configured', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.notConfigured },
+    expectText: [...INSPECTOR_LOADED, 'Plate reading is not configured in this installation'], forbidText: 'ZZ00TS0001',
+  },
+  {
+    name: 'search-plate-inspecting-stale', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.stale },
+    expectText: [...INSPECTOR_LOADED, 'Plate readings are from an earlier configuration'], forbidText: 'ZZ00TS0001',
+  },
+  {
+    // A 32-character raw reading in the narrowest host.
+    name: 'search-plate-inspecting-long-raw', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.longRaw },
+    expectText: [...INSPECTOR_LOADED, LONG_RAW, 'ZZ00TS0001ZZ900', 'Single reading'],
+    forbidText: ['Loading plate image', 'No image'],
+  },
+  {
+    // A two-line reading in Review's evidence rail, its lines on two lines.
+    name: 'review-plate-two-line', path: `/review/video/${VIDEO}?trackId=${PLATE_TRACK}`, fullWidth: true, archetype: 'review',
+    footage: 'saturated', prepare: `(${SEEK}) && (${SHOW_PLATES})`,
+    api: { [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.twoLine },
+    expectText: ['Track summary', 'Plate readings', 'Consistent readings', 'ZZ 00', 'TS 0001', 'Normalised:', 'View source at 00:02.2'],
+    forbidText: ['Loading plate image', 'No image'],
   },
 
   // --- Processing: Slice 4 readiness on the Ledger and the Record. ----------
