@@ -76,7 +76,9 @@ describe('one Evidence Set implementation', () => {
 
     // The only code that renders an Observation crop is the Evidence Set.
     const cropReaders = files.filter(({ source }) => /\bevidenceContentUrl\b/.test(code(source))).map(({ path }) => path).sort();
-    expect(cropReaders).toEqual(['api/tracks.ts', 'features/video-review/TrackEvidenceSet.tsx']);
+    // PR-5's plate region is a strictly bounded subcrop of the same accepted
+    // Observation URL; it does not create a second Evidence Set or source frame.
+    expect(cropReaders).toEqual(['api/tracks.ts', 'features/video-review/TrackEvidenceSet.tsx', 'features/video-review/TrackPlateReadings.tsx']);
 
     const survivors = files.filter(({ source }) => /\bRepresentativeEvidence\b/.test(source)).map(({ path }) => path);
     expect(survivors).toEqual([]);
