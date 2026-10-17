@@ -58,22 +58,44 @@ def _start(settings: PlateWorkerSettings) -> PlateSupervisor:
     return supervisor
 
 
+@pytest.fixture
+def windows_host(monkeypatch):
+    """The pilot binding declares only ``windows-x86_64-cpu``; the supervisor derives the observed variant from
+    ``platform.system()``. The existing supervisor-test seam (``test_runtime_supervisor.py``) presents that host, so
+    the refusals below are reached on any CI runner. Real Linux execution is pinned separately below."""
+    from mavi_vision.plates import supervisor as module
+
+    monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+
+
 # --------------------------------------------------------------------------- refusals (always)
 
 
-def test_production_refuses_the_pilot_profile_before_any_model_is_read(tmp_path: Path) -> None:
+@pytest.mark.parametrize("production_mode", [False, True])
+def test_a_linux_host_is_refused_because_the_pilot_declares_no_linux_variant(tmp_path: Path, monkeypatch, production_mode) -> None:
+    from mavi_vision.plates import supervisor as module
+
+    monkeypatch.setattr(module.platform, "system", lambda: "Linux")
+    overrides = {"production_mode": True, "deployment_profile": "P1"} if production_mode else {}
+    supervisor = _start(_settings(tmp_path, **overrides))
+    assert supervisor.state is PlateRuntimeState.UNAVAILABLE
+    # Refused at Runtime Pack resolution, before the plate profile or any Model Pack byte is read.
+    assert supervisor.unavailable_reason == "runtime_variant_not_declared:linux-x86_64-cpu"
+
+
+def test_production_refuses_the_pilot_profile_before_any_model_is_read(tmp_path: Path, windows_host) -> None:
     supervisor = _start(_settings(tmp_path, production_mode=True, deployment_profile="P1"))
     assert supervisor.state is PlateRuntimeState.UNAVAILABLE
     assert supervisor.unavailable_reason == "plate_development_profile_forbidden"
 
 
-def test_development_refuses_absent_model_bytes(tmp_path: Path) -> None:
+def test_development_refuses_absent_model_bytes(tmp_path: Path, windows_host) -> None:
     supervisor = _start(_settings(tmp_path))
     assert supervisor.state is PlateRuntimeState.UNAVAILABLE
     assert supervisor.unavailable_reason.startswith("model_artifact_missing:")
 
 
-def test_development_refuses_altered_model_bytes(tmp_path: Path) -> None:
+def test_development_refuses_altered_model_bytes(tmp_path: Path, windows_host) -> None:
     for manifest_name in ("plates-pd5-ppocrv5-mobile-det-dev-v1.json", "plates-oc1-fast-plate-ocr-cct-s-v2-dev-v1.json"):
         manifest = json.loads((REPOSITORY / "models/manifests" / manifest_name).read_text(encoding="utf-8"))
         for artifact in manifest["artifacts"]:
