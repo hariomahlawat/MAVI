@@ -5,7 +5,7 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence } from '../../shared/format/format';
 import { reviewPath } from './TrackResultList';
-import TrackPlateMatch from './TrackPlateMatch';
+import TrackPlateMatch, { plateMatchAccessibleText } from './TrackPlateMatch';
 import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
 import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 
@@ -56,7 +56,7 @@ export default memo(function TrackResultCard({
   const className = ['track-card', onSelect ? 'is-selectable' : '', selected ? 'is-selected' : ''].filter(Boolean).join(' ');
   const classLabel = objectClassLabel(track);
   const title = `${classLabel} · ${track.cameraCode} · ${track.cameraName}`;
-  const select = onSelect ? selectControlProps(track.id, `Select ${title}${track.plate ? ` · Read as ${track.plate.matchedText}` : ''}`, onSelect) : null;
+  const select = onSelect ? selectControlProps(track.id, `Select ${title}${track.plate ? ` · ${plateMatchAccessibleText(track.plate)}` : ''}`, onSelect) : null;
   const ref = useKeepSelectedVisible<HTMLElement>(selected);
 
   return (
