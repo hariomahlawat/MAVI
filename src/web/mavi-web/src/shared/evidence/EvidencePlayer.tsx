@@ -174,8 +174,16 @@ export default function EvidencePlayer({
   });
 
   useEffect(() => {
-    if (seekRequest) transport.seekTo(seekRequest.offsetMs);
-  }, [seekRequest, transport.seekTo]);
+    if (!seekRequest) return;
+    const video = transport.videoRef.current;
+    if (!video) return;
+    // The transport's initial seek runs on metadata load. A request issued
+    // earlier must land *after* it rather than be overwritten by it.
+    const apply = () => transport.seekTo(seekRequest.offsetMs);
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) apply();
+    else video.addEventListener('loadedmetadata', apply, { once: true });
+    return () => video.removeEventListener('loadedmetadata', apply);
+  }, [seekRequest, transport.seekTo, transport.videoRef]);
 
   const [preferences, setPreferences] = useState<Record<string, boolean>>(() => readLayerPreferences(preferenceScope));
   useEffect(() => {
