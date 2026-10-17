@@ -106,6 +106,8 @@ type Props = {
   initialOffsetMs?: number;
   /** Identity of the subject; changing it reopens at `initialOffsetMs`. */
   seekKey: string;
+  /** An explicit operator marker selection in this existing player, never another transport. */
+  seekRequest?: { serial: number; offsetMs: number };
   /**
    * Identity of **the evidence**, which is not the same thing as the subject.
    *
@@ -155,6 +157,7 @@ export default function EvidencePlayer({
   markers,
   initialOffsetMs,
   seekKey,
+  seekRequest,
   evidenceKey,
   preferenceScope,
   compact = false,
@@ -169,6 +172,10 @@ export default function EvidencePlayer({
     initialOffsetMs: initialOffsetMs ?? subject.startOffsetMs,
     seekKey,
   });
+
+  useEffect(() => {
+    if (seekRequest) transport.seekTo(seekRequest.offsetMs);
+  }, [seekRequest, transport.seekTo]);
 
   const [preferences, setPreferences] = useState<Record<string, boolean>>(() => readLayerPreferences(preferenceScope));
   useEffect(() => {
