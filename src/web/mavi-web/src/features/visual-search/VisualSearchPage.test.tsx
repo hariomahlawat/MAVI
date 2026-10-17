@@ -151,6 +151,65 @@ describe('VisualSearchPage', () => {
     });
   });
 
+  it('searches a plate, reports coverage, inspects the uncertain reading and selects source evidence', async () => {
+    const user = userEvent.setup();
+    const row = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451', {
+      objectClass: 'Vehicle',
+      plate: {
+        matchedText: 'KA01AB1234', matchKind: 'exact', supportCount: 1,
+        plateObservationCount: 2, distinctTextCount: 2, maxConfidence: 0.95,
+        bestPlateObservationId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21465',
+      },
+    });
+    const record = detail(row, 7);
+    const source = record.observations[1];
+    record.plates = {
+      readiness: 'Ready', trackOutcome: 'Analysed', agreement: 'conflicting',
+      texts: [{ normalisedText: 'KA01AB1234', supportCount: 1, maxConfidence: 0.95,
+        bestPlateObservationId: row.plate!.bestPlateObservationId }],
+      observations: [{
+        plateObservationId: row.plate!.bestPlateObservationId,
+        sourceObservationId: source.observationId,
+        role: source.evidenceRole,
+        offsetMs: source.videoOffsetMs,
+        sourceFrameNumber: source.sourceFrameNumber,
+        timestampUtc: source.timestampUtc,
+        box: { x: 4, y: 5, width: 16, height: 8, cropWidth: 100, cropHeight: 50 },
+        detectorConfidence: 0.97,
+        outcome: 'Read',
+        readings: [{ rank: 0, rawText: 'KA 01 AB 1234', rawLineCount: 1,
+          normalisedText: 'KA01AB1234', normalisationOutcome: 'ok', confidence: 0.95 }],
+      }],
+    };
+    vi.mocked(searchTracks).mockResolvedValue({
+      items: [row], nextCursor: null,
+      plateCoverage: { identityFingerprint: 'a'.repeat(64), vehicleTracksInScope: 2,
+        ready: 1, pending: 1, failed: 0, stale: 0, notConfigured: 0 },
+    });
+    vi.mocked(getTrack).mockResolvedValue(record);
+
+    renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
+    await user.type(screen.getByLabelText('Plate text'), 'ka-01-ab-1234');
+    await user.selectOptions(screen.getByLabelText('Plate match'), 'exact');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledWith(
+      expect.objectContaining({ objectClass: 'Vehicle', plateText: 'KA01AB1234', plateMatch: 'exact' }),
+      expect.any(AbortSignal),
+    ));
+    expect(await screen.findByRole('region', { name: 'Plate coverage' })).toHaveTextContent('1 of 2');
+    expect(screen.getByText(/Read as/)).toHaveTextContent('1 of 2 plates');
+    const rows = within(screen.getByRole('list', { name: 'Track results' })).getAllByRole('listitem');
+    await user.click(within(rows[0]).getByRole('button', { name: /^Select / }));
+    const inspector = await screen.findByRole('complementary', { name: 'Track inspector' });
+    const readings = await within(inspector).findByRole('region', { name: 'Plate readings' });
+    expect(within(readings).getByText(/Conflicting readings/)).toBeInTheDocument();
+    await user.click(within(readings).getByRole('button', { name: /View source at/ }));
+    const evidence = within(inspector).getByRole('region', { name: 'Evidence Set' });
+    const crops = within(evidence).getAllByRole('button');
+    expect(crops[1]).toHaveAttribute('aria-current', 'true');
+  });
+
   it('loads the default unfiltered first page', async () => {
     renderWithApp(<VisualSearchPage />, { route: '/search' });
     await searchDrawn();
