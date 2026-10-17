@@ -10,7 +10,6 @@ type Props = {
   /** The Investigation inspector: no host panel, so the set names itself. */
   compact?: boolean;
   selectedObservationId?: string | null;
-  onSelectObservation?: (observationId: string, offsetMs: number) => void;
 };
 
 /**
@@ -34,9 +33,12 @@ type Props = {
  * contract rather than a second suppression mechanism. The crop controls are
  * plain buttons: Enter and Space select, and no other key is redefined.
  */
-export default function TrackEvidenceSet({ detail, compact = false, selectedObservationId, onSelectObservation }: Props) {
+export default function TrackEvidenceSet({ detail, compact = false, selectedObservationId }: Props) {
   const observations = detail.observations;
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // A plate selection takes priority when it arrives, but manual Evidence Set
+  // selection afterwards still only inspects a crop — it does not seek.
+  const [localChoice, setLocalChoice] = useState<{ id: string; source: string | null | undefined } | null>(null);
+  const selectedId = localChoice?.source === selectedObservationId ? localChoice?.id : selectedObservationId;
   // Keyed by URL, so a failure belongs to the bytes that failed and not to a
   // position in a strip that another Track may reuse.
   const [failedUrls, setFailedUrls] = useState<ReadonlySet<string>>(() => new Set());
@@ -87,10 +89,7 @@ export default function TrackEvidenceSet({ detail, compact = false, selectedObse
                     // label's words, in sequence, are in the accessible name).
                     aria-label={(state === 'available' ? '' : 'No image, ') + name}
                     data-role={observation.evidenceRole}
-                    onClick={() => {
-                      setSelectedId(observation.observationId);
-                      onSelectObservation?.(observation.observationId, observation.videoOffsetMs);
-                    }}
+                    onClick={() => setLocalChoice({ id: observation.observationId, source: selectedObservationId })}
                   >
                     <span className="evidence-set__thumb">
                       {state === 'available' ? (
