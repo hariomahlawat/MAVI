@@ -304,6 +304,30 @@ To exercise it in Development:
 
 The .NET end-to-end test (`PlateEndToEndTests`) runs this path with the real worker when `MAVI_S2B_WORKER_PYTHON` names a Python with the `mavi_vision` dependencies.
 
+## Plate lifecycle with real models (Issue #225 Development pilot)
+
+Issue #225 runs two real pretrained models through the same `plates` role, **Development only**: PP-OCRv5 mobile DB text detection as the plate proposer (Apache-2.0) and fast-plate-ocr `cct-s-v2-global` (MIT). They are unverified Model Packs on the Development-only `plates-onnx-v1` CPU runtime, declared as a Development role binding (ADR-014 note 2026-10-17). Production refuses them at every layer: the platform (`plate_development_definition_forbidden`), the resolver (`plate_development_profile_forbidden`, `unverified_release_forbidden`, `runtime_profile_variant_not_qualified`) and the adapter registry (`plate_adapter_development_only`). Nothing here is a model selection, a qualification or a release; results are Development diagnostics (`docs/qualification/stage4/anpr-dev-pilot-2026-10-17.md`).
+
+1. On a connected machine, `tools\setup\Prepare-MaviDeveloperOfflineCache.ps1` adds `python-plates-pilot-wheelhouse` (the lock's exact wheels) and `plates-pilot-payloads` (the pack files, SHA-256 checked against the committed manifests).
+2. Disconnected, install the runtime and stage the packs (CPython 3.12.10; keep both directories outside the repository and off the system drive if it is full):
+
+   ```powershell
+   tools\setup\Install-MaviPlatesPilotRuntime.ps1 -Python <python 3.12.10> -Destination <new venv> -ModelRoot <model store>
+   # or, on the Stage-4 host, from the controlled store:  -ControlledStore E:\MAVI-Controlled\Benchmarks\plate-candidates
+   ```
+
+3. Start the API in `Development` with process-scope overrides (never in `appsettings.Development.json`: a binding path there would make every Development host expect plate analysis):
+
+   ```powershell
+   $env:Plates__Enabled = "true"
+   $env:Plates__ComponentBindingPath = "<repo>\src\vision\config\components\development-plates-onnx-pilot-v1.json"
+   $env:Plates__PipelineProfilePath = "<repo>\src\vision\config\plates\development-plates-onnx-pilot-v1.json"
+   ```
+
+4. Start the worker: `tools\setup\Start-MaviPlatesPilotWorker.ps1 -ApiBaseUrl <url> -Python <venv>\Scripts\python.exe -ModelRoot <model store>`. It is READY only when the binding, family, lock and requirements bytes, both packs' artefact hashes and the running environment (interpreter and semantic-graph versions) all match; otherwise it exits `3` with the stable reason and never leases.
+5. Runs that completed before the plate identity was activated are historical: queue them with `POST /api/plates/reanalysis` (`{"processingRunIds": [...]}`, at most 100). Then `GET /api/processing/runs/{id}/plates`, `GET /api/tracks?plateText=<text>&plateMatch=exact` and the Track detail `plates` block; the evidence crops stay retrievable through `GET /api/artifacts/{id}/content`.
+
+Tests: `src/vision/tests/test_plate_onnx_adapters.py` (synthetic crops, no runtime needed) and `test_plate_onnx_pilot.py` (refusals always; the real-model test runs when `MAVI_PLATES_PILOT_MODEL_ROOT` names the staged packs and the interpreter is the `plates-onnx-v1` environment with pytest added, and is skipped with the reason otherwise).
 ## Analytic search cursor signing key
 
 Analytic Track searches (any `GET /api/tracks` request with a scene-analytics key) page through a signed v3 cursor that pins the resolved scene revision, algorithm version and coverage snapshot. The key that signs it is `TrackSearch:CursorSigningKey`: base64 of exactly 32 bytes, written to the machine configuration by `Setup-MAVI` and kept across re-runs.
