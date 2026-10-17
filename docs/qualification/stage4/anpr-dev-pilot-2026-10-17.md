@@ -124,8 +124,8 @@ an independent OCR assessment.
 | Evidence-readable (frozen E-B definition, new evidence) | 62 | 53 |
 | **Found by exact plate search on the associated Track** | **52 (47.3 %)** | **45 (57.0 %)** |
 | Found, given evidence-readable | 52 / 62 (83.9 %) | 45 / 53 (84.9 %) |
-| Detector covered the true plate, given evidence-readable | 54 / 62 | 46 / 53 |
-| Exact reading, given the detector covered the plate | 52 / 54 | 45 / 46 |
+| Detector covered the true plate, given evidence-readable (derived from the cause order; coverage is not computed for hits) | 54 / 62 | 46 / 53 |
+| Exact reading, given the detector covered the plate (derived, as above) | 52 / 54 | 45 / 46 |
 
 **Failure attribution (first cause; every one of the 110 tracks is listed in the raw result).**
 
@@ -142,9 +142,10 @@ an independent OCR assessment.
 **Search precision on the 108 distinct truth texts.**
 - 51 queries return the correct associated Track. Two GT tracks share a text with another GT track, so 52 tracks are
   found by 51 queries.
-- 13 further results are other MAVI Tracks **of the same sequence**. These are probably fragments of the same vehicle,
-  but association does not verify them, so they are counted neither as hits nor as errors.
-- 0 results come from another sequence.
+- 13 further results are returned. The retained measurement output stores only per-query counts, not result Track
+  ids, so their identity and sequence are not verified here. 10 of the 13 are on queries whose GT track failed
+  association and 1 on a source-evidence failure, so they are plausibly fragments of the same vehicle; they are
+  counted neither as hits nor as errors.
 - Open-set false positives cannot be measured: about 2,500 Vehicle Tracks carry no R8 label.
 
 **Review and playback.** For all 52 hits:

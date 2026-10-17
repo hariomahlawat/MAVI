@@ -328,6 +328,7 @@ Issue #225 runs two real pretrained models through the same `plates` role, **Dev
 5. Runs that completed before the plate identity was activated are historical: queue them with `POST /api/plates/reanalysis` (`{"processingRunIds": [...]}`, at most 100). Then `GET /api/processing/runs/{id}/plates`, `GET /api/tracks?plateText=<text>&plateMatch=exact` and the Track detail `plates` block; the evidence crops stay retrievable through `GET /api/artifacts/{id}/content`.
 
 Tests: `src/vision/tests/test_plate_onnx_adapters.py` (synthetic crops, no runtime needed) and `test_plate_onnx_pilot.py` (refusals always; the real-model test runs when `MAVI_PLATES_PILOT_MODEL_ROOT` names the staged packs and the interpreter is the `plates-onnx-v1` environment with pytest added, and is skipped with the reason otherwise).
+
 ## Analytic search cursor signing key
 
 Analytic Track searches (any `GET /api/tracks` request with a scene-analytics key) page through a signed v3 cursor that pins the resolved scene revision, algorithm version and coverage snapshot. The key that signs it is `TrackSearch:CursorSigningKey`: base64 of exactly 32 bytes, written to the machine configuration by `Setup-MAVI` and kept across re-runs.
