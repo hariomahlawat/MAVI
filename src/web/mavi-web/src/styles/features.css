@@ -146,6 +146,17 @@
    card-inside-card section 11 calls a defect. */
 .filter-rail { display: grid; gap: var(--s-4); align-content: start; }
 .filter-rail__section { display: grid; gap: var(--s-3); }
+/* Stage-4 plate match belongs to this filter rail. At WCAG 1.4.12 text
+   spacing the label may wrap to two lines; unlike the toolbar's single-line
+   small segmented buttons, it must be allowed to grow rather than clip. */
+.filter-rail__section .segmented--sm .segmented__item {
+  height: auto;
+  min-height: var(--control-h-sm);
+  padding-block: var(--s-1);
+  line-height: 1.3;
+  white-space: normal;
+}
+
 .filter-rail__section h2 {
   color: var(--text-muted); font-size: var(--fs-0); font-weight: 600;
   letter-spacing: 0.06em; text-transform: uppercase;
