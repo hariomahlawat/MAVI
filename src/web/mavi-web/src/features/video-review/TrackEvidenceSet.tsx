@@ -9,6 +9,8 @@ type Props = {
   detail: TrackDetail;
   /** The Investigation inspector: no host panel, so the set names itself. */
   compact?: boolean;
+  selectedObservationId?: string | null;
+  onSelectObservation?: (observationId: string, offsetMs: number) => void;
 };
 
 /**
@@ -32,7 +34,7 @@ type Props = {
  * contract rather than a second suppression mechanism. The crop controls are
  * plain buttons: Enter and Space select, and no other key is redefined.
  */
-export default function TrackEvidenceSet({ detail, compact = false }: Props) {
+export default function TrackEvidenceSet({ detail, compact = false, selectedObservationId, onSelectObservation }: Props) {
   const observations = detail.observations;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Keyed by URL, so a failure belongs to the bytes that failed and not to a
@@ -41,7 +43,7 @@ export default function TrackEvidenceSet({ detail, compact = false }: Props) {
 
   // Rank 0 until the operator chooses otherwise, and again whenever the choice
   // no longer names an Observation of this Track.
-  const selected = observations.find((observation) => observation.observationId === selectedId) ?? observations[0];
+  const selected = observations.find((observation) => observation.observationId === (selectedObservationId ?? selectedId)) ?? observations[0];
 
   const markFailed = (url: string) => setFailedUrls((current) => (current.has(url) ? current : new Set(current).add(url)));
   const imageState = (observation: TrackEvidenceObservation): 'available' | 'absent' | 'failed' => {
@@ -85,7 +87,10 @@ export default function TrackEvidenceSet({ detail, compact = false }: Props) {
                     // label's words, in sequence, are in the accessible name).
                     aria-label={(state === 'available' ? '' : 'No image, ') + name}
                     data-role={observation.evidenceRole}
-                    onClick={() => setSelectedId(observation.observationId)}
+                    onClick={() => {
+                      setSelectedId(observation.observationId);
+                      onSelectObservation?.(observation.observationId, observation.videoOffsetMs);
+                    }}
                   >
                     <span className="evidence-set__thumb">
                       {state === 'available' ? (
