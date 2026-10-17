@@ -79,7 +79,7 @@ export default function CoverageStrip({
   const processingCanHelp = coverage ? coverage.pendingRuns + coverage.failedRuns + coverage.staleRuns > 0 : false;
 
   return (
-    <div className={`coverage coverage--${tone}`} role="region" aria-label="Analytics coverage">
+    <div className={`coverage coverage--${tone}`} role="region" aria-label={coverage && plateCoverage ? 'Analytics and plate coverage' : plateCoverage ? 'Plate coverage' : 'Analytics coverage'}>
       <Icon name={tone === 'success' ? 'check' : 'info'} size="sm" />
       <div className="coverage__body">
         {coverage ? <span className="coverage__headline">
@@ -106,7 +106,7 @@ export default function CoverageStrip({
         </span> : null}
         {plateCoverage ? (
           <span className="coverage__tracks">
-            {plateCoverage.notConfigured === plateCoverage.vehicleTracksInScope
+            {plateCoverage.vehicleTracksInScope > 0 && plateCoverage.notConfigured === plateCoverage.vehicleTracksInScope
               ? 'Plate reading is not configured in this installation'
               : `Plate readings available for ${formatCount(plateCoverage.ready)} of ${formatCount(plateCoverage.vehicleTracksInScope)} vehicle tracks in scope`}
             {plateSentences.length ? ` · ${plateSentences.join(' · ')}` : null}
