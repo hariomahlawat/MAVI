@@ -8,6 +8,7 @@
   - tracking and association at 5 fps.
 - X1 (bottom-border exemption): 0/10 recovered, **rejected** by the owner.
 - PR-3 to PR-5 proceed; PR-6 is held (O3). Indian validation is split: O1A (tracking, IDD-X approved) and O1B (ANPR/OCR, OPEN). PR #213 stays Draft.
+- **2026-10-17 owner decision:** Stage 4 is reoriented toward operational ANPR/OCR capability (see "Owner decision (2026-10-17) — capability reorientation"). No row, verdict or criterion changes.
 
 **Date opened:** 2026-10-12\
 **Baseline:** `main@78ec81de514874ed7dc536f2eee19669d1cfec6b` (merge of PR #212, the Stage 4 plan)
@@ -230,6 +231,29 @@ BDD100K results are never presented as Indian-condition validation.
   - First slice on branch `stage4/pr3-plate-lifecycle`, local and not pushed: the ADR-013 amendment, contracts, domain, migration and the Python fixture skeleton.
 - PR-4 and PR-5 follow their dependencies.
 - PR-6 is held; X1 did not remedy O3, and further profile changes need owner approval.
+
+### Owner decision (2026-10-17) — capability reorientation
+
+Stage 4 is reoriented toward delivering operational ANPR/OCR capability rather than continuing to prioritise
+model-selection infrastructure. Revised priorities, in order:
+
+1. a real ANPR/OCR **Development pilot** using credible pretrained models integrated with MAVI's existing
+   plate-processing pipeline (PR-3);
+2. controlled experiments with improved source-evidence selection, investigating the measured evidence-adequacy
+   limitation (53/79 readable Tracks, 67.1 %);
+3. PR-5, the operator-facing plate search, inspection and video-playback interface;
+4. the Stage-4 ↔ M3 integration (IP-2/IP-3/IP-4) in bounded increments, prioritised by contribution to capability
+   delivery and necessary qualification. IP-1 (#223) and IP-5 (#222) are merged; IP-2 is paused at a checkpoint.
+
+**Next milestone:** real recorded video → plate detection → OCR → searchable Vehicle Track → evidence playback.
+
+This decision changes **no** row of this register:
+- the evidence-adequacy verdict (INADEQUATE, C = 53/79 = 0.671), its measurements and the acceptance criteria stay frozen;
+- protected D stays closed; the pilot does not bypass M3 authority, is not a Model Selection Event, and claims no
+  model selection or qualification. Pilot results are Development evidence only;
+- **O3 stays open**: the choice among X1–X3 (X1 rejected as formulated) is not made by this decision, and any
+  release-profile or selector change still needs owner approval;
+- O1B and PR-6's hold are unchanged.
 
 ## Review follow-up (Codex review of `b7e37793`, 2026-10-13)
 
