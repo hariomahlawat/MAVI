@@ -8,7 +8,8 @@ and, for the group, the composition gate ids (always including ``baseline``) and
 From the frozen inputs alone the validator derives:
 
 * each event's **component ranking** order: the rank key of every shortlisted candidate is computed from its recorded
-  ``metrics`` by the frozen ``lexicographic-v1`` rule; an author-supplied key is never accepted;
+  ``metrics`` by the frozen rule (``lexicographic-v1``, or M3 Amendment A1 ``lexicographic-missing-last-v1``); an
+  author-supplied key is never accepted;
 * ``topK`` per event: the first ``k`` candidates passing every ranking gate. A tie across the ``k`` boundary is
   ``component_rank_ambiguous`` (owner decision O3: STOP before protected D);
 * the **ordinary universe** U: the cartesian product over the component events of (topK ∪ packageable baselines),
@@ -24,6 +25,7 @@ Standard library only.
 from __future__ import annotations
 
 import itertools
+import math
 import re
 from collections.abc import Mapping, Sequence
 
@@ -48,6 +50,13 @@ UNIVERSE_FIELD = "compositionUniverse"
 SUPERSEDES_FIELD = "supersedes"
 RANKING_SCHEMA = "mavi-model-selection-component-ranking-v1"
 RANKING_RULE = "lexicographic-v1"
+# M3 Amendment A1 (2026-10-17, Stage-4 integration plan Rev 5 §4.2, owner ruling ODR-3): every key also declares
+# ``missing``. ``forbidden`` keys are mandatory measurements; a ``last`` key may be null (genuinely undefined) on a row
+# passing every ranking gate and then sorts after every finite value. ``lexicographic-v1`` is unchanged.
+RANKING_RULE_MISSING_LAST = "lexicographic-missing-last-v1"
+RANKING_RULES = (RANKING_RULE, RANKING_RULE_MISSING_LAST)
+MISSING_FORBIDDEN, MISSING_LAST = "forbidden", "last"
+MISSING_POLICIES = (MISSING_FORBIDDEN, MISSING_LAST)
 RANKING_LAYERS = ("A", "B")
 DIRECTIONS = ("max", "min")
 BASELINE_GATE = "baseline"
@@ -107,13 +116,16 @@ def check_universe_block(ledger: Mapping) -> None:
 
 def check_ranking_rule(rule: object, where: str) -> None:
     _keys(rule, ("rule", "keys"), where)
-    _enum(rule["rule"], (RANKING_RULE,), f"{where}.rule")
+    name = _enum(rule["rule"], RANKING_RULES, f"{where}.rule")
+    key_fields = ("metric", "direction") if name == RANKING_RULE else ("metric", "direction", "missing")
     keys = _list(rule["keys"], f"{where}.keys")
     metrics = []
     for index, key in enumerate(keys):
-        _keys(key, ("metric", "direction"), f"{where}.keys[{index}]")
+        _keys(key, key_fields, f"{where}.keys[{index}]")
         metrics.append(_match(key["metric"], LOCAL_ID_RE, f"{where}.keys[{index}].metric"))
         _enum(key["direction"], DIRECTIONS, f"{where}.keys[{index}].direction")
+        if name == RANKING_RULE_MISSING_LAST:
+            _enum(key["missing"], MISSING_POLICIES, f"{where}.keys[{index}].missing")
     if not metrics or len(set(metrics)) != len(metrics):
         raise _fail("ranking_rule_keys_invalid", f"{where}.keys")
 
@@ -175,16 +187,41 @@ def component_ranking_document(frozen: Mapping, rows: Sequence[Mapping], evidenc
             "evidenceSha256": evidence_sha256}
 
 
-def rank_key(metrics: Mapping[str, float], rule: Mapping) -> tuple:
-    """The frozen ``lexicographic-v1`` key: lower ranks higher; ``max`` metrics are negated. No id tie-break."""
-    return tuple(-metrics[k["metric"]] if k["direction"] == "max" else metrics[k["metric"]] for k in rule["keys"])
+def rank_key(metrics: Mapping[str, float | None], rule: Mapping) -> tuple:
+    """The frozen rank key: lower ranks higher; ``max`` metrics are negated. No id tie-break.
+
+    ``lexicographic-v1``: one float per key (unchanged). ``lexicographic-missing-last-v1`` (M3-A1): one pair per key,
+    ``(1, 0.0)`` for a null metric (after every finite value) and ``(0, -v)`` / ``(0, v)`` otherwise; equal pairs are
+    ties exactly as equal floats are, so a null never invents an order between two candidates."""
+    if rule["rule"] == RANKING_RULE:
+        return tuple(-metrics[k["metric"]] if k["direction"] == "max" else metrics[k["metric"]] for k in rule["keys"])
+
+    def element(key: Mapping) -> tuple:
+        value = metrics[key["metric"]]
+        if value is None:
+            return (1, 0.0)
+        return (0, -value) if key["direction"] == "max" else (0, value)
+    return tuple(element(k) for k in rule["keys"])
+
+
+def _missing_last_metric(value: object, where: str) -> float | None:
+    """A ``lexicographic-missing-last-v1`` metric: a finite JSON number or null (``component_ranking_metric_invalid``
+    otherwise)."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise _fail("component_ranking_metric_invalid", where)
+    return float(value)
 
 
 def check_component_ranking(document: object, frozen: Mapping) -> dict:
     """Validate an event's component ranking against its frozen ledger; return ``{candidateId: {"key", "passed"}}``.
 
     The rows are exactly the frozen shortlist with the frozen identities; every frozen ranking gate has a result;
-    ``metrics`` hold exactly the rule's metrics as finite numbers; the rank key is derived here."""
+    ``metrics`` hold exactly the rule's metrics; the rank key is derived here. Under ``lexicographic-v1`` every metric is
+    a finite number. Under ``lexicographic-missing-last-v1`` (M3-A1) a metric is a finite number or null: null is
+    allowed on any key of a row failing at least one ranking gate (never ranked) and, on a row passing every gate, only
+    on a ``last`` key (``component_ranking_mandatory_metric_missing`` for a ``forbidden`` one)."""
     where = "componentRanking"
     universe = frozen.get(UNIVERSE_FIELD)
     if universe is None:
@@ -223,10 +260,18 @@ def check_component_ranking(document: object, frozen: Mapping) -> dict:
         metrics = row["metrics"]
         if not isinstance(metrics, dict) or sorted(metrics) != metrics_needed:
             raise _fail("component_ranking_metrics_mismatch", f"{at}.metrics")
-        values = {m: _number(v, f"{at}.metrics.{m}") for m, v in metrics.items()}
+        passed = all(v == PASSED for v in gates.values())
+        rule = item["rankingRule"]
+        if rule["rule"] == RANKING_RULE:
+            values = {m: _number(v, f"{at}.metrics.{m}") for m, v in metrics.items()}
+        else:
+            values = {m: _missing_last_metric(v, f"{at}.metrics.{m}") for m, v in metrics.items()}
+            if passed:
+                for key in rule["keys"]:
+                    if values[key["metric"]] is None and key["missing"] != MISSING_LAST:
+                        raise _fail("component_ranking_mandatory_metric_missing", f"{at}.metrics.{key['metric']}")
         ids.append(candidate)
-        result[candidate] = {"key": rank_key(values, item["rankingRule"]),
-                             "passed": all(v == PASSED for v in gates.values())}
+        result[candidate] = {"key": rank_key(values, rule), "passed": passed}
     if ids != sorted(set(ids)) or set(ids) != set(shortlist):
         raise _fail("component_ranking_not_the_shortlist", f"{where}.rows")
     return result

@@ -68,7 +68,9 @@ Field rules:
   `"compositionUniverse": {"componentEvents": [{"eventId": "msr-…", "subTask": "T-…", "rankingLayer": "A | B", "k": 3,
   "rankingGateIds": ["<sorted gate ids>"], "rankingRule": {"rule": "lexicographic-v1", "keys": [{"metric": "…",
   "direction": "max | min"}]}}, {…the other event…}], "compositionGateIds": ["baseline", "<sorted gate ids>"],
-  "mpid": 0.02, "includePackageableBaselines": true}`. A revision of a STOPPED group adds
+  "mpid": 0.02, "includePackageableBaselines": true}`. M3 Amendment A1 alternative rule:
+  `{"rule": "lexicographic-missing-last-v1", "keys": [{"metric": "…", "direction": "max | min", "missing": "forbidden |
+  last"}]}` (a null metric only on a row failing a ranking gate or for a `last` key; it sorts last). A revision of a STOPPED group adds
   `"supersedes": {"eventId": "<stopped event>", "frozenLedgerSha256": "…", "stoppedSealSha256s": ["…"]}`.
   A `BENCHMARK_BASELINE` entry (computed class `reference-only`, reason class `technical`; at most one per group) carries
   `"benchmarkBaseline": {"purpose": "…", "protocolSection": "…", "configurationSha256": "…", "adapterSha256": "…",
@@ -199,14 +201,16 @@ decision carries the identical mandatory block (`../candidate-credibility.md` §
   "dExecutionStartedAt": "YYYY-MM-DDThh:mm:ssZ",
   "incumbent": "<compositionId of U> | null",
   "baseline": {"compositionId": "<gate-only compositionId>", "compositionSha256": "<from the seal>", "dScore": 0.0,
-               "dResultSha256": "…"},
+               "dScoreExact": {"numerator": 0, "denominator": 1}, "dResultSha256": "<resultSha256 of its committed D manifest>"},
   "topK": {"<eventId>": ["<derived top-K, rank order>"]},
   "componentFinalists": {"<eventId>": ["<components of passing compositions, sorted>"]},
   "compositionCandidates": [{"compositionId": "C-<candidate>--<candidate>",
                              "components": [{"eventId": "msr-…", "candidateId": "…", "identitySha256": "…"}],
                              "gates": {"baseline": "passed | failed", "<other composition gate>": "passed | failed"},
-                             "dScore": 0.0, "technicalGates": "passed | failed", "comparativeScore": 0.0,
-                             "dResultSha256": "…", "baselineSealSha256s": {"<gate-only compositionId>": "<seal SHA-256>"}}],
+                             "dScore": 0.0, "dScoreExact": {"numerator": 0, "denominator": 1},
+                             "technicalGates": "passed | failed", "comparativeScore": 0.0,
+                             "dResultSha256": "<distinct; resultSha256 of a committed D manifest>",
+                             "baselineSealSha256s": {"<gate-only compositionId>": "<seal SHA-256>"}}],
   "rankedCompositions": ["<passing compositionId, non-increasing D-score>"],
   "frontier": ["<ranked compositionId>"],
   "strongestEvaluatedComposition": "<compositionId> | null",

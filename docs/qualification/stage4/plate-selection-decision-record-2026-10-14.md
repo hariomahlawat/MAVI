@@ -269,6 +269,17 @@ authority; the harness must equal it, never replace it. Cheap equivalences are p
 | 13 | Partition digests derive from the record SHA-256 | `evidenceSha256` is any SHA-256 | Use the A/B partition digest for rankings and the D partition digest in D manifests |
 | 14 | Detector-matched OC5 uplift is diagnostic | No field | Report only (never a decision row) |
 
+**Dated entry, 2026-10-17 (M3 Amendment A1, integration IP-1; owner rulings ODR-2, ODR-3 and ODR-8 of the integration
+plan Rev 5).** Item 5 holds unchanged for every mandatory metric: a missing detector or OCR primary measurement, a
+contract failure or an unresolved infrastructure fault fails a ranking gate and never receives a key. **Single
+exception:** an OCR `ece` that is undefined because a valid candidate made no read predictions (`readPredictions == 0`,
+`eceUndefinedReason == "no-read-predictions"`) is `null` under the M3 rule `lexicographic-missing-last-v1` (`ece min
+last`) and sorts after every finite ECE; the Stage-4 verifier checks the case against the measurement document. Item 8
+is resolved by the exact `dScoreExact` D scores and the exact MPID (131/150 against 5/6 passes at MPID 0.04 in M3 as in
+the harness). Item 11 is resolved on the M3 side by binding every decision row and the baseline to a distinct committed
+D-manifest result; the D-result document itself remains the integration's. The PR-1 verdict, MPID 0.04 and the
+superiority rule are unchanged.
+
 ### 6.3 Interfaces for the integration PR
 
 1. **Freeze → events.** The committed freeze record's SHA-256 is cited by both M3 frozen ledgers (detector event and

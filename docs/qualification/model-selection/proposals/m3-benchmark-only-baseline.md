@@ -1,9 +1,9 @@
 # MSR method revision M3: benchmark-only baseline component and derived gate-only composition (supersedes draft "M1-A1")
 
-**Status: PROPOSED.** It becomes governing only when merged after a fresh, independent, whole-head re-review and
-exact-head CI (README §14). Until then, `README.md` and `candidate-credibility.md` (M1) govern as merged on `main`.
-This branch already carries the governing-text changes and the validator implementation (§6), so the re-review
-assesses the complete revision.
+**Status: GOVERNING.** Merged in PR #220 (`main@0f039c6b`) after independent whole-head review and exact-head CI
+(README §14), and amended by the dated, numbered **Amendment A1** (§8, 2026-10-17). The earlier status line ("PROPOSED
+… governing only when merged …") described the pre-merge branch and is superseded by that merge; it is recorded here
+for the history of this document. No M3 event exists in the repository.
 
 **Name.** The rejected draft was "M1-A1". This is **M3**, the next numbered revision after M2 (README §14: revisions are
 additive and numbered). No other M3 exists in the repository.
@@ -84,7 +84,8 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
    redesign 2026-10-16).
    - **The composition group.** Every `msr-v1-m3` event is one of exactly two component events whose frozen ledgers
      carry one identical `compositionUniverse` (owner decision O3 for its tie rule): per event the ranking layer, `k`,
-     the ranking gate ids and a machine ranking rule (`lexicographic-v1` over named metrics); for the group the
+     the ranking gate ids and a machine ranking rule (`lexicographic-v1` over named metrics, or
+     `lexicographic-missing-last-v1`, Amendment A1 §A1.2); for the group the
      composition gate ids (always including `baseline`) and the MPID; `includePackageableBaselines: true`. The group
      holds exactly one BOB with exactly one gate-only composition.
    - **Stage 1, frozen before scoring**, in the BOB's ledger entry (`compositions[]`) and the protocol: the partner
@@ -111,7 +112,11 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
      and its identity hash; the derived composition hash; the hash of U; the gate scope; `protectedDState:
      NOT_STARTED`; and `recordedAt`/`recordedBy`. It holds no self-hash and is valid only if it equals, field for
      field, the re-derivation.
-   - The `baseline` gate compares exact decimals of the JSON number literals as written (`Decimal(str(value))`): a D-score exactly the baseline's plus the MPID passes, anything below fails; ranking order is unaffected.
+   - *Superseded by Amendment A1 §A1.1 (2026-10-17); kept as the original text:* The `baseline` gate compares exact decimals of the JSON number literals as written (`Decimal(str(value))`): a D-score exactly the baseline's plus the MPID passes, anything below fails; ranking order is unaffected.
+   - *Amendment A1 §A1.1 (governing):* every row and the baseline carry the canonical reduced fraction `dScoreExact`;
+     the `baseline` gate, the ranking order, the strongest composition and the per-candidate projections compare
+     those exact values against the exact MPID (`0.04` is exactly 1/25); `dScore` and `comparativeScore` are float
+     displays equal to `float(exact)`.
    - **U** is the cartesian product over the two events of (top-K ∪ packageable `mavi-baseline` candidates), tuples
      ordered by event id, ids derived as `C-<candidate>--<candidate>` (candidate ids never contain `--`, so an id
      decodes to one tuple). A BOB is never in U.
@@ -159,7 +164,8 @@ policy). A rule that restates an M1 rule and adds an M3 consequence is split, so
      `supersede` the stopped ones and remain M3 with the baseline gate (README §14.3).
    - If the baseline D result cannot be evaluated after protected D opened, no technical decision is recorded and the
      group moves to `ABANDONED` by an identical record line in every group event that cites a committed D result
-     (README §14.3).
+     (README §14.3). *Amended by A1 §A1.5:* the same rule applies to a correctly hashed D corpus that cannot be
+     admitted (`d-corpus-inadmissible`) and to a mandatory D composition left unevaluable (`d-evaluation-incomplete`).
    - Each group event's decision summary v1 carries the identical mandatory block `compositionAuthority`
      (`candidate-credibility.md` §8): the derived set U with recomputed gates and scores, the ranking, the frontier,
      the strongest and the implementation composition, top-K and finalists as diagnostics, the seal by hash and S0,
@@ -234,7 +240,11 @@ credibility requirements for candidate selection or implementation.
 | pre-D gate (B, D2, O2) | `d_not_authorised`, `composition_group_unknown`, `protected_default_branch_unverified`, `protected_default_branch_unverifiable`, `anchor_unavailable`, `seal_not_published`, `anchor_not_in_head`, `group_state_differs_from_anchor`, `group_state_not_clean` |
 | D manifests and recorded anchors (D3) | `d_manifest_not_canonical`, `d_artefact_group_mismatch`, `d_artefact_universe_mismatch`, `d_manifest_baseline_seal_mismatch`, `baseline_stopped_no_d_result`, `anchor_precedes_seal`, `anchor_not_in_head`, `d_artefact_not_after_anchor`, `anchor_unverifiable` |
 | STOPPED and revision (O1, O6) | `baseline_stopped_decision_refused`, `stopped_event_not_superseded`, `supersedes_target_missing`, `supersedes_frozen_ledger_mismatch`, `supersedes_target_not_stopped`, `supersedes_target_has_d_or_decision`, `superseded_record_line_missing`, `superseded_line_without_superseding_event`, `event_superseded_twice`, `supersedes_event_invalid`, `supersedes_seals_invalid` |
-| abandonment (O4) | `baseline_d_unavailable`, `abandonment_reason_not_allowed`, `abandonment_without_protected_d`, `abandonment_after_decision`, `group_abandonment_incomplete`, `event_abandoned_decision_refused` |
+| abandonment (O4; A1 §A1.5 reasons) | `baseline_d_unavailable`, `abandonment_reason_not_allowed`, `abandonment_without_protected_d`, `abandonment_after_decision`, `group_abandonment_incomplete`, `event_abandoned_decision_refused` |
+| exact D scores (A1 §A1.1) | `d_score_exact_malformed`, `d_score_exact_not_reduced`, `d_score_display_not_derived` |
+| missing-last ranking (A1 §A1.2) | `component_ranking_metric_invalid`, `component_ranking_mandatory_metric_missing` |
+| D results and manifests (A1 §A1.3) | `decision_d_result_without_manifest`, `decision_d_result_cited_twice`, `d_manifest_result_duplicated` |
+| minimum evaluable population (A1 §A1.4) | STOP reason `insufficient-evaluable-candidates`; `d_not_authorised:composition-universe-empty` |
 | evaluated set and BOB rows | `evaluated_set_differs_from_shortlist`, `benchmark_baseline_row_scored`, `benchmark_baseline_host_manifest_mismatch`, `benchmark_baseline_host_profiles_differ_from_target_profiles`, `benchmark_baseline_row_seal_mismatch`, `evaluated_artefact_differs_from_ledger`, `host_manifests_only_for_benchmark_baseline` |
 | decision block (C2-C6) | `missing_field`, `m3_decision_requires_group_authority`, `gate_only_composition_unresolved`, `decision_baseline_seal_mismatch`, `decision_baseline_composition_mismatch`, `baseline_resolved_after_d_started`, `d_started_after_decision`, `composition_set_differs_from_sealed_universe`, `composition_components_not_derived`, `composition_hard_gate_mapping_invalid`, `composition_baseline_gate_not_derived`, `composition_technical_gates_not_derived`, `composition_score_not_derived`, `d_result_baseline_seal_mismatch`, `benchmark_baseline_in_composition_candidate`, `ranked_set_not_unique`, `benchmark_baseline_in_ranked_set`, `ranked_compositions_not_derived`, `frontier_member_not_ranked_composition`, `strongest_composition_not_derived`, `incumbent_not_evaluated`, `top_k_not_derived`, `component_finalists_not_derived`, `implementation_composition_not_ranked`, `benchmark_baseline_in_derived_output` |
 | rows and implementation (C4, C5) | `row_technical_gates_not_composition_derived`, `row_score_not_composition_derived`, `implementation_composition_required`, `implementation_composition_without_implementation`, `implementation_not_composition_component` |
@@ -290,3 +300,100 @@ every cold-review probe of the frozen head is a permanent test:
 
 `probe_licence` is unchanged (residual R4). Non-M3 repository tests commit their synthetic tree first, because
 repository verification now always needs full history; their verdicts are unchanged.
+
+Amendment A1 (§8) adds `tools/qualification/tests/test_model_selection_m3_a1.py`: the integration plan's matrix rows
+X1-X7 (exact scores), R1-R7 (missing-last), P1-P3 (minimum evaluable population), AB1-AB3 (abandonment reasons) and
+MB1-MB3 (D results bound to committed manifests).
+
+## 8. Amendment A1 (2026-10-17): exact D scores, scoped missing-last ranking, D-result binding, minimum evaluable population, two abandonment reasons
+
+**Number and date.** M3 Amendment **A1**, 2026-10-17. It amends this revision in place as a dated, numbered amendment
+(owner ruling ODR-1); the method revision stays `msr-v1-m3`. It applies only to M3 composition groups; M1, M2/S2c,
+decision v2 and `taskQualityScore` rules are unchanged.
+
+**Origin.** The Stage-4 plate harness ↔ M3 integration plan, Revision 5 (SHA-256 `b0df6a9b…0786`), §4.1, §4.2, §4.7,
+§4.10 and §6.6, and the owner rulings recorded there: ODR-2 (exact D scores authoritative for the whole M3
+score-derived decision path), ODR-3 (scoped missing-last), ODR-8 (minimum evaluable population), R2-ruling ODR-10 C
+(corpus inadmissible) and the D-phase UNEVALUABLE ruling. It resolves the differences of the Stage-4 decision record
+§6.2 items 5 (missing metrics), 8 (exact MPID) and 11 (D results versus manifests and rows, M3 side). Implemented in
+`m3_universe.py`, `baseline_seal.py`, `m3_authority.py` and the M3 branch of `credibility.validate_decision` (IP-1).
+
+**In-place schema exception.** The component-ranking schema, the decision summary v1 `compositionAuthority` block and
+the baseline-seal stop-reason enumeration change in place, without a new schema version. This is an explicit, dated
+exception, justified because no M3 data exists in the repository (the same precedent as the authority redesign:
+"schemas changed in place … because no M3 data was ever merged").
+
+### A1.1 Exact D scores (supersedes the rule-4a bullet "compares exact decimals of the JSON number literals as written" and README §14.3 step 7's matching wording)
+
+- Every `compositionCandidates` row and the `baseline` carry `dScoreExact`: `null` exactly when `dScore` is `null`,
+  otherwise exactly `{"numerator": n, "denominator": d}` with JSON integers, `1 <= d <= 2^63 - 1`, `0 <= n <= d` and
+  `gcd(n, d) = 1` (`d_score_exact_malformed`, `d_score_exact_not_reduced`). `dScore` is a display only and must equal
+  `float(n/d)`, compared as a float with a float (`d_score_display_not_derived`); `comparativeScore` is the same
+  display of the derived exact score.
+- The MPID is the exact decimal of the frozen `mpid` literal as a rational (`0.04` is exactly 1/25). The `baseline`
+  gate passes iff `exact − exact(baseline) >= MPID` exactly: D = 131/150 against a baseline of 5/6 passes at MPID 0.04
+  (ΔD = 1/25), where the float displays give 0.0399999999999999.
+- `rankedCompositions` (non-increasing exact score), `strongestEvaluatedComposition` (an exact maximum among the
+  technically passing compositions, owner ruling ODR-17), each ordinary row's derived score (the exact maximum over its
+  technically passing compositions; none means no technical score), `strongestEvaluatedTechnical` and
+  `strongestClearedPerProfile` are decided on the exact values. Two different rationals with one display float are
+  ordered exactly: the weaker is refused as the strongest, and there is no collision refusal or new terminal state.
+  Exactly equal rationals keep the existing permitted ties; no tie-break is invented.
+
+### A1.2 `lexicographic-missing-last-v1` (scoped missing-last; owner ruling ODR-3)
+
+- A second frozen ranking rule: `{"rule": "lexicographic-missing-last-v1", "keys": [{"metric", "direction",
+  "missing"}]}` with `missing` one of `forbidden` or `last`. `lexicographic-v1` is unchanged (every metric a finite
+  number, keys `{metric, direction}` only).
+- Under the new rule a metric is a finite number or `null` (anything else: `component_ranking_metric_invalid`). `null`
+  is allowed on any key of a row failing at least one ranking gate (such a row is never ranked, never in top-K and never
+  evaluable), and on a row passing every ranking gate only for a `last` key; a `null` `forbidden` key on a passing row
+  is refused (`component_ranking_mandatory_metric_missing`) and a seal derived from it STOPs
+  (`component-ranking-inconsistent`). The rank key element is `(1, 0)` for `null` and `(0, −v)` / `(0, v)` for `max` /
+  `min`, so a null sorts after every finite value and two nulls are a tie: a null never invents an order, and the
+  existing tie rules (top-K boundary and partner ties STOP) are unchanged.
+- Mandatory primary measurements, a contract failure and an unresolved infrastructure fault never receive an
+  artificial valid ranking: they fail a ranking gate. For Stage-4 the only permitted case is an OCR `ece` that is
+  undefined because a valid candidate made no read predictions (`readPredictions == 0`, `eceUndefinedReason ==
+  "no-read-predictions"`), which the Stage-4 harness verifier checks against the measurement document; M3 checks the
+  rule. Stage-4 keys: detector `recallAtCoverage` max, `falsePlatesPerCrop` min, `ap50` max (all `forbidden`); OCR
+  `em` max, `cer` min (`forbidden`), `ece` min (`last`).
+
+### A1.3 D results bound to committed manifests (the M3 part of decision record §6.2 item 11)
+
+- The `baseline` and every composition row cite **distinct** D results (`decision_d_result_cited_twice`), and each cited
+  `dResultSha256` is the `resultSha256` of a committed D manifest of the group (`decision_d_result_without_manifest`).
+- One D-result document per manifest: two committed D manifests of a group with one `resultSha256` are refused
+  (`d_manifest_result_duplicated`). Which composition a result document belongs to, and its content, are checked by
+  the event harness's repository verifier (the manifest carries no composition id).
+
+### A1.4 Minimum evaluable population (owner ruling ODR-8)
+
+- New derived STOP reason `insufficient-evaluable-candidates`: per group event, the SHORTLISTED candidates other than a
+  `mavi-baseline` whose committed ranking row passes every ranking gate are counted; fewer than two in either event
+  STOPs the seal, checked after the rankings are validated and before the partner and top-K are derived. A valid
+  candidate with a null `last` metric counts; a row failing any gate (contract failure, unevaluable, unsupported) does
+  not. It is derived, so `verify_baseline_seal` re-derives it, and a RESOLVED seal on such inputs is not derivable
+  (`baseline_seal_not_derivable`). Packageable `mavi-baseline` candidates still enter U regardless of gates.
+- `open_protected_d` also refuses an empty ordinary composition set (`d_not_authorised:composition-universe-empty`).
+
+### A1.5 Two abandonment reasons
+
+- `ABANDON_REASONS` is exactly `baseline-d-unavailable` (owner decision O4), `d-corpus-inadmissible` (a correctly hashed
+  D corpus that cannot be admitted after protected D opened) and `d-evaluation-incomplete` (a mandatory D composition
+  left unevaluable). Every other abandonment rule is unchanged: the evidence is the `resultSha256` of a committed group
+  D manifest, the identical line stands in every group record, and no decision of the group was ever committed. M3
+  checks only that the evidence is a manifest result; that the manifest's document has the schema and content the
+  reason requires is the event harness verifier's check.
+
+### Trade-off and what does not change
+
+- **Cost:** a second representation of each D score (the exact fraction beside its float display), a second ranking
+  rule, three record-level binding checks, one more STOP reason and two more abandonment reasons.
+- **Gain:** the frozen exact MPID and the strongest composition can no longer be decided by binary floating point
+  (decision record §6.2 item 8); a genuinely undefined diagnostic no longer forces a valid candidate out of the
+  ranking, while a missing mandatory measurement still does; a decision row can no longer cite a D result that no
+  committed manifest records; a group with too few evaluable candidates stops before protected D.
+- **Unchanged:** the MPID value, the superiority rule, every statistical rule, `lexicographic-v1`, M1/M2/S2c and
+  decision v2. The superseded texts (the rule-4a bullet and README §14.3 step 7's "exact decimals of the JSON number
+  literals" wording) are kept in place and marked superseded.

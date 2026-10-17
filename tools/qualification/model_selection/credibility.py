@@ -39,6 +39,7 @@ import re
 import unicodedata
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta, timezone
+from fractions import Fraction
 from pathlib import Path
 
 LEDGER_SCHEMA = "mavi-external-evidence-ledger-v1"
@@ -1341,7 +1342,7 @@ def validate_evolution(older: dict, newer: dict, since: date | None = None) -> N
 # ------------------------------------------------------------- decision summary
 
 
-def _maximal(scores: Mapping[str, float]) -> set[str]:
+def _maximal(scores: Mapping[str, float] | Mapping[str, Fraction]) -> set[str]:
     if not scores:
         return set()
     best = max(scores.values())
@@ -1360,6 +1361,11 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
     composition, top-K and finalists, and each ordinary row's technical gates and comparative score are derived from
     the passing end-to-end compositions (``m3_authority.check_composition_decision``). The group state is ``group``
     or, when it is not given, the one repository verification computes under ``repo``.
+
+    M3 Amendment A1 (exact D scores): for a group event, ``strongestEvaluatedTechnical`` and
+    ``strongestClearedPerProfile`` are maxima over each candidate's EXACT projected technical score (the exact maximum
+    of its technically passing compositions); the rows' ``comparativeScore`` values are float displays equal to
+    ``float(exact)``. M1 events (no ``compositionUniverse``), M2/S2c and ``taskQualityScore`` are unchanged.
     """
     validate_evolution(frozen, ledger)
     benchmark = _benchmark_baselines(frozen)
@@ -1486,18 +1492,23 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
         if isinstance(candidate_id, str) and candidate_id in benchmark:
             raise _fail("benchmark_baseline_in_derived_output", f"decision.{field}")
     implementation_composition = None
+    exact_technical: dict[str, Fraction] | None = None
     if universe is not None:
         # M3 C2-C6: implementation authority comes only from passing end-to-end compositions. Every ordinary row's
         # technical gates and comparative score are the composition-derived values, so a candidate whose every
         # composition failed a hard gate (the baseline gate included) is failed for every M1 rule below.
         from .m3_authority import check_composition_decision
         derived = check_composition_decision(decision, group, frozen["eventId"])
+        exact_technical = {}
         for candidate_id, row in sorted(ranked.items()):
             gates, score = derived.get(candidate_id, ("failed", None))
             if row["technicalGates"] != gates:
                 raise _fail("row_technical_gates_not_composition_derived", f"decision.evaluated.{candidate_id}")
-            if row["comparativeScore"] != score:
+            # M3-A1: the row carries the float display of the exact projection (float compared with float)
+            if row["comparativeScore"] != (None if score is None else float(score)):
                 raise _fail("row_score_not_composition_derived", f"decision.evaluated.{candidate_id}")
+            if score is not None:
+                exact_technical[candidate_id] = score
         implementation_composition = decision["compositionAuthority"]["implementationComposition"]
 
     licence = _keys(decision["licence"], ranked, "decision.licence")
@@ -1527,8 +1538,11 @@ def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Pat
     if not quality and highest is not None:
         raise _fail("highest_task_quality_without_evaluation", "decision.highestTaskQualityEvaluated")
 
-    # The technical ranking reads recorded scores only: never licence, never credibility.
+    # The technical ranking reads recorded scores only: never licence, never credibility. M3-A1: for a group event the
+    # recorded score is the exact composition-derived projection, of which comparativeScore is only the display.
     technical = {c: row["comparativeScore"] for c, row in ranked.items() if row["technicalGates"] == "passed"}
+    if exact_technical is not None:
+        technical = exact_technical
     strongest = decision["strongestEvaluatedTechnical"]
     if technical and strongest not in _maximal(technical):
         raise _fail("strongest_technical_not_maximal", "decision.strongestEvaluatedTechnical")

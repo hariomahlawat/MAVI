@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import json
 from decimal import Decimal
+from fractions import Fraction
 import os
 import shutil
 import subprocess
@@ -210,24 +211,42 @@ def group(document=None, partner=None, rankings=None, seal="derive", s0=S0):
                                  rankings, seal, s0=s0)
 
 
+def as_fraction(value):
+    """M3 Amendment A1: a D score as its exact rational (a float literal is read as written, ``0.9`` -> 9/10)."""
+    if value is None or isinstance(value, Fraction):
+        return value
+    return Fraction(Decimal(str(value)))
+
+
+def exact_of(value):
+    value = as_fraction(value)
+    return None if value is None else {"numerator": value.numerator, "denominator": value.denominator}
+
+
+def display_of(value):
+    value = as_fraction(value)
+    return None if value is None else float(value)
+
+
 def authority_block(state, *, scores=None, base=BASE_D, anchor=ANCHOR, implementation="C-PD-A--VC-EST",
                     mpid=MPID):
+    """A consistent ``compositionAuthority`` block: exact ``dScoreExact`` (M3-A1) with ``dScore`` its float display."""
     scores = D_SCORES if scores is None else scores
     rows, passing = [], {}
     for item in state.ordinary:
         cid = item["compositionId"]
-        score = scores.get(cid)
+        score = as_fraction(scores.get(cid))
         baseline_passed = score is not None and base is not None and \
-            Decimal(str(score)) - Decimal(str(base)) >= Decimal(str(mpid))
+            score - as_fraction(base) >= as_fraction(mpid)
         gates = {"baseline": "passed" if baseline_passed else "failed", "consistent-wrong": "passed"}
         technical = "passed" if all(v == "passed" for v in gates.values()) else "failed"
         if technical == "passed":
             passing[cid] = score
         rows.append({"compositionId": cid, "components": copy.deepcopy(item["components"]), "gates": gates,
-                     "dScore": score, "technicalGates": technical,
-                     "comparativeScore": score if technical == "passed" else None,
+                     "dScore": display_of(score), "dScoreExact": exact_of(score), "technicalGates": technical,
+                     "comparativeScore": display_of(score) if technical == "passed" else None,
                      "dResultSha256": sha(f"d-{cid}"), "baselineSealSha256s": {GATE: state.seal_sha256}})
-    ranked = sorted(passing, key=lambda c: -passing[c])
+    ranked = sorted(passing, key=lambda c: (-passing[c], c))
     finalists = {e: sorted({c["candidateId"] for comp in ranked for c in
                             next(i for i in state.ordinary if i["compositionId"] == comp)["components"]
                             if c["eventId"] == e}) for e in (PARTNER_EVENT, EVENT)}
@@ -235,7 +254,8 @@ def authority_block(state, *, scores=None, base=BASE_D, anchor=ANCHOR, implement
             "baselineSeals": [{"compositionId": GATE, "sealSha256": state.seal_sha256, "status": "RESOLVED",
                                "sealCommit": state.s0}],
             "dExecutionStartedAt": D_STARTED, "incumbent": None,
-            "baseline": {"compositionId": GATE, "compositionSha256": state.seal["compositionSha256"], "dScore": base,
+            "baseline": {"compositionId": GATE, "compositionSha256": state.seal["compositionSha256"],
+                         "dScore": display_of(base), "dScoreExact": exact_of(base),
                          "dResultSha256": sha("d-baseline")},
             "topK": copy.deepcopy(state.top_k), "componentFinalists": finalists, "compositionCandidates": rows,
             "rankedCompositions": ranked, "frontier": ranked[:1],
@@ -253,18 +273,23 @@ def bob_row(document, seal_sha):
 
 
 def apply_rows(summary, state, event_id):
-    """Set every ordinary row to its composition-derived values and recompute the M1 derived fields."""
+    """Set every ordinary row to its composition-derived values (the exact projection, M3-A1, displayed as a float)
+    and recompute the M1 derived fields from the exact projection."""
     block_ = summary["compositionAuthority"]
-    passing = {r["compositionId"]: r["dScore"] for r in block_["compositionCandidates"] if r["technicalGates"] == "passed"}
+    passing = {r["compositionId"]: Fraction(r["dScoreExact"]["numerator"], r["dScoreExact"]["denominator"])
+               for r in block_["compositionCandidates"] if r["technicalGates"] == "passed"}
+    technical = {}
     for row in summary["evaluated"]:
         if row["technicalGates"] == "n/a":
             continue
         scores = [s for comp, s in passing.items() if any(
             c["eventId"] == event_id and c["candidateId"] == row["candidateId"]
             for c in next(r for r in block_["compositionCandidates"] if r["compositionId"] == comp)["components"])]
-        row.update(technicalGates="passed" if scores else "failed", comparativeScore=max(scores) if scores else None)
-    technical = {r["candidateId"]: r["comparativeScore"] for r in summary["evaluated"] if r["technicalGates"] == "passed"}
-    best = max(technical, key=technical.get) if technical else None
+        row.update(technicalGates="passed" if scores else "failed",
+                   comparativeScore=float(max(scores)) if scores else None)
+        if scores:
+            technical[row["candidateId"]] = max(scores)
+    best = min(technical, key=lambda c: (-technical[c], c)) if technical else None
     summary["strongestEvaluatedTechnical"] = best
     summary["strongestClearedPerProfile"] = {p: best for p in summary["targetProfiles"]}
     return summary
@@ -704,8 +729,15 @@ def test_partner_tie_stops_and_a_failing_partner_is_skipped():
     tie = ranking(partner, metrics={"PD-A": {"recall": 0.8}, "PD-B": {"recall": 0.8}})
     seal = derive(document, partner, rankings_of(document, partner, other=tie))
     assert seal["status"] == "STOPPED" and seal["stopReason"] == "resolution-ambiguous"
+    # a third eligible partner keeps two evaluable detectors (M3-A1 minimum population) while PD-A fails a gate
+    entry = bob()
+    entry["benchmarkBaseline"]["compositions"][0]["eligiblePartners"] = partners() + [
+        {"candidateId": "PD-C", "identitySha256": identity_of("pdc")}]
+    document = m3_ledger(baseline(), established(), emerging(), entry)
+    partner = partner_ledger(established("PD-A", "pda"), established("PD-B", "pdb"), established("PD-C", "pdc"))
     gates = {"PD-A": {"contract": "passed", "recall-floor": "failed"}}
-    skip = ranking(partner, gates=gates)
+    skip = ranking(partner, metrics={"PD-A": {"recall": 0.9}, "PD-B": {"recall": 0.8}, "PD-C": {"recall": 0.7}},
+                   gates=gates)
     seal = derive(document, partner, rankings_of(document, partner, other=skip))
     assert seal["partnerCandidateId"] == "PD-B"
     wrong = dict(seal, partnerCandidateId="PD-A", partnerIdentitySha256=identity_of("pda"))
@@ -821,9 +853,12 @@ def stopped_group(document=None, partner=None):
 
 
 def test_no_passing_partner_produces_an_immutable_stopped_record():
+    """With every partner-event candidate failing a ranking gate the derived reason is, since M3 Amendment A1, the
+    minimum evaluable population (checked before the partner); ``no-partner-passed-layer-a`` stays reachable when
+    only excluded partners pass (``test_model_selection_m3_a1.py``)."""
     state = stopped_group()
     seal = state.seal
-    assert seal["status"] == "STOPPED" and seal["stopReason"] == "no-partner-passed-layer-a"
+    assert seal["status"] == "STOPPED" and seal["stopReason"] == "insufficient-evaluable-candidates"
     assert set(seal) == set(bs.STOPPED_FIELDS) and state.ordinary is None
     args = dict(frozen=state.frozen_by_event[EVENT], protocol_sha256=PROTOCOL,
                 partner_ledger=state.frozen_by_event[PARTNER_EVENT], rankings=state.rankings)
@@ -1024,7 +1059,8 @@ def test_probe_gate_5_frontier_of_individual_candidates_is_refused():
     (lambda b: b.update(groupId=sha("other group")), "d_artefact_group_mismatch"),
     (lambda b: b.update(anchorCommit="HEAD"), "malformed"),
     (lambda b: b["baseline"].update(compositionSha256=sha("x")), "decision_baseline_composition_mismatch"),
-    (lambda b: b["baseline"].update(dScore=None), "baseline_d_unavailable"),
+    (lambda b: b["baseline"].update(dScore=None, dScoreExact=None), "baseline_d_unavailable"),
+    (lambda b: b["baseline"].update(dScore=None), "d_score_exact_malformed"),
 ])
 def test_the_decision_block_is_recomputed_never_trusted(mutate, code):
     state = group()
@@ -1377,13 +1413,27 @@ def commit_d(built: Built, auth, run="RUN-1") -> Path:
     return path
 
 
+def commit_d_results(built: Built, auth, block_) -> None:
+    """M3-A1: one committed group D manifest per D result the block cites (rows and baseline), after the anchor."""
+    cited = [(r["compositionId"], r["dResultSha256"]) for r in block_["compositionCandidates"]]
+    cited.append((GATE, block_["baseline"]["dResultSha256"]))
+    for name, result in cited:
+        run = f"R-{name}"
+        ma.write_canonical(built.folder / f"{EVENT}{bs.D_MANIFEST_INFIX}{run}.json",
+                           ma.d_manifest_document(auth, run, result))
+    commit(built.path, "protected D results")
+    git(built.path, "update-ref", "refs/remotes/origin/main", auth.anchor_commit)
+
+
 def commit_decisions(built: Built, auth, *, base=BASE_D, state_name="QUALIFICATION_PENDING", chosen=True,
-                     mutate=None, mutate_partner=None):
+                     mutate=None, mutate_partner=None, with_results=True):
     state = built.state()
     block_ = authority_block(state, anchor=auth.anchor_commit, base=base,
                              implementation="C-PD-A--VC-EST" if chosen else None)
     if mutate is not None:
         mutate(block_)
+    if with_results:
+        commit_d_results(built, auth, block_)
     for event_id in (EVENT, PARTNER_EVENT):
         own = copy.deepcopy(block_)
         if mutate_partner is not None and event_id == PARTNER_EVENT:
@@ -2173,7 +2223,7 @@ def test_a_decision_needs_an_opened_protected_d(tmp_path):
     built = build(tmp_path / "r")
     auth = open_d(built)
     git(built.path, "update-ref", "refs/remotes/origin/main", auth.anchor_commit)
-    commit_decisions(built, auth)
+    commit_decisions(built, auth, with_results=False)
     refused("decision_without_d_manifest", validate_repository, built.path)
 
 
