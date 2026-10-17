@@ -56,7 +56,7 @@ export default memo(function TrackResultCard({
   const className = ['track-card', onSelect ? 'is-selectable' : '', selected ? 'is-selected' : ''].filter(Boolean).join(' ');
   const classLabel = objectClassLabel(track);
   const title = `${classLabel} · ${track.cameraCode} · ${track.cameraName}`;
-  const select = onSelect ? selectControlProps(track.id, `Select ${title}`, onSelect) : null;
+  const select = onSelect ? selectControlProps(track.id, `Select ${title}${track.plate ? ` · Read as ${track.plate.matchedText}` : ''}`, onSelect) : null;
   const ref = useKeepSelectedVisible<HTMLElement>(selected);
 
   return (
