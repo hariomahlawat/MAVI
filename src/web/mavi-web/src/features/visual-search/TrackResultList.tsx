@@ -75,7 +75,7 @@ const ResultRow = memo(function ResultRow({
   useEffect(() => { setThumbnailFailed(false); }, [track.thumbnailContentUrl]);
 
   const title = `${objectClassLabel(track)} · ${track.cameraCode} · ${track.cameraName}`;
-  const select = selectControlProps(track.id, `Select ${title}`, onSelect);
+  const select = selectControlProps(track.id, `Select ${title}${track.plate ? ` · Read as ${track.plate.matchedText}` : ''}`, onSelect);
 
   return (
     <li ref={ref} className="result-row" aria-current={selected ? 'true' : undefined}>
