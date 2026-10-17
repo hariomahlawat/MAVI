@@ -284,6 +284,21 @@
 .result-row__meta { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); color: var(--text-muted); font-size: var(--fs-1); margin-top: var(--s-hair); }
 .result-row__meta b { color: var(--text-secondary); font-weight: 500; }
 .result-row__side { display: grid; justify-items: end; gap: var(--s-1); }
+/* A plate match is model evidence, one subdued line rather than a status badge. */
+.track-plate-match {
+  display: block; min-width: 0; color: var(--text-secondary);
+  font-size: var(--fs-1); overflow-wrap: anywhere; line-height: 1.4;
+}
+.track-plate-match .mono { font-variant-numeric: tabular-nums; }
+.plate-region {
+  display: flex; justify-content: center; align-items: center;
+  min-height: 42px; max-height: 124px; overflow: hidden; padding: var(--s-2);
+  background: var(--surface-app); color: var(--text-muted);
+  border: var(--stroke-hair) solid var(--border-subtle);
+  font-size: var(--fs-1);
+}
+.plate-region canvas { display: block; max-height: 106px; object-fit: contain; }
+.plate-region canvas[hidden] { display: none; }
 .result-row__side time { color: var(--text-muted); font-size: var(--fs-0); white-space: nowrap; }
 
 .track-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); padding: var(--s-3); }
