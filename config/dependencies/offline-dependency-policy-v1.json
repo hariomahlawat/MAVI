@@ -192,7 +192,48 @@
         "pytorchIndex": "https://download.pytorch.org/whl/cu124",
         "rule": "Use the dedicated cu124 index, never --extra-index-url, and freeze exact wheel SHA-256 values before offline use."
       },
-      "benchmarkEnvironments": "The Stage-4 measuring-instrument environment (tools/benchmarks/plates/requirements-instruments.txt, CPython 3.12, Development benchmark only) is packaged in the developer offline cache: its win_amd64 binary wheels and its model payloads (tools/benchmarks/plates/instrument-payloads-v1.json, SHA-256 verified) are prepared by tools/setup/Prepare-MaviDeveloperOfflineCache.ps1 and installed disconnected by tools/benchmarks/plates/Install-PlateInstrumentEnvironment.ps1 (pip --no-index, verified model staging). It is never part of a MAVI Runtime Pack or the vision lock."
+      "benchmarkEnvironments": "The Stage-4 measuring-instrument environment (tools/benchmarks/plates/requirements-instruments.txt, CPython 3.12, Development benchmark only) is packaged in the developer offline cache: its win_amd64 binary wheels and its model payloads (tools/benchmarks/plates/instrument-payloads-v1.json, SHA-256 verified) are prepared by tools/setup/Prepare-MaviDeveloperOfflineCache.ps1 and installed disconnected by tools/benchmarks/plates/Install-PlateInstrumentEnvironment.ps1 (pip --no-index, verified model staging). It is never part of a MAVI Runtime Pack or the vision lock.",
+      "developmentRuntimeFamilies": {
+        "plates-onnx-v1": {
+          "scope": "development-only",
+          "purpose": "Issue #225 Development ANPR/OCR pilot: the plates role on CPU ONNX Runtime (PD5 PP-OCRv5 DB proposer + OC1 fast-plate-ocr CCT). Never part of the vision lock or a qualified Runtime Pack; Production refuses it (development-cpu / development-offline-lock statuses, unverified Model Packs, developmentOnly plate profile). Benchmark approval of onnxruntime (instrument environment) does not qualify this runtime.",
+          "runtimeProfile": "src/vision/runtime/plates-onnx-v1/runtime.json",
+          "variants": {
+            "windows-x86_64-cpu": {
+              "requirements": [
+                "httpx<0.29,>=0.28",
+                "numpy==2.5.3",
+                "onnxruntime==1.31.0",
+                "opencv-python-headless==5.0.0.93",
+                "packaging<27,>=26",
+                "pillow==11.3.0",
+                "pydantic-settings<3,>=2.10",
+                "pydantic<3,>=2.11",
+                "pyyaml==6.0.3",
+                "scipy==1.18.1"
+              ],
+              "lock": "src/vision/runtime/plates-onnx-v1/windows-x86_64-cpu.lock",
+              "lockSha256": "a635ee71fcd71a6f037589653fb7d9eb8ca02d96e9e1e4124a363c0b71c7e483"
+            }
+          },
+          "packagedBy": "tools/setup/Prepare-MaviDeveloperOfflineCache.ps1 (python-plates-pilot-wheelhouse: the lock's win_amd64 wheels, hash-checked; plates-pilot-payloads: tools/vision/plates-pilot-payloads-v1.json, SHA-256 verified against the committed manifests)",
+          "installedBy": "tools/setup/Install-MaviPlatesPilotRuntime.ps1 (pip --no-index --require-hashes from the lock into a new venv; Model Packs staged by tools/vision/plates_pilot_packs.py)",
+          "verification": "the plates supervisor refuses an interpreter or semantic-graph distribution that differs from runtime.json (plate_runtime_environment_mismatch / plate_runtime_python_mismatch); the resolver verifies lock and requirements bytes against the binding and every Model Pack artefact SHA-256; tools/verify_repo.py holds this entry equal to the lock",
+          "licences": {
+            "onnxruntime": "MIT",
+            "numpy": "BSD-3-Clause",
+            "opencv-python-headless": "Apache-2.0 (bundled FFmpeg LGPL-2.1)",
+            "pillow": "MIT-CMU",
+            "scipy": "BSD-3-Clause",
+            "pyyaml": "MIT",
+            "protobuf": "BSD-3-Clause",
+            "flatbuffers": "Apache-2.0",
+            "pydantic/pydantic-core/pydantic-settings": "MIT",
+            "httpx/httpcore": "BSD-3-Clause",
+            "anyio/idna/certifi/h11/annotated-types/typing-extensions/typing-inspection/python-dotenv/packaging": "MIT/BSD/MPL-2.0 (certifi) as in the vision lock"
+          }
+        }
+      }
     }
   },
   "nativeAndToolchain": [

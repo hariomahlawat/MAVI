@@ -11,17 +11,24 @@ from __future__ import annotations
 
 import logging
 import platform
+from importlib import metadata
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Mapping
 
-from mavi_vision.plates.adapters import AdapterUnavailable, components_for
-from mavi_vision.plates.adapters.fixture import FIXTURE_ADAPTER_ID
+from mavi_vision.plates.adapters import (
+    DETECTOR_CAPABILITY,
+    OCR_CAPABILITY,
+    AdapterRequest,
+    AdapterUnavailable,
+    components_for,
+)
 from mavi_vision.plates.inference import PlateDetector, PlateRecogniser
 from mavi_vision.plates.profile import PlateIdentity, PlatePipelineProfile
 from mavi_vision.plates.settings import PlateWorkerSettings
 from mavi_vision.runtime.binding import load_component_binding
 from mavi_vision.runtime.deployment_profiles import select_profile
+from mavi_vision.runtime.manifest import ReleaseMetadataError
 from mavi_vision.runtime.resolver import (
     INSTALLED_PACK,
     PLATE_CONTROL_VERSION,
@@ -113,11 +120,49 @@ def build_provenance(selection: PlateSelection, settings: PlateWorkerSettings, d
     }
 
 
-def adapter_id_for(profile: PlatePipelineProfile) -> str:
-    """The registered adapter the profile runs. Only the Development fixture exists until PR-6."""
-    if profile.parameters.fixture_seed is not None:
-        return FIXTURE_ADAPTER_ID
-    raise AdapterUnavailable("plate_adapter_unknown")
+def adapter_request(selection: PlateSelection, capability_id: str) -> AdapterRequest:
+    """The adapter one capability's **own** Model Pack names (``capabilitySpecific.<capabilityId>.adapterId``).
+
+    Its artefact paths are the ones the resolver already hash-verified, by the adapter's slot names. The profile's
+    ``fixtureSeed`` never selects an adapter (Issue #225); it only parameterises the fixture the packs name.
+    """
+    capability = selection.resolved_role.capabilities.get(capability_id)
+    if capability is None:
+        raise AdapterUnavailable(f"capability_binding_missing:{capability_id}")
+    try:
+        section = capability.manifest.plate_adapter_section(capability_id)
+    except ReleaseMetadataError as exc:
+        raise AdapterUnavailable(str(exc)) from exc
+    artifacts = {slot: capability.artifact_paths[artifact.artifact_role] for slot, artifact in section.artifacts.items()}
+    return AdapterRequest(capability_id=capability_id, adapter_id=section.adapter_id, artifacts=artifacts)
+
+
+def check_development_environment(selection: PlateSelection, *, python_version: str | None = None,
+                                  installed: Mapping[str, str] | None = None) -> None:
+    """A Development-only runtime graph (``plates-onnx-v1``) runs only in the environment its lock describes.
+
+    There is no installed Runtime Pack for it (``runtimePackSource`` is ``unpacked-environment``), so the running
+    interpreter's version and every semantic-graph distribution are compared with the family profile instead:
+    a mismatch is refused, never run under the family's identity.
+    """
+    role = selection.resolved_role
+    profile = role.family.runtime_profile
+    graph = profile.graph
+    if not graph.development_only:
+        return
+    identity = role.family.runtime_platform_variants[role.runtime_variant].python_identity
+    if identity is None or (python_version or platform.python_version()) != identity.version:
+        raise ValueError("plate_runtime_python_mismatch")
+    members = profile.semantic_graph.model_dump(by_alias=True)
+    for member, distribution in graph.distributions.items():
+        if distribution is None:
+            continue
+        try:
+            version = installed[distribution] if installed is not None else metadata.version(distribution)
+        except (KeyError, metadata.PackageNotFoundError):
+            raise ValueError(f"plate_runtime_environment_mismatch:{distribution}") from None
+        if version != members[member]:
+            raise ValueError(f"plate_runtime_environment_mismatch:{distribution}")
 
 
 class PlateSupervisor:
@@ -151,7 +196,8 @@ class PlateSupervisor:
                 if settings.deployment_profile is None:
                     raise ValueError("production_deployment_profile_required")
                 profile_requirement, policy_sha256 = select_profile(settings.deployment_profile, settings.deployment_profile_policy_path)
-            # The fixture runs on CPU only; a CUDA device is refused, never silently substituted (ADR-008).
+            # The fixture and the Development ONNX adapters run on CPU only; a CUDA device is refused, never
+            # silently substituted (ADR-008).
             if settings.device_policy == "cuda":
                 raise ValueError("plate_device_unsupported:cuda")
             device = "cpu"
@@ -163,9 +209,11 @@ class PlateSupervisor:
                 deployment_profile_policy_sha256=policy_sha256,
             )
             selection = resolved.plate_selection()
+            check_development_environment(selection)
             detector, recogniser = components_for(
-                adapter_id_for(selection.profile),
-                seed=selection.profile.parameters.fixture_seed,
+                adapter_request(selection, DETECTOR_CAPABILITY),
+                adapter_request(selection, OCR_CAPABILITY),
+                parameters=selection.profile.parameters,
                 development_only=selection.profile.development_only,
                 production_mode=settings.production_mode,
             )
@@ -182,4 +230,4 @@ class PlateSupervisor:
                      ", ".join(f"{item.capability_id}={item.model_pack_id}" for item in selection.identity.capabilities))
 
 
-__all__ = ["PlateRuntime", "PlateRuntimeState", "PlateSupervisor", "adapter_id_for", "build_provenance", "plate_composition"]
+__all__ = ["PlateRuntime", "PlateRuntimeState", "PlateSupervisor", "adapter_request", "build_provenance", "check_development_environment", "plate_composition"]

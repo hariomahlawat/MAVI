@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "2.0",
+  "qualificationId": "plates-pd5-ppocrv5-mobile-det-dev-v1",
+  "capabilityId": "plate-detector",
+  "modelPackId": "mavi-model-v2-f9a7f8a00423963894f34ed24c6f3c1869c7d766a984d0613f9d1a0f162a400e",
+  "modelId": "ppocrv5-mobile-det-plate-proposer",
+  "modelManifestSha256": "034a4c3a658bf4a232266503eead13b17aa0f9b924cdcae87883674cb3ca824f",
+  "artifactSha256": {
+    "inference-config": "98069072e1b6b37d727fd9d9f11725faa46d6ea0de012f2ed26caea011c37699",
+    "licence-notice": "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e",
+    "model-card": "951c155673ac6c15feb85857c9024a62266e5956d15319ce578a8f508f399d66",
+    "onnx-model": "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d"
+  },
+  "runtimePackFamilyId": "plates-onnx-v1",
+  "runtimeProfileSha256": "3307311ef6735143d94e410e10759d76df8d225acfe17e8f3a2a3c4f1c88df82",
+  "outputContract": {
+    "schemaId": "plate-boxes-v1"
+  },
+  "policies": {
+    "pipelineProfileId": "plates-onnx-pilot",
+    "pipelineProfileSha256": "43a75330a71403e0fc977a112496f009fc225c7688ea4b532a60e167f4797696"
+  },
+  "protocol": {
+    "corpusId": null,
+    "protocolVersion": null
+  },
+  "gateSetIds": [
+    "common-v1",
+    "plates-development-v1"
+  ],
+  "variants": {
+    "linux-x86_64-cpu": {
+      "status": "pending",
+      "runtimePackId": null,
+      "gates": {
+        "offline-install": "pending",
+        "licence": "pending",
+        "startup-readiness": "pending",
+        "runtime-compatibility": "pending",
+        "bounded-failure-recovery": "pending",
+        "provenance-completeness": "pending",
+        "plate-development-pilot": "pending"
+      }
+    },
+    "linux-x86_64-cuda": {
+      "status": "pending",
+      "runtimePackId": null,
+      "gates": {
+        "offline-install": "pending",
+        "licence": "pending",
+        "startup-readiness": "pending",
+        "runtime-compatibility": "pending",
+        "bounded-failure-recovery": "pending",
+        "provenance-completeness": "pending",
+        "plate-development-pilot": "pending"
+      }
+    },
+    "windows-x86_64-cpu": {
+      "status": "pending",
+      "runtimePackId": "mavi-runtime-v2-e35da67358c1563160d188af0ee3175a3924beebea6a99d0f523dbdaa444b4f8",
+      "gates": {
+        "offline-install": "pending",
+        "licence": "pending",
+        "startup-readiness": "pending",
+        "runtime-compatibility": "pending",
+        "bounded-failure-recovery": "pending",
+        "provenance-completeness": "pending",
+        "plate-development-pilot": "pending"
+      }
+    },
+    "windows-x86_64-cuda": {
+      "status": "pending",
+      "runtimePackId": null,
+      "gates": {
+        "offline-install": "pending",
+        "licence": "pending",
+        "startup-readiness": "pending",
+        "runtime-compatibility": "pending",
+        "bounded-failure-recovery": "pending",
+        "provenance-completeness": "pending",
+        "plate-development-pilot": "pending"
+      }
+    }
+  },
+  "qualifiedProfiles": [],
+  "profileQualifications": {},
+  "evidence": {},
+  "overallResult": "pending"
+}

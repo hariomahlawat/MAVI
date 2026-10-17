@@ -407,3 +407,23 @@ No qualification-record schema field changes; the gate-set configuration gains c
 - **Unchanged:** any undeclared additional binding still fails `binding_multiple_not_supported`; the binding schema, the release binding bytes and the kit compatibility boundary are unchanged; the 2026-09-28 overlay note (adding roles) remains the separate, still-unimplemented mechanism for that case.
 
 *Trade-off:* one more tracked registry and two more bindings to verify, and the release binding's SHA is now repeated in the registry. In exchange, H4 can compare two harness-attested producers whose only causal difference is the detector Model Pack, without weakening the release-binding invariant or letting a Development pack reach Production.
+
+## Note 2026-10-17 (Stage 4, Issue #225): Development role bindings and Development-only runtime graphs
+
+**Status: proposed in the Issue #225 Development ANPR pilot PR; accepted on merge.**
+
+**Context.** The owner-authorised Development pilot (#225) runs real pretrained plate models through the `plates` role. The release binding has no `plates` role, and the role needs a CPU ONNX Runtime family that must not widen the vision lock. Three things did not fit:
+- the 2026-10-06 replacement bindings may only rebind `vision`/`detector` and never add a role, and `verify_repo` refuses any other additional binding (`binding_multiple_not_supported`);
+- the runtime profile v2 schema hard-coded the mmdetection semantic graph (`torch`, `mmcv`, …);
+- a CPU variant was either `qualified-hosted-cpu` (CI evidence) or `pending-hardware-qualification` (class A, never deployable): an honest "Development-only, lock-pinned, unqualified" state could not be expressed.
+
+**Decision.**
+- **Development role binding.** The producer registry gains an additive `developmentRoleBindings` list. Each entry names a complete binding (`src/vision/config/components/development-*.json`) that adds roles the release binding lacks (only `plates` is allowed), with its own Runtime Pack family (never a release family), and a Development-only plate pipeline profile under `src/vision/config/plates/`. `verify_repo` validates it like every binding (family, locks, Model Packs, records, relationships) and additionally requires that every record pins the declared plate profile, that every bound manifest is `unverified`, and that every tracked plate-profile file is declared.
+- **Runtime graphs.** A runtime profile may name a registered `runtimeGraph`. Absent means the historical mmdetection graph, so the vision profile's bytes and identity are unchanged. `onnxruntime-cpu-v1` (`onnxruntime`, `numpy`, `opencvPythonHeadless`, `pillow`, `scipy`, `pyyaml`) is Development-only.
+- **Development statuses.** `development-cpu` (platform variant; interpreter identity only) pairs exactly with `development-offline-lock` (a lock verified as strictly as a qualified one). Both are allowed only under a Development-only graph, and such a graph may take no qualified status. The variant is deployable (class B) for Development; Production refuses it (`runtime_profile_variant_not_qualified`, `runtime_profile_lock_not_qualified`), besides `unverified_release_forbidden` and `plate_development_profile_forbidden`.
+- **Environment check.** With no installed Runtime Pack (`unpacked-environment`), the plates supervisor compares the running interpreter and every semantic-graph distribution with the family profile and refuses a mismatch.
+- **Adapters.** The `plate-detector` and `ocr` Model Pack sections name a registered adapter (`adapterId`) and map its input slots to the pack's artefact roles. Each capability is resolved from its own pack; the fixture is the explicit `plates-fixture-v1` adapter; a model adapter is refused with a `fixtureSeed`, outside a Development-only profile and in Production.
+
+**Unchanged:** the release binding, the vision family, the replacement-binding rules, the plate identity, the platform's Development-only refusal (`plate_development_definition_forbidden`), and the absence of any qualified plate component. This note qualifies nothing: the pilot packs are unverified, their records pending, and the `plates-development-v1` gate set is a Development diagnostic, not the PR-6 gate set.
+
+*Trade-off:* the registry and `verify_repo` carry a second kind of Development binding, and the runtime profile a small graph registry and two statuses that exist only to be refused in Production. In exchange, a real plate model runs through the product's own resolver, provenance and lease path in Development, without widening the vision lock or creating a path by which an unqualified family or pack could start in Production.

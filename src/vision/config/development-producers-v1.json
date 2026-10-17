@@ -27,5 +27,15 @@
         }
       ]
     }
+  ],
+  "developmentRoleBindings": [
+    {
+      "roleBindingId": "plates-onnx-pilot",
+      "bindingPath": "src/vision/config/components/development-plates-onnx-pilot-v1.json",
+      "pipelineProfilePath": "src/vision/config/plates/development-plates-onnx-pilot-v1.json",
+      "roleIds": [
+        "plates"
+      ]
+    }
   ]
 }

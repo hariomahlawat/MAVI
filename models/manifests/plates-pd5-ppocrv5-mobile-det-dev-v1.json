@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "2.0",
+  "modelId": "ppocrv5-mobile-det-plate-proposer",
+  "modelVersion": "e6f4fa85-dev.1",
+  "capabilityIds": [
+    "plate-detector"
+  ],
+  "artifacts": [
+    {
+      "artifactRole": "inference-config",
+      "relativePath": "plates-pd5-v5m-dev-v1/inference.yml",
+      "sha256": "98069072e1b6b37d727fd9d9f11725faa46d6ea0de012f2ed26caea011c37699"
+    },
+    {
+      "artifactRole": "licence-notice",
+      "relativePath": "plates-pd5-v5m-dev-v1/LICENSE",
+      "sha256": "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e"
+    },
+    {
+      "artifactRole": "model-card",
+      "relativePath": "plates-pd5-v5m-dev-v1/README.md",
+      "sha256": "951c155673ac6c15feb85857c9024a62266e5956d15319ce578a8f508f399d66"
+    },
+    {
+      "artifactRole": "onnx-model",
+      "relativePath": "plates-pd5-v5m-dev-v1/inference.onnx",
+      "sha256": "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d"
+    }
+  ],
+  "inputContract": {
+    "kind": "evidence-crop-jpeg",
+    "colourSpace": "RGB"
+  },
+  "outputContract": {
+    "schemaId": "plate-boxes-v1"
+  },
+  "runtimeCompatibility": {
+    "runtimePackFamilyIds": [
+      "plates-onnx-v1"
+    ]
+  },
+  "licence": {
+    "spdxId": "Apache-2.0",
+    "noticeArtifactRole": "licence-notice",
+    "reviewStatus": "pending-review"
+  },
+  "provenance": {
+    "publisher": "PaddlePaddle (Baidu), official ONNX export",
+    "sourceRepository": "Hugging Face PaddlePaddle/PP-OCRv5_mobile_det_onnx",
+    "sourceRevision": "e6f4fa85f00e168c862bc462aebca69eef9b3d3d"
+  },
+  "verificationStatus": "unverified",
+  "qualificationId": null,
+  "capabilitySpecific": {
+    "plate-detector": {
+      "adapterId": "ppocr-db-onnx-v1",
+      "artifactRoles": {
+        "inference-config": "inference-config",
+        "onnx-model": "onnx-model"
+      }
+    }
+  }
+}

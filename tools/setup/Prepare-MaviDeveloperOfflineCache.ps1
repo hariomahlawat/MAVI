@@ -18,6 +18,8 @@ $npmRoot = Join-Path $destination "npm-cache"
 $pythonRoot = Join-Path $destination "python-wheelhouse"
 $instrumentWheelRoot = Join-Path $destination "python-benchmark-instruments-wheelhouse"
 $instrumentPayloadRoot = Join-Path $destination "benchmark-instrument-payloads"
+$platesWheelRoot = Join-Path $destination "python-plates-pilot-wheelhouse"
+$platesPayloadRoot = Join-Path $destination "plates-pilot-payloads"
 
 if (Test-Path -LiteralPath $destination) {
     Remove-Item -LiteralPath $destination -Recurse -Force
@@ -27,6 +29,8 @@ New-Item -ItemType Directory -Path $npmRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $pythonRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $instrumentWheelRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $instrumentPayloadRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $platesWheelRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $platesPayloadRoot -Force | Out-Null
 
 Push-Location $repoRoot
 try {
@@ -74,6 +78,18 @@ try {
         throw "Benchmark instrument model payload preparation failed."
     }
 
+    # Issue #225 Development ANPR pilot: the plates-onnx-v1 runtime family (exact wheels of its hash-pinned lock) and
+    # the unverified pilot Model Pack payloads. Installed offline by tools\setup\Install-MaviPlatesPilotRuntime.ps1.
+    $platesLock = Join-Path $repoRoot "src\vision\runtime\plates-onnx-v1\windows-x86_64-cpu.lock"
+    & $Python -m pip download --dest $platesWheelRoot -r $platesLock --require-hashes --no-deps --only-binary=:all: --python-version 3.12 --implementation cp --platform win_amd64
+    if ($LASTEXITCODE -ne 0) {
+        throw "Plates pilot runtime wheelhouse preparation failed."
+    }
+    & $Python (Join-Path $repoRoot "tools\vision\plates_pilot_packs.py") fetch --dest $platesPayloadRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Plates pilot Model Pack payload preparation failed."
+    }
+
     $visionRoot = Join-Path $repoRoot "src\vision"
     $visionEggInfo = Join-Path $visionRoot "mavi_vision.egg-info"
     Push-Location $visionRoot
@@ -106,6 +122,8 @@ $sourceInputs = [ordered]@{
     toolsRequirementsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\requirements.txt") -Algorithm SHA256).Hash.ToLowerInvariant()
     instrumentRequirementsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\benchmarks\plates\requirements-instruments.txt") -Algorithm SHA256).Hash.ToLowerInvariant()
     instrumentPayloadsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\benchmarks\plates\instrument-payloads-v1.json") -Algorithm SHA256).Hash.ToLowerInvariant()
+    platesPilotLockSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "src\vision\runtime\plates-onnx-v1\windows-x86_64-cpu.lock") -Algorithm SHA256).Hash.ToLowerInvariant()
+    platesPilotPayloadsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\vision\plates-pilot-payloads-v1.json") -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
 $nugetPackages = @()
@@ -199,6 +217,15 @@ foreach ($file in @(Get-ChildItem -LiteralPath $instrumentWheelRoot, $instrument
     }
 }
 
+$platesArtifacts = @()
+foreach ($file in @(Get-ChildItem -LiteralPath $platesWheelRoot, $platesPayloadRoot -File -Recurse | Sort-Object FullName)) {
+    $platesArtifacts += [ordered]@{
+        path = $file.FullName.Substring($destination.Length).TrimStart('\').Replace('\', '/')
+        sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = [long]$file.Length
+    }
+}
+
 $cacheManifest = [ordered]@{
     schemaVersion = "mavi-developer-offline-cache-v1"
     sourceInputs = $sourceInputs
@@ -206,6 +233,7 @@ $cacheManifest = [ordered]@{
     npmPackages = @($npmPackages)
     pythonArtifacts = @($pythonArtifacts)
     benchmarkInstrumentArtifacts = @($instrumentArtifacts)
+    platesPilotArtifacts = @($platesArtifacts)
 }
 $cacheManifestPath = Join-Path $destination "developer-cache-manifest.json"
 $cacheManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $cacheManifestPath -Encoding UTF8
@@ -216,6 +244,7 @@ Write-Host "  NuGet packages : $($nugetPackages.Count)"
 Write-Host "  npm packages   : $($npmPackages.Count)"
 Write-Host "  Python artifacts: $($pythonArtifacts.Count)"
 Write-Host "  Benchmark instrument artifacts: $($instrumentArtifacts.Count)"
+Write-Host "  Plates pilot artifacts: $($platesArtifacts.Count)"
 Write-Host "  NuGet : $nugetRoot"
 Write-Host "  npm   : $npmRoot"
 Write-Host "  Python: $pythonRoot"

@@ -131,10 +131,13 @@ def test_gate_set_policy_fails_closed(gate_sets_document, code) -> None:
 
 def test_repository_gate_sets_match_the_plan() -> None:
     sets = gate_sets()
-    assert set(sets) == {"common-v1", "detector-v1"}
+    # plates-development-v1 is the Issue #225 Development pilot diagnostic set, never a PR-6 qualification gate set.
+    assert set(sets) == {"common-v1", "detector-v1", "plates-development-v1"}
     assert (sets["common-v1"].scope, sets["common-v1"].gates) == ("common", COMMON)
     assert (sets["detector-v1"].scope, sets["detector-v1"].capability_ids, sets["detector-v1"].gates) == (
         "capability", ("detector",), DETECTOR)
+    assert (sets["plates-development-v1"].scope, sets["plates-development-v1"].capability_ids,
+            sets["plates-development-v1"].gates) == ("capability", ("ocr", "plate-detector"), ("plate-development-pilot",))
 
 
 def test_detector_record_without_detector_gates_is_rejected() -> None:

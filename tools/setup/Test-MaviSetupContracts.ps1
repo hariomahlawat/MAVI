@@ -134,6 +134,16 @@ try {
         throw "The benchmark instrument environment is not installed offline from the wheelhouse with verified models."
     }
 
+    # The Issue #225 Development plates-onnx-v1 runtime and its pilot Model Pack payloads: exact lock wheels and
+    # SHA-256-verified payloads in the cache, installed disconnected with --require-hashes.
+    if ($cacheBuilderText -notmatch '(?s)pip\s+download.*-r\s+\$platesLock\s+--require-hashes.*--only-binary' -or
+        $cacheBuilderText -notmatch 'plates_pilot_packs\.py"\)\s+fetch') {
+        throw "Developer offline-cache preparation does not include the plates pilot runtime and Model Packs."
+    }
+    $platesInstallerText = Get-Content -LiteralPath (Join-Path $repoRoot "tools\setup\Install-MaviPlatesPilotRuntime.ps1") -Raw
+    if ($platesInstallerText -notmatch '(?s)pip\s+install\s+--no-index.*--require-hashes' -or $platesInstallerText -notmatch 'plates_pilot_packs|\$packTool\s+stage') {
+        throw "The plates pilot runtime is not installed offline from its lock with verified Model Packs."
+    }
     $windowsSetupText = Get-Content -LiteralPath (Join-Path $repoRoot "tools\setup\Mavi.Setup.Windows.psm1") -Raw
     if ($windowsSetupText -notmatch '(?s)pip.*install.*--no-index.*-r.*\$toolsRequirements') {
         throw "Development setup does not install tools/requirements.txt from the offline wheelhouse."

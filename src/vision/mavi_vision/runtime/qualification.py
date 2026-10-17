@@ -60,6 +60,7 @@ class RuntimePlatformVariantIdentity:
         "qualified-hardware",
         "qualified-development-hardware",
         "pending-hardware-qualification",
+        "development-cpu",
     ]
     python_identity: RuntimePythonIdentity | None
     binary_versions: Mapping[str, str] | None = None
@@ -82,6 +83,7 @@ class RuntimeReleaseLockIdentity:
         "pending-wheelhouse-freeze",
         "pending-hardware-qualification",
         "qualified-offline-lock",
+        "development-offline-lock",
     ]
     artifact: str | None
     sha256: str | None
@@ -176,6 +178,83 @@ class _RuntimeSemanticGraphSchema(_StrictModel):
         if not value or value != value.strip():
             raise ValueError("runtime_semantic_version_invalid")
         return value
+
+
+class _OnnxRuntimeCpuSemanticGraphSchema(_StrictModel):
+    """The ``onnxruntime-cpu-v1`` runtime graph (Stage 4 plates pilot; ADR-014 amendment 2026-10-17).
+
+    A Development-only family: its variants can never carry a qualified status (``RUNTIME_GRAPHS``).
+    """
+
+    onnxruntime: str
+    numpy: str
+    opencv_python_headless: str = Field(alias="opencvPythonHeadless")
+    pillow: str
+    scipy: str
+    pyyaml: str
+
+    @field_validator("onnxruntime", "numpy", "opencv_python_headless", "pillow", "scipy", "pyyaml")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        if not value or value != value.strip():
+            raise ValueError("runtime_semantic_version_invalid")
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeGraph:
+    """One registered runtime graph: its schema, the lock distribution per field, and its policy."""
+
+    graph_id: str
+    schema: type[_StrictModel]
+    # JSON field name -> canonical distribution name in the offline lock (``opencv`` is never a distribution).
+    distributions: Mapping[str, str | None]
+    # A Development-only graph can never be qualified: its variants take only the Development statuses.
+    development_only: bool
+
+
+# The mmdetection graph keeps its implicit, historical form (no ``runtimeGraph`` member), so the committed
+# vision runtime profile's bytes and identity are unchanged.
+LEGACY_RUNTIME_GRAPH = "mmdetection-v1"
+RUNTIME_GRAPHS: Mapping[str, RuntimeGraph] = MappingProxyType(
+    {
+        LEGACY_RUNTIME_GRAPH: RuntimeGraph(
+            graph_id=LEGACY_RUNTIME_GRAPH,
+            schema=_RuntimeSemanticGraphSchema,
+            distributions=MappingProxyType(
+                {
+                    "torch": "torch", "torchvision": "torchvision", "mmcv": "mmcv", "mmengine": "mmengine",
+                    "mmdet": "mmdet", "trackers": "trackers", "supervision": "supervision", "scipy": "scipy",
+                    "numpy": "numpy", "opencv": None, "av": "av", "opencvPython": "opencv-python",
+                    "pillow": "pillow",
+                }
+            ),
+            development_only=False,
+        ),
+        "onnxruntime-cpu-v1": RuntimeGraph(
+            graph_id="onnxruntime-cpu-v1",
+            schema=_OnnxRuntimeCpuSemanticGraphSchema,
+            distributions=MappingProxyType(
+                {
+                    "onnxruntime": "onnxruntime", "numpy": "numpy", "opencvPythonHeadless": "opencv-python-headless",
+                    "pillow": "pillow", "scipy": "scipy", "pyyaml": "pyyaml",
+                }
+            ),
+            development_only=True,
+        ),
+    }
+)
+DEVELOPMENT_PLATFORM_STATUS = "development-cpu"
+DEVELOPMENT_LOCK_STATUS = "development-offline-lock"
+
+
+def runtime_graph(graph_id: str | None) -> RuntimeGraph:
+    """The registered graph a runtime profile names; absent means the legacy mmdetection graph."""
+    graph = RUNTIME_GRAPHS.get(LEGACY_RUNTIME_GRAPH if graph_id is None else graph_id)
+    if graph is None or graph_id == LEGACY_RUNTIME_GRAPH:
+        # The legacy graph is only ever implicit, so one family cannot have two encodings.
+        raise ValueError("runtime_graph_unknown")
+    return graph
 
 
 class _RuntimePythonIdentitySchema(_StrictModel):
@@ -303,6 +382,17 @@ def check_platform_variant_evidence(
             or any(ch not in "0123456789abcdef" for ch in evidence_head_sha)
         ):
             raise ValueError("runtime_platform_head_sha_invalid")
+    elif status == DEVELOPMENT_PLATFORM_STATUS:
+        # A Development-only CPU variant: the interpreter identity (it derives the Runtime Pack id) and
+        # nothing that could read as qualification evidence.
+        python_identity = runtime_identity[0] if runtime_identity else None
+        if (
+            any(value is not None for value in ci_evidence)
+            or python_identity is None
+            or any(value is not None for value in runtime_identity[1:])
+            or development_evidence is not None
+        ):
+            raise ValueError("runtime_development_cpu_evidence_invalid")
     elif status == "qualified-development-hardware":
         if (
             any(value is not None for value in ci_evidence)
@@ -321,13 +411,14 @@ class _RuntimeReleaseLockSchema(_StrictModel):
         "pending-wheelhouse-freeze",
         "pending-hardware-qualification",
         "qualified-offline-lock",
+        "development-offline-lock",
     ]
     artifact: str | None = None
     sha256: str | None = None
 
     @model_validator(mode="after")
     def validate_lock_shape(self) -> "_RuntimeReleaseLockSchema":
-        if self.status == "qualified-offline-lock":
+        if self.status in {"qualified-offline-lock", DEVELOPMENT_LOCK_STATUS}:
             if self.artifact is None or self.sha256 is None:
                 raise ValueError("runtime_release_lock_evidence_required")
             from mavi_vision.runtime.manifest import validate_logical_relative_path
@@ -355,12 +446,20 @@ def check_runtime_python_minor(value: str) -> str:
 
 
 def check_runtime_platform_variant_statuses(value: Mapping[str, object]) -> None:
-    """Platform-variant keys equal the closed universe; statuses fit CPU/CUDA."""
+    """Platform-variant keys equal the closed universe; statuses fit CPU/CUDA.
+
+    ``development-cpu`` is accepted here only syntactically; ``check_runtime_graph_policy`` allows it
+    exclusively under a Development-only runtime graph.
+    """
     if set(value) != _RUNTIME_VARIANTS:
         raise ValueError("runtime_platform_variants_incomplete")
 
     for variant_name, variant in value.items():
         status = getattr(variant, "status")
+        if status == DEVELOPMENT_PLATFORM_STATUS:
+            if not variant_name.endswith("-cpu"):
+                raise ValueError("runtime_development_status_cpu_only")
+            continue
         if variant_name.endswith("-cuda"):
             if status not in {
                 "pending-hardware-qualification",
@@ -386,7 +485,7 @@ def check_runtime_release_lock_keys(value: Mapping[str, object]) -> None:
 def check_runtime_graph_relationships(
     *,
     python_minor: str,
-    semantic_graph: "_RuntimeSemanticGraphSchema",
+    semantic_graph: "_StrictModel",
     platform_variants: Mapping[str, object],
 ) -> None:
     """Python-minor and torch/torchvision binary-vs-semantic agreement per variant."""
@@ -397,6 +496,8 @@ def check_runtime_graph_relationships(
             if not python_identity.version.startswith(python_minor + "."):
                 raise ValueError("runtime_python_minor_identity_mismatch")
         if binary_versions is not None:
+            if not hasattr(semantic_graph, "torch"):
+                raise ValueError("runtime_binary_versions_unsupported")
             if binary_versions.torch.split("+", 1)[0] != semantic_graph.torch:
                 raise ValueError("runtime_torch_binary_semantic_mismatch")
             if (
@@ -404,6 +505,28 @@ def check_runtime_graph_relationships(
                 != semantic_graph.torchvision
             ):
                 raise ValueError("runtime_torchvision_binary_semantic_mismatch")
+
+
+def check_runtime_graph_policy(
+    *,
+    graph: RuntimeGraph,
+    platform_variants: Mapping[str, object],
+    release_locks: Mapping[str, object],
+) -> None:
+    """A Development-only graph takes only Development or pending statuses; any other graph never does."""
+    for name, variant in platform_variants.items():
+        status = getattr(variant, "status")
+        lock_status = getattr(release_locks[name], "status")
+        development = status == DEVELOPMENT_PLATFORM_STATUS or lock_status == DEVELOPMENT_LOCK_STATUS
+        if graph.development_only:
+            if status not in {DEVELOPMENT_PLATFORM_STATUS, "pending-hardware-qualification"}:
+                raise ValueError("runtime_development_graph_qualified_status_forbidden")
+            if lock_status not in {DEVELOPMENT_LOCK_STATUS, "pending-hardware-qualification"}:
+                raise ValueError("runtime_development_graph_qualified_status_forbidden")
+        elif development:
+            raise ValueError("runtime_development_status_requires_development_graph")
+        if (status == DEVELOPMENT_PLATFORM_STATUS) != (lock_status == DEVELOPMENT_LOCK_STATUS):
+            raise ValueError(f"runtime_variant_classification_invalid:{name}")
 
 
 def check_runtime_qualification_status(
@@ -416,6 +539,7 @@ def check_runtime_qualification_status(
         getattr(variant, "status") in {
             "pending-hardware-qualification",
             "qualified-development-hardware",
+            DEVELOPMENT_PLATFORM_STATUS,
         }
         for variant in platform_variants.values()
     ) or any(
@@ -429,24 +553,8 @@ def check_runtime_qualification_status(
 def runtime_semantic_graph_identity(
     profile: "RuntimeProfileV2",
 ) -> Mapping[str, str]:
-    graph = profile.semantic_graph
-    return MappingProxyType(
-        {
-            "torch": graph.torch,
-            "torchvision": graph.torchvision,
-            "mmcv": graph.mmcv,
-            "mmengine": graph.mmengine,
-            "mmdet": graph.mmdet,
-            "trackers": graph.trackers,
-            "supervision": graph.supervision,
-            "scipy": graph.scipy,
-            "numpy": graph.numpy,
-            "opencv": graph.opencv,
-            "av": graph.av,
-            "opencvPython": graph.opencv_python,
-            "pillow": graph.pillow,
-        }
-    )
+    """The semantic graph as its JSON members (the provenance encoding), in the graph's field order."""
+    return MappingProxyType(dict(profile.semantic_graph.model_dump(by_alias=True)))
 
 
 def runtime_platform_variant_identities(
@@ -526,23 +634,17 @@ def verify_runtime_release_locks(
     """Verify every qualified runtime lock against exact local bytes and identity."""
     verified: dict[str, Path] = {}
     root = runtime_profile_path.parent
+    graph = profile.graph
+    members = profile.semantic_graph.model_dump(by_alias=True)
     semantic_graph = {
-        "torch": profile.semantic_graph.torch,
-        "torchvision": profile.semantic_graph.torchvision,
-        "mmcv": profile.semantic_graph.mmcv,
-        "mmengine": profile.semantic_graph.mmengine,
-        "mmdet": profile.semantic_graph.mmdet,
-        "trackers": profile.semantic_graph.trackers,
-        "supervision": profile.semantic_graph.supervision,
-        "scipy": profile.semantic_graph.scipy,
-        "numpy": profile.semantic_graph.numpy,
-        "opencv-python": profile.semantic_graph.opencv_python,
-        "av": profile.semantic_graph.av,
-        "pillow": profile.semantic_graph.pillow,
+        distribution: members[member]
+        for member, distribution in graph.distributions.items()
+        if distribution is not None
     }
 
     for variant, lock in profile.release_locks.items():
-        if lock.status != "qualified-offline-lock":
+        # A Development lock is verified exactly as strictly as a qualified one; only its status differs.
+        if lock.status not in {"qualified-offline-lock", DEVELOPMENT_LOCK_STATUS}:
             continue
         if lock.artifact is None or lock.sha256 is None:
             raise ReleaseMetadataError("runtime_release_lock_evidence_required")

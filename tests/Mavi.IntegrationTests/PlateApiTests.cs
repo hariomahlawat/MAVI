@@ -825,6 +825,28 @@ public sealed class PlateApiTests(PostgresFixture fixture)
             PlateReleaseStartup.RequireAllowed(definition, host);
     }
 
+    [Theory]
+    [InlineData("Development", false)]
+    [InlineData("Testing", false)]
+    [InlineData("Production", true)]
+    [InlineData("Staging", true)]
+    public void TheCommittedDevelopmentPilotReleaseIsRefusedOutsideDevelopmentAndTesting(string environment, bool refused)
+    {
+        // Issue #225: the real-model pilot profile is developmentOnly, so Production refuses it exactly as the fixture.
+        var root = VisualAttributeReleaseFixture.Root;
+        var profileDirectory = Path.Combine(root, "src", "vision", "config", "plates");
+        var definition = Mavi.Application.Modules.Plates.Release.PlateReleaseParser.Parse(
+            File.ReadAllBytes(Path.Combine(root, "src", "vision", "config", "components", "development-plates-onnx-pilot-v1.json")),
+            () => File.ReadAllBytes(Path.Combine(profileDirectory, "development-plates-onnx-pilot-v1.json")),
+            name => File.ReadAllBytes(Path.Combine(profileDirectory, name))).Definition!;
+        var host = new FixedEnvironment(environment);
+        if (refused)
+            Assert.Equal(PlateReleaseStartup.FixtureForbiddenCode,
+                Assert.Throws<InvalidOperationException>(() => PlateReleaseStartup.RequireAllowed(definition, host)).Message);
+        else
+            PlateReleaseStartup.RequireAllowed(definition, host);
+    }
+
     private sealed class FixedEnvironment(string name) : Microsoft.Extensions.Hosting.IHostEnvironment
     {
         public string EnvironmentName { get; set; } = name;

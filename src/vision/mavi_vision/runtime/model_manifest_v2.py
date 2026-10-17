@@ -167,12 +167,47 @@ class _EmbeddingSectionSchema(StrictModel):
         return value
 
 
+class _PlateAdapterSectionSchema(StrictModel):
+    """``plate-detector`` / ``ocr``: the registered adapter that runs this pack (Stage 4; ADR-013 item 8).
+
+    ``artifactRoles`` maps each input slot the adapter declares to one of this pack's artefact roles, so the
+    adapter reads only hash-verified bytes the resolver already checked; which slots exist is the adapter's
+    contract (``mavi_vision.plates.adapters``), checked when the adapter is built.
+    """
+
+    adapter_id: str = Field(alias="adapterId")
+    artifact_roles: dict[str, str] = Field(alias="artifactRoles")
+
+    @field_validator("adapter_id")
+    @classmethod
+    def validate_adapter_id(cls, value: str) -> str:
+        return require_kebab_id(value, code="plate_adapter_section_invalid")
+
+    @field_validator("artifact_roles")
+    @classmethod
+    def validate_roles(cls, value: dict[str, str]) -> dict[str, str]:
+        for slot, role in value.items():
+            require_kebab_id(slot, code="plate_adapter_section_invalid")
+            require_kebab_id(role, code="plate_adapter_section_invalid")
+        if len(set(value.values())) != len(value):
+            raise ValueError("plate_adapter_section_invalid")
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class PlateAdapterSection:
+    adapter_id: str
+    artifacts: Mapping[str, "ModelArtifactV2"]
+
+
 # Capability-specific sections are a closed registry: a capability whose section
 # shape is not registered here cannot carry a section (fail closed).
 _CAPABILITY_SECTIONS: Mapping[str, type[StrictModel]] = MappingProxyType(
     {
         "detector": _DetectorSectionSchema,
         "embedding": _EmbeddingSectionSchema,
+        "plate-detector": _PlateAdapterSectionSchema,
+        "ocr": _PlateAdapterSectionSchema,
     }
 )
 # Capabilities whose runtime cannot operate without their section.
@@ -257,6 +292,10 @@ class _ModelManifestV2Schema(StrictModel):
                         raise ValueError("detector_section_artifact_missing")
                 if len(set(detector_roles)) != 2 or LICENCE_NOTICE_ROLE in detector_roles:
                     raise ValueError("detector_section_artifact_roles_invalid")
+            if isinstance(parsed, _PlateAdapterSectionSchema):
+                for role in parsed.artifact_roles.values():
+                    if role not in roles or role == LICENCE_NOTICE_ROLE:
+                        raise ValueError("plate_adapter_section_artifact_invalid")
         for capability_id in _SECTION_REQUIRED:
             if capability_id in self.capability_ids and capability_id not in self.capability_specific:
                 raise ValueError(f"capability_section_missing:{capability_id}")
@@ -312,6 +351,19 @@ class ModelManifestV2:
             if artifact.artifact_role == role:
                 return artifact
         raise ReleaseMetadataError(f"model_artifact_missing:{role}")
+
+    def plate_adapter_section(self, capability_id: str) -> PlateAdapterSection:
+        """The adapter a plate capability's pack names; absent is ``plate_adapter_unspecified``."""
+        if capability_id not in {"plate-detector", "ocr"} or capability_id not in self.capability_ids:
+            raise ReleaseMetadataError(f"model_capability_mismatch:{capability_id}")
+        section = self.capability_specific.get(capability_id)
+        if section is None:
+            raise ReleaseMetadataError(f"plate_adapter_unspecified:{capability_id}")
+        parsed = _PlateAdapterSectionSchema.model_validate(_thaw(section))
+        return PlateAdapterSection(
+            adapter_id=parsed.adapter_id,
+            artifacts=MappingProxyType({slot: self.artifact(role) for slot, role in parsed.artifact_roles.items()}),
+        )
 
     def detector_section(self) -> DetectorModelSection:
         section = self.capability_specific.get("detector")
@@ -403,6 +455,7 @@ __all__ = [
     "MODEL_MANIFEST_V2_SCHEMA",
     "ModelArtifactV2",
     "ModelManifestV2",
+    "PlateAdapterSection",
     "load_model_manifest_v2",
     "parse_model_manifest_v2",
 ]

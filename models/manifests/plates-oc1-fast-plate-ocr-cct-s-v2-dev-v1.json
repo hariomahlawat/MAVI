@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "2.0",
+  "modelId": "fast-plate-ocr-cct-s-v2-global",
+  "modelVersion": "arg-plates-dev.1",
+  "capabilityIds": [
+    "ocr"
+  ],
+  "artifacts": [
+    {
+      "artifactRole": "licence-notice",
+      "relativePath": "plates-oc1-s-dev-v1/LICENSE",
+      "sha256": "a953e6268c89179c4a8f0cf5a49f57bc380a60e38078fe1f6361a0e45fd00363"
+    },
+    {
+      "artifactRole": "model-config",
+      "relativePath": "plates-oc1-s-dev-v1/cct_s_v2_global_model_config.yaml",
+      "sha256": "244c3c712205750e9747bca4707cd553a84005f41959745bff676b0fca8faba3"
+    },
+    {
+      "artifactRole": "onnx-model",
+      "relativePath": "plates-oc1-s-dev-v1/cct_s_v2_global.onnx",
+      "sha256": "384bbbd2cea3ef54761d3df70822ef3a349ee1a112aeafddbe0e3ba06bc6e47b"
+    },
+    {
+      "artifactRole": "plate-config",
+      "relativePath": "plates-oc1-s-dev-v1/cct_s_v2_global_plate_config.yaml",
+      "sha256": "0335c74a305173bb6f393efed0fde03cadeaa0b649ed8e19f431016d8232d0a6"
+    }
+  ],
+  "inputContract": {
+    "kind": "evidence-crop-jpeg",
+    "colourSpace": "RGB"
+  },
+  "outputContract": {
+    "schemaId": "plate-readings-v1"
+  },
+  "runtimeCompatibility": {
+    "runtimePackFamilyIds": [
+      "plates-onnx-v1"
+    ]
+  },
+  "licence": {
+    "spdxId": "MIT",
+    "noticeArtifactRole": "licence-notice",
+    "reviewStatus": "pending-review"
+  },
+  "provenance": {
+    "publisher": "ankandrew (fast-plate-ocr maintainer)",
+    "sourceRepository": "GitHub ankandrew/fast-plate-ocr release arg-plates",
+    "sourceRevision": "release arg-plates, cct_s_v2_global"
+  },
+  "verificationStatus": "unverified",
+  "qualificationId": null,
+  "capabilitySpecific": {
+    "ocr": {
+      "adapterId": "fast-plate-ocr-onnx-v1",
+      "artifactRoles": {
+        "onnx-model": "onnx-model",
+        "plate-config": "plate-config"
+      }
+    }
+  }
+}

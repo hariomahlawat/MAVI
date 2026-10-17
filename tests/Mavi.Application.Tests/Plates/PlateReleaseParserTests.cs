@@ -160,4 +160,28 @@ public sealed class PlateReleaseParserTests
         Assert.Equal(3, PlateReleaseParser.ParseStoredParameters(text, sha).MaxReadingsPerPlate);
         Assert.Throws<PlateReleaseException>(() => PlateReleaseParser.ParseStoredParameters(text + " ", sha));
     }
+
+    /// <summary>
+    /// The committed Issue #225 Development pilot release (real ONNX adapters, unverified Model Packs): the platform
+    /// derives the same identity the worker's resolver derives from the same files, and reads it as Development-only
+    /// with no fixture seed.
+    /// </summary>
+    [Fact]
+    public void TheCommittedDevelopmentPilotReleaseIsDevelopmentOnlyAndCrossLanguageStable()
+    {
+        const string profileDirectory = "src/vision/config/plates";
+        var resolution = PlateReleaseParser.Parse(
+            PlateCompletionValidatorTests.Bytes("src/vision/config/components/development-plates-onnx-pilot-v1.json"),
+            () => PlateCompletionValidatorTests.Bytes($"{profileDirectory}/development-plates-onnx-pilot-v1.json"),
+            name => PlateCompletionValidatorTests.Bytes($"{profileDirectory}/{name}"));
+
+        var definition = resolution.Definition!;
+        Assert.True(definition.DevelopmentOnly);
+        Assert.Null(definition.Parameters.FixtureSeed);
+        Assert.Equal("plates", definition.RoleId);
+        Assert.Equal("plates-onnx-pilot", definition.Identity.PipelineId);
+        Assert.Equal((2, 1, 1), (definition.Parameters.MaxDetectionsPerCrop, definition.Parameters.MaxPlatesPerCrop, definition.Parameters.MaxReadingsPerPlate));
+        // Pinned from mavi_vision.plates.profile.plate_identity over the same committed files (Python resolver).
+        Assert.Equal("c86c930b038d4f933f66ec2ed2f0c886f2df18dc932f79ec2f703c5f882f066e", definition.Identity.Fingerprint);
+    }
 }
