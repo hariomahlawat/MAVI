@@ -289,7 +289,7 @@ export default function VideoReviewPage() {
               <Panel title="Evidence Set">
                 <TrackEvidenceSet detail={detail}
                   selectedObservationId={plateSelection?.observationId}
-                  onSelectObservation={selectPlateSource} />
+                  />
               </Panel>
               {detail.plates ? (
                 <Panel title="Plate readings">
