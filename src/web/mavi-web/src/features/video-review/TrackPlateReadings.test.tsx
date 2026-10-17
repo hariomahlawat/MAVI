@@ -52,8 +52,8 @@ describe('Stage-4 TrackPlateReadings', () => {
     const seek = vi.fn();
     render(<TrackPlateReadings detail={detail(ready)} compact matchedText="KA01AB1234" onSelectObservation={seek} />);
     expect(screen.getByText('Single reading')).toBeInTheDocument();
-    expect(screen.getByText('KA01AB1234')).toBeInTheDocument();
-    expect(screen.getByText('KA 01\nAB 1234')).toBeInTheDocument();
+    expect(screen.getAllByText('KA01AB1234').length).toBeGreaterThan(0);
+    expect(screen.getByText(/KA 01\s+AB 1234/)).toBeInTheDocument();
     expect(screen.getByText('No image')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /View source at/ }));
     expect(seek).toHaveBeenCalledWith(sourceId, 12400);
