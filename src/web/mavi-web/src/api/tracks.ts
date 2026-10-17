@@ -48,7 +48,12 @@ export type MotionDirection = (typeof MOTION_DIRECTIONS)[number];
 /** The frozen engine version shape, `scene-analytics-v<major>`. */
 export const ALGORITHM_VERSION_PATTERN = /^scene-analytics-v[1-9]\d{0,3}$/;
 
+export const PLATE_MATCH_MODES = ['contains', 'prefix', 'exact'] as const;
+export type PlateMatch = (typeof PLATE_MATCH_MODES)[number];
+
 export type TrackSearchFilters = {
+  plateText?: string;
+  plateMatch?: PlateMatch;
   cameraId?: string;
   videoAssetId?: string;
   processingRunId?: string;
@@ -70,6 +75,27 @@ export type TrackSearchFilters = {
   loitering?: true;
   cursor?: string;
   limit?: number;
+};
+
+/** Scope-wide plate readiness; never treat incomplete coverage as a definitive negative. */
+export type PlateCoverage = {
+  identityFingerprint: string | null;
+  vehicleTracksInScope: number;
+  ready: number;
+  pending: number;
+  failed: number;
+  stale: number;
+  notConfigured: number;
+};
+
+export type TrackItemPlate = {
+  matchedText: string;
+  matchKind: PlateMatch;
+  supportCount: number;
+  plateObservationCount: number;
+  distinctTextCount: number;
+  maxConfidence: number;
+  bestPlateObservationId: string;
 };
 
 /** The §H coverage block: how much of the search scope analytics actually evaluated. */
@@ -120,6 +146,8 @@ export type TrackSearchResponse = {
   nextCursor: string | null;
   /** Present only for an analytics-dependent search. */
   analyticsCoverage?: AnalyticsCoverage;
+  /** Present on every plate-filtered search, including empty results. */
+  plateCoverage?: PlateCoverage;
 };
 
 export type TrackSearchItem = {
@@ -146,6 +174,8 @@ export type TrackSearchItem = {
   videoContentUrl: string;
   /** Present only for an analytics-dependent search. */
   analytics?: TrackItemAnalytics;
+  /** The reading that matched the plate predicate, not a verified registration. */
+  plate?: TrackItemPlate;
 };
 
 export type TrackCamera = {
@@ -312,6 +342,46 @@ export type TrackAnalyticsIdentity = {
   analyticsAlgorithmVersion?: string;
 };
 
+export type TrackPlateReading = {
+  rank: number;
+  rawText: string;
+  rawLineCount: number;
+  normalisedText?: string;
+  normalisationOutcome: 'ok' | 'rejected';
+  confidence: number;
+  formatClass?: string;
+};
+
+export type TrackPlateObservation = {
+  plateObservationId: string;
+  sourceObservationId: string;
+  role: TrackEvidenceRole;
+  offsetMs: number;
+  sourceFrameNumber: number;
+  timestampUtc: string;
+  box: { x: number; y: number; width: number; height: number; cropWidth: number; cropHeight: number };
+  detectorConfidence: number;
+  outcome: 'Read' | 'Unreadable';
+  readings: TrackPlateReading[];
+};
+
+export type TrackPlates = {
+  readiness: 'Pending' | 'Ready' | 'Failed' | 'Stale' | 'NotConfigured';
+  trackOutcome?: 'Analysed' | 'Unavailable';
+  unavailableReason?: string;
+  agreement?: 'none' | 'single' | 'consistent' | 'conflicting';
+  texts: Array<{ normalisedText: string; supportCount: number; maxConfidence: number; bestPlateObservationId: string }>;
+  observations: TrackPlateObservation[];
+  provenance?: {
+    analysisId: string;
+    plateDetectorModelPackId: string;
+    ocrModelPackId: string;
+    normalisation: { id: string; sha256: string };
+    summaryPolicy: { id: string; version: string; sha256: string };
+    completedAtUtc: string;
+  };
+};
+
 export type TrackDetail = {
   id: string;
   processingRunId: string;
@@ -343,6 +413,8 @@ export type TrackDetail = {
   trajectoryArtifactId: string | null;
   trajectoryContentUrl: string | null;
   analytics: TrackDetailAnalytics;
+  /** Vehicle Track only; omitted for Person. */
+  plates?: TrackPlates;
 };
 
 export function serializePlainDecimal(value: number): string {
@@ -380,6 +452,8 @@ const orderedFilterKeys: ReadonlyArray<keyof TrackSearchFilters> = [
   'processingRunId',
   'objectClass',
   'objectSubclass',
+  'plateText',
+  'plateMatch',
   'fromUtc',
   'toUtc',
   'minimumDurationMs',
