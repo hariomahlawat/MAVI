@@ -198,7 +198,7 @@ export default function TrackInspector({
             ) : null}
             <TrackEvidenceSet detail={detail} compact
               selectedObservationId={plateSelection?.observationId}
-              onSelectObservation={selectPlateSource} />
+              />
             <details className="disclosure">
               <summary>Identifiers</summary>
               <div className="disclosure__body">
