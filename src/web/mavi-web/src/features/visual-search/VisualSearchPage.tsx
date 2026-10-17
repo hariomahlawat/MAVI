@@ -940,13 +940,19 @@ function resultsEmpty(
   plateText?: string,
 ): EmptySpec {
   if (plateText && plateCoverage) {
-    const incomplete = plateCoverage.ready !== plateCoverage.vehicleTracksInScope;
+    const notConfigured = plateCoverage.vehicleTracksInScope > 0
+      && plateCoverage.notConfigured === plateCoverage.vehicleTracksInScope;
+    const incomplete = plateCoverage.ready !== plateCoverage.vehicleTracksInScope || Boolean(coverage && !coverage.complete);
     return {
       icon: 'search',
-      title: `No vehicle track has a reading matching ${plateText}.`,
-      body: incomplete
-        ? 'Some vehicle tracks have not had plate reading completed. A match may exist in a pending, failed or earlier analysis; see coverage above.'
-        : 'All vehicle tracks in this search scope have been checked for plate readings. Adjust the plate or other filters.',
+      title: notConfigured
+        ? 'Plate reading is not configured in this installation.'
+        : `No vehicle track has a reading matching ${plateText}.`,
+      body: notConfigured
+        ? 'Configure a plate analysis before using this filter.'
+        : incomplete
+          ? 'Some vehicle tracks or scene analytics are not yet analysed. A match may exist in unprocessed evidence; see coverage above.'
+          : 'All vehicle tracks in this search scope have been checked for plate readings. Adjust the plate or other filters.',
       hatched: incomplete,
     };
   }
