@@ -2,6 +2,7 @@ import { memo, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import Icon from '../../shared/components/Icon';
+import TrackPlateMatch from './TrackPlateMatch';
 import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
@@ -96,6 +97,7 @@ const ResultRow = memo(function ResultRow({
             <span><b>{formatConfidence(track.meanConfidence, 'list')}</b> mean</span>
             <span><b>{track.detectionCount}</b> detections</span>
           </span>
+          {track.plate ? <TrackPlateMatch plate={track.plate} searchContext={searchContext} /> : null}
         </span>
       </button>
       <div className="result-row__side">
