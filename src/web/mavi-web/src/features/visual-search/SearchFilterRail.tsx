@@ -14,6 +14,7 @@ import {
   type ZoneRelation,
 } from '../../api/tracks';
 import type { VideoAsset } from '../../api/videos';
+import { Segmented } from '../../shared/workspace';
 import Alert from '../../shared/components/Alert';
 import Button from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
@@ -293,20 +294,17 @@ export default function SearchFilterRail({
             />
           )}
         </Field>
-        <Field label="Plate match">
-          {(control) => (
-            <select
-              {...control}
-              value={draft.plateMatch}
-              disabled={!draft.plateText.trim()}
-              onChange={(event) => onDraftChange({ plateMatch: event.target.value as PlateMatch })}
-            >
-              <option value="contains">Contains</option>
-              <option value="prefix">Starts with</option>
-              <option value="exact">Exact</option>
-            </select>
-          )}
-        </Field>
+        <Segmented
+          label="Plate match"
+          size="sm"
+          value={draft.plateMatch}
+          onChange={(plateMatch) => onDraftChange({ plateMatch: plateMatch as PlateMatch })}
+          options={[
+            { value: 'contains', label: 'Contains' },
+            { value: 'prefix', label: 'Starts with' },
+            { value: 'exact', label: 'Exact' },
+          ]}
+        />
       </section>
 
       <section className="filter-rail__section" aria-labelledby="filter-time">
