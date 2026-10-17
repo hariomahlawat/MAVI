@@ -191,7 +191,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, { route: '/search' });
     await searchDrawn();
     await user.type(screen.getByLabelText('Plate text'), 'ka-01-ab-1234');
-    await user.click(screen.getByRole('group', { name: 'Plate match' }).querySelectorAll('button')[2]);
+    await user.click(within(screen.getByRole('group', { name: 'Plate match' })).getByRole('button', { name: 'Exact' }));
     await user.click(screen.getByRole('button', { name: 'Search' }));
     await waitFor(() => expect(searchTracks).toHaveBeenCalledWith(
       expect.objectContaining({ objectClass: 'Vehicle', plateText: 'KA01AB1234', plateMatch: 'exact' }),
