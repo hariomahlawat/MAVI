@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { serializeTrackSearchFilters } from '../../api/tracks';
+import { committedChips } from './CommittedFilterChips';
 import { emptyDraft } from './SearchFilterRail';
 import { normalisePlateText } from './plateText';
 import { canonicalSearchKey, parseCommittedSearch, removeCriteria } from './searchState';
@@ -42,6 +43,23 @@ describe('Stage-4 operator plate search grammar', () => {
     expect(parseCommittedSearch(new URLSearchParams('objectClass=Person&plateText=KA01')).isValid).toBe(false);
     expect(parseCommittedSearch(new URLSearchParams('plateText=KA01&plateText=KA02')).isValid).toBe(false);
     if (exact.isValid) expect(removeCriteria(exact.filters, ['plateText'])).toEqual({ objectClass: 'Vehicle' });
+  });
+
+  it('removes the plate predicate with the class chip, because the plate implies Vehicle', () => {
+    const chipsOf = (filters: Parameters<typeof committedChips>[0]) => committedChips(filters, [], [], undefined);
+    const filters = { objectClass: 'Vehicle' as const, plateText: 'KA01', plateMatch: 'exact' as const };
+    const classChip = chipsOf(filters).find((chip) => chip.key === 'objectClass')!;
+    expect(classChip.removes).toEqual(['objectClass', 'plateText', 'plateMatch']);
+    expect(removeCriteria(filters, classChip.removes)).toEqual({});
+    // With a vehicle type too, everything that depends on the class goes.
+    const typed = { ...filters, objectSubclass: 'car' as const };
+    const typedChip = chipsOf(typed).find((chip) => chip.key === 'objectClass')!;
+    expect(removeCriteria(typed, typedChip.removes)).toEqual({});
+    // Removing only the plate chip keeps the class, as before.
+    const plateChip = chipsOf(filters).find((chip) => chip.key === 'plateText')!;
+    expect(removeCriteria(filters, plateChip.removes)).toEqual({ objectClass: 'Vehicle' });
+    // Without a plate the class chip is unchanged.
+    expect(chipsOf({ objectClass: 'Person' }).find((chip) => chip.key === 'objectClass')!.removes).toEqual(['objectClass']);
   });
 
   it('refuses a Person-class plate draft on the class field and commits a vehicle draft', () => {

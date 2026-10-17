@@ -1040,6 +1040,22 @@ describe('VisualSearchPage', () => {
       expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('80');
     });
 
+    it('removes the plate predicate with the class chip, never a remove control that does nothing (Stage-4 PR-5)', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search?objectClass=Vehicle&plateText=KA01&plateMatch=exact' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+      expect(screen.getByLabelText('Current search location')).toHaveTextContent('plateText=KA01');
+
+      await user.click(screen.getByRole('button', { name: 'Remove class filter' }));
+
+      await waitFor(() => expect(screen.getByLabelText('Current search location')).toHaveTextContent(/^\/search$/));
+      const last = vi.mocked(searchTracks).mock.calls.at(-1)![0];
+      expect(last.objectClass).toBeUndefined();
+      expect(last.plateText).toBeUndefined();
+      expect(last.plateMatch).toBeUndefined();
+      expect(screen.queryByRole('button', { name: /^Remove plate/ })).not.toBeInTheDocument();
+    });
+
     it('settles the draft when a search commits the state it was already in', async () => {
       const user = userEvent.setup();
       renderWithApp(<SearchHistoryHarness />, { route: '/search?minimumConfidence=0.8' });
