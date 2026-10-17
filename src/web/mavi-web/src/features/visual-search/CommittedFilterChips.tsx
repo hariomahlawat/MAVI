@@ -100,6 +100,14 @@ export function committedChips(
       removes: filters.objectSubclass ? ['objectClass', 'objectSubclass'] : ['objectClass'],
     });
   }
+  if (filters.plateText) {
+    chips.push({
+      key: 'plateText',
+      label: filters.plateMatch === 'exact' ? 'Plate is' : filters.plateMatch === 'prefix' ? 'Plate starts with' : 'Plate contains',
+      value: filters.plateText,
+      removes: ['plateText', 'plateMatch'],
+    });
+  }
   if (filters.objectSubclass) {
     chips.push({
       key: 'objectSubclass',
