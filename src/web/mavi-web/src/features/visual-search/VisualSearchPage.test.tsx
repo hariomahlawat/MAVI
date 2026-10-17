@@ -208,6 +208,11 @@ describe('VisualSearchPage', () => {
     const evidence = within(inspector).getByRole('region', { name: 'Evidence Set' });
     const crops = within(evidence).getAllByRole('button');
     expect(crops[1]).toHaveAttribute('aria-current', 'true');
+    // P2-1: a manual crop click after the plate selection still inspects the
+    // clicked crop (and only inspects it), in the Investigation inspector.
+    await user.click(crops[3]);
+    expect(crops[3]).toHaveAttribute('aria-current', 'true');
+    expect(crops[1]).not.toHaveAttribute('aria-current');
   });
 
   it('loads the default unfiltered first page', async () => {

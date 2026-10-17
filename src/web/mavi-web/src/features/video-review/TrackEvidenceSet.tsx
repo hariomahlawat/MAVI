@@ -45,7 +45,7 @@ export default function TrackEvidenceSet({ detail, compact = false, selectedObse
 
   // Rank 0 until the operator chooses otherwise, and again whenever the choice
   // no longer names an Observation of this Track.
-  const selected = observations.find((observation) => observation.observationId === (selectedObservationId ?? selectedId)) ?? observations[0];
+  const selected = observations.find((observation) => observation.observationId === selectedId) ?? observations[0];
 
   const markFailed = (url: string) => setFailedUrls((current) => (current.has(url) ? current : new Set(current).add(url)));
   const imageState = (observation: TrackEvidenceObservation): 'available' | 'absent' | 'failed' => {

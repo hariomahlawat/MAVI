@@ -212,6 +212,47 @@ describe('crop inspection', () => {
   });
 });
 
+describe('crop inspection after a plate selection (Stage-4 PR-5)', () => {
+  const nearViewId = () => full().observations[1].observationId;
+  const lateDiverseId = () => full().observations[3].observationId;
+
+  it('inspects the plate source first, then follows a manual crop click without seeking', async () => {
+    const user = userEvent.setup();
+    const detail = full();
+    render(
+      <>
+        <TrackEvidence detail={detail} />
+        <TrackEvidenceSet detail={detail} selectedObservationId={nearViewId()} />
+      </>,
+    );
+    seek(20);
+    expect(inspection()).toHaveAccessibleName('Inspecting Near view · 00:14.6');
+
+    await user.click(control('Late diverse · 00:16.8'));
+
+    expect(inspection()).toHaveAccessibleName('Inspecting Late diverse · 00:16.8');
+    expect(control('Late diverse · 00:16.8')).toHaveAttribute('aria-current', 'true');
+    expect(control('Near view · 00:14.6')).not.toHaveAttribute('aria-current');
+    // A manual crop choice only inspects: the source video did not move.
+    expect(video().currentTime).toBe(20);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('gives a new plate selection priority over an earlier manual choice', async () => {
+    const user = userEvent.setup();
+    const detail = full();
+    const r = render(<TrackEvidenceSet detail={detail} selectedObservationId={nearViewId()} />);
+    await user.click(control('Early diverse · 00:10.4'));
+    expect(inspection()).toHaveAccessibleName('Inspecting Early diverse · 00:10.4');
+
+    r.rerender(<TrackEvidenceSet detail={detail} selectedObservationId={lateDiverseId()} />);
+    expect(inspection()).toHaveAccessibleName('Inspecting Late diverse · 00:16.8');
+
+    await user.click(control('Representative · 00:12.0'));
+    expect(inspection()).toHaveAccessibleName('Inspecting Representative · 00:12.0');
+  });
+});
+
 describe('unavailable crops', () => {
   it('keeps an Observation whose crop fails to load, with its role and offset, in a box of the same size', async () => {
     const user = userEvent.setup();
