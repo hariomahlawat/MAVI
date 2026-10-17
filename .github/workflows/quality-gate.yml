@@ -666,9 +666,10 @@ jobs:
           if-no-files-found: warn
 
   keyboard-journeys:
-    # Stage 3.5 S6/X2 (§23, plan §5.3): the six frozen operator journeys,
-    # keyboard-only, at the workstation compositions (Tier A 1366x768, Tier B
-    # 1024x768 and 768x1024; Tier C claims no workflow) — 18 executions in
+    # Stage 3.5 S6/X2 (§23, plan §5.3): the six frozen operator journeys, and
+    # after them the Stage 4 PR-5 plate journey (plate search → inspect →
+    # seek), keyboard-only, at the workstation compositions (Tier A 1366x768,
+    # Tier B 1024x768 and 768x1024; Tier C claims no workflow) — 21 executions in
     # three deterministic shards of the one plan (journeys.mjs --shard i/n:
     # execution k in shard k mod n). A shard fails on a failed journey (exit
     # 1) or a harness fault (exit 2); the aggregate below proves the plan ran

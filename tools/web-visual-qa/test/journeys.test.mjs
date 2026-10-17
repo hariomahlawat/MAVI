@@ -370,9 +370,9 @@ describe('the journey plan, its shards and their aggregate', () => {
     assert.throws(() => planJourneys({ journeys: [...journeys, { id: 'one' }] }), /registered twice/);
   });
 
-  it('plans the six frozen journeys, 18 executions', () => {
-    assert.equal(JOURNEYS.length, 6);
-    assert.equal(planJourneys({ journeys: JOURNEYS }).length, 18);
+  it('plans the six frozen journeys and the Stage 4 plate journey, 21 executions', () => {
+    assert.equal(JOURNEYS.length, 7);
+    assert.equal(planJourneys({ journeys: JOURNEYS }).length, 21);
   });
 
   it('partitions the plan deterministically: each execution in exactly one shard', () => {
@@ -433,7 +433,7 @@ describe('the journey plan, its shards and their aggregate', () => {
       const cli = (...args) => spawnSync(process.execPath, [fileURLToPath(new URL('../journeys.mjs', import.meta.url)), '--aggregate', '--out', join(work, 'out'), ...args], { encoding: 'utf8', timeout: 60_000 });
       const subset = cli(file);
       assert.equal(subset.status, 2, subset.stdout + subset.stderr);
-      assert.match(subset.stdout, /planned 2 executions, not the registry's 18/);
+      assert.match(subset.stdout, /planned 2 executions, not the registry's 21/);
       const missing = cli(file, join(work, 'absent.json'));
       assert.equal(missing.status, 2);
     } finally { rmSync(work, { recursive: true, force: true }); }
@@ -480,7 +480,7 @@ describe('the journey registry', () => {
     }
   });
 
-  it('registers the six frozen journeys of plan §5.3, by their names', () => {
+  it('registers the six frozen journeys of plan §5.3 first, by their names, and then the Stage 4 plate journey', () => {
     assert.deepEqual(JOURNEYS.map((j) => j.title), [
       'Import → Process → Status → Results',
       'Search → filter → scan → inspect → evidence → return',
@@ -488,6 +488,8 @@ describe('the journey registry', () => {
       'Configure scene → analyse → search analytic → why matched → inspect',
       'Cameras / Videos / Processing monitoring',
       'Error / retry / recovery',
+      // Stage 4 plan PR-5 (Tests): appended after the frozen six, never in their place.
+      'Plate search → inspect → seek',
     ]);
     for (const journey of JOURNEYS) {
       assert.ok(journey.start.startsWith('/'), `${journey.id} declares its one direct load`);

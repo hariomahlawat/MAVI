@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrackDetail, TrackPlateObservation, TrackPlates } from '../../api/tracks';
 import TrackPlateReadings from './TrackPlateReadings';
 
@@ -110,5 +110,48 @@ describe('Stage-4 TrackPlateReadings', () => {
     expect(within(list).getAllByRole('listitem')).toHaveLength(5);
     fireEvent.click(screen.getByRole('button', { name: 'Show all 6 plate observations' }));
     expect(within(list).getAllByRole('listitem')).toHaveLength(6);
+  });
+});
+
+describe('Stage-4 TrackPlateReadings: the plate region is drawn (success path)', () => {
+  type FakeImage = { src: string; naturalWidth: number; naturalHeight: number; onload: null | (() => void); onerror: null | (() => void) };
+  let images: FakeImage[] = [];
+  let draws: unknown[][] = [];
+  let restore: Array<() => void> = [];
+  const override = (target: object, name: string, descriptor: PropertyDescriptor) => {
+    const original = Object.getOwnPropertyDescriptor(target, name);
+    Object.defineProperty(target, name, { configurable: true, ...descriptor });
+    restore.push(() => { if (original) Object.defineProperty(target, name, original); else delete (target as Record<string, unknown>)[name]; });
+  };
+  beforeEach(() => {
+    images = [];
+    draws = [];
+    // jsdom decodes no image and has no 2D context: both stand in, and the
+    // decoded size is the crop size the box declares.
+    class Decoded { src = ''; naturalWidth = 640; naturalHeight = 360; onload: null | (() => void) = null; onerror: null | (() => void) = null; constructor() { images.push(this); } }
+    override(window, 'Image', { value: Decoded, writable: true });
+    override(HTMLCanvasElement.prototype, 'getContext', { value: () => ({ drawImage: (...args: unknown[]) => draws.push(args) }) });
+  });
+  afterEach(() => { restore.forEach((fn) => fn()); restore = []; });
+
+  it('cuts exactly the detector box from the source crop and shows it, never "No image"', () => {
+    const { container } = render(<TrackPlateReadings detail={detail(ready, 'Vehicle', '/api/artifacts/aaa/content')} compact />);
+    expect(screen.getByText('Loading plate image…')).toBeInTheDocument();
+    // The source Observation's own server URL, not a constructed one.
+    expect(images).toHaveLength(1);
+    expect(images[0].src).toBe('/api/artifacts/aaa/content');
+
+    act(() => images[0].onload!());
+
+    expect(draws).toHaveLength(1);
+    expect(draws[0][0]).toBe(images[0]);
+    // The source rectangle is the box; the destination is the box at 1:1.
+    expect(draws[0].slice(1)).toEqual([10, 20, 80, 30, 0, 0, 80, 30]);
+    const canvas = container.querySelector('canvas') as HTMLCanvasElement;
+    expect(canvas.width).toBe(80);
+    expect(canvas.height).toBe(30);
+    expect(screen.getByRole('img', { name: 'Detected plate region' })).toBeVisible();
+    expect(screen.queryByText('No image')).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading plate image…')).not.toBeInTheDocument();
   });
 });
