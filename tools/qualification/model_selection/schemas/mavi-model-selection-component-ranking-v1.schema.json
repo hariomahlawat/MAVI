@@ -2,7 +2,7 @@
   "$id": "urn:mavi:mavi-model-selection-component-ranking-v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Shape contract (MSR revision M3, authority redesign): one composition-group event's component ranking (layer A or B), committed as <event-id>-component-ranking.json and cited by the record. The rows are exactly the frozen shortlist; the rank key is DERIVED from metrics by the frozen lexicographic-v1 rule (model_selection/m3_universe.py), never authored. Replaces the Layer-A result schema.",
+  "description": "Shape contract (MSR revision M3, authority redesign): one composition-group event's component ranking (layer A or B), committed as <event-id>-component-ranking.json and cited by the record. The rows are exactly the frozen shortlist; the rank key is DERIVED from metrics by the frozen lexicographic-v1 rule (model_selection/m3_universe.py), never authored. Replaces the Layer-A result schema. M3 Amendment A1 (2026-10-17, changed in place because no M3 data exists): a metric may be null only under the frozen rule lexicographic-missing-last-v1, on a row failing a ranking gate or for a key whose missing policy is last; under lexicographic-v1 every metric is a finite number (enforced by m3_universe.check_component_ranking).",
   "properties": {
     "compositionUniverseSha256": {
       "pattern": "^[0-9a-f]{64}$",
@@ -70,7 +70,10 @@
           },
           "metrics": {
             "additionalProperties": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ]
             },
             "minProperties": 1,
             "propertyNames": {

@@ -14,7 +14,8 @@ A RESOLVED seal is valid only if it is exactly what ``derive_baseline_seal`` re-
 protocol hash, the partner event's frozen ledger and the committed component rankings of both group events. It binds
 the component-ranking hashes, the universe hash and the hash of the derived ordinary composition set U
 (``m3_universe.derive_ordinary_universe``), so U is sealed before protected D. Any failed prerequisite, a partner tie,
-or a tie across a top-K boundary (owner decision O3) is a STOPPED seal; a STOPPED seal is terminal (owner decision O1)
+a tie across a top-K boundary (owner decision O3), or fewer than two evaluable non-baseline candidates in either event
+(M3 Amendment A1, ``insufficient-evaluable-candidates``) is a STOPPED seal; a STOPPED seal is terminal (owner decision O1)
 and permits no protected D.
 
 The group-level authority (history, chronology, anchors, the decision binding and the only pre-D entry point
@@ -30,6 +31,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from .credibility import (
+    BASELINE,
     BENCHMARK_BASELINE,
     CANDIDATE_ID_RE,
     EVENT_ID_RE,
@@ -83,7 +85,10 @@ STOP_REASONS = (
     "component-ranking-inconsistent",
     "protected-d-accessed",
     "prerequisite-failed",
+    # M3 Amendment A1 (plan Rev 5 §4.10, owner ruling ODR-8): fewer than two evaluable non-baseline candidates
+    "insufficient-evaluable-candidates",
 )
+MINIMUM_EVALUABLE_CANDIDATES = 2
 ORDINARY_ID_PREFIX = "C-"
 SEAL_INFIX = "-baseline-seal-"
 RANKING_SUFFIX = "-component-ranking.json"
@@ -281,7 +286,19 @@ _STOP_FOR_CODE = {
     "component_ranking_not_the_shortlist": "component-ranking-inconsistent",
     "component_ranking_gates_mismatch": "component-ranking-inconsistent",
     "component_ranking_metrics_mismatch": "component-ranking-inconsistent",
+    "component_ranking_metric_invalid": "component-ranking-inconsistent",
+    "component_ranking_mandatory_metric_missing": "component-ranking-inconsistent",
+    "insufficient_evaluable_candidates": "insufficient-evaluable-candidates",
 }
+
+
+def evaluable_candidates(frozen: Mapping, checked: Mapping[str, Mapping]) -> list[str]:
+    """M3-A1 (plan §4.10): the SHORTLISTED candidates of one event, other than a ``mavi-baseline``, whose committed
+    component-ranking row passes every frozen ranking gate. A valid candidate with a null ``last`` metric counts; a
+    row failing any gate (a contract failure, an unevaluable or unsupported measurement) never does."""
+    kinds = {e["candidateId"]: e["candidateKind"] for e in frozen["candidates"]
+             if e["disposition"]["status"] == SHORTLISTED}
+    return sorted(c for c, row in checked.items() if row["passed"] and kinds.get(c) not in (None, BASELINE))
 
 
 @dataclass(frozen=True)
@@ -310,6 +327,11 @@ def derive_group_inputs(frozen: Mapping, composition_id: str, partner_ledger: Ma
         if document is None:
             return f"no component ranking for {item['eventId']}"
         checked[item["eventId"]] = check_component_ranking(document, frozen_by_event[item["eventId"]])
+    # M3-A1 minimum evaluable population, derived from the committed rankings before the partner and top-K
+    for item in universe["componentEvents"]:
+        found = evaluable_candidates(frozen_by_event[item["eventId"]], checked[item["eventId"]])
+        if len(found) < MINIMUM_EVALUABLE_CANDIDATES:
+            raise _fail("insufficient_evaluable_candidates", f"{item['eventId']}:{len(found)}")
     partner = best_partner(checked[rule["partnerEventId"]], {p["candidateId"] for p in rule["eligiblePartners"]})
     if partner is None:
         return "no-partner"

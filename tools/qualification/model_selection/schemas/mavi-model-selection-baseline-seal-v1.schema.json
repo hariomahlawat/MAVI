@@ -285,7 +285,8 @@
             "component-rank-ambiguous",
             "component-ranking-inconsistent",
             "protected-d-accessed",
-            "prerequisite-failed"
+            "prerequisite-failed",
+            "insufficient-evaluable-candidates"
           ]
         }
       },

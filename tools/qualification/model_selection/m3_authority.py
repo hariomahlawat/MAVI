@@ -29,6 +29,8 @@ import subprocess
 import tempfile
 from contextlib import contextmanager
 from decimal import Decimal
+from fractions import Fraction
+from math import gcd
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
@@ -109,7 +111,13 @@ DEFAULT_BRANCH = "main"
 DEFAULT_BRANCH_REF = f"refs/heads/{DEFAULT_BRANCH}"
 RECORDED_ANCHOR_REF = f"refs/remotes/origin/{DEFAULT_BRANCH}"
 AUTHORITY_FIELD = "compositionAuthority"
-ABANDON_REASONS = ("baseline-d-unavailable",)
+# Owner decision O4 plus M3 Amendment A1 (2026-10-17; plan Rev 5 §4.7, R2-ruling ODR-10 C and D-phase UNEVALUABLE): a
+# correctly hashed D corpus that cannot be admitted, and a mandatory D composition left UNEVALUABLE after N9. The
+# evidence of every reason is the resultSha256 of a committed group D manifest; no other reason exists.
+ABANDON_REASONS = ("baseline-d-unavailable", "d-corpus-inadmissible", "d-evaluation-incomplete")
+# M3-A1 exact D scores (plan §4.1, ODR-2): a canonical reduced fraction ``{numerator, denominator}``
+D_SCORE_EXACT_KEYS = ("numerator", "denominator")
+D_SCORE_EXACT_MAX_DENOMINATOR = 2**63 - 1
 
 # A4: the structured record lines of a domain event are append-only across every historical version of the record.
 STRUCTURED_LINE_RE = re.compile(
@@ -124,8 +132,9 @@ RECORD_NAME_RE = re.compile(r"^msr-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-\d{4}-\d
 DECISION_KEYS = ("groupId", "anchorCommit", "baselineSeals", "dExecutionStartedAt", "incumbent", "baseline", "topK",
                  "componentFinalists", "compositionCandidates", "rankedCompositions", "frontier",
                  "strongestEvaluatedComposition", "implementationComposition")
-_ROW_KEYS = ("compositionId", "components", "gates", "dScore", "technicalGates", "comparativeScore", "dResultSha256",
-             "baselineSealSha256s")
+_ROW_KEYS = ("compositionId", "components", "gates", "dScore", "dScoreExact", "technicalGates", "comparativeScore",
+             "dResultSha256", "baselineSealSha256s")
+_BASELINE_KEYS = ("compositionId", "compositionSha256", "dScore", "dScoreExact", "dResultSha256")
 D_MANIFEST_KEYS = ("schema", "eventId", "manifestId", "groupId", "resultSha256", "anchorCommit",
                    "ordinaryCompositionsSha256", "baselineSeals")
 
@@ -142,9 +151,11 @@ def superseded_line(new_event_id: str) -> str:
 
 
 def abandonment_line(reason: str, evidence_sha256: str) -> str:
-    """Owner decision O4: the record line that moves a group event to the existing ``ABANDONED`` state (README §3.2)
-    when the baseline D result cannot be evaluated after protected D was opened. The evidence is the ``resultSha256``
-    of a committed D manifest of the group. No technical decision and no M1 outcome follows."""
+    """The record line that moves a group event to the existing ``ABANDONED`` state (README §3.2) after protected D
+    was opened and before any decision: owner decision O4 (``baseline-d-unavailable``) and M3 Amendment A1
+    (``d-corpus-inadmissible``, ``d-evaluation-incomplete``). The evidence is the ``resultSha256`` of a committed D
+    manifest of the group; that the manifest's document is what the reason requires is the harness verifier's check.
+    No technical decision and no M1 outcome follows."""
     if reason not in ABANDON_REASONS:
         raise _fail("abandonment_reason_not_allowed", reason)
     _match(evidence_sha256, SHA256_RE, "abandonment.evidence")
@@ -706,6 +717,9 @@ def _check_d_artefacts(ctx: Context, authority: GroupAuthority) -> None:
                 raise _fail("baseline_stopped_no_d_result", rel)
             _check_binding_rows(manifest, state, rel)
             check_recorded_anchor(ctx.repo, manifest["anchorCommit"], state.s0, ctx.history.adds.get(rel, set()), rel)
+            # M3-A1: one D-result document per manifest, so a result names exactly one committed manifest
+            if manifest["resultSha256"] in {m["resultSha256"] for m in authority.d_manifests.values()}:
+                raise _fail("d_manifest_result_duplicated", rel)
             authority.d_manifests[rel] = manifest
             authority.checked.append(rel)
 
@@ -799,11 +813,38 @@ def _check_decision_blocks(ctx: Context, authority: GroupAuthority) -> None:
         # D results exist only after protected D was opened: the decision's anchor is that of a committed D manifest
         if block["anchorCommit"] not in {m["anchorCommit"] for m in authority.d_manifests.values()}:
             raise _fail("decision_without_d_manifest", rel)
+        _check_cited_d_results(block, authority, rel)
         _check_block_history(ctx, rel, block)
         blocks[e] = document_sha256(block)
         authority.decisions[e] = decision
     if len(set(blocks.values())) > 1:
         raise _fail("composition_authority_differs_between_group_events", state.group_id[:12])
+
+
+def _cited_d_results(block: Mapping, where: str) -> list[tuple[str, str]]:
+    """``(where, dResultSha256)`` of the baseline and every composition row of a decision block, in order."""
+    cited: list[tuple[str, str]] = []
+    base = block.get("baseline")
+    if isinstance(base, dict) and isinstance(base.get("dResultSha256"), str):
+        cited.append((f"{where}.baseline", base["dResultSha256"]))
+    for index, row in enumerate(block.get("compositionCandidates") or ()):
+        if isinstance(row, dict) and isinstance(row.get("dResultSha256"), str):
+            cited.append((f"{where}.compositionCandidates[{index}]", row["dResultSha256"]))
+    return cited
+
+
+def _check_cited_d_results(block: Mapping, authority: GroupAuthority, rel: str) -> None:
+    """M3-A1 (plan §6.4/§6.6): the baseline and every composition row cite DISTINCT D results, each the
+    ``resultSha256`` of a committed D manifest of this group. Which composition a result document belongs to is the
+    harness verifier's check (the manifest carries no composition id)."""
+    results = {m["resultSha256"] for m in authority.d_manifests.values()}
+    seen: set[str] = set()
+    for where, digest in _cited_d_results(block, f"{rel}.{AUTHORITY_FIELD}"):
+        if digest in seen:
+            raise _fail("decision_d_result_cited_twice", where)
+        seen.add(digest)
+        if digest not in results:
+            raise _fail("decision_d_result_without_manifest", where)
 
 
 def _check_block_history(ctx: Context, rel: str, block: Mapping) -> None:
@@ -1246,6 +1287,8 @@ def _check_pre_d(ctx: Context, authority: GroupAuthority) -> None:
         raise _fail("d_not_authorised", f"baseline-seal-{state.seal_status}:{state.seal['stopReason']}")
     if any(state.rankings.get(e) is None for e in authority.members) or state.ordinary is None:
         raise _fail("d_not_authorised", "composition-universe-indeterminate")
+    if not state.ordinary:  # M3-A1 (plan §4.10): nothing to evaluate; unreachable past the population STOP
+        raise _fail("d_not_authorised", "composition-universe-empty")
     if authority.abandoned:
         raise _fail("d_not_authorised", "group-abandoned")
     if authority.superseded_by:
@@ -1315,13 +1358,21 @@ def verify_d_manifest_binding(manifest: Mapping, repo: Path) -> None:
 
 
 def check_composition_decision(decision: Mapping, state: GroupState,
-                               own_event: str) -> dict[str, tuple[str, float | None]]:
+                               own_event: str) -> dict[str, tuple[str, Fraction | None]]:
     """The mandatory ``compositionAuthority`` block of a group event's decision summary v1 (identical in every group
-    event). Returns, per own-event candidate, the composition-derived ``(technicalGates, comparativeScore)``.
+    event). Returns, per own-event candidate, the composition-derived ``(technicalGates, exact score)``: the EXACT
+    maximum over the candidate's technically passing compositions (M3 Amendment A1), or ``None`` without one. The
+    row's ``comparativeScore`` is its float display, ``float(exact)``.
 
     The composition set must EQUAL the sealed U (no omission, no extra, derived ids); the baseline gate, technical
     gates, scores, ranking, strongest composition, top-K and finalists are recomputed; the frontier and the
-    implementation composition are ranked compositions; a null baseline D refuses the decision (owner decision O4)."""
+    implementation composition are ranked compositions; a null baseline D refuses the decision (owner decision O4).
+
+    M3-A1 (plan §4.1, owner ruling ODR-2): every score-dependent check (the baseline gate against the exact MPID, the
+    ranking order, the strongest composition and the per-candidate projection) uses the canonical reduced
+    ``dScoreExact``; ``dScore`` and ``comparativeScore`` are float displays that must equal ``float(exact)`` (a float is
+    compared with a float, never with a ``Fraction``). Two distinct rationals with one display float are ordered
+    exactly; exactly equal rationals stay permitted ties. The baseline and every row cite distinct D results."""
     where = f"decision.{AUTHORITY_FIELD}"
     block = _keys(decision.get(AUTHORITY_FIELD), DECISION_KEYS, where)
     if state.seal is None:
@@ -1347,19 +1398,19 @@ def check_composition_decision(decision: Mapping, state: GroupState,
         raise _fail("d_started_after_decision", f"{where}.dExecutionStartedAt")
     forbidden = set(state.bob_ids) | {state.composition_id}
     universe = state.universe
-    mpid = _exact(universe["mpid"])
+    mpid = Fraction(_exact(universe["mpid"]))  # the exact decimal of the frozen literal: 0.04 is exactly 1/25
     gate_ids = list(universe["compositionGateIds"])
     seal_hashes = {state.composition_id: state.seal_sha256}
     # the gate-only baseline composition (O4: no decision without its D result)
-    base = _keys(block["baseline"], ("compositionId", "compositionSha256", "dScore", "dResultSha256"),
-                 f"{where}.baseline")
+    base = _keys(block["baseline"], _BASELINE_KEYS, f"{where}.baseline")
     if base["compositionId"] != state.composition_id or base["compositionSha256"] != state.seal["compositionSha256"]:
         raise _fail("decision_baseline_composition_mismatch", f"{where}.baseline")
     _match(base["dResultSha256"], SHA256_RE, f"{where}.baseline.dResultSha256")
-    if base["dScore"] is None:
+    if base["dScore"] is None and base["dScoreExact"] is None:
         raise _fail("baseline_d_unavailable", f"{where}.baseline.dScore")
-    _number(base["dScore"], f"{where}.baseline.dScore")
-    base_score = _exact(base["dScore"])
+    base_score = _exact_score(base["dScore"], base["dScoreExact"], f"{where}.baseline")
+    if base_score is None:
+        raise _fail("baseline_d_unavailable", f"{where}.baseline.dScore")
     # C2: the composition set equals the sealed U, with derived ids and exact components
     expected = {item["compositionId"]: item["components"] for item in state.ordinary}
     candidates = _list(block["compositionCandidates"], f"{where}.compositionCandidates")
@@ -1374,7 +1425,7 @@ def check_composition_decision(decision: Mapping, state: GroupState,
         seen[row["compositionId"]] = row
     if set(seen) != set(expected):
         raise _fail("composition_set_differs_from_sealed_universe", f"{where}.compositionCandidates")
-    passing: dict[str, float] = {}
+    passing: dict[str, Fraction] = {}
     for composition_id, row in sorted(seen.items()):
         at = f"{where}.compositionCandidates.{composition_id}"
         if row["components"] != expected[composition_id]:
@@ -1385,20 +1436,25 @@ def check_composition_decision(decision: Mapping, state: GroupState,
         for gate, value in gates.items():
             if value not in (PASSED, FAILED):
                 raise _fail("value_not_allowed", f"{at}.gates.{gate}")
-        score = None if row["dScore"] is None else _number(row["dScore"], f"{at}.dScore")
+        score = _exact_score(row["dScore"], row["dScoreExact"], at)
         _match(row["dResultSha256"], SHA256_RE, f"{at}.dResultSha256")
         if row["baselineSealSha256s"] != seal_hashes:
             raise _fail("d_result_baseline_seal_mismatch", f"{at}.baselineSealSha256s")
-        baseline_passed = score is not None and _exact(row["dScore"]) - base_score >= mpid
+        baseline_passed = score is not None and score - base_score >= mpid
         if gates[BASELINE_GATE] != (PASSED if baseline_passed else FAILED):
             raise _fail("composition_baseline_gate_not_derived", f"{at}.gates.{BASELINE_GATE}")
         technical = PASSED if all(v == PASSED for v in gates.values()) else FAILED
         if row["technicalGates"] != technical:
             raise _fail("composition_technical_gates_not_derived", f"{at}.technicalGates")
-        if row["comparativeScore"] != (score if technical == PASSED else None):
+        if row["comparativeScore"] != (float(score) if technical == PASSED else None):  # float display vs float
             raise _fail("composition_score_not_derived", f"{at}.comparativeScore")
         if technical == PASSED:
             passing[composition_id] = score
+    seen_results: set[str] = set()
+    for at, digest in _cited_d_results(block, where):
+        if digest in seen_results:
+            raise _fail("decision_d_result_cited_twice", at)
+        seen_results.add(digest)
     if ordinary_compositions_sha256([{"compositionId": c, "components": seen[c]["components"]} for c in
                                      sorted(seen)]) != state.seal["ordinaryCompositionsSha256"]:
         raise _fail("composition_set_differs_from_sealed_universe", f"{where}.compositionCandidates")
@@ -1446,7 +1502,7 @@ def check_composition_decision(decision: Mapping, state: GroupState,
     if block["componentFinalists"] != finalists:
         raise _fail("component_finalists_not_derived", f"{where}.componentFinalists")
     # C4: the own event's row values are composition-derived
-    derived: dict[str, tuple[str, float | None]] = {}
+    derived: dict[str, tuple[str, Fraction | None]] = {}
     for candidate in {c["candidateId"] for comps in expected.values() for c in comps if c["eventId"] == own_event} | \
             {e["candidateId"] for e in state.frozen_by_event[own_event]["candidates"]
              if e["disposition"]["status"] == SHORTLISTED}:
@@ -1458,10 +1514,36 @@ def check_composition_decision(decision: Mapping, state: GroupState,
 
 def _exact(value: float | int) -> Decimal:
     """The exact decimal value of a JSON number literal as written (P3-A): ``Decimal(str(value))``, where ``str`` of a
-    parsed float is its shortest round-trip representation, so ``0.7 - 0.5 >= 0.2`` holds exactly as written. Used
-    only for the baseline hard gate (D-score minus the baseline D-score at least the MPID); the ranking order is
-    unchanged."""
+    parsed float is its shortest round-trip representation. Since M3 Amendment A1 it is used only for the frozen MPID
+    literal (``Fraction(_exact(0.04)) == Fraction(1, 25)``); D scores are compared through ``dScoreExact``
+    (``_exact_score``), never through their float displays."""
     return Decimal(str(value))
+
+
+def _exact_score(display: object, value: object, where: str) -> Fraction | None:
+    """M3-A1 (plan §4.1): the canonical exact D score of a decision row or the baseline. ``None`` iff the display
+    ``dScore`` is ``None``; otherwise exactly ``{numerator, denominator}``, both ``int`` (never ``bool``),
+    ``1 <= denominator <= 2**63 - 1``, ``0 <= numerator <= denominator`` (``d_score_exact_malformed``), reduced
+    (``d_score_exact_not_reduced``), and the display equal to ``float(Fraction(n, d))`` compared float to float
+    (``d_score_display_not_derived``)."""
+    at = f"{where}.dScoreExact"
+    if display is None:
+        if value is not None:
+            raise _fail("d_score_exact_malformed", at)
+        return None
+    shown = _number(display, f"{where}.dScore")
+    if not isinstance(value, dict) or set(value) != set(D_SCORE_EXACT_KEYS):
+        raise _fail("d_score_exact_malformed", at)
+    numerator, denominator = value["numerator"], value["denominator"]
+    if type(numerator) is not int or type(denominator) is not int or \
+            not 1 <= denominator <= D_SCORE_EXACT_MAX_DENOMINATOR or not 0 <= numerator <= denominator:
+        raise _fail("d_score_exact_malformed", at)
+    if gcd(numerator, denominator) != 1:
+        raise _fail("d_score_exact_not_reduced", at)
+    score = Fraction(numerator, denominator)
+    if shown != float(score):
+        raise _fail("d_score_display_not_derived", f"{where}.dScore")
+    return score
 
 
 def implementation_component(state: GroupState, composition_id: str, own_event: str) -> str:
