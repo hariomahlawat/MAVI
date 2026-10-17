@@ -235,7 +235,8 @@ def validate_offline_runtime_lock_for_runtime(
                 "qualified-development-hardware",
             }
             if expected_variant.endswith("-cuda")
-            else {"qualified-hosted-cpu"}
+            # ``development-cpu`` only ever pairs with a ``development-offline-lock`` (runtime graph policy).
+            else {"qualified-hosted-cpu", "development-cpu"}
         )
         if platform_status not in allowed_statuses:
             raise OfflineLockError("offline_lock_platform_not_qualified")

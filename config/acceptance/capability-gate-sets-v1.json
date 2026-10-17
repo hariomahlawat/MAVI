@@ -22,6 +22,16 @@
         "cctv-quality-baseline",
         "recovery-performance"
       ]
+    },
+    "plates-development-v1": {
+      "scope": "capability",
+      "capabilityIds": [
+        "ocr",
+        "plate-detector"
+      ],
+      "gates": [
+        "plate-development-pilot"
+      ]
     }
   }
 }

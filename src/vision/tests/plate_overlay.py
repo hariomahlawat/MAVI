@@ -45,7 +45,11 @@ FIXTURE_MANIFEST = {
     "provenance": {"publisher": "MAVI", "sourceRepository": "mavi/tests/fixtures", "sourceRevision": "stage4-pr3-fixture-v1"},
     "verificationStatus": "unverified",
     "qualificationId": None,
-    "capabilitySpecific": {},
+    # Each capability names its adapter explicitly (Issue #225): the fixture, from this one Development pack.
+    "capabilitySpecific": {
+        "ocr": {"adapterId": "plates-fixture-v1", "artifactRoles": {}},
+        "plate-detector": {"adapterId": "plates-fixture-v1", "artifactRoles": {}},
+    },
 }
 FIXTURE_ARTIFACTS = {
     "fixture-definition": b"MAVI Stage 4 plate fixture: deterministic, model-free, Development only.\n",
@@ -68,6 +72,9 @@ class PlateOverlay:
         for name in FIXTURE_PROFILE_FILES:
             shutil.copyfile(FIXTURE_PROFILE_DIRECTORY / name, profile_directory / name)
         gate_sets = json.loads((vision.root / "config/acceptance/capability-gate-sets-v1.json").read_text(encoding="utf-8"))
+        # The committed Development pilot gate set (Issue #225) serves the same capabilities; the fixture replaces it,
+        # since a record names exactly the capability gate sets that apply.
+        gate_sets["gateSets"].pop("plates-development-v1", None)
         gate_sets["gateSets"][GATE_SET_ID] = {"scope": "capability", "capabilityIds": list(PLATE_CAPABILITIES), "gates": list(FIXTURE_GATES)}
         overlay = cls(vision=vision, manifest=copy.deepcopy(FIXTURE_MANIFEST), records={}, gate_sets=gate_sets)
         overlay._add_role()

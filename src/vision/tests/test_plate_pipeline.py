@@ -17,7 +17,9 @@ import pytest
 from PIL import Image
 
 from mavi_vision.plates import contracts
-from mavi_vision.plates.adapters import AdapterUnavailable, components_for
+from dataclasses import replace
+
+from mavi_vision.plates.adapters import AdapterRequest, AdapterUnavailable, components_for
 from mavi_vision.plates.adapters.fixture import FIXTURE_ADAPTER_ID
 from mavi_vision.plates.inference import PlateBox, Reading, VerifiedCrop
 from mavi_vision.plates.parameters import load_parameters
@@ -277,7 +279,7 @@ def test_every_leased_crop_is_accounted_for_exactly_once() -> None:
 
 
 def test_the_fixture_is_deterministic_and_produces_a_schema_shaped_artefact() -> None:
-    detector, recogniser = components_for(FIXTURE_ADAPTER_ID, seed="mavi-stage4-pr3-fixture-v1", development_only=True, production_mode=False)
+    detector, recogniser = _fixture(seed="mavi-stage4-pr3-fixture-v1", development_only=True, production_mode=False)
     tracks = []
     for lease_track in LEASE.tracks:
         crops = tuple(
@@ -305,9 +307,16 @@ def test_the_fixture_is_deterministic_and_produces_a_schema_shaped_artefact() ->
 )
 def test_the_fixture_is_refused_outside_development(development_only, production_mode, seed, code) -> None:
     with pytest.raises(AdapterUnavailable, match=code):
-        components_for(FIXTURE_ADAPTER_ID, seed=seed, development_only=development_only, production_mode=production_mode)
+        _fixture(seed=seed, development_only=development_only, production_mode=production_mode)
 
 
 def test_an_unknown_adapter_is_refused() -> None:
     with pytest.raises(AdapterUnavailable, match="plate_adapter_unknown"):
-        components_for("some-model", seed="seed", development_only=True, production_mode=False)
+        components_for(AdapterRequest("plate-detector", "some-model", {}), AdapterRequest("ocr", FIXTURE_ADAPTER_ID, {}),
+                       parameters=replace(PARAMETERS, fixture_seed="seed"), development_only=True, production_mode=False)
+
+
+def _fixture(*, seed, development_only, production_mode):
+    return components_for(AdapterRequest("plate-detector", FIXTURE_ADAPTER_ID, {}), AdapterRequest("ocr", FIXTURE_ADAPTER_ID, {}),
+                          parameters=replace(PARAMETERS, fixture_seed=seed), development_only=development_only,
+                          production_mode=production_mode)

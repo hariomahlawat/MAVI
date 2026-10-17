@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "mavi-plates-pilot-payloads-v1",
+  "note": "Issue #225 Development pilot Model Pack payloads (never in Git, never a release). SHA-256 is the authority; each must equal the committed manifest artefact. controlledStorePath is relative to the Stage-4 controlled candidate store (E:\\MAVI-Controlled\\Benchmarks\\plate-candidates on the Development host). Licences and provenance: docs/qualification/stage4/anpr-dev-pilot-2026-10-17.md.",
+  "payloads": [
+    {
+      "manifest": "models/manifests/plates-pd5-ppocrv5-mobile-det-dev-v1.json",
+      "packDirectory": "plates-pd5-v5m-dev-v1",
+      "file": "inference.onnx",
+      "sha256": "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d",
+      "url": "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det_onnx/resolve/e6f4fa85f00e168c862bc462aebca69eef9b3d3d/inference.onnx",
+      "controlledStorePath": "PD5-V5M/e6f4fa85f00e168c862bc462aebca69eef9b3d3d/inference.onnx"
+    },
+    {
+      "manifest": "models/manifests/plates-pd5-ppocrv5-mobile-det-dev-v1.json",
+      "packDirectory": "plates-pd5-v5m-dev-v1",
+      "file": "inference.yml",
+      "sha256": "98069072e1b6b37d727fd9d9f11725faa46d6ea0de012f2ed26caea011c37699",
+      "url": "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det_onnx/resolve/e6f4fa85f00e168c862bc462aebca69eef9b3d3d/inference.yml",
+      "controlledStorePath": "PD5-V5M/e6f4fa85f00e168c862bc462aebca69eef9b3d3d/inference.yml"
+    },
+    {
+      "manifest": "models/manifests/plates-pd5-ppocrv5-mobile-det-dev-v1.json",
+      "packDirectory": "plates-pd5-v5m-dev-v1",
+      "file": "README.md",
+      "sha256": "951c155673ac6c15feb85857c9024a62266e5956d15319ce578a8f508f399d66",
+      "url": "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det_onnx/resolve/e6f4fa85f00e168c862bc462aebca69eef9b3d3d/README.md",
+      "controlledStorePath": "PD5-V5M/e6f4fa85f00e168c862bc462aebca69eef9b3d3d/README.md"
+    },
+    {
+      "manifest": "models/manifests/plates-pd5-ppocrv5-mobile-det-dev-v1.json",
+      "packDirectory": "plates-pd5-v5m-dev-v1",
+      "file": "LICENSE",
+      "sha256": "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e",
+      "url": "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf/LICENSE",
+      "controlledStorePath": "licence-evidence/2026-10-13/paddleocr-LICENSE"
+    },
+    {
+      "manifest": "models/manifests/plates-oc1-fast-plate-ocr-cct-s-v2-dev-v1.json",
+      "packDirectory": "plates-oc1-s-dev-v1",
+      "file": "cct_s_v2_global.onnx",
+      "sha256": "384bbbd2cea3ef54761d3df70822ef3a349ee1a112aeafddbe0e3ba06bc6e47b",
+      "url": "https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_s_v2_global.onnx",
+      "controlledStorePath": "OC1-S/release-arg-plates/cct_s_v2_global.onnx"
+    },
+    {
+      "manifest": "models/manifests/plates-oc1-fast-plate-ocr-cct-s-v2-dev-v1.json",
+      "packDirectory": "plates-oc1-s-dev-v1",
+      "file": "cct_s_v2_global_plate_config.yaml",
+      "sha256": "0335c74a305173bb6f393efed0fde03cadeaa0b649ed8e19f431016d8232d0a6",
+      "url": "https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_s_v2_global_plate_config.yaml",
+      "controlledStorePath": "OC1-S/release-arg-plates/cct_s_v2_global_plate_config.yaml"
+    },
+    {
+      "manifest": "models/manifests/plates-oc1-fast-plate-ocr-cct-s-v2-dev-v1.json",
+      "packDirectory": "plates-oc1-s-dev-v1",
+      "file": "cct_s_v2_global_model_config.yaml",
+      "sha256": "244c3c712205750e9747bca4707cd553a84005f41959745bff676b0fca8faba3",
+      "url": "https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_s_v2_global_model_config.yaml",
+      "controlledStorePath": "OC1-S/release-arg-plates/cct_s_v2_global_model_config.yaml"
+    },
+    {
+      "manifest": "models/manifests/plates-oc1-fast-plate-ocr-cct-s-v2-dev-v1.json",
+      "packDirectory": "plates-oc1-s-dev-v1",
+      "file": "LICENSE",
+      "sha256": "a953e6268c89179c4a8f0cf5a49f57bc380a60e38078fe1f6361a0e45fd00363",
+      "url": "https://raw.githubusercontent.com/ankandrew/fast-plate-ocr/9ce7a5b64a939aa421c243b331d42e6bc25ffd44/LICENSE",
+      "controlledStorePath": "licence-evidence/2026-10-13/fpo-LICENSE"
+    }
+  ]
+}

@@ -498,6 +498,54 @@ def _read_json_or_none(path: Path) -> object | None:
         return None
 
 
+def check_development_runtime_families(policy: dict, tracked: list[Path], errors: list[str]) -> None:
+    """A runtime family on a named (Development-only) graph is a declared dependency surface (Issue #225).
+
+    Its requirements roots and its lock bytes must equal the policy's ``developmentRuntimeFamilies`` entry, so a
+    library added to such a family cannot bypass the offline packaging, verification and licence record.
+    """
+    python = (policy.get("ecosystemStrategies") or {}).get("python") or {}
+    declared = python.get("developmentRuntimeFamilies") or {}
+    if not isinstance(declared, dict):
+        fail("Offline dependency policy developmentRuntimeFamilies must be an object.", errors)
+        return
+    actual: set[str] = set()
+    for path in tracked:
+        relative = path.relative_to(ROOT).as_posix()
+        if not (relative.startswith("src/vision/runtime/") and path.name == "runtime.json"):
+            continue
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue  # the release-metadata check reports it
+        if profile.get("runtimeGraph") is None:
+            continue
+        family = path.parent.name
+        actual.add(family)
+        entry = declared.get(family)
+        if not isinstance(entry, dict) or entry.get("runtimeProfile") != relative:
+            fail(f"Runtime family {family} is not declared in the offline dependency policy developmentRuntimeFamilies.", errors)
+            continue
+        for field in ("scope", "purpose", "packagedBy", "installedBy", "verification", "licences"):
+            if not entry.get(field):
+                fail(f"Offline dependency policy entry for {family} lacks {field}.", errors)
+        variants = entry.get("variants") or {}
+        locks = {lock.name[: -len(".lock")] for lock in path.parent.glob("*.lock") if lock in set(tracked)}
+        if set(variants) != locks:
+            fail(f"Offline dependency policy entry for {family} does not list exactly its tracked locks.", errors)
+            continue
+        for variant, values in variants.items():
+            requirements = path.parent / f"{variant}.requirements.txt"
+            lock = path.parent / f"{variant}.lock"
+            roots = [line for line in requirements.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
+            if sorted(values.get("requirements") or []) != sorted(roots):
+                fail(f"Runtime family {family} {variant} requirements changed without the offline dependency policy.", errors)
+            if values.get("lockSha256") != hashlib.sha256(lock.read_bytes()).hexdigest():
+                fail(f"Runtime family {family} {variant} lock changed without the offline dependency policy.", errors)
+    for family in sorted(set(declared) - actual):
+        fail(f"Offline dependency policy declares runtime family {family}, which has no tracked runtime profile.", errors)
+
+
 def check_dependency_policy(errors: list[str]) -> None:
     """Keep direct dependency changes coupled to the offline deployment policy."""
 
@@ -681,6 +729,8 @@ def check_dependency_policy(errors: list[str]) -> None:
                     f"Offline dependency strategy is incomplete for {ecosystem}.",
                     errors,
                 )
+
+    check_development_runtime_families(policy, tracked, errors)
 
     native = policy.get("nativeAndToolchain")
     required_native_fields = {
@@ -1762,10 +1812,13 @@ def check_vision_release_metadata(
     try:
         from mavi_vision.runtime.binding import load_component_binding
         from mavi_vision.runtime.component_relationships import check_record_variants
+        from mavi_vision.plates.profile import load_plate_pipeline
         from mavi_vision.runtime.development_binding import (
             DEVELOPMENT_PRODUCERS_PATH,
+            PLATE_PROFILE_DIRECTORY,
             check_release_binding_pin,
             check_replacement_binding,
+            check_role_binding,
             load_development_producers,
         )
         from mavi_vision.runtime.manifest import (
@@ -1800,7 +1853,8 @@ def check_vision_release_metadata(
     pipeline_root = root / "src/vision/config/pipelines"
     runtime_root = root / "src/vision/runtime"
     binding_root = root / "src/vision/config/components"
-    release_roots = [manifest_root, qualification_root, pipeline_root, runtime_root, binding_root]
+    plate_profile_root = root / PLATE_PROFILE_DIRECTORY
+    release_roots = [manifest_root, qualification_root, pipeline_root, runtime_root, binding_root, plate_profile_root]
     producers_path = root / DEVELOPMENT_PRODUCERS_PATH
 
     def rel(path: Path) -> str:
@@ -1946,7 +2000,8 @@ def check_vision_release_metadata(
             fail(f"Development producer registry invalid: {rel(producers_path)} ({exc.code})", errors)
             return
     declared = {} if producers is None else {root / item.binding_path: item for item in producers.producers}
-    release_paths = [path for path in binding_paths if path not in declared]
+    role_declared = {} if producers is None else {root / item.binding_path: item for item in producers.role_bindings}
+    release_paths = [path for path in binding_paths if path not in declared and path not in role_declared]
     if len(release_paths) != 1:
         fail(
             "binding_multiple_not_supported: exactly one release component binding must be tracked besides the "
@@ -2002,6 +2057,43 @@ def check_vision_release_metadata(
                 )
                 continue
             bindings.append((path, candidate, (producer, profile_entry)))
+
+    # Development role bindings (ADR-014 amendment 2026-10-17): a role the release binding lacks (plates), with a
+    # Development-only plate pipeline profile that its every record pins and unverified manifests only.
+    role_profiles: dict[Path, tuple[object, str]] = {}
+    for path, role_binding in role_declared.items():
+        if path not in tracked_set:
+            fail(f"Development role binding {role_binding.role_binding_id} names an untracked binding {rel(path)} (development_binding_missing).", errors)
+            continue
+        profile_path = root / role_binding.pipeline_profile_path
+        try:
+            candidate = load_component_binding(path)
+            check_role_binding(release=binding, candidate=candidate, role_ids=role_binding.role_ids)
+            if profile_path not in tracked_set:
+                raise ReleaseMetadataError("development_role_binding_profile_missing")
+            plate_profile = load_plate_pipeline(profile_path)
+        except ReleaseMetadataError as exc:
+            fail(f"Development role binding invalid: {rel(path)} ({exc.code})", errors)
+            continue
+        if not plate_profile.development_only:
+            fail(f"Development role binding {role_binding.role_binding_id} runs with {role_binding.pipeline_profile_path}, "
+                 "which is not developmentOnly (development_binding_profile_not_development).", errors)
+            continue
+        role_profiles[path] = (plate_profile, sha256_release_file(profile_path))
+        bindings.append((path, candidate, None))
+    # Every tracked plate pipeline file is a declared profile or one of its two pinned siblings.
+    allowed_plate_files: set[Path] = set()
+    for item in role_declared.values():
+        profile_path = root / item.pipeline_profile_path
+        allowed_plate_files.add(profile_path)
+        try:
+            document = json.loads(profile_path.read_text(encoding="utf-8"))
+            allowed_plate_files.update(profile_path.parent / document[key]["file"] for key in ("summaryPolicy", "parameters"))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    for path in json_under(plate_profile_root):
+        if path not in allowed_plate_files:
+            fail(f"Plate pipeline file {rel(path)} is declared by no Development role binding.", errors)
 
     bound_records: set[str] = set()
     bound_packs: set[str] = set()
@@ -2095,7 +2187,7 @@ def check_vision_release_metadata(
                         fail(f"Qualification policy invalid: {rel(record_path)} ({exc.code})", errors)
                     # The release binding never runs a Development-only profile; a replaced
                     # capability runs exactly the profile its producer declares.
-                    if development is None and profile_entry[1].development_only:
+                    if development is None and current_path not in role_profiles and profile_entry[1].development_only:
                         fail(
                             f"Release binding qualification {record.qualification_id} pins the Development-only "
                             f"profile {profile_entry[1].profile_id} (release_binding_development_profile).",
@@ -2110,6 +2202,20 @@ def check_vision_release_metadata(
                             f"Qualification {record.qualification_id} of Development producer "
                             f"{development[0].producer_id} pins {rel(profile_entry[0])}, not its declared profile "
                             f"{development[0].pipeline_profile_path} (development_binding_profile_mismatch).",
+                            errors,
+                        )
+                if current_path in role_profiles:
+                    plate_profile, plate_profile_sha = role_profiles[current_path]
+                    if (record.pipeline_profile_id, record.pipeline_profile_sha256) != (plate_profile.pipeline_id, plate_profile_sha):
+                        fail(
+                            f"Qualification {record.qualification_id} of a Development role binding does not pin its "
+                            f"declared plate profile (development_role_binding_profile_mismatch).",
+                            errors,
+                        )
+                    if manifest.verification_status != "unverified":
+                        fail(
+                            f"Development role binding {rel(current_path)} binds a verified manifest {manifest.model_id} "
+                            "(development_role_binding_verified_manifest).",
                             errors,
                         )
                 # Retained anti-promotion rules (plan §6.6).

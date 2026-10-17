@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "mavi-plate-pipeline-v1",
+  "pipelineId": "plates-onnx-pilot",
+  "pipelineVersion": "1.0.0",
+  "developmentOnly": true,
+  "predictionsSchemaVersion": "mavi-plate-predictions-v1",
+  "normalisation": {
+    "id": "mavi-plate-normalisation-v1",
+    "sha256": "6e505158a735a1c4c5d96ad33d08e4ddb0b98d456f0dd532a6af25de120bf935"
+  },
+  "summaryPolicy": {
+    "file": "development-plates-onnx-pilot-summary-policy-v1.json",
+    "sha256": "1fb72dd2ce254a2190cd19290bc7304342d16bdacc417a03e7589cd202eecd1f"
+  },
+  "parameters": {
+    "file": "development-plates-onnx-pilot-parameters-v1.json",
+    "sha256": "cce6ff6d548aedc5fbffd32e30e97e1be3aa4cfb7e877ad6b2ed814805cc6d8e"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "mavi-vision-component-binding-v2",
+  "bindingId": "development-plates-onnx-pilot-v1",
+  "runtimePacks": [
+    {
+      "runtimePackFamilyId": "plates-onnx-v1",
+      "variants": {
+        "windows-x86_64-cpu": {
+          "runtimePackId": "mavi-runtime-v2-e35da67358c1563160d188af0ee3175a3924beebea6a99d0f523dbdaa444b4f8",
+          "thirdPartyLockSha256": "a635ee71fcd71a6f037589653fb7d9eb8ca02d96e9e1e4124a363c0b71c7e483",
+          "runtimeRequirementsSha256": "c74b87c427da90c7f6e42a7c6f8164226e32baa83f18bab07436f9dd553106e1",
+          "nativeAbi": "win_amd64-cp312-wheels-only"
+        }
+      }
+    }
+  ],
+  "roles": [
+    {
+      "roleId": "plates",
+      "runtimePackFamilyId": "plates-onnx-v1",
+      "capabilityIds": [
+        "ocr",
+        "plate-detector"
+      ],
+      "entryPoint": "mavi_vision.plates.main",
+      "readinessContract": "worker-health-v2",
+      "provenanceContract": "plate-complete-v1"
+    }
+  ],
+  "capabilityBindings": [
+    {
+      "capabilityId": "ocr",
+      "roleId": "plates",
+      "modelPackId": "mavi-model-v2-f6a826af28b2dbb8a4483b432e5e13838a3cecae8b8a226bf3f51c14530c351b",
+      "qualificationId": "plates-oc1-fast-plate-ocr-cct-s-v2-dev-v1",
+      "enabled": true
+    },
+    {
+      "capabilityId": "plate-detector",
+      "roleId": "plates",
+      "modelPackId": "mavi-model-v2-f9a7f8a00423963894f34ed24c6f3c1869c7d766a984d0613f9d1a0f162a400e",
+      "qualificationId": "plates-pd5-ppocrv5-mobile-det-dev-v1",
+      "enabled": true
+    }
+  ]
+}

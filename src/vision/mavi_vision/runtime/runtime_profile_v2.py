@@ -12,24 +12,27 @@ from __future__ import annotations
 from collections.abc import Collection
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, Mapping
+from typing import Any, Literal, Mapping
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
 from mavi_vision.runtime.manifest import ReleaseMetadataError
 from mavi_vision.runtime.qualification import (
+    RuntimeGraph,
     _RuntimeBinaryVersionsSchema,
     _RuntimeDevelopmentHardwareEvidenceSchema,
     _RuntimePythonIdentitySchema,
     _RuntimeReleaseLockSchema,
-    _RuntimeSemanticGraphSchema,
+    _StrictModel,
     check_platform_variant_evidence,
+    check_runtime_graph_policy,
     check_runtime_graph_relationships,
     check_runtime_platform_variant_statuses,
     check_runtime_profile_id,
     check_runtime_python_minor,
     check_runtime_qualification_status,
     check_runtime_release_lock_keys,
+    runtime_graph,
 )
 from mavi_vision.runtime.schema_common import StrictModel, read_release_json_v2, release_error, require_kebab_id
 from mavi_vision.runtime.variants import (
@@ -47,6 +50,7 @@ class _RuntimePlatformVariantSchemaV2(StrictModel):
         "qualified-hardware",
         "qualified-development-hardware",
         "pending-hardware-qualification",
+        "development-cpu",
     ]
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
     job_id: str | None = Field(default=None, alias="jobId")
@@ -73,11 +77,26 @@ class _RuntimePlatformVariantSchemaV2(StrictModel):
 class RuntimeProfileV2(StrictModel):
     schema_version: Literal["2.0"] = Field(alias="schemaVersion")
     runtime_profile_id: str = Field(alias="runtimeProfileId")
+    # The registered runtime graph (``qualification.RUNTIME_GRAPHS``). Absent is the historical mmdetection graph,
+    # so the committed vision profile keeps its bytes; another graph is named explicitly.
+    runtime_graph_id: str | None = Field(default=None, alias="runtimeGraph")
     qualification_status: Literal["partial", "qualified"] = Field(alias="qualificationStatus")
     python_minor: str = Field(alias="pythonMinor")
-    semantic_graph: _RuntimeSemanticGraphSchema = Field(alias="semanticGraph")
+    semantic_graph: _StrictModel = Field(alias="semanticGraph")
     platform_variants: dict[str, _RuntimePlatformVariantSchemaV2] = Field(alias="platformVariants")
     release_locks: dict[str, _RuntimeReleaseLockSchema] = Field(alias="releaseLocks")
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_semantic_graph(cls, data: Any) -> Any:
+        """The semantic graph is validated by the schema of the graph the profile names."""
+        if isinstance(data, dict) and isinstance(data.get("semanticGraph"), dict):
+            graph_id = data.get("runtimeGraph")
+            if graph_id is not None and not isinstance(graph_id, str):
+                raise ValueError("runtime_graph_unknown")
+            graph = runtime_graph(graph_id)
+            data = {**data, "semanticGraph": graph.schema.model_validate(data["semanticGraph"])}
+        return data
 
     @field_validator("runtime_profile_id")
     @classmethod
@@ -113,6 +132,11 @@ class RuntimeProfileV2(StrictModel):
             semantic_graph=self.semantic_graph,
             platform_variants=self.platform_variants,
         )
+        check_runtime_graph_policy(
+            graph=self.graph,
+            platform_variants=self.platform_variants,
+            release_locks=self.release_locks,
+        )
         check_runtime_qualification_status(
             qualification_status=self.qualification_status,
             platform_variants=self.platform_variants,
@@ -125,6 +149,10 @@ class RuntimeProfileV2(StrictModel):
                 lock_status=self.release_locks[variant].status,
             )
         return self
+
+    @property
+    def graph(self) -> RuntimeGraph:
+        return runtime_graph(self.runtime_graph_id)
 
     @property
     def runtime_pack_family_id(self) -> str:
