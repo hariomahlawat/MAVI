@@ -8,11 +8,13 @@ import {
   objectSubclassLabel,
   type CrossingDirection,
   type MotionDirection,
+  type PlateMatch,
   type TrackObjectClass,
   type TrackObjectSubclass,
   type ZoneRelation,
 } from '../../api/tracks';
 import type { VideoAsset } from '../../api/videos';
+import { Segmented } from '../../shared/workspace';
 import Alert from '../../shared/components/Alert';
 import Button from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
@@ -47,6 +49,8 @@ export type SearchDraft = {
   videoAssetId: string;
   objectClass: '' | TrackObjectClass;
   objectSubclass: '' | TrackObjectSubclass;
+  plateText: string;
+  plateMatch: PlateMatch;
   fromLocal: string;
   toLocal: string;
   minimumDurationSeconds: string;
@@ -66,6 +70,8 @@ export const emptyDraft: SearchDraft = {
   videoAssetId: '',
   objectClass: '',
   objectSubclass: '',
+  plateText: '',
+  plateMatch: 'contains',
   fromLocal: '',
   toLocal: '',
   minimumDurationSeconds: '',
@@ -234,7 +240,7 @@ export default function SearchFilterRail({
             </select>
           )}
         </Field>
-        <Field label="Object class">
+        <Field label="Object class" error={errors.objectClass}>
           {(control) => (
             <select
               {...control}
@@ -272,6 +278,33 @@ export default function SearchFilterRail({
             </select>
           )}
         </Field>
+        <Field
+          label="Plate text"
+          error={errors.plateText}
+          help="Spaces and dashes are ignored; letters are not substituted."
+        >
+          {(control) => (
+            <input
+              {...control}
+              value={draft.plateText}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="e.g. KA01AB1234"
+              onChange={(event) => onDraftChange({ plateText: event.target.value })}
+            />
+          )}
+        </Field>
+        <Segmented
+          label="Plate match"
+          size="sm"
+          value={draft.plateMatch}
+          onChange={(plateMatch) => onDraftChange({ plateMatch: plateMatch as PlateMatch })}
+          options={[
+            { value: 'contains', label: 'Contains' },
+            { value: 'prefix', label: 'Starts with' },
+            { value: 'exact', label: 'Exact' },
+          ]}
+        />
       </section>
 
       <section className="filter-rail__section" aria-labelledby="filter-time">

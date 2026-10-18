@@ -2,6 +2,7 @@ import { memo, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import Icon from '../../shared/components/Icon';
+import TrackPlateMatch, { plateMatchAccessibleText } from './TrackPlateMatch';
 import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
@@ -74,7 +75,7 @@ const ResultRow = memo(function ResultRow({
   useEffect(() => { setThumbnailFailed(false); }, [track.thumbnailContentUrl]);
 
   const title = `${objectClassLabel(track)} · ${track.cameraCode} · ${track.cameraName}`;
-  const select = selectControlProps(track.id, `Select ${title}`, onSelect);
+  const select = selectControlProps(track.id, `Select ${title}${track.plate ? ` · ${plateMatchAccessibleText(track.plate)}` : ''}`, onSelect);
 
   return (
     <li ref={ref} className="result-row" aria-current={selected ? 'true' : undefined}>
@@ -96,6 +97,7 @@ const ResultRow = memo(function ResultRow({
             <span><b>{formatConfidence(track.meanConfidence, 'list')}</b> mean</span>
             <span><b>{track.detectionCount}</b> detections</span>
           </span>
+          {track.plate ? <TrackPlateMatch plate={track.plate} searchContext={searchContext} /> : null}
         </span>
       </button>
       <div className="result-row__side">

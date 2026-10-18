@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
@@ -18,6 +18,7 @@ import { ContextBar, ReviewLayout } from '../../shared/workspace';
 import { ProvenancePanel, TrackSummary } from './TrackDetailsPanels';
 import TrackEvidence from './TrackEvidence';
 import TrackEvidenceSet from './TrackEvidenceSet';
+import TrackPlateReadings from './TrackPlateReadings';
 import TrackAnalyticsExplanation from './TrackAnalyticsExplanation';
 import { buildAnalyticsEvidence } from './analyticsEvidence';
 import { pinnedNames, pinnedRevision, useAnalyticsScene } from './useAnalyticsScene';
@@ -138,6 +139,15 @@ export default function VideoReviewPage() {
   });
 
   const detail = track.data;
+  const [plateSelection, setPlateSelection] = useState<{
+    observationId: string; seek: { serial: number; offsetMs: number };
+  } | null>(null);
+  const selectPlateSource = (observationId: string, offsetMs: number) => {
+    setPlateSelection((previous) => ({
+      observationId,
+      seek: { serial: (previous?.seek.serial ?? 0) + 1, offsetMs },
+    }));
+  };
   const identityMismatch = Boolean(detail && detail.videoAssetId.toLowerCase() !== videoAssetId.toLowerCase());
   const trajectory = useTrajectory(
     detail && !identityMismatch ? detail.trajectoryArtifactId : null,
@@ -234,6 +244,7 @@ export default function VideoReviewPage() {
             <TrackEvidence
               detail={detail}
               analytics={analyticsEvidence}
+              seekRequest={plateSelection?.seek}
               trajectory={trajectory.data}
               // A layer request: a first-load failure is stated in the player
               // with its retry; a failed refresh keeps the drawn path (§14.1).
@@ -276,8 +287,15 @@ export default function VideoReviewPage() {
                   crop's caption states its frame, time and confidence. The
                   record's identifiers are Provenance's, one disclosure away. */}
               <Panel title="Evidence Set">
-                <TrackEvidenceSet detail={detail} />
+                <TrackEvidenceSet detail={detail}
+                  plateSelection={plateSelection ? { observationId: plateSelection.observationId, serial: plateSelection.seek.serial } : null}
+                  />
               </Panel>
+              {detail.plates ? (
+                <Panel title="Plate readings">
+                  <TrackPlateReadings detail={detail} onSelectObservation={selectPlateSource} />
+                </Panel>
+              ) : null}
               <ProvenancePanel detail={detail} displayTimeZoneId={displayTimeZoneId} />
             </>
           )}

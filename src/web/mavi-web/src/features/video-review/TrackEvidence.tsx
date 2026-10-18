@@ -29,6 +29,7 @@ type Props = {
   onRetryTrajectory?: () => void;
   /** Denser presentation for the Investigation inspector. */
   compact?: boolean;
+  seekRequest?: { serial: number; offsetMs: number };
 };
 
 /**
@@ -64,7 +65,7 @@ function evidenceIdentity(detail: TrackDetail): string {
   ].join('|');
 }
 
-export default function TrackEvidence({ detail, analytics, trajectory, trajectoryError = false, onRetryTrajectory, compact = false }: Props) {
+export default function TrackEvidence({ detail, analytics, trajectory, trajectoryError = false, onRetryTrajectory, compact = false, seekRequest }: Props) {
   // Rank 0 of the Evidence Set, through the one selector: the box, its
   // description, the E target and the marker all name the same Observation the
   // Evidence Set shows as its Representative.
@@ -321,6 +322,7 @@ export default function TrackEvidence({ detail, analytics, trajectory, trajector
       // Review opens one second before the Track so the operator sees it enter.
       initialOffsetMs={calculateReviewSeekSeconds(detail.startOffsetMs) * 1000}
       seekKey={detail.id}
+      seekRequest={seekRequest}
       // The evidence's identity, not the Track's. The same Track can be read
       // under a different analytical identity — another scene revision, another
       // engine — and those answers carry different facts under record ids that

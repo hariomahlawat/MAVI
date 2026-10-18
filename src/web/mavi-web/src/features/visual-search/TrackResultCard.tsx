@@ -5,6 +5,7 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence } from '../../shared/format/format';
 import { reviewPath } from './TrackResultList';
+import TrackPlateMatch, { plateMatchAccessibleText } from './TrackPlateMatch';
 import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
 import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 
@@ -55,7 +56,7 @@ export default memo(function TrackResultCard({
   const className = ['track-card', onSelect ? 'is-selectable' : '', selected ? 'is-selected' : ''].filter(Boolean).join(' ');
   const classLabel = objectClassLabel(track);
   const title = `${classLabel} · ${track.cameraCode} · ${track.cameraName}`;
-  const select = onSelect ? selectControlProps(track.id, `Select ${title}`, onSelect) : null;
+  const select = onSelect ? selectControlProps(track.id, `Select ${title}${track.plate ? ` · ${plateMatchAccessibleText(track.plate)}` : ''}`, onSelect) : null;
   const ref = useKeepSelectedVisible<HTMLElement>(selected);
 
   return (
@@ -91,7 +92,7 @@ export default memo(function TrackResultCard({
           <div><dt>Confidence</dt><dd>{formatConfidence(track.meanConfidence, 'list')} mean</dd></div>
           <div><dt>Detections</dt><dd>{track.detectionCount}</dd></div>
         </dl>
-
+        {track.plate ? <TrackPlateMatch plate={track.plate} searchContext={searchContext} /> : null}
       </div>
 
       <div className="track-card__foot">

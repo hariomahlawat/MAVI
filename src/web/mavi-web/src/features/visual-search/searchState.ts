@@ -5,15 +5,19 @@ import {
   DEFAULT_ZONE_RELATION,
   MOTION_DIRECTIONS,
   OBJECT_SUBCLASSES,
+  PLATE_MATCH_MODES,
   ZONE_RELATIONS,
   serializePlainDecimal,
   type CrossingDirection,
   type MotionDirection,
+  type PlateMatch,
   type TrackObjectClass,
   type TrackObjectSubclass,
   type TrackSearchFilters,
   type ZoneRelation,
 } from '../../api/tracks';
+
+import { normalisePlateText } from './plateText';
 
 export type CommittedTrackSearch = Omit<TrackSearchFilters, 'cursor' | 'limit'>;
 
@@ -74,6 +78,8 @@ const supportedKeys = [
   'processingRunId',
   'objectClass',
   'objectSubclass',
+  'plateText',
+  'plateMatch',
   'fromUtc',
   'toUtc',
   'minimumDurationMs',
@@ -191,6 +197,8 @@ export function canonicalSearchParams(filters: CommittedTrackSearch): URLSearchP
   if (filters.processingRunId) params.set('processingRunId', filters.processingRunId.toLowerCase());
   if (filters.objectClass) params.set('objectClass', filters.objectClass);
   if (filters.objectSubclass) params.set('objectSubclass', filters.objectSubclass);
+  if (filters.plateText) params.set('plateText', filters.plateText);
+  if (filters.plateText && filters.plateMatch && filters.plateMatch !== 'contains') params.set('plateMatch', filters.plateMatch);
   if (filters.fromUtc) params.set('fromUtc', canonicalUtc(filters.fromUtc) ?? filters.fromUtc);
   if (filters.toUtc) params.set('toUtc', canonicalUtc(filters.toUtc) ?? filters.toUtc);
   if (filters.minimumDurationMs !== undefined) params.set('minimumDurationMs', String(filters.minimumDurationMs));
@@ -254,6 +262,14 @@ export function withCameraScope(
 function settleDependencies(next: CommittedTrackSearch, previous: CommittedTrackSearch): CommittedTrackSearch {
   // A vehicle subclass is a refinement of Vehicle: it states that class, and it
   // cannot stand under any other.
+  if (next.plateText) {
+    if (next.objectClass === 'Person') {
+      delete next.plateText;
+      delete next.plateMatch;
+    } else {
+      next.objectClass = 'Vehicle';
+    }
+  } else delete next.plateMatch;
   if (next.objectSubclass !== undefined) {
     if (next.objectClass === undefined) next.objectClass = 'Vehicle';
     else if (next.objectClass !== 'Vehicle') delete next.objectSubclass;
@@ -330,6 +346,24 @@ export function parseCommittedSearch(params: URLSearchParams): SearchParseResult
     }
     filters.objectClass = 'Vehicle';
     filters.objectSubclass = raw.objectSubclass;
+  }
+
+  if (raw.plateText !== undefined) {
+    const text = normalisePlateText(raw.plateText);
+    if (!text) return { isValid: false, filters: {}, canonicalQuery: '', error: 'Enter 3 to 15 letters or digits.' };
+    if (filters.objectClass === 'Person') {
+      return { isValid: false, filters: {}, canonicalQuery: '', error: 'Plate text requires the Vehicle class.' };
+    }
+    filters.objectClass = 'Vehicle';
+    filters.plateText = text;
+    if (raw.plateMatch !== undefined) {
+      if (!inVocabulary<PlateMatch>(PLATE_MATCH_MODES, raw.plateMatch)) {
+        return { isValid: false, filters: {}, canonicalQuery: '', error: 'Plate match must be contains, prefix or exact.' };
+      }
+      if (raw.plateMatch !== 'contains') filters.plateMatch = raw.plateMatch;
+    }
+  } else if (raw.plateMatch !== undefined) {
+    return { isValid: false, filters: {}, canonicalQuery: '', error: 'Plate match requires plate text.' };
   }
 
   if (raw.fromUtc !== undefined) {

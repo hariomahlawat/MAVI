@@ -1,4 +1,11 @@
-import type { TrackDetail, TrackEvidenceObservation, TrackEvidenceRole, TrackRepresentative } from '../api/tracks';
+import type {
+  TrackDetail,
+  TrackEvidenceObservation,
+  TrackEvidenceRole,
+  TrackPlateObservation,
+  TrackPlates,
+  TrackRepresentative,
+} from '../api/tracks';
 import { notConfiguredAnalytics } from './analyticsFixtures';
 
 /**
@@ -125,6 +132,53 @@ export function trackDetailWithEvidence(
     trajectoryArtifactId: null,
     trajectoryContentUrl: null,
     analytics: notConfiguredAnalytics(),
+    ...overrides,
+  };
+}
+
+/**
+ * A Stage-4 plate observation detected on one accepted Evidence Set
+ * Observation, shaped like the backend's `TrackPlateObservationResponse`: it
+ * carries the source Observation's role, offset, frame and time, and an
+ * integer pixel box inside that crop's declared size. Synthetic text only.
+ */
+export function plateObservationFor(
+  source: TrackEvidenceObservation,
+  overrides: Partial<TrackPlateObservation> = {},
+): TrackPlateObservation {
+  return {
+    plateObservationId: `018f3f5a-2f70-7a2b-8a12-2d02f4c2160${ROLE_DIGIT[source.evidenceRole]}`,
+    sourceObservationId: source.observationId,
+    role: source.evidenceRole,
+    offsetMs: source.videoOffsetMs,
+    sourceFrameNumber: source.sourceFrameNumber,
+    timestampUtc: source.timestampUtc,
+    box: { x: 4, y: 5, width: 16, height: 8, cropWidth: 100, cropHeight: 50 },
+    detectorConfidence: 0.9,
+    outcome: 'Read',
+    readings: [{
+      rank: 0, rawText: 'ZZ 00 TS 0001', rawLineCount: 1, normalisedText: 'ZZ00TS0001',
+      normalisationOutcome: 'ok', confidence: 0.92, formatClass: 'in-standard',
+    }],
+    ...overrides,
+  };
+}
+
+/** A Ready, single-reading plate block over the given plate observations. */
+export function readyPlates(observations: TrackPlateObservation[], overrides: Partial<TrackPlates> = {}): TrackPlates {
+  const first = observations[0];
+  const text = first?.readings.find((reading) => reading.rank === 0)?.normalisedText;
+  return {
+    readiness: 'Ready',
+    trackOutcome: 'Analysed',
+    agreement: text ? 'single' : 'none',
+    texts: text && first ? [{
+      normalisedText: text,
+      supportCount: observations.length,
+      maxConfidence: first.readings[0].confidence,
+      bestPlateObservationId: first.plateObservationId,
+    }] : [],
+    observations,
     ...overrides,
   };
 }

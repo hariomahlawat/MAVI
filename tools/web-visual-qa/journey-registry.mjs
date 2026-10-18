@@ -1,5 +1,7 @@
 /**
- * X2 (plan §5.3): the six frozen operator journeys, as the product has them.
+ * X2 (plan §5.3): the six frozen operator journeys, as the product has them,
+ * and after them the journeys a later plan appends (Stage 4 PR-5's plate
+ * journey).
  *
  * Each journey names its starting route (the one direct load), the backend it
  * runs against (fixture overrides, answered by the fixture server as the
@@ -13,6 +15,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { EXACT_PLATE_PAGE, PLATE_DETAILS, PLATE_TEXT, PLATE_TRACK } from './plate-fixtures.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => JSON.parse(readFileSync(join(HERE, 'fixtures', `${name}.json`), 'utf8'));
@@ -149,9 +152,68 @@ const DETAIL_IN_WEIGHBRIDGE = {
   },
 };
 
-// --- The six journeys --------------------------------------------------------------
+// --- Stage 4 PR-5's backend: a plate search, its Track, its source seek ----------
+
+/** Only the operator's exact plate search is answered with the candidate (plate-fixtures.mjs). */
+const PLATE_SEARCH = { query: [{ match: { objectClass: 'Vehicle', plateText: PLATE_TEXT, plateMatch: 'exact' }, then: EXACT_PLATE_PAGE }], otherwise: TRACKS };
+
+// --- The journeys ------------------------------------------------------------------
 
 const REGISTERED = [
+  {
+    id: 'plate-search-inspect-seek',
+    title: 'Plate search → inspect → seek',
+    start: '/search',
+    // Stage 4 plan PR-5 (Tests): Plate text, Exact, Search; the candidate's
+    // coverage and "Read as" line; inspect its plate readings; "View source at"
+    // seeks the one player to the source Observation; a manual crop choice
+    // afterwards inspects without seeking.
+    api: { '/api/tracks': PLATE_SEARCH, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.consistent },
+    ready: 'document.querySelectorAll(".result-select").length === 6',
+    async run(op) {
+      const drawerFilters = op.viewport.width <= 1100;
+      if (drawerFilters) {
+        await op.tabTo({ name: 'Filters', role: 'button' }, { note: 'the results header opens the filter drawer (§25 Tier B)' });
+        await op.press('Enter', { expectFocus: { name: 'Filters', role: 'heading' } });
+      }
+      // The plate, as an operator would type it, matched exactly.
+      await op.tabTo({ name: 'Plate text', role: 'textbox' }, { max: 40 });
+      await op.type('zz-00-ts-0001');
+      await op.until('the field holds what was typed', 'Array.from(document.querySelectorAll("input")).some((i) => i.labels?.[0]?.textContent.trim() === "Plate text" && i.value === "zz-00-ts-0001") && "zz-00-ts-0001"');
+      await op.tabTo({ name: 'Exact', within: 'Plate match' }, { max: 10, note: 'the match control' });
+      await op.press('Enter', { note: 'match the whole text' });
+      await op.until('Exact is the pressed match', 'Array.from(document.querySelectorAll("[role=group][aria-label=\'Plate match\'] button")).some((b) => b.textContent.trim() === "Exact" && b.getAttribute("aria-pressed") === "true") && "Exact pressed"');
+      await op.tabTo({ name: 'Search', role: 'button' }, { max: 40, note: 'the form\'s submit' });
+      await op.press('Enter', { note: 'search for the plate' });
+      await op.requested('the search asked for the normalised text, exactly, on vehicles', 'GET', /^\/api\/tracks$/, { query: { objectClass: 'Vehicle', plateText: PLATE_TEXT, plateMatch: 'exact' } });
+      await op.until('one candidate, read as the text, beneath its coverage', `(() => { const t = document.body.innerText; return document.querySelectorAll(".result-select").length === 1 && /Plate readings available for 3 of 5 vehicle tracks in scope · 1 pending/.test(t) && /Read as ${PLATE_TEXT} · on 3 of 3 plates · 97%/.test(t) && /plateText=${PLATE_TEXT}/.test(location.search) && /plateMatch=exact/.test(location.search) && "1 candidate · 3 of 5 covered"; })()`);
+      if (drawerFilters) await op.press('Escape', { expectFocus: { name: 'Filters', role: 'button' } });
+      // Inspect: the result's name carries the reading's support and confidence.
+      await op.tabTo({ name: new RegExp(`^Select Vehicle · CAM-01 · North Gate · Read as ${PLATE_TEXT} · on 3 of 3 plates · 97%$`), role: 'button' }, { max: 40, note: 'the candidate' });
+      await op.press('Enter', { note: 'inspect it' });
+      await op.route('the candidate is selected', new RegExp(`[?&]track=${PLATE_TRACK}`));
+      await op.until('its plate readings are shown, each region drawn from its source crop', '(() => { const s = document.querySelector("section[aria-label=\'Plate readings\']"); if (!s) return false; const drawn = Array.from(s.querySelectorAll("canvas[role=img]")).filter((c) => !c.hidden && c.width > 0); return /Consistent readings/.test(s.innerText) && !/Loading plate image|No image/.test(s.innerText) && drawn.length === 3 && drawn.length + " regions drawn · consistent"; })()');
+      // Seek: the plate's source Observation, in the one player.
+      await op.tabTo({ name: 'View source at 00:02.2', role: 'button' }, { max: 60, note: 'the near-view plate\'s source' });
+      await op.press('Enter', { note: 'view the source' });
+      await op.until('the player is at the source Observation (2.2 s), and its crop is inspected', '(() => { const v = document.querySelector("video"); const f = document.querySelector("figure.evidence-set__inspection"); return v && Math.abs(v.currentTime - 2.2) < 0.05 && f && /^Inspecting Near view/.test(f.getAttribute("aria-label") || "") && "t=" + v.currentTime.toFixed(2) + " · " + f.getAttribute("aria-label"); })()');
+      // A manual crop choice afterwards inspects that crop and does not seek.
+      await op.tabTo({ name: /^Late diverse/, role: 'button', within: 'Evidence Set' }, { max: 30, note: 'another crop in the Evidence Set' });
+      await op.press('Enter', { note: 'inspect it' });
+      await op.until('the chosen crop is inspected and the player stayed at the source', '(() => { const v = document.querySelector("video"); const f = document.querySelector("figure.evidence-set__inspection"); return v && Math.abs(v.currentTime - 2.2) < 0.05 && f && /^Inspecting Late diverse/.test(f.getAttribute("aria-label") || "") && "t=" + v.currentTime.toFixed(2) + " · " + f.getAttribute("aria-label"); })()');
+      // Every "View source at" press is a selection the Evidence Set inspects:
+      // the same source again after the manual choice, then another, then back.
+      await op.tabTo({ name: 'View source at 00:02.2', role: 'button' }, { reverse: true, max: 30, note: 'the same plate source again' });
+      await op.press('Enter', { note: 'view the same source again' });
+      await op.until('the same source is inspected again', '(() => { const v = document.querySelector("video"); const f = document.querySelector("figure.evidence-set__inspection"); return v && Math.abs(v.currentTime - 2.2) < 0.05 && f && /^Inspecting Near view/.test(f.getAttribute("aria-label") || "") && "t=" + v.currentTime.toFixed(2) + " · " + f.getAttribute("aria-label"); })()');
+      await op.tabTo({ name: 'View source at 00:01.6', role: 'button' }, { reverse: true, max: 10, note: 'another plate source' });
+      await op.press('Enter', { note: 'view the other source' });
+      await op.until('the other source is inspected, the player at it (1.6 s)', '(() => { const v = document.querySelector("video"); const f = document.querySelector("figure.evidence-set__inspection"); return v && Math.abs(v.currentTime - 1.6) < 0.05 && f && /^Inspecting Representative/.test(f.getAttribute("aria-label") || "") && "t=" + v.currentTime.toFixed(2) + " · " + f.getAttribute("aria-label"); })()');
+      await op.tabTo({ name: 'View source at 00:02.2', role: 'button' }, { max: 10, note: 'back to the first plate source' });
+      await op.press('Enter', { note: 'view the first source again' });
+      await op.done('back at the first source: the player and the inspected crop agree', '(() => { const v = document.querySelector("video"); const f = document.querySelector("figure.evidence-set__inspection"); return v && Math.abs(v.currentTime - 2.2) < 0.05 && f && /^Inspecting Near view/.test(f.getAttribute("aria-label") || "") && "t=" + v.currentTime.toFixed(2) + " · " + f.getAttribute("aria-label"); })()');
+    },
+  },
   {
     id: 'scene-analytic-why',
     title: 'Configure scene → analyse → search analytic → why matched → inspect',
@@ -440,9 +502,17 @@ const REGISTERED = [
 
 /** Plan §5.3's six journeys, in its order — frozen: never renamed, merged or dropped. */
 const PLAN_ORDER = ['import-process-results', 'search-inspect-evidence', 'vehicle-car-review', 'scene-analytic-why', 'monitoring', 'error-retry-recovery'];
-export const JOURNEYS = Object.freeze(PLAN_ORDER.map((id) => {
+/**
+ * Journeys a later plan adds, after the frozen six and in that plan's order;
+ * each names its plan. The six are untouched: a later plan only appends.
+ */
+const LATER_ORDER = [
+  // Stage 4 plan (docs/superpowers/plans/2026-10-12-stage4-anpr-ocr.md) PR-5, Tests.
+  'plate-search-inspect-seek',
+];
+export const JOURNEYS = Object.freeze([...PLAN_ORDER, ...LATER_ORDER].map((id) => {
   const journey = REGISTERED.find((j) => j.id === id);
-  if (!journey) throw new Error(`plan §5.3 journey ${id} is not registered`);
+  if (!journey) throw new Error(`planned journey ${id} is not registered`);
   return journey;
 }));
-if (REGISTERED.length !== PLAN_ORDER.length) throw new Error('the registry holds a journey plan §5.3 does not name');
+if (REGISTERED.length !== PLAN_ORDER.length + LATER_ORDER.length) throw new Error('the registry holds a journey no plan names');

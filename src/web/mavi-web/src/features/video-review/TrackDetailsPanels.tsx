@@ -129,6 +129,24 @@ export function ProvenancePanel({ detail, displayTimeZoneId }: { detail: TrackDe
           </div>
         </details>
 
+        {detail.plates?.provenance ? (
+          <details className="disclosure">
+            <summary>Plate analysis provenance</summary>
+            <div className="disclosure__body">
+              <KeyValue items={[
+                { label: 'Plate analysis', value: detail.plates.provenance.analysisId, mono: true },
+                { label: 'Plate detector pack', value: detail.plates.provenance.plateDetectorModelPackId, mono: true },
+                { label: 'OCR pack', value: detail.plates.provenance.ocrModelPackId, mono: true },
+                { label: 'Normalisation', value: detail.plates.provenance.normalisation.id, mono: true },
+                { label: 'Normalisation SHA-256', value: detail.plates.provenance.normalisation.sha256, mono: true },
+                { label: 'Summary policy', value: `${detail.plates.provenance.summaryPolicy.id} · ${detail.plates.provenance.summaryPolicy.version}`, mono: true },
+                { label: 'Summary SHA-256', value: detail.plates.provenance.summaryPolicy.sha256, mono: true },
+                { label: 'Plate analysis completed', value: displayTimestamp(detail.plates.provenance.completedAtUtc, displayTimeZoneId) },
+              ]} />
+            </div>
+          </details>
+        ) : null}
+
         <details className="disclosure">
           <summary>Record detail</summary>
           <div className="disclosure__body">

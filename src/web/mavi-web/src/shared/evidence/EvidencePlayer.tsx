@@ -106,6 +106,8 @@ type Props = {
   initialOffsetMs?: number;
   /** Identity of the subject; changing it reopens at `initialOffsetMs`. */
   seekKey: string;
+  /** An explicit operator marker selection in this existing player, never another transport. */
+  seekRequest?: { serial: number; offsetMs: number };
   /**
    * Identity of **the evidence**, which is not the same thing as the subject.
    *
@@ -155,6 +157,7 @@ export default function EvidencePlayer({
   markers,
   initialOffsetMs,
   seekKey,
+  seekRequest,
   evidenceKey,
   preferenceScope,
   compact = false,
@@ -169,6 +172,18 @@ export default function EvidencePlayer({
     initialOffsetMs: initialOffsetMs ?? subject.startOffsetMs,
     seekKey,
   });
+
+  useEffect(() => {
+    if (!seekRequest) return;
+    const video = transport.videoRef.current;
+    if (!video) return;
+    // The transport's initial seek runs on metadata load. A request issued
+    // earlier must land *after* it rather than be overwritten by it.
+    const apply = () => transport.seekTo(seekRequest.offsetMs);
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) apply();
+    else video.addEventListener('loadedmetadata', apply, { once: true });
+    return () => video.removeEventListener('loadedmetadata', apply);
+  }, [seekRequest, transport.seekTo, transport.videoRef]);
 
   const [preferences, setPreferences] = useState<Record<string, boolean>>(() => readLayerPreferences(preferenceScope));
   useEffect(() => {
