@@ -1,0 +1,160 @@
+# Stage 4 — LRLPR-26 Multi-frame Aggregation: Execution Record (2026-10-18)
+
+**Class:** Development only. Production, VisionJob, `summarise_track`, search, plate contracts, release profiles and the frozen P3 evidence are all unchanged. O3 stays open.
+
+**Outcome: STOPPED BEFORE PHASE 4.** The methodology gate (`AGENTS.md`, *Experimental methodology*) stopped the run.
+
+| Question | Answer |
+|---|---|
+| Is the run INVALID? | No. Every integrity check passed |
+| Was EVAL scored? | No |
+| Was EVAL truth compared? | No. EVAL truth was never read |
+| Is there a decision? | None of SUPPORTED, NOT SUPPORTED or INCONCLUSIVE is claimed |
+
+The DEV phase shows that the frozen decision rule cannot answer the recall half of the question on this OCR. The reason is explained under *Why the run stopped*. The owner decides what happens next.
+
+This record holds aggregate counts only. It contains no plate text, no per-track text and no image.
+
+## Frozen identities
+
+| Item | Identity |
+|---|---|
+| Protocol | `lrlpr-26-aggregation-protocol-v1.md`, revision 3, FROZEN at `2c7d4732` (PR #234) |
+| Rules | `lrlpr-26-aggregation-rules-v1.json` `3c14f0523adfb9dae7b434cf141ce8447aaa04c81ca8db789a7aa0ac1c1684be`, with pre-execution resolutions R1–R8 |
+| Split | `lrlpr-26-split-v1.json` `5c06efa964dcaaa9c8edbf3aa19fb318b8b2d0d89cc8b1b77e14624854f9d138` |
+| Data | `train.zip` `fb95f86dbf5666ce…7f7c9fb8f` (R8 correction); per-file manifest `efa5bb08…e72b8c` |
+| OCR | OC1-S `cct_s_v2_global.onnx` `384bbbd2cea3ef54761d3df70822ef3a349ee1a112aeafddbe0e3ba06bc6e47b`; plate config `0335c74a305173bb6f393efed0fde03cadeaa0b649ed8e19f431016d8232d0a6` |
+| Floor | `development-plates-onnx-pilot-parameters-v1.json` `cce6ff6d548aedc5fbffd32e30e97e1be3aa4cfb7e877ad6b2ed814805cc6d8e`; `ocrConfidenceFloor` 0.5, inclusive |
+| Tooling | `60d784d5` |
+| Inventory | `112b1b30d6109c4d6a15a0101f9db00eb52cd71434056ca405f130fe7c557a8a` |
+| Selection record | `lrlpr-26-selection-v1.json` `fc2b0e145c210b3383c095f32ced0597a741a32c05e66f6af8ca34da707f2021`, committed `dac0795b` |
+
+**Data checks.**
+- Phase 0 hash-bound all 200,000 images, all 20,000 annotations, both archives and the manifest.
+- It regenerated the committed split byte-identically from the data.
+
+**Pre-execution resolutions** (recorded in the rules before any OCR call):
+- **R1.** The protocol's split formula is applied as written, with the `lrlpr26-split-v1|` prefix. The protocol's own stratum table came from an unprefixed probe. Actual DEV/EVAL counts:
+
+  | Stratum | DEV | EVAL |
+  |---|---:|---:|
+  | A/Brazilian | 2,440 | 2,560 |
+  | A/Mercosur | 2,533 | 2,467 |
+  | B/Brazilian | 1,038 | 962 |
+  | B/Mercosur | 4,077 | 3,923 |
+  | **Total** | **10,088** | **9,912** |
+
+  There are 16,946 plate-identity groups.
+- **R8.** The dataset record's `train.zip` SHA-256 had a one-digit transcription error. Before correcting it, every `train.zip` member was checked: all are byte-equal to the LFS-authenticated `data.zip` `train.tar`.
+- **R2–R7.** These cover the image grouping, the block-split definition, exact arithmetic in A, the third timing pass, output-contract ineligibility and the measures counted in step 2. See the rules file.
+
+## Phases 1, 2 and 2T: OCR read
+
+OC1-S read 100,000 LR frames per pass, using the unchanged `FastPlateOcrRecogniser.read` with `cpu_session`.
+
+**Integrity.** The phase-1, phase-2 and phase-2T records are **canonical-equal**: records SHA `c8e19855…669bc`, gzip bytes also equal.
+
+**Frame status:**
+
+| Status | Frames |
+|---|---:|
+| `ok` | 98,651 |
+| `empty` | 1,349 |
+| `ocrError` | 0 |
+| `outputInvalid` | 0 |
+
+**Cost.** Each value is the median of the three passes, over all 20,000 tracks. The cost is truth-free.
+
+| Measure | Value |
+|---|---:|
+| OCR calls per track | 5 (S1: 1) |
+| OCR CPU per track | 625 ms (S1: 125 ms) |
+| Image decode | 1.2 ms per track |
+| Wall time per pass | 1,559 s |
+
+**Run conditions.**
+- **Machine:** Intel64 Family 6 Model 165, 12 logical CPUs, Windows 11, Python 3.12.10, onnxruntime 1.31.0.
+- **ORT settings:** 10 worker processes, each with 1 intra-op and 1 inter-op ORT thread.
+
+Per-call CPU under 10 concurrent workers is about 125 ms. A single-process synthetic probe measured about 45 ms, so contention inflates these figures. Aggregation cost was not measured, because it belongs to the phase-4 scorer, which was not run.
+
+## Phase 3: DEV selection (10,088 tracks)
+
+| Policy (DEV) | Correct-text recall | Incorrect-text acceptance | Precision (pairs) | Coverage | Wrong texts / track | Tracks with 0 / 1 / ≥2 wrong |
+|---|---:|---:|---:|---:|---:|---|
+| S1 | 69 (0.68%) | 4,445 (44.06%) | 1.53% (69/4,514) | 44.75% | 0.441 | 5,643 / 4,445 / 0 |
+| SB | 86 (0.85%) | 7,272 (72.09%) | 1.17% (86/7,358) | 72.94% | 0.721 | 2,816 / 7,272 / 0 |
+| U | 157 (1.56%) | 7,357 (72.93%) | 0.81% (157/19,374) | 72.94% | 1.905 | 2,731 / 2,146 / 5,211 |
+| C(k=2) | 29 (0.29%) | 244 (2.42%) | 10.62% | 2.71% | 0.024 | — |
+| **C(k=3) = C\*** | 9 (0.09%) | 33 (0.33%) | 21.43% (9/42) | 0.42% | 0.003 | — |
+| C(k=4) | 2 (0.02%) | 10 (0.10%) | 16.67% | 0.12% | 0.001 | — |
+| C(k=5) | 0 | 5 (0.05%) | 0.00% | 0.05% | 0.0005 | — |
+| A(τ=0.50) | 12 (0.12%) | 103 (1.02%) | 10.43% | 1.14% | 0.010 | — |
+| **A(τ=0.60) = A\*** | 11 (0.11%) | 54 (0.54%) | 16.92% (11/65) | 0.64% | 0.005 | — |
+| A(τ=0.70) | 3 (0.03%) | 24 (0.24%) | 11.11% | 0.27% | 0.002 | — |
+| A(τ=0.80) | 2 (0.02%) | 16 (0.16%) | 11.11% | 0.18% | 0.002 | — |
+| A(τ=0.90) | 0 | 11 (0.11%) | 0.00% | 0.11% | 0.001 | — |
+| A(τ=1.00) | 0 | 11 (0.11%) | 0.00% | 0.11% | 0.001 | — |
+
+**Selection by the frozen rule:**
+- **C\*:** k = 3. C is FEASIBLE: k = 2 is infeasible at 2.42%, and k = 3, 4 and 5 are feasible. Among the feasible ones, k = 3 has the highest recall.
+- **A\*:** τ = 0.60. A is FEASIBLE: τ = 0.50 is infeasible at 1.02%, and τ = 0.60 has the highest recall among the feasible configurations.
+
+These are observed DEV values. They are not EVAL results, and they serve only for selection and for this stop decision.
+
+## Why the run stopped (methodology gate)
+
+**Assumption the protocol needs.** OC1-S must read LR frames correctly often enough for "without losing too much correct recognition" to be testable. The step-1 recall targets are a point loss ≤ 3.0 percentage points and a CI upper bound ≤ 5.0 percentage points.
+
+**Evidence against it (observed, DEV only):**
+- U's correct-text recall is 1.56% (157/10,088).
+- Only 203 of the 49,789 `ok` DEV frame readings equal the truth exactly. Most readings are 5 or more edits from the truth (37,491).
+- The pipeline is not at fault. This diagnostic ran outside the protocol and is no result: on 300 DEV tracks, the identical OC1-S path read **273/300 `hr-005` frames exactly against 4/300 `lr-005` frames**. The LR crops, with a median of 47×19 px, are below OC1-S's working resolution.
+- `diagnostics/hr-vs-lr-pipeline-check.json` and `dev-reading-distance.json` in the evidence store hold aggregate counts only.
+
+**Conclusion this would invalidate.**
+- Recall loss (U − X) can never exceed recall(U), which is about 1.6 percentage points. The recall conditions of step 1 therefore hold for *any* policy, including one that always abstains, whose incorrect-text difference against U would be about −73 percentage points.
+- Step 1 would return **SUPPORTED** for C\* and A\* by construction, through a floor effect, not because aggregation keeps recognition.
+- The step-2 A\*-vs-C\* comparison would rest on about 10 correct tracks.
+- Reporting that SUPPORTED would mislead the O3 aggregation question.
+
+**What the DEV data does show** (observed, DEV only, not a decision):
+- On LR crops, MAVI's union semantics accept a wrong text on about 73% of tracks.
+- Consensus (k = 3) cuts wrong-text acceptance to 0.33%. Even so, most texts that reach consensus are wrong: precision is 21%.
+
+**Smallest corrected experiment (owner decision; each option needs a new protocol revision, frozen before use).**
+1. **Pre-registered recall floor.** Add a gate before EVAL that requires recall(U) on DEV to be at least a stated minimum, so that the 3.0- and 5.0-point targets can bind. A relative recall criterion is a possible alternative. With OC1-S on LR crops the gate fails, and that is itself the finding.
+2. **An LR-capable recogniser.** Rerun the same frozen policies with a recogniser that reads LR crops at a useful rate. Any new model or dependency is subject to the offline-dependency and licence rules, and HR frames stay excluded as inputs.
+3. **EVAL reuse.** EVAL is still unscored and its truth unread, so a corrected protocol can use it once. DEV outcomes for OC1-S are now known: any revision should fix its rule before reading further DEV outcomes, and should disclose that exposure.
+
+If, once informed, the owner still wants the frozen phase 4 run, it can be executed as is and labelled as a limited run. The floor-effect limitation must then accompany every conclusion drawn from it. The tooling refuses phase 4 unless the run is bound to the committed selection record.
+
+**Not run:**
+- phase 4, the EVAL scoring with its bootstrap and McNemar;
+- phase 5, the block-split sensitivity and the frame budget, both of which are defined on top of phase 4.
+
+## Limitations
+
+- **Evidence class.** This is in-domain evidence on a partition of the authors' training set. Brazil/Mercosur plates only, two scenarios, one camera each.
+- **Not measured:** plate detection (bypassed by design), Track association and wrong-vehicle attachment, and the Indian domain. Nothing here is comparable with the 52/110 figure, E-B, B1 or X4-0.
+- **Labels.** The labels are semi-automatic, produced by OCR on the HR frames.
+- **Model exposure.** fast-plate-ocr's training data may include Brazilian plates. Even so, OC1-S's LR accuracy is near zero.
+- **Session dependence.** Session and camera dependence between DEV and EVAL is accepted per the protocol.
+- **Scope.** The stop concerns the method's ability to answer the question with this OCR. It is not a statement about multi-frame aggregation in general.
+
+## Evidence
+
+The evidence directory, which holds OCR raw texts, stays on controlled storage only:
+
+| Location | Content |
+|---|---|
+| `E:\MAVI-Working\lrlpr26-exp\` | Working directory |
+| `E:\MAVI-Controlled\Benchmarks\stage4-lrlpr26-agg\` | Byte-identical copy |
+| `E:\MAVI-Controlled\Benchmarks\stage4-lrlpr26-agg.MANIFEST.sha256` | Manifest |
+
+**Backup verification:**
+- `lrlpr26_read.py verify --inventory` passed on all three passes.
+- `lrlpr26_read.py equal` passed.
+- The selection was recomputed from the backup and is byte-equal.
+
+The source data in `E:\MAVI-Controlled\Benchmarks\lrlpr-26\` was read only. Its archive SHA-256 values still match the corrected record.
