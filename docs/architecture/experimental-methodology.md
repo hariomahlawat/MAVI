@@ -54,6 +54,7 @@ Before running anything:
 - Check that the metric measures the claimed mechanism, not a proxy for it.
 - Check that the intervention changes only the intended variable.
 - Ask whether an analysis of existing evidence would answer the question without a new experiment.
+- Where the conclusion depends on an instrument or baseline having useful measurement capability, establish that capability first through existing evidence or a small representative Development-only diagnostic, before freezing or executing the consequential comparison. Record the diagnostic's data exposure and its implications for later model selection. Do not inspect protected Evaluation outcomes to make this check, and do not treat it as a new approval gate.
 
 Prefer the smallest controlled experiment that discriminates between the plausible explanations.
 
