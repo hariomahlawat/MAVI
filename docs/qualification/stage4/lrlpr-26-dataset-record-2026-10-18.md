@@ -37,11 +37,12 @@ This record holds counts and hashes only. Dataset bytes, images, plate strings a
 | Source | Archive | Bytes | SHA-256 |
 |---|---|---:|---|
 | GitHub LFS (`qwerty070806/lrlpr-2026`) | `data.zip` | 619,329,117 | `46e25df0adddbd5b08c9ca4576d9e656fa7d43d2a5dec3b40e206714f9a7a667` (equals the LFS pointer oid) |
-| Dropbox | `train.zip` | 719,723,859 | `fb95f86d8f5666ce7d2f577605d55516f9ec558d25944f870dfca8b7f7c9fb8f` |
+| Dropbox | `train.zip` | 719,723,859 | `fb95f86dbf5666ce7d2f577605d55516f9ec558d25944f870dfca8b7f7c9fb8f` (corrected 2026-10-18; see below) |
 | Dropbox | `test-public.zip` | 6,034,618 | `9259c908655a792d9373030d36e0358369d269df5750134512318587418bf580` |
 | Dropbox | `test-blind.zip` | 18,131,638 | `be90a89153bebc4a6c55a988e01fbb91e0f2a5ec28296c59e5bbaecb794355a1` |
 
 - `data.zip` contains `train.tar`, `test-public.tar` and `test-blind.tar`.
+- **Correction, 2026-10-18 (before the aggregation protocol froze).** Revisions up to `e0cce486` gave the `train.zip` SHA-256 as `fb95f86d8f5666ce…`; the 10th hex digit was mistyped (`8` for `b`). The held archive hashes to the value above, with the byte count unchanged. Before the correction, all 220,000 file members of `train.zip` were compared with `data.zip`'s `train.tar`, which matches its Git LFS oid: same paths, same bytes. The other three archive hashes were already correct.
 - Every member of the three tars is byte-identical to the same path in the Dropbox zips: 200,000 + 5,000 + 15,000 images, and 20,000 annotation files with identical text. The two sources are one release, so neither adds data the other lacks.
 - Extraction was checked before writing. Every archive had zero absolute paths, zero `..` entries, zero links or special members and zero encrypted entries. The uncompressed totals were checked against free space, and the highest per-entry compression ratio was 6.9.
 - Per-file SHA-256 manifests are kept locally beside the data. They are not in Git.

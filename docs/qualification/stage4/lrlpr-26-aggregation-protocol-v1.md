@@ -1,10 +1,10 @@
-# Stage 4 — LRLPR-26 Multi-frame Aggregation Protocol v1 (PROPOSED, revision 3)
+# Stage 4 — LRLPR-26 Multi-frame Aggregation Protocol v1 (FROZEN, revision 3)
 
 **Date:** 2026-10-18.
 
-**Status:** PROPOSED. Nothing has been run. The protocol freezes only on owner approval. The freezing commit adds:
+**Status:** FROZEN on owner approval, 2026-10-18: "I approve freezing the revised LRLPR-26 multi-frame aggregation protocol and authorise its bounded Development-only implementation and execution." Frozen at the commit that renames this file from `lrlpr-26-aggregation-protocol-v1-proposed.md` (revision 3 content, commit `e0cce486`, unchanged apart from these status lines). Nothing had been run when it froze: no OCR call had been made on LRLPR-26 data. The freezing commit adds:
 - `lrlpr-26-split-v1.json`;
-- `lrlpr-26-aggregation-rules-v1.json`, which holds this document's grid, rules and seeds in machine form.
+- `lrlpr-26-aggregation-rules-v1.json`, which holds this document's grid, rules and seeds in machine form, plus the pre-execution resolutions R1–R8 made before any OCR call. Two of them correct facts stated here: R1 (the split formula below is applied as written; the stratum table below came from an unprefixed probe and is superseded by the counts in the split file) and R8 (the dataset record's `train.zip` SHA-256 had a one-digit transcription error, corrected in the record).
 
 **Revision 2** applies the owner's corrections A–F of 2026-10-18:
 - the confidence-weighted policy gains a fixed minimum of two agreeing readings;
