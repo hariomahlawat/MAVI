@@ -416,3 +416,22 @@ def test_repeat_equality_is_on_canonical_content(tmp_path):
 def test_processing_run_identity_is_per_arm_and_sequence():
     assert b1_run.job_id("A", "s") != b1_run.job_id("B", "s") != b1_run.job_id("preflight", "s")
     assert b1_run.job_id("B", "s") == b1_run.job_id("B", "s")
+
+
+# Phase 2 offline search predicate ------------------------------------------------------------------------------------
+
+def test_offline_exact_search_hit_requires_the_associated_track_and_counts_others():
+    plates = _load("b1_plates")
+    eval_doc = {"rows": [
+        {"sequenceId": "s", "gtTrackId": "g1", "state": "matched", "maviTrackId": "v-1", "usablePlate": True,
+         "result": {"oracleReadable": True}},
+        {"sequenceId": "s", "gtTrackId": "g2", "state": "fragmentedGt", "maviTrackId": None, "usablePlate": True,
+         "result": {"oracleReadable": False}},
+        {"sequenceId": "s", "gtTrackId": "g3", "state": "matched", "maviTrackId": "v-3", "usablePlate": False,
+         "result": None}]}
+    texts = {("s", "v-1"): ["ABC123"], ("s", "v-2"): ["ABC123", "XYZ9"], ("s", "v-3"): []}
+    truth = {("s", "g1"): ["ABC123"], ("s", "g2"): ["XYZ9"]}
+    rows = plates.hits(eval_doc, texts, truth)
+    assert rows["s/g1"] == {"state": "matched", "oracleReadable": True, "hit": True, "otherTracksReturned": 1}
+    assert rows["s/g2"]["hit"] is False and rows["s/g2"]["otherTracksReturned"] == 1  # unassociated: never a hit
+    assert "s/g3" not in rows

@@ -237,8 +237,11 @@ def account(inventory: Path, a_dir: Path, b_dir: Path, p_dir: Path, a_eval_path:
             else:
                 controls["vehicleTracks"] += 1
                 ra, rb = _by_role(t).get("representative"), _by_role(u).get("representative")
-                if (ra or {}).get("crop") != (rb or {}).get("crop") or (ra or {}).get("sourceFrameNumber") != (
-                        rb or {}).get("sourceFrameNumber"):
+                # Crop identity is its SHA-256 and size; the storage key embeds the arm's own ProcessingRun id.
+                if ((ra or {}).get("crop", {}).get("sha256"), (ra or {}).get("crop", {}).get("sizeBytes"),
+                        (ra or {}).get("sourceFrameNumber")) != ((rb or {}).get("crop", {}).get("sha256"),
+                                                                 (rb or {}).get("crop", {}).get("sizeBytes"),
+                                                                 (rb or {}).get("sourceFrameNumber")):
                     control_failures.append([s, tid, "representative"])
 
     # Changed Vehicle evidence, classified ------------------------------------------------------------------------
