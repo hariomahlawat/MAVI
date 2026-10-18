@@ -19,7 +19,7 @@ By the pre-declared rule the decision is **C: propose a separate owner O3 decisi
 
 ## Frozen candidate (before any outcome)
 
-**Record:** `docs/qualification/stage4/b1-candidate-v1.json`, SHA-256 `e3eb0998…0aeb`. It was committed as `a184cb1e` at 08:38 IST, before any B1 code existed and before any preflight or arm output.
+**Record:** `docs/qualification/stage4/b1-candidate-v1.json`, SHA-256 `e3eb0998…0aeb`. It was committed as `a184cb1e` at 08:38 IST (local time), before any outcome-producing run: the first output, a one-sequence smoke, is from 08:43, and the inventory from 08:47. See the limitation on how this ordering is attested.
 
 **Rule:**
 - Sharpness is the production mean-gradient formula over the whole Vehicle `crop_region`, after resizing it to 128 px height with Pillow 11.3.0 `BILINEAR` (default `reducing_gap`; width `max(1, round(w·128/h))`).
@@ -127,10 +127,18 @@ Accounting: `account.json` `3812d292…`.
 
 **Losses: 0.**
 
-**Readable Tracks that lost a reading-preserving role: 7.**
-- B1 replaced a NearView that read at a labelled frame with a larger view at an unlabelled frame, so the frozen rule cannot measure it. LateDiverse also changed in some of these cascades.
-- All 7 stay evidence-readable through other roles.
-- Readable-Track counts by role:
+**Readable Tracks whose reading-preserving roles changed: 7** (6 lost a reading role, 1 gained one).
+
+| Track(s) | Change |
+|---|---|
+| 00118784, 00124432, 00128926, 00118036, 00124539 | lost a reading NearView: a NearView that read at a labelled frame was replaced by a B1 crop at an unlabelled frame (unmeasurable). 00124432 and 00128926 also lost a reading LateDiverse. |
+| 00125165 | kept its NearView reading; lost only a LateDiverse reading |
+| 00121826 | **gained** a NearView reading (`[representative]` → `[near-view, representative]`) |
+
+- The B1 replacement crop is not always larger: on 00128926 it has the same area as the A view and comes earlier in time.
+- At role level (fast-plate-ocr), reading NearView instances go from 44 to 42 and reading LateDiverse from 19 to 16.
+- All 7 Tracks stay evidence-readable under both instruments, and their Phase 2 hit status is the same in both arms (6 hits, 1 miss).
+- Evidence-readable Track counts by role (union of instruments, from the evaluation summaries):
 
 | Role | A | B |
 |---|---|---|
@@ -148,7 +156,7 @@ Accounting: `account.json` `3812d292…`.
 | NearView displaced by the B1 holder's later hysteresis or duplicate drop (removed 2, replaced 1) | 3 |
 
 - Of the 1,437 b1-only candidates, 418 were held as NearView, 873 were refused by growth hysteresis and 146 were refused as duplicates of the Representative. None was refused by the encoder.
-- On text-usable GT Tracks, 24 observations changed. Of the B-side B1 crops on those Tracks, 6 read, 1 did not read, and 11 are unmeasurable (no plate label at that frame).
+- On text-usable GT Tracks, 24 observations changed. On the B side, 17 crops on those Tracks are unmeasurable (no plate label at that frame): 11 B1-admitted NearViews and 6 EarlyDiverse/LateDiverse cascade crops. Of the B1-admitted NearViews there, 6 read and 1 did not read.
 - **No gain is claimed for the unmeasurable crops.**
 
 **Controls:**
@@ -162,8 +170,7 @@ Accounting: `account.json` `3812d292…`.
 - Observations: NearView 4,027 → 4,088; EarlyDiverse 945 → 950; LateDiverse 863 → 867.
 
 **Resources:**
-- Replay CPU: A 902 s, B 998 s (+10.6 %; this includes the B1 instrumentation, whose recording scorer runs in every arm).
-- Wall time: A 946 s, B 1,051 s.
+- **CPU cost: unresolved, not attributable to B1.** Whole-replay CPU was A 902 s and B 998 s, but the arms ran in concurrent pairs, and the identical repeat of Arm A took 997 s (+10.5 % over A). B is within 0.1 % of its concurrent partner (repeat A), and repeat B, run alone, took 950 s. The B1 overhead is inside this run-to-run spread. The figures are whole-replay CPU, not selection CPU.
 
 **Observed ceiling** (12 matched failures in Arm A):
 
@@ -173,8 +180,9 @@ Accounting: `account.json` `3812d292…`.
 | Have a b1-only candidate at a native-readable oracle frame (00121309, 00115627, 00115628) | 3 |
 | Recovered under E-B | **2** |
 | Remaining after B1 | 10 |
-| — of those, with edge contact at their native-readable oracle frames | **all 10** (also sharpness on 00121829 and 00121841; confidence and occlusion on 00125713) |
-| — of those, with a qualified, readable oracle frame that was not kept (role and hysteresis) | 1 (00129529, frame 38) |
+| — of those, with edge as the sole blocker at every native-readable oracle frame | **8** |
+| — 00115627: a b1-only (sharpness-only) native-readable frame 2; B1 held frame 4 instead (it reads in Phase 2) | 1 |
+| — 00129529: a qualified, readable oracle frame 38 that was not kept | 1 |
 
 Per-Track detail is in `account.json` → `ceiling.tracks`.
 
@@ -210,29 +218,39 @@ The exact-search predicate (normalised truth text among the associated Track's t
 
 ## Recommendation — **C: propose a separate owner O3 decision** (frozen rule: 0 losses, net +2)
 
-**Measured gain:** B1 recovers **2/79** E-B Tracks and **4/110** exact search hits, with no Track lost, no association change, unchanged Person and Representative evidence, +3 % evidence bytes and about +10 % selection CPU.
+**Measured gain:** B1 recovers **2/79** E-B Tracks and **4/110** exact search hits, with no Track lost, no association change, unchanged Person and Representative evidence and +3.1 % evidence bytes. Any CPU cost is unresolved; it is within the run-to-run spread of the identical arm.
 
 **What this does not establish:**
 - The gain is below the observed ceiling of 3, and far below X1's 10. It does not change P3: even counterfactually, 55/79 = 0.696 is still below 0.70.
-- It reduces readable-role redundancy on 7 Tracks. Under the frozen labels those crops are unmeasurable rather than shown to be worse; Phase 2 found no search loss.
+- It changes reading-preserving roles on 7 readable Tracks: 6 lose a reading role (their replacement crops are unmeasurable under the frozen labels, not shown to be worse) and 1 gains one. Phase 2 found no search loss on any of them.
+- As evidence of generalisation it is weak. +2/79 is a deterministic same-data count; an exact paired test with 0 vs 2 discordant Tracks gives one-sided p = 0.25. The result is hypothesis-generating.
+- So C is strictly an **owner O3 proposal**, conditional on independent validation and full requalification. It does not recommend adopting the change.
 - It is a same-data follow-on of the exploratory study, on 5 fps BDD100K (US/Israeli). It is not Indian-domain or Production evidence.
 
 **Contents of the O3 proposal:**
 1. A NearView-only, scale-normalised sharpness assessment as a candidate profile change.
 2. Before it is adopted:
    - validation on a population that did not inform the hypothesis (for example, native-fps footage under O1A/O1B);
-   - a decision on the 7-Track role-redundancy cost and the one additional unverified text return;
+   - a decision on the reading-role redundancy lost on 6 Tracks, the 17 unmeasurable replacement crops and the one additional unverified text return;
    - full requalification (ADR-013 §6, ADR-009).
 
-The dominant residual selection blocker is edge contact. It is present at the readable oracle frames of all 10 remaining matched failures, and it alone blocks 4,168 of the candidates that pass B1 sharpness. Any edge hypothesis still needs new proof (X1).
+The dominant residual selection blocker is edge contact. It is the sole blocker at every native-readable oracle frame for 8 of the 10 remaining matched failures, and it alone blocks 4,168 of the candidates that pass B1 sharpness. Any edge hypothesis still needs new proof (X1).
 
 ## Limitations
 
 - **Same-data, post-hoc-selected hypothesis.** The counts are small (2 of 79; 4 of 110), and no confidence interval is claimed.
-- **Labelled-frame sparsity.** 11 B1 crops on text-usable Tracks are unmeasurable under E-B. Phase 2 measures real OCR on all crops, but the search predicate is offline, not the live platform.
+- **Labelled-frame sparsity.** 17 B-side crops on text-usable Tracks are unmeasurable under E-B (11 B1 NearViews, 6 cascade crops). Phase 2 measures real OCR on all crops, but the search predicate is offline, not the live platform.
 - **Association.** 14 of 79 failures are tracking or association failures at 5 fps; B1 cannot affect them.
 - **Accounting defect.** The first accounting run (`7dc4e497…`, kept as superseded) flagged every Representative as changed, because it compared storage keys that embed each arm's ProcessingRun id. It was corrected to compare SHA-256, size and frame (`860cc4b6`). No input, run or rule changed.
 - **Historical 51/77 control.** The AI-label control was not recomputed for B1; it is not the decision population.
+- **Freeze attestation (cold review P3-1).** Freeze-before-outcome is attested only by local commit timestamps and file times. All four commits were first pushed together, so there is no external anchor.
+- **Tamper detection (P3-2).** A consistent rewrite of a log and its index digests passes `verify`; only the committed index SHA-256 catches it. Some expected input hashes (the X1 indexes, O5 truth/E-A/E-B, verdict, descriptor) are checked by an 8-hex prefix only.
+- **Code identity of outputs (P3-3).** `account.json` was produced by the `b1_eval.py` fix about 28 s before it was committed in `860cc4b6`. Neither `account.json` nor `plates-phase2.json` records a code identity. The retained inventory binds `bb5b0877`'s file hashes, so a reproduction at head needs a regenerated inventory.
+- **Phase 2 tool (P3-8).** `b1_plates.py` does not run `verify` and does not check that each evaluation is bound to its arm index; it checks result and crop SHA-256s only. It does not measure wrong-text false positives: Tracks carrying any text go from 311 to 315.
+
+## Independent cold review
+
+Independent cold review of `bc3576ad` (`E:\MAVI-Working\checkpoints\pr232-cold-review.md`): **CODE CONVERGED, no P1/P2.** Recommendation C is confirmed as the frozen rule's correct output. Its P3 corrections to this report are applied above. No code, input, run, frozen record, result or decision changed.
 
 ## Identities
 
