@@ -187,6 +187,7 @@ export const PLATE_DETAILS = {
   unreadable: vehicleDetail(PLATE_TRACK, 2, analysed('none', [], [plateOn('NearView', { outcome: 'Unreadable', detectorConfidence: 0.61 })])),
   rejected: vehicleDetail(PLATE_TRACK, 2, analysed('none', [], [plateOn('NearView', { readings: [reading(0, 'ZZ#0?', 0.274)] })])),
   pending: vehicleDetail(PLATE_TRACK, 2, notReady('Pending')),
+  failed: vehicleDetail(PLATE_TRACK, 2, notReady('Failed')),
   noPlate: vehicleDetail(PLATE_TRACK, 2, analysed('none', [], [])),
   unavailable: vehicleDetail(PLATE_TRACK, 2, {
     readiness: 'Ready', trackOutcome: 'Unavailable', unavailableReason: 'evidence_missing', texts: [], observations: [], provenance: PROVENANCE,
