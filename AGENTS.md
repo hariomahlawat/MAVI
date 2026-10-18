@@ -1,6 +1,6 @@
 # MAVI Agent Engineering Rules
 
-This repository is designed for human developers and coding agents. Read this file, the architecture design, and all accepted ADRs before modifying code.
+This repository is designed for human developers and coding agents. Before non-trivial work, read this file, `docs/architecture/README.md` and the accepted ADRs, specifications and interfaces relevant to the task. Follow dependencies to other governing documents when the work reaches them; do not load every accepted ADR indiscriminately. Agent autonomy and owner escalation are described in operating principle 11.
 
 ## Non-negotiable architecture
 

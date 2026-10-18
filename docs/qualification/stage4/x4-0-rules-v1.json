@@ -1,0 +1,88 @@
+{
+ "id": "x4-0-multiframe-counterfactual-rules-v1",
+ "class": "Development-only offline experiment; not a pipeline profile change, not a Production contract change, not qualification or Model Selection evidence",
+ "authorisation": "owner, 2026-10-18 (X4-0, with three corrections: isolated evaluation seam; per-Track ceilings labelled measured/derived/estimate; rules frozen before execution incl. scouting cost, wrong texts, wrong-Track returns and an explicit INCONCLUSIVE outcome)",
+ "frozenBefore": "any X4-0 outcome (A0 parity, any arm's texts, hits, wrong-Track returns, costs or ceilings) was computed; no X4 code had been executed when this record was committed",
+ "question": "On the #226 pilot population, do additional Track-frames read by the unchanged PD5-V5M/OC1-S plate path add exact search hits beyond the sealed four roles (A0), at what frame budget K, at what wrong-text / wrong-Track cost, and does the gain depend on JPEG encoding (VisionJob-K) or on native pixels (X4), or on plate-aware selection of one frame (P1)?",
+ "provenance": "Same BDD100K H3 data as #226, B1 and X1: hypothesis-generating, not an independent validation population. BDD100K MAVI 'original' video is the derived 5 fps MP4; no higher-rate source exists locally.",
+ "population": {
+  "sequences": "the 70 sequenceIds of the #226 pilot runs (E:/MAVI-Working/anpr-pilot-cuda/out/pilot-result.json, runs[].sequenceId)",
+  "gtTracks": "the 110 text-usable ground-truth Tracks of the pilot (tracks[]); also reported on the 79 oracle-readable (A-eval oracleReadable, = pilot oracleReadable)",
+  "catalogue": "every Vehicle Track of the 70 sequences in B1 Arm A (2,612 expected; = the pilot catalogue's vehicleTracksInScope). Wrong-Track returns are counted in this catalogue. The 200-sequence B1 catalogue value (A0: 18) is reported for reconciliation only.",
+  "association": "the frozen Stage-3 association of B1 Arm A as evaluated in A-eval.json (state, maviTrackId); evidence changes cannot change Tracks or trajectories, so association is identical in every arm"
+ },
+ "inputs": {
+  "b1Inventory": "E:/MAVI-Working/b1/inventory.json sha256 706a38264f291473f613370c4e52d93cd0e7f97fbe122a04cceb2ee99a5bf0b4",
+  "b1ArmAIndex": "E:/MAVI-Working/b1/A/index.json sha256 1c9d84b0d692371290e3ec77d4d63b5f96caecca4ae979bc7e37530a3aa77a6a (results, sealed crops in staging, per-candidate logs; each log read fail-closed via its canonical and gzip digests)",
+  "b1ArmAEval": "E:/MAVI-Working/b1/A-eval.json sha256 5fcd2c8ee807f9602766b7153802f1645621e2d6548f032ef19b44d166676dbc (association and oracleReadable only)",
+  "videos": "E:/MAVI-Controlled/Stage3/H3-attempt2/derived/sequences/<seq>/video.mp4, each bound to derivation manifest a295809d4e5865017b63fc4edd0b7a049e9e7391527ff008ca43b4f50da86cda",
+  "truth": "O5 human-reviewed truth-val.json 8d1d03b2... (evaluation only, never selection)",
+  "pilot": "pilot-result.json sha256 4c346df937cd2d7c579e977b26ad2a3aea9c49d8d3e7282cccbcabe3dd00db15 (A0 parity and pilot causes for the derived ceiling)",
+  "models": "#226 packs E:/MAVI-Working/anpr-pilot/models: PD5-V5M inference.onnx a4319856..., OC1-S cct_s_v2_global.onnx 384bbbd2..., verified against tools/vision/plates-pilot-payloads-v1.json; parameters development-plates-onnx-pilot-parameters-v1.json cce6ff6d...",
+  "profile": "release pipeline profile phase1-detection-tracking-v1 afb03b6c... (encoder policy only, read-only)"
+ },
+ "seam": {
+  "isolation": "Experiment code only under tools/benchmarks/plates/x4_*.py. No src/vision code, Production contract, plate lease v1 (<= 4 observations, fixed role literals, MAXIMUM_TRACK_OBSERVATIONS), plate-control contract, release profile or platform code is changed. Extra frames never enter a LeaseTrack or LeaseObservation.",
+  "cropAnalysis": "the production mavi_vision.plates.pipeline.analyse_crop with the #226 components_for adapters and parameters, called per crop with an experiment observation handle (observation_id, role 'x4-extra', evidence_rank) that is not a lease contract object; a crop's analysis is a function of its bytes and is computed once per distinct crop SHA-256. A crop for which analyse_crop raises OutputInvalid is recorded as 'output_invalid', contributes no plate and is counted.",
+  "summary": "x4 seam summariser = the production summarise_track rule (distinct-rank0-normalised-text) over an arbitrary number of crop records; its equality with production summarise_track is asserted on every A0 Track (<= 4 observations, real LeaseTrack) before any arm is evaluated"
+ },
+ "frames": {
+  "decode": "mavi_vision.video.reader.iter_frames (production reader), full sequential decode from frame 0 of each derived MP4 (no seek); every decoded frame's SHA-256 over its RGB uint8 bytes, its source_frame_number and offset_ms are recorded",
+  "decodeGate": "for every A0 Observation on the 70 sequences, the candidate-log box equals the Observation box, the decoded offset equals the Observation offset, and crop_region + JpegLadderEncoder at the role's own cap reproduces the sealed crop SHA-256 exactly; any mismatch stops the experiment",
+  "pool": "Pool(T) = the frames of Vehicle Track T in the B1 Arm A per-candidate log (every scored Vehicle Track-frame), excluding the frames of T's A0 Observations; a frame whose crop_region is empty is excluded and counted",
+  "encodedCrop": "production crop_region(frame, box) with the candidate-log box, encoded by the production JpegLadderEncoder (release profile encoder policy) at the supplemental role cap (role_cap_bytes(NearView), 163,840 B) as VisionJob would encode a supplemental crop; a crop the ladder cannot admit is excluded and counted",
+  "nativeCrop": "the same crop_region pixels, unencoded, carried losslessly as PNG (Pillow, compress_level 1); decode_crop returns the identical RGB pixels"
+ },
+ "arms": {
+  "A0": "the sealed four-role Vehicle evidence of B1 Arm A (= the pilot crops), unchanged",
+  "A-K": "A0 plus Select_K(Pool(T)) as encoded crops, K in {4, 8, all}",
+  "A-K-native": "A0 (sealed JPEG, unchanged) plus the same Select_K(Pool(T)) frames as native crops; isolates the encoding of the extra frames",
+  "P1": "A0 plus at most one plate-aware frame: over A0's crops and the encoded crops of every Pool(T) frame (the scouting pass), the crop with the highest maximum PD5 detector box score (any recorded box, before the detector floor); ties prefer an A0 crop, then the lower frame number. If the argmax is an A0 crop, or no crop has a box, P1 = A0. The added frame is the encoded crop."
+ },
+ "selectK": {
+  "rule": "model-neutral, from the per-candidate log only (frame, area, offset). If K = all or |Pool| <= K: all of Pool. Otherwise: f0 = min frame, f1 = max frame of Pool; bin(f) = floor(K * (f - f0) / (f1 - f0 + 1)) (integer arithmetic); in each non-empty bin the frame with the largest logged 'area' (ties: lower frame); if fewer than K are chosen, fill with the remaining Pool frames by descending area (ties: lower frame) up to K. Output sorted by frame.",
+  "inputsNotUsed": "no ground-truth plate box, text, label, oracle result, association or any plate-model output; the A-K selector module imports neither the truth loader nor the evaluation module",
+  "p1Inputs": "only the per-crop maximum detector score of the scouting crops (model output, no truth)"
+ },
+ "aggregation": {
+  "primary": "summarise_track rule: the Track's texts are every distinct ok-normalised rank-0 reading of its read plates (union semantics; any text is searchable)",
+  "secondary": "majority-vote consensus: one text per Track, the summarised text with the highest support count, ties by higher max confidence, then lexicographically smaller; reported, never used by the decision"
+ },
+ "metrics": {
+  "hit": "GT Track whose association state is matched and whose matched MAVI Track's texts contain a normalised truth text (the platform's exact search predicate, offline)",
+  "hits": "/110 and /79 (oracle-readable)",
+  "losses": "GT Tracks hit in A0 and not hit in the arm (identically 0 under primary union aggregation because every arm keeps A0's crops; meaningful for consensus)",
+  "wrongTrackReturns": "sum over the 110 GT Tracks of the number of catalogue Vehicle Tracks, other than its matched MAVI Track, whose texts contain one of its normalised truth texts",
+  "tracksCarryingText": "catalogue Vehicle Tracks with at least one text",
+  "wrongTexts": "per matched GT Track, distinct texts of its matched MAVI Track that are not a normalised truth text; summed and per Track; plus catalogue-wide (Track, text) pairs",
+  "cost": "per arm: extra Track-frames selected; frames decoded (sequential decode from frame 0 to the last needed frame of each sequence; A0 = 0; P1 = scouting needs every Pool frame); detector passes = crops given to the plate detector including every P1 scouting crop; OCR reads = plate regions read in the arm's final crops; plate-inference CPU seconds = sum of measured per-crop detector CPU over detector passes + OCR CPU over OCR reads (process_time, first run); extraction CPU (decode + crop + encode) reported once per sequence"
+ },
+ "decisionRule": {
+  "unit": "each K <= 8 arm (A-4, A-8, A-4-native, A-8-native) relative to A0 under primary aggregation: G = hits - 52, L = losses, W = wrongTrackReturns(arm) - wrongTrackReturns(A0)",
+  "NO_RESULT": "A0 parity gate, decode gate, seam-summary equality, inventory binding or repeat equality fails",
+  "armPursue": "G >= 8 AND L = 0 AND W <= 2 AND exact one-sided sign test of gains vs losses p <= 0.05",
+  "armReject": "G <= 4 OR L > 0 OR W >= G",
+  "REJECT": "every K <= 8 arm meets armReject (no change; X4 / VisionJob-K not pursued)",
+  "PURSUE": "at least one K <= 8 arm meets armPursue (pursue an X4 or VisionJob-K design as an owner O3 proposal; no architecture change follows from this experiment)",
+  "INCONCLUSIVE": "neither REJECT nor PURSUE (e.g. 5 <= G <= 7 with W < G, or G >= 8 with 2 < W < G); the evidence cannot discriminate",
+  "designPreferenceUnderPursueOnly": {
+   "best": "the pursuing arm with the largest G; ties: smaller W, then encoded before native, then smaller K; K* = its K",
+   "P1_PREFERRED": "P1 hits >= best hits - 2 AND P1 L = 0 AND P1 W <= best W AND P1 extra inference passes (detector passes + OCR reads beyond A0, scouting included) <= best's extra inference passes",
+   "VISIONJOB_K_PREFERRED": "otherwise, if A-K* (encoded) meets armPursue AND hits(A-K*) >= hits(A-K*-native) - 1",
+   "X4_NATIVE_PREFERRED": "otherwise"
+  },
+  "derivedBeforeOutcomes": "P1's scouting pass covers every Pool frame, so its detector passes exceed A-8's whenever Tracks average more than 8 Pool frames (B1 logs: about 19 frames per Track); the brief's 'about 1/K of the cost' premise does not hold once scouting is counted. This follows from frame counts, not outcomes.",
+  "invariant": "P3 stays 53/79 INADEQUATE; no Production, profile, contract or ADR change follows from any outcome"
+ },
+ "ceilings": {
+  "labels": "measured = computed here from retained data with these models; derived = arithmetic over measured per-Track facts; estimate = not measured",
+  "associationBound": "derived: GT Tracks with association matched (no evidence-side option can hit an unmatched Track)",
+  "briefPilotCauseBound": "derived: 52 + per-Track count of pilot misses with cause source_evidence and oracleReadable, or cause detector_miss or ocr_error (the brief's <= 74); recomputed per Track and its consistency checked",
+  "X2": "measured: A0 plus the native crops of A0's own Observation frames (zero new timestamps)",
+  "X4": "measured: A0 plus the native crops of every Track-frame (A-all-native); also the union of every arm",
+  "X3": "measured upper bound with identical frame access on 5 fps BDD: = X4's (a VisionJob plate role sees the same decoded Track-frames natively); plate-aware selection inside VisionJob is not modelled",
+  "EB79": "the brief's E-B matched-unreadable '<= 11' is an instrument-oracle quantity not re-measured here; cross-tabulated per Track against the measured search outcomes and kept labelled estimate"
+ },
+ "repeat": "independent repeat of extraction and inference into separate directories; canonical records (frame hashes, crop manifests and bytes, crop analysis records, evaluation) must be equal; timings are excluded",
+ "stopCriteria": "any missing, extra, changed or mismatched input; decode gate failure; A0 != 52/110 or per-Track agreement with the pilot != 110/110 or A0 crop set != pilot crop set; seam summary != production summarise_track on any A0 Track"
+}
