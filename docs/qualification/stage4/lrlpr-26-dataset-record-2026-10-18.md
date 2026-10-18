@@ -18,6 +18,13 @@ This record holds counts and hashes only. Dataset bytes, images, plate strings a
 - **Not accessed.** Zenodo record 20422103, which is restricted (HTTP 403).
 - **Status.** `RESEARCH-ADMISSIBLE`. The agreement permits academic, non-commercial research. The owner attests the agreement was signed and the data obtained under it. The agent did not see the signed agreement, so the status rests on that attestation.
 
+### Disclosures (2026-10-18)
+
+- **What the owner confirmed.** The owner confirmed academic eligibility, and that the team obtained the data under the official agreement. That confirmation is the only basis for the status above.
+- **What has not been inspected.** Claude did not inspect the signed agreement, the authors' approval or the original download confirmation.
+- **What this record does not establish.** It is not evidence that the authors approved third-party redistribution or re-hosting, and that includes the team mirror the bytes came from. Whether the mirror's hosting is covered by the authors' permission is a matter for the owner and the authors.
+- **Effect.** MAVI holds a local research copy only. Nothing in MAVI re-hosts, shares or redistributes it.
+
 ## Use constraints
 
 - Academic, non-commercial research only.
@@ -97,7 +104,13 @@ All images are RGB.
 | 20,000 train tracks (A 10,000 + B 10,000), 5 LR + 5 HR, with annotations | Identical structure and counts | **Complete** |
 | 3,000 test tracks, 5 LR each, annotated after the competition | 3,000 test-blind tracks (+ the 1,000-track public subset) with LR images only | **Images complete; test labels absent** |
 
-The held material is the competition-era distribution. The post-competition annotated test is **not** held. Obtaining it needs the official link from the owner, or the authors' label file.
+The held material is the competition-era distribution. The post-competition annotated test is **not** held.
+
+**Test release distinction (dated correction, 2026-10-18).** The two test releases differ:
+- **Held:** the competition test archives, test-public (1,000 tracks) and test-blind (3,000 tracks). They contain LR images only and no labels.
+- **Official:** the official repository README, as read on 2026-10-18, now documents a release of "the official competition training and test sets, both released with annotations". Its 3,000 test tracks carry LP text and LP layout.
+
+The held test-blind images are presumably the same tracks, but this is unverified without the labelled release. The authorised route to the annotated test is the official request: the signed agreement, e-mailed from a valid university account to the first author. The owner may also already hold it through the team's original approval. MAVI does not use any other copy of the test labels. Until an authorised labelled test is held, every LRLPR-26 measurement is made on a frozen partition of train.
 
 ## Suitability
 
