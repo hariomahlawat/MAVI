@@ -148,7 +148,7 @@ Consensus reduces wrong-Track returns, for example 41 against 48 for A-all-nativ
 
 **Repeat.**
 - Extraction: an independent repeat gives a byte-identical index, so the frame hashes, crop manifests and crop store are identical.
-- Inference and evaluation: see §7.
+- Inference and evaluation: canonically equal (§7).
 
 ## 5. Decision under the frozen rule
 
@@ -215,7 +215,13 @@ At K ≤ 8 with encoded crops, cross-sequence and other-vehicle returns do not r
 
 ## 7. Repeat equality
 
-REPEAT_PLACEHOLDER
+The repeat ran independently, into `E:\MAVI-Working\x4\repeat\`.
+
+| Stage | Result |
+|---|---|
+| Extraction | Index `6af74ec0…` is **byte-identical**. This covers all 13,966 decoded-frame hashes, the crop manifests and the content-addressed crop store. |
+| Inference | Canonical records are **equal** for all 70 sequences (103,702 crops). Index `dcc167f0…`; it differs from run 1 only in its timing fields. |
+| Evaluation | `repeat/eval.json` `4442c73b…` is **canonically equal** to `eval.json` `06a8d273…` (no differing section). The check is `equal.json` `61ceb515…`; CPU timings are excluded. |
 
 ## 8. Limitations
 
