@@ -1,125 +1,205 @@
-# Stage 4 — LRLPR-26 Multi-frame Aggregation Protocol v1 (PROPOSED)
+# Stage 4 — LRLPR-26 Multi-frame Aggregation Protocol v1 (PROPOSED, revision 2)
 
 **Date:** 2026-10-18.
-**Status:** PROPOSED, for owner review.
-- Nothing has been run.
-- The protocol is frozen only when the owner approves it. The commit that freezes it adds the split file and the frozen candidate JSON.
 
-**Class:** Development only. No training, no Production change, no profile change; O3 stays open.
-**Data:** `lrlpr-26-dataset-record-2026-10-18.md`. Train split only, because the held test archives have no labels.
+**Status:** PROPOSED. Nothing has been run. The protocol freezes only on owner approval. The freezing commit adds:
+- `lrlpr-26-split-v1.json`;
+- `lrlpr-26-aggregation-rules-v1.json`, which holds this document's grid, rules and seeds in machine form.
 
-## Question
+**Revision 2** applies the owner's corrections A–F of 2026-10-18:
+- the confidence-weighted policy gains a fixed minimum of two agreeing readings;
+- the selection and infeasible cases are defined;
+- the measures are split into track-level and prediction-level;
+- the primary statistics use a bootstrap over plate-identity groups;
+- A is compared with C, and the simpler C is preferred when the two are equivalent.
 
-Given five LR frames of one plate, which text-level aggregation policy gives the best trade-off between correct text accepted and incorrect text accepted? The OCR is MAVI's existing one: OC1-S, fast-plate-ocr `cct_s_v2_global`, through the `fast-plate-ocr-onnx-v1` adapter.
+**Class:** Development only. There is no training and no change to VisionJob, `summarise_track`, search semantics, plate-control contracts, release profiles or the frozen P3 evidence. O3 stays open.
 
-**What this answers:** it isolates the aggregation stage.
+**Data:** the train split only (`lrlpr-26-dataset-record-2026-10-18.md`), because the held test archives are unlabelled.
 
-**What it does not answer:**
-- detection, association or wrong-Track behaviour;
+## Question and boundary
+
+On a five-LR-frame plate-crop track read by MAVI's existing OCR, does temporal aggregation reduce incorrect plate texts compared with MAVI's union, without losing too much correct recognition? The OCR is OC1-S: fast-plate-ocr `cct_s_v2_global`, through the `fast-plate-ocr-onnx-v1` adapter.
+
+**Evidence class.** The results are in-domain experimental evidence on a partition of the authors' training set: Brazilian and Mercosur plates, two scenarios from one camera.
+
+**Not measured:**
+- vehicle detection, Track association or wrong-vehicle attachment in congested scenes;
 - Indian-domain performance;
-- MAVI's 52/110 search figure.
+- MAVI's end-to-end 52/110 figure.
 
-Its numbers are never compared on a shared denominator with E-B, the pilot, B1 or X4-0.
+**Consequence.** An improvement here does not resolve X4-0's wrong-Track returns; that question belongs to O1A. No number from this protocol shares a denominator with E-B, the pilot, B1 or X4-0.
 
-## Adapter (minimal)
+## Adapter (minimal, read-only)
 
-The adapter is `tools/benchmarks/datasets/lrlpr26.py`. It is read-only and has no new dependencies; Pillow and the plates venv are already declared.
+The adapter is `tools/benchmarks/datasets/lrlpr26.py`. It adds no new dependencies: Pillow and the plates venv are already declared.
 
-**What it does:**
-1. Discovers `train/<Scenario>/<Layout>/track_NNNNN/`. It accepts exactly `lr-001…005` and `hr-001…005` plus `annotations.json`, and fails closed on anything else.
-2. Emits one `CropTrack(track_id, scenario, layout, lr_frames[5], truth)`, where `lr_frames` are paths and SHA-256 values in frame order.
-   - Truth is normalised by MAVI's existing `normalise()`. There is no format-based correction.
-   - Corners and HR frames are read but not used as recognition inputs.
-3. Binds every run to an inventory: the per-file manifest SHA plus the archive SHA. A changed byte fails the run.
+**Steps:**
+1. **Discover tracks.** It walks `train/<Scenario>/<Layout>/track_NNNNN/` and accepts exactly `lr-001…005`, `hr-001…005` and `annotations.json`. Anything else fails closed.
+2. **Emit records.** Each track becomes a `CropTrack(track_id, scenario, layout, lr_frames[5], truth)`:
+   - the LR frames are kept as paths and SHA-256 values, in frame order;
+   - the truth is `normalise(plate_text)`, using MAVI's existing normaliser with no format-based correction.
 
-**What it does not do:**
-- It does not touch `benchmark-plate-truth-v1`. That contract is built around scene images with plate regions, and crop tracks do not fit it.
-- It does not revise any contract. The experiment consumes `CropTrack` directly; a contract revision is deferred until there is a reason to make one.
+   HR frames and corners are never recognition inputs.
+3. **Bind to the inventory.** Each run is bound to the existing per-file manifests and archive SHA-256 values. Any changed byte fails the run.
 
-**Tests:** synthetic fixture tracks only. No dataset bytes or plate strings enter Git.
+**Contracts.** The adapter does not use or revise `benchmark-plate-truth-v1`. The experiment consumes `CropTrack` directly.
 
-## Split (deterministic, plate-text-grouped)
+**Tests.** Tests use synthetic fixtures only. No dataset bytes or plate strings enter Git.
 
-**Grouping unit.** Tracks are joined (union-find) when they:
-- share a normalised plate text; or
-- share any byte-identical image (20 hash groups, 4 tracks).
+## Development/Evaluation split
 
-**Assignment.** Each component goes to EVALUATION if `int(sha256("lrlpr26-split-v1|" + min_text_in_component), 16) % 2 == 1`, and to DEVELOPMENT otherwise.
+**Grouping.**
+- Tracks are joined by union-find when they share a normalised plate text or any byte-identical image (20 hash groups across 4 tracks).
+- Each resulting component is one plate-identity group.
 
-**Measured on the held train (counts only).** The split comes out near 50/50 in every stratum:
+**Assignment.** A group is EVALUATION if `int(sha256("lrlpr26-split-v1|" + min_text_in_group), 16) % 2 == 1`, otherwise DEVELOPMENT.
 
-| Stratum | DEV | EVAL |
-|---|---:|---:|
-| A / Brazilian | 2,547 | 2,453 |
-| A / Mercosur | 2,490 | 2,510 |
-| B / Brazilian | 1,001 | 999 |
-| B / Mercosur | 3,975 | 4,025 |
+**Measured stratum counts (DEV/EVAL):**
 
-**Split file.** `lrlpr-26-split-v1.json` holds `track_id → DEV|EVAL`, its SHA and the stratum counts. It holds no texts and no text hashes. A hash of a plate string can be reversed by enumerating the small plate format space, so it would leak the plate.
+| Scenario | Layout | DEV | EVAL |
+|---|---|---:|---:|
+| A | Brazilian | 2,547 | 2,453 |
+| A | Mercosur | 2,490 | 2,510 |
+| B | Brazilian | 1,001 | 999 |
+| B | Mercosur | 3,975 | 4,025 |
 
-### Scene/session leakage check
+**Split file contents.** The split file holds `track_id → DEV|EVAL`, its SHA and these counts. It holds no texts and no text hashes, because plate-format hashes can be enumerated.
 
-The metadata permits only a limited check:
-- Images carry no EXIF or timestamps; Scenario-B JPEGs have only JFIF headers.
-- The only session proxy is track ID order. IDs are unique across folders and run by scenario: A is 1–10,000 and B is 10,001–22,999.
+**Session and camera dependence (accepted and disclosed).**
+- There is no session metadata: no EXIF and no timestamps.
+- Track-ID separation is not proof of separate recording sessions, and the median gap of 954 IDs between repeats of one plate does not establish independence.
+- DEV and EVAL share one camera per scenario and probably overlapping capture periods.
+- Controlling for this is not feasible alongside plate grouping:
+  - ID blocks combined with text grouping collapse each scenario into one group holding half the tracks;
+  - a block split that drops the conflicting tracks loses 1,484–1,738 EVAL tracks.
+- This residual dependence is accepted because only one threshold per policy family is selected and nothing is trained.
 
-**Repeated plates are mostly recurring vehicles, not the same pass.** The gaps between consecutive repeats of one text have a median of 954 IDs. Only 210 of the 3,054 gaps are ≤100 IDs, and only 4 are ≤1.
+## Pipeline phases
 
-**Session control is not achievable alongside plate grouping:**
-- Combining ID blocks of 50–500 tracks with text grouping collapses each scenario into one component holding 50% of all tracks.
-- A block split that excludes the conflicting tracks loses 1,484–1,738 EVAL tracks and unbalances the strata.
+1. **Read.** OC1-S reads every LR frame of all 20,000 tracks once. The rank-0 raw text and confidence are stored per frame. Nothing is scored.
+2. **Repeat.** Phase 1 is run a second time, and the two outputs must be canonical-equal. Otherwise the outcome is INCONCLUSIVE.
+3. **Select on DEV.** DEV tracks are scored and the thresholds selected by the rules below. The selection is written to `selection.json`, and its SHA is recorded before phase 4.
+4. **Evaluate once.** EVAL tracks are scored once, with the policies bound to `selection.json`. The EVAL scorer refuses to run without a matching selection SHA, and EVAL truth is first compared in this phase.
+5. **Secondary.** These run afterwards, are reported only, and never feed into the decision:
+   - **Block-split sensitivity:** phases 3–4 rerun on a block split (500-ID blocks, conflict tracks excluded), with thresholds re-selected on that split's own DEV.
+   - **Frame budget:** SB, U and the selected C and A on the first 1, 3 and 5 frames.
 
-**Accepted residual risk.** DEV and EVAL share one camera per scenario and overlapping capture periods. This is acceptable because the experiment tunes at most two thresholds and trains nothing.
+## Readings
 
-**Sensitivity check.** The frozen thresholds are re-scored on a block split (500-ID blocks, conflict tracks excluded). The result is reported but is not a decision input.
+A frame gives a **valid reading** when OC1-S returns a non-empty text and `normalise()` returns OK, the same validity rule `summarise_track` uses. Empty output, a normalisation failure or an OCR error is an **invalid** frame:
+- it contributes no text, no support and no weight;
+- it is still counted in the OCR-call cost.
 
-## Policies (LR frames only as recognition inputs)
+For each track, n is the number of valid readings, from 0 to 5. The support s(t) of a text t is the number of valid readings with that text, and w(t) is the sum of their confidences.
 
-Each LR frame is read once, at the adapter's own preprocessing. A reading counts only if `normalise()` returns OK, the same rule `summarise_track` uses.
+## Policies
 
-| Id | Policy | Track output |
-|---|---|---|
-| S1 | Single fixed frame (`lr-005`) | Its text. This is a cost floor and needs no aggregation |
-| SB | Single best | The reading with the highest confidence. Ties go to the lowest frame index |
-| U | Union. This is MAVI's current semantics (distinct rank-0 texts, as in `summarise_track`) | The set of all distinct texts |
-| C | Consensus | The plurality text, if its support is ≥ k (k ∈ {2, 3}, chosen on DEV). Otherwise it abstains; ties abstain |
-| A | Confidence-weighted abstention | The winner is the text with the largest summed confidence. It is accepted if its weight share is ≥ τ; otherwise the policy abstains |
+| Id | Rule | n = 0 | n = 1 |
+|---|---|---|---|
+| S1 | Accept the reading of `lr-005` if it is valid. Never consults other frames | abstain | accept, if the one valid frame is `lr-005` |
+| SB | Accept the valid reading with the highest confidence. A tie goes to the lowest frame index | abstain | accept |
+| U | Accept every distinct valid text. This is MAVI's current union semantics | empty (abstain) | accept |
+| C(k) | Let t\* be the text with the largest support. Accept t\* if s(t\*) ≥ k and no other text has equal support | abstain | abstain (s < 2) |
+| A(τ) | Let t\* be the text with the largest w. Accept t\* if s(t\*) ≥ 2, w(t\*) / Σ w(all valid) ≥ τ, and no other text has equal w | abstain | abstain (s < 2) |
 
-**Thresholds.**
-- k and τ are chosen on DEV only, from the precision-coverage curve. Each is set at the highest coverage where incorrect-text acceptance stays ≤ 1.0% of DEV tracks, so the precision target is fixed now, not after seeing results.
-- The thresholds are then frozen and applied once to EVAL.
+**Notes on the policies:**
+- **Disagreement.** In A, conflicting readings stay in the denominator, so disagreement lowers t\*'s share. In C, conflicting readings take support from t\*.
+- **Minimum support in A.** The fixed requirement of s(t\*) ≥ 2 removes the case where one unsupported reading holds 100% of the weight. No confidence calibration is added.
+- **S1's fixed frame.** `lr-005` is the last frame. It is fixed in advance and is not chosen on any outcome.
 
-**Secondary frame-budget check.** SB, U and A are also run on the first k frames, for k = 1, 3, 5. The frame selection is fixed, not adaptive.
+**Threshold grids:**
+- C: k ∈ {2, 3, 4, 5};
+- A: τ ∈ {0.50, 0.60, 0.70, 0.80, 0.90, 1.00}.
 
-## Measures (per track, on EVAL)
+τ = 1.00 means every valid reading agrees and at least two exist.
 
-- **Recall:** correct text accepted / tracks. For U, a track counts as correct if the truth is in the set.
-- **Incorrect-text acceptance:** tracks with any accepted text that is not the truth, divided by tracks. U also reports the mean number of wrong texts per track.
-- **Precision:** correct / accepted.
-- **Coverage:** accepted / tracks. An abstention is neither correct nor incorrect.
-- **Cost:** OCR invocations per track, and CPU time per track. CPU time is the median of three timed repeats on one machine, with ORT threads fixed.
-- **Reporting:**
-  - Results are reported per stratum, by scenario and by layout.
-  - 95% confidence intervals use a bootstrap that resamples whole plate-text components (2,000 resamples, fixed seed).
-  - Paired policy comparisons use McNemar's test on the same tracks.
+## Threshold selection (DEV only)
 
-## Frozen decision rule (primary comparison: A against U on EVAL)
+The rules are applied separately to each family, C and A:
+1. **Feasible configurations.** A configuration is feasible if its DEV incorrect-text acceptance is ≤ 1.0% of DEV tracks.
+2. **Choosing among feasible ones.** Select the feasible configuration with the highest DEV correct-text recall. Remaining ties are broken by:
+   1. lower incorrect-text acceptance;
+   2. then the stricter threshold (larger k or τ).
+3. **If none is feasible,** the family is **INFEASIBLE** at the target:
+   - its strictest configuration (k = 5 or τ = 1.00) is still scored on EVAL;
+   - it is labelled infeasible and reported descriptively;
+   - it cannot be SUPPORTED.
 
-- **SUPPORTED:**
-  - A's incorrect-text acceptance is lower than U's, and the upper bound of the 95% CI on (A − U) is below 0;
-  - and A's recall loss against U is ≤ 3.0 percentage points, with the CI upper bound ≤ 5.0.
-- **NOT SUPPORTED:**
-  - the wrong-text reduction CI includes 0;
-  - or the recall loss upper bound is > 5.0 percentage points.
-- **INCONCLUSIVE:** anything else, including a repeat mismatch or an inventory failure.
-- C and SB are reported descriptively.
-- A result here informs the O3 aggregation question only. It does not change `summarise_track`, search or any Production profile.
+S1, SB and U have no thresholds.
 
-## Controls and caveats
+## Measures
 
-- **Determinism:** a repeat run must give canonical-equal outputs before any result is read.
-- **Label noise:** the labels are semi-automatic, so some "incorrect" texts may be label errors.
-  - Optional diagnostic: a human check of up to 100 EVAL tracks where A accepted a wrong text at high confidence, against the HR frames. This is small diagnostic labelling (ADR-017) and the result is reported separately.
-  - HR frames are not used as recognition inputs, because the labels were derived from them, which would make the result circular.
-- **Exposure:** the training data of fast-plate-ocr's global model is not documented here and may include Brazilian plates. Absolute accuracy may therefore be optimistic, while policy differences on the same model are less affected.
-- **Scale:** 20,000 tracks × 5 frames is 100,000 CPU OCR calls. At the pilot's per-crop rate this is expected to take well under an hour.
+Every policy is scored on the same EVAL tracks. Abstentions stay in the denominator.
+
+| Measure | Definition |
+|---|---|
+| Correct-text recall | Tracks whose truth text is among the accepted texts ÷ all tracks |
+| Incorrect-text acceptance | Tracks accepting at least one text other than the truth ÷ all tracks |
+| Prediction-level precision | Correct accepted (track, text) pairs ÷ all accepted pairs |
+| Coverage | Tracks with at least one accepted text ÷ all tracks |
+| Wrong texts per track | Accepted non-truth texts ÷ all tracks, together with its distribution (0, 1, ≥ 2) |
+| Cost | OCR calls per track (1 for S1, 5 otherwise), plus CPU ms per track |
+
+**Measure conventions:**
+- **Abstentions.** An abstention is neither correct nor incorrect. It lowers recall and coverage and is never removed from the denominator.
+- **Union.** U can accept a correct and an incorrect text on the same track. That track then counts towards both recall and incorrect-text acceptance.
+- **CPU timing.** CPU time is the median of three timed passes on one machine with ORT threads fixed. Aggregation cost is negligible and is reported as measured.
+
+**Reporting.** Results are reported overall and per scenario/layout stratum.
+
+## Statistics
+
+- **Primary: paired bootstrap over plate-identity groups.**
+  - Resampling unit: whole EVAL groups.
+  - 2,000 resamples, seed `20261018`.
+  - Output: percentile 95% confidence intervals for each paired policy difference on each measure.
+- **Exploratory only:** track-level McNemar tests. Tracks within a group are correlated, so these p-values can overstate confidence.
+
+## Decision rule (fully specified before execution)
+
+### Step 1 — compare each selected, feasible family X ∈ {C\*, A\*} with U
+
+X is **SUPPORTED against U** if both conditions hold:
+1. **Fewer wrong texts.** The upper bound of the 95% CI on (incorrect-text acceptance of X − U) is below 0.
+2. **Recall kept.**
+   - the point estimate of the recall loss (U − X) is ≤ 3.0 percentage points;
+   - and its CI upper bound is ≤ 5.0 percentage points.
+
+### Step 2 — prefer the simpler policy
+
+**If both C\* and A\* are SUPPORTED,** A\* is preferred only if both hold:
+- the paired CI for A\* − C\* favours A\* and excludes 0 on at least one of correct-text recall, incorrect-text acceptance and coverage;
+- and no measure has a CI that favours C\* and excludes 0.
+
+Otherwise C\* is preferred. Equivalent or inconclusive differences resolve to the simpler C, and a higher OCR confidence alone is never a reason.
+
+**If only one of them is SUPPORTED,** that one is preferred.
+
+### Step 3 — outcome
+
+| Outcome | Condition |
+|---|---|
+| **SUPPORTED** | At least one family is SUPPORTED. Report the preferred policy and its configuration |
+| **NOT SUPPORTED** | No family is feasible. Or, for every feasible family, the wrong-text CI includes 0, or the lower CI bound of its recall loss is above 3.0 percentage points |
+| **INCONCLUSIVE** | Every other case. This includes a phase-2 repeat mismatch, an inventory or selection-binding failure, and CIs that meet neither of the conditions above |
+
+**What an outcome can and cannot do:**
+- It informs the O3 aggregation question for the owner and nothing else.
+- It does not change `summarise_track`, search, profiles or Production.
+- It decides no architecture.
+
+## External validation (not a blocker)
+
+The officially annotated test release, 3,000 tracks with text and layout labels, would give a stronger external check. The authorised route is the official request: the signed agreement, e-mailed from a university account to the first author. The owner's team may already have it through its approval.
+
+If an authorised copy is obtained, the frozen `selection.json` policies are scored on it once, with no re-selection. That run gets its own record and must not delay or change this protocol.
+
+## Caveats
+
+- **Label noise.** The labels are semi-automatic, so some "incorrect" texts may be label errors.
+  - Optional diagnostic (ADR-017 small diagnostic labelling): a human check, against the HR frames, of up to 100 EVAL tracks where the preferred policy accepted a wrong text.
+  - It is reported separately and changes no outcome.
+- **No HR inputs.** HR frames are excluded as recognition inputs, because the labels were derived from them.
+- **Model exposure.** fast-plate-ocr's global training data may include Brazilian plates. Absolute accuracy may be optimistic, while policy differences on the same model are less affected.
+- **Scale.** 2 runs of 100,000 CPU OCR calls each. At the pilot's per-crop rate this is expected to take about an hour or less.

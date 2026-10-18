@@ -16,14 +16,10 @@ This record holds counts and hashes only. Dataset bytes, images, plate strings a
   - three Dropbox shared files, linked from that repository's `Dataset_download_links.txt`.
   The share links are not reproduced here.
 - **Not accessed.** Zenodo record 20422103, which is restricted (HTTP 403).
-- **Status.** `RESEARCH-ADMISSIBLE`. The agreement permits academic, non-commercial research. The owner attests the agreement was signed and the data obtained under it. The agent did not see the signed agreement, so the status rests on that attestation.
-
-### Disclosures (2026-10-18)
-
-- **What the owner confirmed.** The owner confirmed academic eligibility, and that the team obtained the data under the official agreement. That confirmation is the only basis for the status above.
-- **What has not been inspected.** Claude did not inspect the signed agreement, the authors' approval or the original download confirmation.
-- **What this record does not establish.** It is not evidence that the authors approved third-party redistribution or re-hosting, and that includes the team mirror the bytes came from. Whether the mirror's hosting is covered by the authors' permission is a matter for the owner and the authors.
-- **Effect.** MAVI holds a local research copy only. Nothing in MAVI re-hosts, shares or redistributes it.
+- **Status.** `RESEARCH-ADMISSIBLE`. **Permission: RESOLVED (owner confirmation, 2026-10-18).** The project owner confirms that LRLPR-26 was obtained with the dataset authors' permission and is used in accordance with the applicable licence agreement for academic, non-commercial research.
+- **Basis of this record.** The owner's confirmation. The agent did not inspect the agreement or any correspondence with the authors, and claims nothing beyond the confirmation.
+- **Earlier wording superseded.** An earlier revision of this record (`792b9f3b`) treated permission as an open question. It is superseded by the owner's confirmation and is not pursued further unless contradictory evidence arises.
+- **Unchanged.** The use restrictions below, the provenance chain, the hashes and the controlled-storage requirements all still apply. MAVI holds a local research copy only and does not redistribute it.
 
 ## Use constraints
 
