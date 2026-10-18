@@ -13,6 +13,26 @@
 
 The DEV phase shows that the frozen decision rule cannot answer the recall half of the question on this OCR. The reason is explained under *Why the run stopped*. The owner decides what happens next.
 
+## Owner decision: v1 closed as METHOD-LIMITED (2026-10-18)
+
+The owner closed v1 as **METHOD-LIMITED / STOPPED BEFORE EVALUATION**. v1 EVAL will not be run.
+
+**Why it is method-limited.** The run passed its integrity checks, but it did not establish a valid comparative aggregation result. The principal failure was the baseline OCR's lack of capability: OC1-S cannot read the LRLPR-26 LR crops.
+
+**What this does not show.** It does not establish that consensus or temporal aggregation is inherently ineffective.
+
+**What stays unchanged:**
+- the frozen protocol, thresholds and outcome (`2c7d4732`), which are not revised retrospectively;
+- the implementation;
+- the DEV selection and the diagnostics;
+- the cold-review findings and corrections;
+- the controlled evidence, manifests and hashes;
+- the DEV/EVAL split.
+
+**State of the EVAL partition.** EVAL annotations were accessed only for split generation and digest verification. EVAL truth was never compared with OCR results or scored.
+
+**The dataset.** LRLPR-26 remains an authorised research dataset.
+
 This record holds aggregate counts only. It contains no plate text, no per-track text and no image.
 
 ## Frozen identities
