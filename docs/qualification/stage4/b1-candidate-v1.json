@@ -1,0 +1,61 @@
+{
+ "id": "b1-nearview-scale-normalised-sharpness-v1",
+ "issue": "hariomahlawat/MAVI#228",
+ "class": "Development-only experiment; not a pipeline profile change; not release-qualified evidence",
+ "frozenBefore": "any B1 candidate outcome (preflight counters, Arm B output or evaluation) was computed",
+ "question": "Does a scale-normalised, model-neutral sharpness assessment, applied only to Vehicle NearView eligibility, make additional O5 oracle-readable ground-truth Tracks evidence-readable in their sealed evidence, without losing currently readable Tracks?",
+ "provenanceOfHypothesis": "Follow-on hypothesis selected from the exploratory sharpness-floor diagnostic (sharpness-study.json f9930bca..., 19/26 readable-but-failing frames reach 0.05 at a fixed 128-px height). Same BDD100K data family; NOT an independent validation population. 19/26 is not a predicted B1 hit count.",
+ "intervention": {
+  "objectClass": "vehicle",
+  "role": "NearView only",
+  "kind": "qualification-only: eligibility for NearView changes; quality_micro, selection_micro and the holder's recorded area are the production scorer's values, unchanged",
+  "metric": "mavi_vision.quality.scoring._normalized_sharpness over the WHOLE resized array (mean |grey gradient| / 64, production formula), where the array is the production crop_region(frame, box) of the decoded video frame",
+  "targetHeightPx": 128,
+  "applyWhen": "native crop height in pixels (rows of crop_region) > 128; otherwise no experimental value exists and only the original sharpness applies (never upscale)",
+  "resizedWidthPx": "max(1, round(nativeWidth * 128 / nativeHeight)) with Python round()",
+  "interpolation": "Pillow Image.resize((width, 128), Image.Resampling.BILINEAR), default reducing_gap (None), on the contiguous uint8 RGB crop; Pillow 11.3.0 (antialiasing triangle filter when downscaling)",
+  "floor": "the release profile's sharpnessFloor (0.05), unchanged",
+  "qualifiedOriginal": "confidence >= confidenceFloor AND sharpness >= sharpnessFloor AND edgeMargin >= edgeMarginFloor AND occlusionIou < occlusionIouCeiling (production rule)",
+  "qualifiedNearB1": "qualifiedOriginal OR (vehicle AND confidence >= confidenceFloor AND edgeMargin >= edgeMarginFloor AND occlusionIou < occlusionIouCeiling AND b1Sharpness is defined AND b1Sharpness >= sharpnessFloor)",
+  "b1Only": "qualifiedNearB1 AND NOT qualifiedOriginal",
+  "selectorRule": "For every candidate the unchanged production EvidenceSelector.observe runs first. Then, only for a b1Only candidate, the unchanged production NearView rule is applied with the holders as they stand: not a near-duplicate of the Representative AND (no NearView holder OR area > holder area * (1 + nearViewGrowth)); the crop is encoded by the unchanged encoder and role cap and held only if admissible. A b1Only candidate never enters Representative qualification, EarlyDiverse or LateDiverse, and is not counted as qualified.",
+  "admittedHolderMarking": "a NearView held from a b1Only candidate is recorded with qualified=false and logged as B1-experiment-admitted, never as release-qualified",
+  "inputsNotUsed": "no ground-truth plate pixels, plate boxes, truth text, OCR or recognition output, and no outcome of any arm"
+ },
+ "unchanged": [
+  "release pipeline profile phase1-detection-tracking-v1 (afb03b6c...) and every threshold in it",
+  "production src/vision/mavi_vision/** code",
+  "Representative qualification, ordering and fallback",
+  "EarlyDiverse and LateDiverse eligibility (original qualification only)",
+  "Person evidence selection",
+  "confidence, edge-margin, occlusion and NearView growth-hysteresis gates",
+  "duplicate/separation rules and resolve()",
+  "JPEG encoder, role byte caps, staging and run-level admission",
+  "ByteTrack tracker and the retained X1 detector streams (no detector inference)"
+ ],
+ "population": {
+  "manifest": "E:/MAVI-Controlled/Stage3/H3-attempt2/derived/derivation-manifest.json sha256 a295809d4e5865017b63fc4edd0b7a049e9e7391527ff008ca43b4f50da86cda (200 sequences, complete)",
+  "detections": "E:/MAVI-Controlled/Benchmarks/stage4-x1/live/detections/*.detections.jsonl, each bound to the X1 live index"
+ },
+ "evaluation": {
+  "primary": "O5 human-reviewed truth 8d1d03b2..., E-A db2656f1... (h_min 32 px), both pinned instruments, frozen Stage-3 association policy; x1_eval.evaluate per arm; accepted baseline 53/79 (E-B b3aa0b4d...)",
+  "historicalControl": "51/77 (AI labels, truth 709a560b...) is NOT the B1 decision population",
+  "trackGain": "oracle-readable GT Track with evidenceReadable false in Arm A and true in Arm B",
+  "trackLoss": "oracle-readable GT Track with evidenceReadable true in Arm A and false in Arm B",
+  "unmeasurable": "a changed Arm-B observation at a frame without a plate label (frozen rule: skipped) can neither gain nor lose; it is counted and reported, never claimed",
+  "ceilingsReported": "observed attainable ceiling from the per-candidate records, not 19/26 and not X1's 51+10"
+ },
+ "stopCriteria": {
+  "preflightNull": "if zero Vehicle candidates over the complete 200 sequences are b1Only (fail original sharpness, pass b1Sharpness, pass every unchanged confidence/edge/occlusion gate), record a null result with counters and hashes and do not run Phase 1",
+  "inventory": "any missing, extra, changed or mismatched input (manifest, video, detections, truth, instruments, code, profile) stops the experiment",
+  "parity": "Arm A must equal the retained X1 baseline (every Track, trajectory, observation and crop SHA-256, 200/200) and its O5 evaluation must equal E-B b3aa0b4d... on every Track's state, usablePlate, oracleReadable and evidenceReadable (53/79); otherwise no candidate result is reported",
+  "controls": "any Person observation change, any Representative change or any trajectory change between Arm A and Arm B is an implementation defect: stop and fix, no result",
+  "repeat": "an independent repeat of each arm must equal the first on canonical decoded records; otherwise the result is invalid"
+ },
+ "decisionRule": {
+  "A_reject": "net Track gain (gains - losses) <= 0, or any loss with net gain <= 1",
+  "C_proposeO3": "losses == 0 AND net gain >= 2 (measured, at labelled frames), with Person/Representative/trajectory controls unchanged",
+  "B_nextHypothesis": "otherwise; names exactly one bounded next hypothesis supported by the per-Track attribution",
+  "invariant": "the frozen P3 verdict 53/79 INADEQUATE is unchanged by any B1 outcome"
+ }
+}
