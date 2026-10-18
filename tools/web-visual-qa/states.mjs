@@ -4211,6 +4211,16 @@ export const STATES = [
     expectText: [...INSPECTOR_LOADED, 'Plate reading pending'], forbidText: ['ZZ00TS0001', 'Consistent readings'],
   },
   {
+    // Plate analysis failed: a reachable readiness state, not a no-plate or
+    // pending result. The source crop remains accepted evidence, but the
+    // UI must not expose any stale or fabricated plate reading.
+    name: 'search-plate-inspecting-failed', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
+    fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
+    api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.failed },
+    expectText: [...INSPECTOR_LOADED, 'Plate reading failed for this run'],
+    forbidText: ['ZZ00TS0001', 'Consistent readings', 'No plate found in the evidence', 'Plate reading pending'],
+  },
+  {
     name: 'search-plate-inspecting-no-plate', path: `/search?objectClass=Vehicle&track=${PLATE_TRACK}`,
     fullWidth: true, archetype: 'investigation', prepare: SHOW_PLATES,
     api: { '/api/tracks': VEHICLE_PAGE, [`/api/tracks/${PLATE_TRACK}`]: PLATE_DETAILS.noPlate },
