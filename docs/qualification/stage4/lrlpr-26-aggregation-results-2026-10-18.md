@@ -8,7 +8,7 @@
 |---|---|
 | Is the run INVALID? | No. Every integrity check passed |
 | Was EVAL scored? | No |
-| Was EVAL truth compared? | No. EVAL truth was never read |
+| Was EVAL truth compared? | No. EVAL truth was never compared with any OCR output or scored. EVAL annotations were read only to build or regenerate the split and to re-verify the annotation digest |
 | Is there a decision? | None of SUPPORTED, NOT SUPPORTED or INCONCLUSIVE is claimed |
 
 The DEV phase shows that the frozen decision rule cannot answer the recall half of the question on this OCR. The reason is explained under *Why the run stopped*. The owner decides what happens next.
@@ -76,7 +76,7 @@ OC1-S read 100,000 LR frames per pass, using the unchanged `FastPlateOcrRecognis
 - **Machine:** Intel64 Family 6 Model 165, 12 logical CPUs, Windows 11, Python 3.12.10, onnxruntime 1.31.0.
 - **ORT settings:** 10 worker processes, each with 1 intra-op and 1 inter-op ORT thread.
 
-Per-call CPU under 10 concurrent workers is about 125 ms. A single-process synthetic probe measured about 45 ms, so contention inflates these figures. Aggregation cost was not measured, because it belongs to the phase-4 scorer, which was not run.
+Per-call CPU under 10 concurrent workers is about 125 ms. A single-process synthetic probe measured about 45 ms (no evidence file retained), so contention probably inflates these figures. Aggregation cost was not measured, because it belongs to the phase-4 scorer, which was not run.
 
 ## Phase 3: DEV selection (10,088 tracks)
 
@@ -109,11 +109,15 @@ These are observed DEV values. They are not EVAL results, and they serve only fo
 **Evidence against it (observed, DEV only):**
 - U's correct-text recall is 1.56% (157/10,088).
 - Only 203 of the 49,789 `ok` DEV frame readings equal the truth exactly. Most readings are 5 or more edits from the truth (37,491).
-- The pipeline is not at fault. This diagnostic ran outside the protocol and is no result: on 300 DEV tracks, the identical OC1-S path read **273/300 `hr-005` frames exactly against 4/300 `lr-005` frames**. The LR crops, with a median of 47×19 px, are below OC1-S's working resolution.
+- *Inferred, not shown:* the shared harness path has no gross defect, and the LR crops are below OC1-S's working resolution.
+  - This rests on a diagnostic outside the protocol, from which no result is drawn. On 300 DEV tracks (every 33rd DEV track; 151 Scenario A, 149 Scenario B), the identical OC1-S path read **273/300 `hr-005` frames exactly, against 4/300 `lr-005` frames**.
+  - The HR agreement is partly circular, because the labels are semi-automatic OCR on the HR frames. It rules out a gross harness defect, but it is not evidence of OC1-S's HR accuracy.
+  - The LR crop median is about 47–49 × 19 px. The 47×19 figure comes from intake validation; the cold review measured 49×19 on a 505-track DEV sample.
+  - The diagnostics ran after `selection.json` was written and before it was committed. The file did not change: the committed copy is byte-equal to it.
 - `diagnostics/hr-vs-lr-pipeline-check.json` and `dev-reading-distance.json` in the evidence store hold aggregate counts only.
 
 **Conclusion this would invalidate.**
-- Recall loss (U − X) can never exceed recall(U), which is about 1.6 percentage points. The recall conditions of step 1 therefore hold for *any* policy, including one that always abstains, whose incorrect-text difference against U would be about −73 percentage points.
+- Recall loss (U − X) can never exceed recall(U), which is about 1.6 percentage points on DEV. On EVAL, the 3.0 and 5.0 point targets could bind only if recall(U) roughly doubled, so the outcome is practically, not mathematically, fixed. The recall conditions of step 1 therefore hold for *any* policy, including one that always abstains, whose incorrect-text difference against U would be about −73 percentage points.
 - Step 1 would return **SUPPORTED** for C\* and A\* by construction, through a floor effect, not because aggregation keeps recognition.
 - The step-2 A\*-vs-C\* comparison would rest on about 10 correct tracks.
 - Reporting that SUPPORTED would mislead the O3 aggregation question.
@@ -122,12 +126,26 @@ These are observed DEV values. They are not EVAL results, and they serve only fo
 - On LR crops, MAVI's union semantics accept a wrong text on about 73% of tracks.
 - Consensus (k = 3) cuts wrong-text acceptance to 0.33%. Even so, most texts that reach consensus are wrong: precision is 21%.
 
-**Smallest corrected experiment (owner decision; each option needs a new protocol revision, frozen before use).**
-1. **Pre-registered recall floor.** Add a gate before EVAL that requires recall(U) on DEV to be at least a stated minimum, so that the 3.0- and 5.0-point targets can bind. A relative recall criterion is a possible alternative. With OC1-S on LR crops the gate fails, and that is itself the finding.
-2. **An LR-capable recogniser.** Rerun the same frozen policies with a recogniser that reads LR crops at a useful rate. Any new model or dependency is subject to the offline-dependency and licence rules, and HR frames stay excluded as inputs.
-3. **EVAL reuse.** EVAL is still unscored and its truth unread, so a corrected protocol can use it once. DEV outcomes for OC1-S are now known: any revision should fix its rule before reading further DEV outcomes, and should disclose that exposure.
+**Continuation options (owner decision).** Each option except the first needs a new protocol revision, frozen before any further DEV reads.
+
+**Outcome-informed knowledge, to be disclosed in any revision.** DEV already shows that C\* and A\* retain only 9/157 (5.7%) and 11/157 (7.0%) of U's correct tracks. Any recall floor or relative-retention criterion chosen now is outcome-informed. EVAL is still unscored, and its truth has never been compared with OCR output, so a corrected protocol can use it once.
+
+1. **Close v1 as method-limited.** The question is not answerable with OC1-S on LRLPR-26 LR crops. EVAL stays unscored and O3 stays open.
+2. **Base-capability gate plus a relative recall criterion.** Add a pre-EVAL gate requiring a minimum DEV recall(U), together with a relative-retention recall criterion, so the targets can bind. With OC1-S on LR crops the gate fails, which is itself the finding.
+3. **A different recogniser that reads LR crops.** Rerun the frozen policies with a recogniser that reads LR crops at a useful rate.
+   - The recogniser must not have been trained on the LRLPR-26 train split. Competition models are therefore contaminated for this population.
+   - Any new model or dependency falls under the offline-dependency and licence rules.
+4. **An established human-labelled multi-frame benchmark** on which OC1-S's per-frame accuracy is non-trivial (ADR-017 reuse-first).
+5. **HR frames as recognition inputs.** HR frames are within OC1-S's working range, but their labels were derived from them by OCR. Wrong texts would be undercounted, so this option must be disclosed as partly circular.
 
 If, once informed, the owner still wants the frozen phase 4 run, it can be executed as is and labelled as a limited run. The floor-effect limitation must then accompany every conclusion drawn from it. The tooling refuses phase 4 unless the run is bound to the committed selection record.
+
+**Process lesson.** The failed assumption, that OC1-S reads LR crops at a non-trivial rate, could have been checked before the freeze with a small DEV probe. The methodology gate fired only after 3 × 100,000 OCR calls. Any future protocol revision includes a base-capability probe before it freezes.
+
+**Known tooling notes for any reuse** (the run's validity is unaffected):
+- `lrlpr26_eval.py` loads EVAL truth before checking the selection SHA; the check should come first.
+- `verify` needs EVAL truth, so it is not a DEV-only backup check.
+- Pool workers reload the model files without re-hashing them.
 
 **Not run:**
 - phase 4, the EVAL scoring with its bootstrap and McNemar;
@@ -155,6 +173,6 @@ The evidence directory, which holds OCR raw texts, stays on controlled storage o
 **Backup verification:**
 - `lrlpr26_read.py verify --inventory` passed on all three passes.
 - `lrlpr26_read.py equal` passed.
-- The selection was recomputed from the backup and is byte-equal.
+- The selection recomputed from the backup is byte-equal. No log of this check was retained. The cold review independently recomputed all 13 DEV configurations from `phase1/records.jsonl.gz`, and they match exactly.
 
 The source data in `E:\MAVI-Controlled\Benchmarks\lrlpr-26\` was read only. Its archive SHA-256 values still match the corrected record.
