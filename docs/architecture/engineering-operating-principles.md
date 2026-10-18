@@ -49,3 +49,12 @@ These principles apply alongside the binding rules in `AGENTS.md` and the accept
     - Two materially similar defects that arise from one assumption require an architectural reassessment, not another local patch.
     - When a timebox expires, reassess the approach. Never weaken an acceptance criterion because a timebox expired.
     - Capability, correctness, security, provenance, offline operation, reproducibility and qualification standards are not reduced for schedule. Reduce scope or redesign before reducing quality.
+
+11. **Agent autonomy and outcome-driven engineering.** Treat capable AI agents as research and engineering collaborators, not merely executors of prescribed methods:
+    - State the objective, necessary context, constraints and verifiable success criteria; let the agent investigate alternatives, select tools and propose its own approach.
+    - Expect agents to challenge the owner's or another AI's assumptions, test baseline feasibility early, and assess proven research, models and implementations before designing new ones. A well-supported disagreement is useful, not disobedience.
+    - Within the authorised scope, allow independent research, suitable subagents, safe reversible diagnostics, implementation, testing and correction. Do not create approval or review loops for routine choices or wording-only changes.
+    - Preserve architecture boundaries, offline operation, access and licence rules, scientific validity, provenance and reproducible evidence. Frozen or protected qualification data and consequential decisions keep their existing safeguards.
+    - The owner retains authority over consequential architecture adoption, Production changes, substantial experiments or resource commitments, irreversible actions and PR merges. Escalate those decisions with evidence and clear alternatives.
+    - Claude Code may lead repository research and implementation; ChatGPT may contribute independent research and critical review. Neither agent's preferred method is authoritative without evidence, and these roles should not prevent useful independent judgment.
+    - Keep prompts and persistent instructions concise. Prefer enforceable tests, hooks and contracts over repeated prose; revisit old agent restrictions as model capabilities improve without silently weakening safeguards.
