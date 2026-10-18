@@ -76,7 +76,9 @@ Dated files under `docs/superpowers/plans/` and task-specific design specs are r
 
 For current Development, Production, dependency packaging and qualification procedures, use the current architecture policy, accepted ADRs and `docs/runbooks/`. When a historical task plan conflicts with a current runbook, the current runbook governs operational procedure.
 
-When two current documents conflict, this order decides, highest first:
+**Cross-cutting agent rules and architectural authority.** Root `AGENTS.md` sets binding engineering safeguards for all work; `CLAUDE.md` is a tool-facing entry point, not a separate source of architectural authority. Accepted ADRs govern their specific architectural decisions. The engineering operating principles govern how work is carried out within those safeguards and decisions. Read task-relevant governing documents rather than every ADR. If two binding requirements appear substantively incompatible, identify the conflict and seek the smallest explicit reconciliation; do not silently ignore one or assume the more permissive text prevails.
+
+When two current documents conflict, this order decides for architectural and procedural documents, highest first; it does not silently waive cross-cutting `AGENTS.md` safeguards:
 
 1. **Accepted ADRs** (`docs/decisions/`) — architectural decisions and invariants. A later ADR that amends an earlier one says so in its header; otherwise both stand.
 2. **Architecture policies and specifications** (`docs/architecture/`) — the dependency/offline policy, the UI/UX specification, topology.
