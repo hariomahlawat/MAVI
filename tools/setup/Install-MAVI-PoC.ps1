@@ -41,7 +41,7 @@ if (-not $PlanOnly) { Assert-MaviAdministrator }
 function Write-MaviPocDisclosure {
     Write-Host ""
     Write-Host "  $(Get-MaviPocDisclosureStatement)" -ForegroundColor Yellow
-    Write-Host "  This installer never produces a P1, P2 or P3 Production installation (ADR-020 §4)." -ForegroundColor Yellow
+    Write-Host "  This installer never produces a P1, P2 or P3 Production installation (ADR-020 section 4)." -ForegroundColor Yellow
     Write-Host ""
 }
 
