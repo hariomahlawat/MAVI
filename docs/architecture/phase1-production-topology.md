@@ -102,6 +102,8 @@ Windows host (Development laptop or the RTX 4090 demonstration host)
     └── plates-onnx-v1 runtime + plates Model Packs (installed; bound in S3)
 ```
 
+Host restriction (owner decision S1-T1, 2026-10-28): only dedicated demonstration machines operated by trusted local users; never a shared multi-user host.
+
 Device policy is ADR-008's, unchanged: `Auto` prefers an installed, intact, bound CUDA Runtime Pack whose GPU answers and otherwise resolves CPU with the reason recorded; explicit `CUDA` fails closed. The resolved device, its reason and every pack's identity and verification status are served by `GET /api/system/deployment` and shown in the UI. Installation: `docs/runbooks/mavi-offline-setup.md`, section "poc-single-host". S1 implementation record: `docs/superpowers/plans/2026-10-28-poc-s1-deployable-v0.md`.
 
 ## Logical-plane mapping
