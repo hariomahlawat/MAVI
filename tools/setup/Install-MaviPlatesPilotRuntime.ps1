@@ -17,7 +17,12 @@ param(
     [string]$Cache = (Join-Path $PSScriptRoot "..\..\vendor\developer-cache\win-x64"),
 
     # Stage the packs from the Stage-4 controlled candidate store instead of the developer cache payloads.
-    [string]$ControlledStore
+    [string]$ControlledStore,
+
+    # Reuse an environment this script installed before (its plates-runtime-install.json binds the same lock) after
+    # `pip check`, instead of refusing the existing destination; the Model Packs are re-staged and re-verified either
+    # way. Install-MAVI-PoC uses this so a rerun repairs rather than fails.
+    [switch]$ReuseVerified
 )
 
 # Disconnected installation from the developer offline cache prepared by
@@ -43,22 +48,35 @@ if ($LASTEXITCODE -ne 0 -or $version -ne "3.12.10") {
 }
 
 $destination = [IO.Path]::GetFullPath($Destination)
-if (Test-Path -LiteralPath $destination) {
-    throw "Refusing to overwrite the existing environment '$destination'."
-}
-& $Python -m venv $destination
-if ($LASTEXITCODE -ne 0) {
-    throw "Virtual environment creation failed."
-}
 $venvPython = Join-Path $destination "Scripts\python.exe"
-
-& $venvPython -m pip install --no-index --find-links $wheelhouse --require-hashes --no-deps -r $lock
-if ($LASTEXITCODE -ne 0) {
-    throw "Offline installation of the plates-onnx-v1 runtime failed."
+$statePath = Join-Path $destination "plates-runtime-install.json"
+$lockSha256 = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+$reused = $false
+if (Test-Path -LiteralPath $destination) {
+    $state = if (Test-Path -LiteralPath $statePath -PathType Leaf) { Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json } else { $null }
+    if (-not $ReuseVerified -or -not $state -or [string]$state.lockSha256 -ne $lockSha256 -or -not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
+        throw "Refusing to overwrite the existing environment '$destination'."
+    }
+    & $venvPython -m pip check
+    if ($LASTEXITCODE -ne 0) {
+        throw "The existing plates-onnx-v1 environment '$destination' is not consistent; remove it and rerun."
+    }
+    $reused = $true
 }
-& $venvPython -m pip check
-if ($LASTEXITCODE -ne 0) {
-    throw "The installed plates-onnx-v1 environment is not consistent."
+else {
+    & $Python -m venv $destination
+    if ($LASTEXITCODE -ne 0) {
+        throw "Virtual environment creation failed."
+    }
+
+    & $venvPython -m pip install --no-index --find-links $wheelhouse --require-hashes --no-deps -r $lock
+    if ($LASTEXITCODE -ne 0) {
+        throw "Offline installation of the plates-onnx-v1 runtime failed."
+    }
+    & $venvPython -m pip check
+    if ($LASTEXITCODE -ne 0) {
+        throw "The installed plates-onnx-v1 environment is not consistent."
+    }
 }
 
 $packTool = Join-Path $repoRoot "tools\vision\plates_pilot_packs.py"
@@ -75,6 +93,17 @@ if ($LASTEXITCODE -ne 0) {
     throw "Plates pilot Model Pack staging failed."
 }
 
-Write-Host "plates-onnx-v1 Development runtime installed offline (Issue #225 pilot; never Production)."
+if (-not $reused) {
+    $utf8 = New-Object Text.UTF8Encoding -ArgumentList $false
+    $stateJson = [ordered]@{
+        schemaVersion = "mavi-plates-runtime-install-v1"
+        runtimeFamily = "plates-onnx-v1"
+        lockSha256 = $lockSha256
+        pythonVersion = $version
+        installedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
+    } | ConvertTo-Json
+    [IO.File]::WriteAllText($statePath, $stateJson + [Environment]::NewLine, $utf8)
+}
+Write-Host ("plates-onnx-v1 Development runtime {0} offline (Issue #225 pilot; never Production)." -f $(if ($reused) { "verified and reused" } else { "installed" }))
 Write-Host "  Python    : $venvPython"
 Write-Host "  Model root: $([IO.Path]::GetFullPath($ModelRoot))"

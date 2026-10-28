@@ -41,6 +41,8 @@ LAUNCH_FAILURE_CODES = frozenset(
     {
         # Repository identity.
         "launch_git_unavailable",
+        "launch_application_overlay_invalid",
+        "launch_device_report_unwritable",
         "launch_repository_head_unknown",
         # Runtime Pack installation and identity.
         "launch_runtime_pack_not_installed",

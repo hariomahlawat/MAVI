@@ -354,6 +354,27 @@ function Test-MaviManifest {
     return $manifest
 }
 
+# The application revision a launcher reports (MAVI_COMMIT_SHA). An installed application overlay
+# (PoC S1: a git-free export of the repository subset the workers read, in the repository layout)
+# carries mavi-application-overlay.json with the exact commit and a SHA-256 for every file; it is
+# verified and is the authority. Without one, the root is a repository checkout and git answers.
+function Resolve-MaviApplicationRevision {
+    param([Parameter(Mandatory = $true)][string]$Root)
+    $overlayManifestPath = Join-Path $Root "mavi-application-overlay.json"
+    if (Test-Path -LiteralPath $overlayManifestPath -PathType Leaf) {
+        $manifest = Test-MaviManifest -Root $Root -ManifestPath $overlayManifestPath -ExpectedSchemaVersion "mavi-application-overlay-v1"
+        $revisionProperty = $manifest.PSObject.Properties["revision"]
+        $revision = if ($revisionProperty) { [string]$revisionProperty.Value } else { "" }
+        if ($revision -notmatch '^[0-9a-f]{40}$') { throw "Application overlay manifest has no valid revision: $overlayManifestPath" }
+        return [pscustomobject]@{ Revision = $revision; Source = "application-overlay" }
+    }
+    $git = Get-Command git.exe -ErrorAction SilentlyContinue
+    if (-not $git) { throw "git.exe is required to identify the application revision of a repository checkout without an application overlay manifest." }
+    $head = (& $git.Source -C $Root rev-parse HEAD 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') { throw "Unable to determine repository HEAD." }
+    return [pscustomobject]@{ Revision = $head; Source = "git" }
+}
+
 function Set-MaviDirectoryAcl {
     param(
         [Parameter(Mandatory = $true)][string]$Path,

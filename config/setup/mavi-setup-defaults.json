@@ -22,5 +22,14 @@
     "httpPort": 8080,
     "installRoot": "C:\\Program Files\\MAVI",
     "programDataRoot": "C:\\ProgramData\\MAVI"
+  },
+  "poc": {
+    "note": "poc-single-host (ADR-020): a proof-of-concept installation, never a Production profile. Install and data roots are Install-MAVI-PoC parameters.",
+    "postgresqlMajorVersion": 18,
+    "postgresqlPort": 55434,
+    "postgresqlServiceName": "MAVI-PoC-PostgreSQL-18",
+    "databaseName": "mavi_poc",
+    "databaseUser": "mavi_app",
+    "httpPort": 8090
   }
 }

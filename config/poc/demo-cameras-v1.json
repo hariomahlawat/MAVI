@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "mavi-poc-demo-cameras-v1",
+  "note": "PoC S1 seed (ADR-020): placeholder camera names only. No media and no scene configuration; S2 supplies the demo clips and the scene geometry for each camera.",
+  "cameras": [
+    { "code": "DEMO-GATE", "name": "Demo gate (placeholder)", "timeZoneId": "Asia/Kolkata" },
+    { "code": "DEMO-JUNCTION", "name": "Demo junction (placeholder)", "timeZoneId": "Asia/Kolkata" },
+    { "code": "DEMO-CARPARK", "name": "Demo car park (placeholder)", "timeZoneId": "Asia/Kolkata" },
+    { "code": "DEMO-PEDESTRIAN", "name": "Demo pedestrian area (placeholder)", "timeZoneId": "Asia/Kolkata" },
+    { "code": "DEMO-LOBBY", "name": "Demo lobby (placeholder)", "timeZoneId": "Asia/Kolkata" }
+  ]
+}

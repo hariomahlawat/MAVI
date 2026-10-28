@@ -31,14 +31,16 @@ describe('the IA map', () => {
       'processing-detail': 'Processing',
       search: 'Search',
       review: 'Search',
+      system: 'About',
       'not-found': null,
     });
   });
 
-  it('groups the rail Operate then Investigate, in workflow order', () => {
+  it('groups the rail Operate, Investigate, then Administer, in workflow order', () => {
     expect(SECTIONS.map((section) => [section.label, section.destinations.map((entry) => entry.label)])).toEqual([
       ['Operate', ['Overview', 'Cameras', 'Videos', 'Import', 'Processing']],
       ['Investigate', ['Search']],
+      ['Administer', ['About']],
     ]);
   });
 
@@ -67,6 +69,7 @@ describe('the IA map', () => {
     expect(labels('search')).toEqual(['Search']);
     expect(labels('review', 'gate.mp4')).toEqual(['Search', 'gate.mp4', 'Review']);
     expect(labels('not-found')).toEqual(['Not found']);
+    expect(labels('system')).toEqual(['About']);
   });
 
   it('makes the root crumb the rail label, links every crumb but the last, and lets Review return to its Investigation', () => {
