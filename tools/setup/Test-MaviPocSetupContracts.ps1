@@ -133,7 +133,7 @@ try {
     # instance first; an explicit adoption on an unsupported GPU is refused; every
     # installed Runtime Pack must load its native code; the operator never inherits
     # elevated processes.
-    if ($install -notmatch 'Set-MaviPrivateDirectoryAcl -Path \(Split-Path \$layout\.ReleaseMetadataPath -Parent\) -ApplicationIdentity "\*S-1-5-11" -ApplicationRights "R"') { throw "The release metadata directory must be administrator-writable only." }
+    if ($install -notmatch 'Set-MaviPrivateDirectoryAcl -Path \$releaseRoot -ApplicationIdentity "\*S-1-5-11" -ApplicationRights "R"' -or $install -notmatch '/setowner "\*S-1-5-32-544"') { throw "The release metadata directory must be administrator-owned and administrator-writable only." }
     $modifyRoots = @($install -split "`n" | Where-Object { $_ -match 'foreach \(\$root in @\(' })
     if ($modifyRoots.Count -ne 1 -or $modifyRoots[0] -match 'ReleaseMetadataPath') { throw "The release metadata directory must not be among the operator-writable roots." }
     if ($install.IndexOf('Stop-MaviPoc.ps1') -lt 0 -or $install.IndexOf('Stop-MaviPoc.ps1') -gt $install.IndexOf('"robocopy.exe"')) { throw "Install-MAVI-PoC must stop a running instance before replacing its files." }
@@ -155,6 +155,32 @@ try {
     if (Test-Path -LiteralPath (Join-Path $records "stale.pid")) { throw "A stale process record must be removed." }
     [IO.File]::WriteAllText((Join-Path $records "legacy.pid"), "$PID")
     if ($null -ne (Get-MaviPocRecordedProcess -Path (Join-Path $records "legacy.pid"))) { throw "A bare process id is not a process record." }
+
+    if ($null -ne (Get-MaviPocRecordedProcess -Path (Join-Path $records "self2.pid") -ExpectedImageName "Mavi.Api")) { throw "A missing record must not match." }
+    Write-MaviPocProcessRecord -Path (Join-Path $records "self3.pid") -Process $self
+    if ($null -ne (Get-MaviPocRecordedProcess -Path (Join-Path $records "self3.pid") -ExpectedImageName "Mavi.Api")) { throw "A record for another image must not be acted on." }
+
+    # --- Stop: stops a recorded worker, removes its record and the device record, and
+    #     leaves alone a process recorded under the wrong image. ---
+    $stopData = Join-Path $tempRoot "stopdata"
+    $stopRun = Join-Path $stopData "run"
+    New-Item -ItemType Directory -Path $stopRun -Force | Out-Null
+    $dummy = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 120") -WindowStyle Hidden -PassThru
+    $bystander = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 120") -WindowStyle Hidden -PassThru
+    try {
+        Write-MaviPocProcessRecord -Path (Join-Path $stopRun "vision-worker.pid") -Process $dummy
+        Write-MaviPocProcessRecord -Path (Join-Path $stopRun "api.pid") -Process $bystander
+        '{"schemaVersion":"mavi-device-resolution-v1"}' | Set-Content -LiteralPath (Join-Path $stopRun "device-resolution.json") -Encoding ascii
+        & (Join-Path $PSScriptRoot "Stop-MaviPoc.ps1") -DataRoot $stopData | Out-Null
+        Start-Sleep -Milliseconds 500
+        if (Get-Process -Id $dummy.Id -ErrorAction SilentlyContinue) { throw "Stop-MaviPoc did not stop the recorded worker." }
+        if (Test-Path -LiteralPath (Join-Path $stopRun "vision-worker.pid")) { throw "Stop-MaviPoc left the worker record." }
+        if (Test-Path -LiteralPath (Join-Path $stopRun "device-resolution.json")) { throw "Stop-MaviPoc left the device record." }
+        if (-not (Get-Process -Id $bystander.Id -ErrorAction SilentlyContinue)) { throw "Stop-MaviPoc stopped a process recorded under another image." }
+    }
+    finally {
+        foreach ($p in @($dummy, $bystander)) { if (Get-Process -Id $p.Id -ErrorAction SilentlyContinue) { Stop-Process -Id $p.Id -Force } }
+    }
 
     # --- Layout roots carry no trailing separator (they are written into .cmd launchers). ---
     $trailing = Get-MaviPocLayout -InstallRoot ((Join-Path $pocRoot "Program") + "\") -DataRoot ((Join-Path $pocRoot "Data") + "\")
@@ -185,6 +211,9 @@ try {
     $ErrorActionPreference = "Stop"
     if ($LASTEXITCODE -eq 0 -or $cudaOutput -notmatch "Device policy CUDA requested") { throw "Explicit CUDA without an installable CUDA pack must fail closed, also in plan-only." }
 
+    # The plan-only CUDA case above exits 1 by design; the caller's shell reports this
+    # script's last exit code.
+    $global:LASTEXITCODE = 0
     Write-Host "MAVI PoC setup contracts passed." -ForegroundColor Green
 }
 finally {

@@ -200,7 +200,13 @@ try {
     }
     # The release metadata is the installer's alone: readable by every user, writable only
     # by administrators, so no local user can rewrite a pack's identity or status.
-    Set-MaviPrivateDirectoryAcl -Path (Split-Path $layout.ReleaseMetadataPath -Parent) -ApplicationIdentity "*S-1-5-11" -ApplicationRights "R"
+    # Owner reset first: a user who created the directory beforehand would otherwise keep
+    # WRITE_DAC as its owner and could grant themselves write access again.
+    $releaseRoot = Split-Path $layout.ReleaseMetadataPath -Parent
+    New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
+    & icacls.exe $releaseRoot /setowner "*S-1-5-32-544" /T /C | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to give Administrators ownership of '$releaseRoot'." }
+    Set-MaviPrivateDirectoryAcl -Path $releaseRoot -ApplicationIdentity "*S-1-5-11" -ApplicationRights "R"
 
     # Vision: the CPU Runtime Pack always; the CUDA one when a compatible GPU is present
     # and a pack is available; then every Model Pack the binding needs. The installers

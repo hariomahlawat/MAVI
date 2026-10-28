@@ -212,7 +212,7 @@ function Assert-MaviPocRuntimeLoads {
     }
     finally { $ErrorActionPreference = $previousPreference }
     if ($exitCode -ne 0) {
-        $hint = if ($output -match "DLL load failed|msvcp140|vcruntime140") { " Install the Microsoft Visual C++ 2015-2022 x64 redistributable on this host, then rerun the installer." } else { "" }
+        $hint = if ($output -match "DLL load failed|msvcp140|vcruntime140|WinError 126|Error loading") { " Install the Microsoft Visual C++ 2015-2022 x64 redistributable on this host, then rerun the installer." } else { "" }
         throw "The Runtime Pack at '$RuntimeRoot' does not load on this host.$hint Diagnostic: $output"
     }
     Write-Host "  $output"
@@ -236,22 +236,31 @@ function Write-MaviPocProcessRecord {
 }
 
 # The recorded process if it is still the one that was started; otherwise the stale record
-# is removed and $null returned.
+# is removed and $null returned. -ExpectedImageName limits a record to the image Start
+# launched for it, so a record pointing anywhere else is never acted on. A process whose
+# start time cannot be read (an elevated process seen from an unelevated session) is
+# returned with the record kept: it may well be MAVI's, and deleting the record would
+# orphan it.
 function Get-MaviPocRecordedProcess {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [string]$ExpectedImageName
+    )
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     $record = $null
     try { $record = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json } catch { $record = $null }
     $process = $null
-    if ($record -and $record.PSObject.Properties["processId"] -and $record.PSObject.Properties["startTimeUtc"]) {
+    if ($record -and $record.PSObject.Properties["processId"] -and $record.PSObject.Properties["startTimeUtc"] -and $record.PSObject.Properties["imageName"] -and
+        (-not $ExpectedImageName -or [string]$record.imageName -eq $ExpectedImageName)) {
         $candidate = Get-Process -Id ([int]$record.processId) -ErrorAction SilentlyContinue
         if ($candidate -and $candidate.ProcessName -eq [string]$record.imageName) {
-            try {
-                $started = $candidate.StartTime.ToUniversalTime()
-                $recorded = [DateTimeOffset]::Parse([string]$record.startTimeUtc).UtcDateTime
-                if ([Math]::Abs(($started - $recorded).TotalSeconds) -lt 2) { $process = $candidate }
+            $started = $null
+            try { $started = $candidate.StartTime.ToUniversalTime() } catch { $started = $null }
+            if ($null -eq $started) {
+                return $candidate
             }
-            catch { $process = $null }
+            $recorded = [DateTimeOffset]::Parse([string]$record.startTimeUtc).UtcDateTime
+            if ([Math]::Abs(($started - $recorded).TotalSeconds) -lt 2) { $process = $candidate }
         }
     }
     if (-not $process) { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue }

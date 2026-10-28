@@ -41,11 +41,12 @@ Write-Host ""
 
 function Get-MaviPocRunningProcess {
     param([Parameter(Mandatory = $true)][string]$Name)
-    Get-MaviPocRecordedProcess -Path (Join-Path $layout.RunRoot "$Name.pid")
+    $image = if ($Name -eq "api") { "Mavi.Api" } else { "powershell" }
+    Get-MaviPocRecordedProcess -Path (Join-Path $layout.RunRoot "$Name.pid") -ExpectedImageName $image
 }
 
 # A start that fails part-way stops what it started, so nothing is left half-running.
-$startedHere = $false
+$startedHere = @()
 try {
 $service = Get-Service -Name ([string]$state.postgresqlServiceName) -ErrorAction SilentlyContinue
 if (-not $service) { throw "PostgreSQL service '$($state.postgresqlServiceName)' is not installed; rerun Install-MAVI-PoC." }
@@ -66,7 +67,7 @@ else {
     $env:MAVI_MACHINE_CONFIG = $layout.MachineConfigPath
     $api = Start-Process -FilePath $apiExe -WorkingDirectory $layout.ApplicationRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $layout.LogRoot "api-$stamp.out.log") -RedirectStandardError (Join-Path $layout.LogRoot "api-$stamp.err.log")
-    $startedHere = $true
+    $startedHere += "api"
     Write-MaviPocProcessRecord -Path (Join-Path $layout.RunRoot "api.pid") -Process $api
 }
 $health = Wait-MaviHealth -BaseUrl $apiBaseUrl -TimeoutSeconds $HealthTimeoutSeconds
@@ -78,7 +79,10 @@ if (Get-MaviPocRunningProcess -Name "vision-worker") {
     Write-MaviSetupStatus -Name "Vision worker" -Status "OK" -Detail "already running"
 }
 else {
-    $previousReport = if (Test-Path -LiteralPath $layout.DeviceResolutionPath -PathType Leaf) { (Get-Item -LiteralPath $layout.DeviceResolutionPath).LastWriteTimeUtc } else { [DateTime]::MinValue }
+    # No worker is running, so no device is resolved: a record left by a run that ended
+    # without Stop (a reboot) must not be shown while this launch is checked.
+    Remove-Item -LiteralPath $layout.DeviceResolutionPath -Force -ErrorAction SilentlyContinue
+    $previousReport = [DateTime]::MinValue
     $launcher = Join-Path $layout.OverlayRoot "tools\setup\Start-MaviVisionWorker.ps1"
     $arguments = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $launcher,
@@ -98,7 +102,7 @@ else {
         -RedirectStandardOutput (Join-Path $layout.LogRoot "vision-worker-$stamp.out.log") -RedirectStandardError (Join-Path $layout.LogRoot "vision-worker-$stamp.err.log")
     # Touching Handle keeps the exit code readable after the process ends (PowerShell 5.1).
     [void]$worker.Handle
-    $startedHere = $true
+    $startedHere += "vision-worker"
     Write-MaviPocProcessRecord -Path (Join-Path $layout.RunRoot "vision-worker.pid") -Process $worker
 
     # The launcher writes the device record once every check has passed, just before the
@@ -146,8 +150,9 @@ if ([string]$deployment.profile -ne (Get-MaviPocProfile) -or [bool]$deployment.p
 Write-MaviSetupStatus -Name "Disclosure" -Status "OK" -Detail "$($deployment.profile); not Production-qualified; evidence $($deployment.evidenceClass)"
 }
 catch {
-    if ($startedHere) {
-        & (Join-Path $PSScriptRoot "Stop-MaviPoc.ps1") -DataRoot $layout.DataRoot
+    # Only what this start launched; an instance that was already running is left alone.
+    if ($startedHere.Count -gt 0) {
+        & (Join-Path $PSScriptRoot "Stop-MaviPoc.ps1") -DataRoot $layout.DataRoot -Only $startedHere
     }
     throw
 }
