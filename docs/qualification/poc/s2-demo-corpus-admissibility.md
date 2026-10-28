@@ -276,7 +276,7 @@ Each change saved a new scene revision. The runs went `Stale`, and the importer'
 | Vehicle in a `Restricted` zone, stationary ≥ 30 s | Tracks | Vehicles present in the zone whose **longest stationary period anywhere** reached 30 s | Vehicles present in the zone that never stood that long |
 
 Notes on the definitions:
-- **Zone entry.** Tracks that start inside the zone are in neither set. The aggregate's entry-*event* count is reported separately, as `entryEvents`.
+- **Zone entry.** Tracks that start inside the zone are in neither set. A zero-length entry visit would count as entered without counting as present in the aggregate, so it could fall in both sets. That case is not expected in practice. The aggregate's entry-*event* count is reported separately, as `entryEvents`.
 - **Stationary.** The query cannot show that the vehicle stood *inside* the zone, because `minStationaryMs` filters the Track's longest stationary period. The 30 s value was **chosen after the first audit**, so accepting it is **owner decision 10**.
 
 An event is *demonstrable* only when both sets are non-empty. The numbers are pipeline output for one run each. They are not counts of real objects; no ground truth exists.
@@ -310,7 +310,7 @@ An event is *demonstrable* only when both sets are non-empty. The numbers are pi
 
 **Findings.**
 - **Zone entry and two-direction crossing** are demonstrable on s2-01, s2-02, s2-03, s2-04, s2-07 and s2-12. Zone entry alone is demonstrable on s2-06, s2-09 and s2-10.
-- **Person loitering** is demonstrable **once**, and weakly: s2-09 upper bays, at 90 s, 1 / 1. That threshold came from the predeclared cap, not from reading the output. Elsewhere people pass through: no person dwelled ≥ 30 s in any other zone, and the longest dwell in the street clips is 20 s (s2-01 corner).
+- **Person loitering** is demonstrable **once**, and weakly: s2-09 upper bays, at 90 s, 1 / 1. That threshold came from the predeclared cap, not from reading the output. Elsewhere people pass through: no person dwelled ≥ 30 s in any other zone, and the longest dwell in the street clips is between 20 and 30 s (s2-01 corner: one person ≥ 20 s, none ≥ 30 s).
 - **Vehicle in a restricted zone, stationary ≥ 30 s**, with the query semantics above, is demonstrable only on s2-05 (3 / 20).
 - **No usable event** on s2-08 (overhead, 0 Tracks) or s2-11 (hallway). On s2-11 the 20 person Tracks stay far down the corridor, and the near zone and line are never reached. The geometry was **not** moved after reading the output; see decision 6.
 - **No demonstrable crossing** on s2-05, s2-06, s2-09 or s2-10: Tracks are few, or none crosses in both directions.
@@ -327,7 +327,7 @@ An event is *demonstrable* only when both sets are non-empty. The numbers are pi
 | 6 | **s2-11 (hallway) has no usable event.** Options:<br>(a) allow one disclosed geometry redraw over the far corridor;<br>(b) keep it as a face and cross-camera view only. | B1 | (b) for S2, revisit in S6 |
 | 7 | **The car-park class is met by s2-09** (MEVA G424), which has little through-traffic. Accept it, or ask for a busier lot slot. | B1 | Accept |
 | 8 | **B4 closes only after the S2 import runs on a kit install** (`Install-MAVI-PoC`, S1). S1 must also seed `config/poc/demo-cameras-v1.json` equal to `tools/poc/demo-corpus/demo-cameras-v1.json`. The hand-over has been sent, and a test enforces it once both files are on one branch. | B4 | — |
-| 9 | **MEVID label reuse**, recorded after the files were read (§7). Keep the read-only cross-camera statistics, or drop them and cite only the paper's design statement. | B1, B5 | Keep |
+| 9 | **MEVID label reuse**, recorded after the files were read (§7). Keep the read-only cross-camera statistics, or drop them and cite only the paper's design statement. B5 is unaffected either way, because reuse creates no label. | B1 | Keep |
 | 10 | **Accept the post-hoc 30 s value** for the stationary-vehicle demonstration (§8), or choose another value before any further reading. | B1 | Accept, disclosed |
 
 ## 10. Evidence for the MEVA addition and the audit (retained outside Git)
