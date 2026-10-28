@@ -133,7 +133,15 @@ try {
     # instance first; an explicit adoption on an unsupported GPU is refused; every
     # installed Runtime Pack must load its native code; the operator never inherits
     # elevated processes.
-    if ($install -notmatch '/reset /T /C') { throw "Files already inside the release directory must have their ACLs reset." }
+    if ($install -match '/T /C' -or $install -match '/reset') { throw "The installer must not change ACLs or owners recursively." }
+    if ($install -notmatch 'Assert-MaviPocNoReparsePoint -Path \$releaseRoot -Recurse') { throw "The release directory must be refused when it is or contains a reparse point." }
+    $junctionRoot = Join-Path $tempRoot "junction"
+    New-Item -ItemType Directory -Path (Join-Path $junctionRoot "release"), (Join-Path $junctionRoot "target") -Force | Out-Null
+    & cmd.exe /c mklink /J (Join-Path $junctionRoot "release\link") (Join-Path $junctionRoot "target") | Out-Null
+    Assert-Throws { Assert-MaviPocNoReparsePoint -Path (Join-Path $junctionRoot "release") -Recurse } "junction or symbolic link" "A release directory containing a junction"
+    Assert-Throws { Assert-MaviPocNoReparsePoint -Path (Join-Path $junctionRoot "release\link") } "junction or symbolic link" "A directory that is a junction"
+    Assert-MaviPocNoReparsePoint -Path (Join-Path $junctionRoot "target") -Recurse
+    & cmd.exe /c rmdir (Join-Path $junctionRoot "release\link") | Out-Null
     if ($install -notmatch 'Set-MaviPrivateDirectoryAcl -Path \$releaseRoot -ApplicationIdentity "\*S-1-5-11" -ApplicationRights "R"' -or $install -notmatch '/setowner "\*S-1-5-32-544"') { throw "The release metadata directory must be administrator-owned and administrator-writable only." }
     $modifyRoots = @($install -split "`n" | Where-Object { $_ -match 'foreach \(\$root in @\(' })
     if ($modifyRoots.Count -ne 1 -or $modifyRoots[0] -match 'ReleaseMetadataPath') { throw "The release metadata directory must not be among the operator-writable roots." }

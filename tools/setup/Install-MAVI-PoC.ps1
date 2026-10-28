@@ -196,23 +196,23 @@ try {
     # The operator starts MAVI unelevated (Start-MAVI-PoC.cmd); the platform and the worker
     # write media, evidence, logs, process records and the device record as that user.
     foreach ($root in @($layout.MediaRoot, $layout.EvidenceRoot, $layout.RunRoot, $layout.LogRoot)) {
+        Assert-MaviPocNoReparsePoint -Path $root
         Set-MaviDirectoryAcl -Path $root -Identity "*S-1-5-11" -Rights "M"
     }
     # The release metadata is the installer's alone: readable by every user, writable only
     # by administrators, so no local user can rewrite a pack's identity or status.
-    # Owner reset first: a user who created the directory beforehand would otherwise keep
-    # WRITE_DAC as its owner and could grant themselves write access again.
+    # The installer regenerates everything in it, so the directory is emptied first (a file
+    # planted beforehand with its own explicit grant cannot survive), then its owner is reset
+    # (a user who created it would otherwise keep WRITE_DAC) and its ACL set. No recursive
+    # icacls: a junction under it, or the directory itself being one, is refused before
+    # anything is changed, so the elevated installer never rewrites permissions elsewhere.
     $releaseRoot = Split-Path $layout.ReleaseMetadataPath -Parent
+    Assert-MaviPocNoReparsePoint -Path $releaseRoot -Recurse
     New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
-    & icacls.exe $releaseRoot /setowner "*S-1-5-32-544" /T /C | Out-Null
+    Get-ChildItem -LiteralPath $releaseRoot -Force | Remove-Item -Recurse -Force
+    & icacls.exe $releaseRoot /setowner "*S-1-5-32-544" /C | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Failed to give Administrators ownership of '$releaseRoot'." }
     Set-MaviPrivateDirectoryAcl -Path $releaseRoot -ApplicationIdentity "*S-1-5-11" -ApplicationRights "R"
-    # Anything already inside (a file planted with its own explicit grant) is reset to inherit
-    # the directory's ACL, so the metadata written next carries no grant but these.
-    if (@(Get-ChildItem -LiteralPath $releaseRoot -Force).Count -gt 0) {
-        & icacls.exe (Join-Path $releaseRoot "*") /reset /T /C | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Failed to reset the ACLs inside '$releaseRoot'." }
-    }
 
     # Vision: the CPU Runtime Pack always; the CUDA one when a compatible GPU is present
     # and a pack is available; then every Model Pack the binding needs. The installers

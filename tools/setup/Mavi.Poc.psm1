@@ -235,13 +235,37 @@ function Write-MaviPocProcessRecord {
     [IO.File]::WriteAllText($Path, ($record | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding -ArgumentList $false))
 }
 
+# The elevated installer changes ACLs and owners only on its own directories. A directory
+# that is (or, with -Recurse, contains) a junction or symbolic link could redirect that to
+# any other tree, so it is refused before anything is changed; its existing ancestors are
+# checked too.
+function Assert-MaviPocNoReparsePoint {
+    param([Parameter(Mandatory = $true)][string]$Path, [switch]$Recurse)
+    $current = [IO.Path]::GetFullPath($Path)
+    while ($current) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Refusing '$current': it is a junction or symbolic link." }
+        }
+        $parent = Split-Path $current -Parent
+        if ([string]::IsNullOrEmpty($parent) -or $parent -eq $current) { break }
+        $current = $parent
+    }
+    if ($Recurse -and (Test-Path -LiteralPath $Path -PathType Container)) {
+        $links = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -Attributes ReparsePoint -ErrorAction Stop)
+        if ($links.Count -gt 0) { throw "Refusing '$Path': it contains a junction or symbolic link ($($links[0].FullName))." }
+    }
+}
+
 # The recorded process if it is still the one that was started; otherwise the stale record
 # is removed and $null returned. The identity comes from WMI (Win32_Process), which any
 # user can read for every process, elevated or SYSTEM ones included: the image must be the
 # one Start launched for this record (-ExpectedImageName), the creation time must be the
-# recorded start time, and -ExpectedCommandFragment must appear in the command line
-# wherever that is readable (always for the operator's own processes and for an elevated
-# caller), so a record pointed at someone else's process is never acted on.
+# recorded start time, and -ExpectedCommandFragment must appear in the command line where
+# that is readable (always for the operator's own processes and for an elevated caller).
+# An unreadable command line (another user's protected process, seen unelevated) is not
+# checked; Stop's taskkill is then denied and reported. When WMI cannot answer at all, a
+# live process keeps its record (it may be MAVI's) and is returned unverified.
 function Get-MaviPocRecordedProcess {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -257,6 +281,10 @@ function Get-MaviPocRecordedProcess {
         $processId = [int]$record.processId
         $candidate = Get-Process -Id $processId -ErrorAction SilentlyContinue
         $wmi = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$processId" -ErrorAction SilentlyContinue
+        if ($candidate -and -not $wmi -and $candidate.ProcessName -eq [string]$record.imageName) {
+            Write-Warning "WMI could not describe process $processId; keeping its record unverified."
+            return $candidate
+        }
         if ($candidate -and $wmi -and $candidate.ProcessName -eq [string]$record.imageName -and $wmi.CreationDate) {
             $started = ([DateTime]$wmi.CreationDate).ToUniversalTime()
             $recorded = [DateTimeOffset]::Parse([string]$record.startTimeUtc).UtcDateTime
@@ -270,4 +298,4 @@ function Get-MaviPocRecordedProcess {
     return $process
 }
 
-Export-ModuleMember -Function Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras
+Export-ModuleMember -Function Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras
