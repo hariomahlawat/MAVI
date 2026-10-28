@@ -202,6 +202,24 @@ try {
         foreach ($p in @($dummy, $bystander)) { if (Get-Process -Id $p.Id -ErrorAction SilentlyContinue) { Stop-Process -Id $p.Id -Force } }
     }
 
+    # --- Visual C++ x64 runtime: shipped and installed before any Vision Runtime Pack. ---
+    if (Test-MaviPocVcRuntimeSatisfied -Installed $null) { throw "An absent VC++ runtime must not satisfy the minimum." }
+    $vc = { param($installed, $major, $minor, $bld) [pscustomobject]@{ Installed = $installed; Major = $major; Minor = $minor; Bld = $bld } }
+    if (Test-MaviPocVcRuntimeSatisfied -Installed (& $vc 1 14 40 33810)) { throw "VC++ 14.40 must not satisfy the 14.44 minimum." }
+    if (Test-MaviPocVcRuntimeSatisfied -Installed (& $vc 0 14 51 36247)) { throw "A runtime not marked installed must not satisfy the minimum." }
+    if (-not (Test-MaviPocVcRuntimeSatisfied -Installed (& $vc 1 14 44 35211))) { throw "VC++ 14.44.35211 must satisfy the minimum." }
+    if (-not (Test-MaviPocVcRuntimeSatisfied -Installed (& $vc 1 14 51 36247))) { throw "A newer VC++ runtime must satisfy the minimum." }
+    $unsigned = Join-Path $tempRoot "vc_redist.x64.exe"
+    [IO.File]::WriteAllText($unsigned, "not an installer")
+    Assert-Throws { Assert-MaviPocVcRedistInstaller -Path $unsigned } "Microsoft-signed" "An unsigned redistributable"
+    $vcInstall = $install.IndexOf("Install-MaviPocVcRuntime -InstallerPath")
+    if ($vcInstall -lt 0 -or $vcInstall -gt $install.IndexOf("& `$installRuntime")) { throw "The VC++ runtime must be installed before any Vision Runtime Pack." }
+    $builder = Get-Content -LiteralPath (Join-Path $PSScriptRoot "New-MaviPocSetupBundle.ps1") -Raw
+    if ($builder -notmatch 'prerequisites\\vcredist\\win-x64\\vc_redist\.x64\.exe' -or $builder -notmatch 'Assert-MaviPocVcRedistInstaller') { throw "The bundle must carry the verified VC++ redistributable." }
+    # The composition comes from the packaged revision, never from the preparer's checkout.
+    if ($builder -match 'Join-Path \$repoRoot "src\\vision\\config' -or $builder -match 'Join-Path \$repoRoot "config\\dependencies') { throw "The bundle builder must read the binding and catalogue from the exported revision." }
+    if ($builder.IndexOf('archive --format=tar') -gt $builder.IndexOf('phase1-bindings-v2.json')) { throw "The revision must be exported before its binding is read." }
+
     # --- Layout roots carry no trailing separator (they are written into .cmd launchers). ---
     $trailing = Get-MaviPocLayout -InstallRoot ((Join-Path $pocRoot "Program") + "\") -DataRoot ((Join-Path $pocRoot "Data") + "\")
     if ($trailing.DataRoot.EndsWith("\") -or $trailing.InstallRoot.EndsWith("\")) { throw "Layout roots must not end with a separator." }

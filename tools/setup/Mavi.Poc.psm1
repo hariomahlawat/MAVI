@@ -196,10 +196,8 @@ function Read-MaviPocDemoCameras {
 }
 
 # A Runtime Pack is installed only when its native code loads on this host: torch and
-# an mmcv native op are imported in the installed runtime. On a clean Windows machine the
-# usual failure is the absent Visual C++ 2015-2022 x64 redistributable, which the kit does
-# not carry yet; the installer then fails closed and says so (dependency policy
-# vcredist-win-x64) instead of leaving a worker that cannot start.
+# an mmcv native op are imported in the installed runtime, after the bundled Visual C++
+# runtime is in place, so a worker that cannot start is never left behind.
 function Assert-MaviPocRuntimeLoads {
     param([Parameter(Mandatory = $true)][string]$RuntimeRoot)
     $python = Join-Path $RuntimeRoot "venv\Scripts\python.exe"
@@ -212,10 +210,65 @@ function Assert-MaviPocRuntimeLoads {
     }
     finally { $ErrorActionPreference = $previousPreference }
     if ($exitCode -ne 0) {
-        $hint = if ($output -match "DLL load failed|msvcp140|vcruntime140|WinError 126|Error loading") { " Install the Microsoft Visual C++ 2015-2022 x64 redistributable on this host, then rerun the installer." } else { "" }
+        $hint = if ($output -match "DLL load failed|msvcp140|vcruntime140|WinError 126|Error loading") { " A native library did not load; the installer installs the bundled Visual C++ x64 redistributable first, so check its result in the log." } else { "" }
         throw "The Runtime Pack at '$RuntimeRoot' does not load on this host.$hint Diagnostic: $output"
     }
     Write-Host "  $output"
+}
+
+# The Visual C++ 2015-2022 x64 runtime the Vision Runtime Packs load (torch, mmcv native
+# ops; built with MSVC 14.44). Shipped in the PoC bundle and installed by the installer when
+# the machine has none, or an older one, so a clean host needs nothing beforehand.
+$script:VcRuntimeMinimum = [version]"14.44.0.0"
+
+function Get-MaviPocVcRuntimeMinimum { $script:VcRuntimeMinimum }
+
+# The installer the bundle carries: Microsoft-signed, a 14.x product version at least the
+# minimum. Returns its version and SHA-256.
+function Assert-MaviPocVcRedistInstaller {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $signature = Get-AuthenticodeSignature -FilePath $Path
+    if ($signature.Status -ne "Valid" -or $signature.SignerCertificate.Subject -notmatch '^CN=Microsoft Corporation,') {
+        throw "'$Path' is not a valid Microsoft-signed installer ($($signature.Status))."
+    }
+    $productVersion = [string](Get-Item -LiteralPath $Path).VersionInfo.ProductVersion
+    $parsed = $null
+    if (-not [version]::TryParse($productVersion, [ref]$parsed) -or $parsed.Major -ne 14 -or $parsed -lt $script:VcRuntimeMinimum) {
+        throw "'$Path' is version '$productVersion'; the Vision runtimes need the 14.x redistributable, at least $($script:VcRuntimeMinimum)."
+    }
+    [pscustomobject]@{ ProductVersion = $productVersion; Sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+}
+
+# Whether the installed runtime (HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64:
+# Installed, Major, Minor, Bld) satisfies the minimum. $Installed is that key's values, or
+# $null when the key is absent.
+function Test-MaviPocVcRuntimeSatisfied {
+    param([AllowNull()]$Installed)
+    if ($null -eq $Installed) { return $false }
+    foreach ($name in @("Installed", "Major", "Minor", "Bld")) {
+        if (-not $Installed.PSObject.Properties[$name]) { return $false }
+    }
+    if ([int]$Installed.Installed -ne 1) { return $false }
+    $version = New-Object Version ([int]$Installed.Major), ([int]$Installed.Minor), ([int]$Installed.Bld), 0
+    return $version -ge $script:VcRuntimeMinimum
+}
+
+function Get-MaviPocInstalledVcRuntime {
+    Get-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" -ErrorAction SilentlyContinue
+}
+
+# Installs the bundled redistributable unless a sufficient runtime is already there.
+function Install-MaviPocVcRuntime {
+    param([Parameter(Mandatory = $true)][string]$InstallerPath)
+    if (Test-MaviPocVcRuntimeSatisfied -Installed (Get-MaviPocInstalledVcRuntime)) { return "already-present" }
+    [void](Assert-MaviPocVcRedistInstaller -Path $InstallerPath)
+    $process = Start-Process -FilePath $InstallerPath -ArgumentList @("/install", "/quiet", "/norestart") -Wait -PassThru
+    # 1638: a newer version is installed; 3010: installed, restart pending.
+    if ($process.ExitCode -notin @(0, 1638, 3010)) { throw "The Visual C++ redistributable installer failed with exit code $($process.ExitCode)." }
+    if (-not (Test-MaviPocVcRuntimeSatisfied -Installed (Get-MaviPocInstalledVcRuntime))) {
+        throw "The Visual C++ x64 runtime is still below $($script:VcRuntimeMinimum) after installing the bundled redistributable."
+    }
+    return "installed"
 }
 
 # Process records for what Start-MaviPoc started. A bare process id is not enough: MAVI
@@ -335,4 +388,4 @@ function Get-MaviPocRecordedProcess {
     return $process
 }
 
-Export-ModuleMember -Function Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras
+Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras

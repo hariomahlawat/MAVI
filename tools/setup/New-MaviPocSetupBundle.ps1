@@ -21,7 +21,11 @@ param(
     # from a `git archive` of this commit, so uncommitted changes never ship.
     [string]$Revision = "HEAD",
     # Working directory for the export and the publish (never C:).
-    [string]$WorkRoot
+    [string]$WorkRoot,
+    # The Microsoft Visual C++ 2015-2022 x64 redistributable (vc_redist.x64.exe) the Vision
+    # runtimes need (torch, mmcv native ops). Defaults to the binary kit's
+    # vendor\installers\win-x64\vc_redist.x64.exe; required when the kit has none.
+    [string]$VcRedistInstaller
 )
 
 # Assembles the PoC setup bundle (PoC S1; ADR-020), MAVI-PoC-Setup\:
@@ -30,6 +34,7 @@ param(
 #                  with mavi-application-overlay.json (revision + per-file SHA-256)
 #   application\api\  the published platform (API + UI, app-local FFmpeg from the kit)
 #   prerequisites\postgresql\pg18\win-x64\  and  prerequisites\hosting\win-x64\  (from the kit)
+#   prerequisites\vcredist\win-x64\vc_redist.x64.exe  (Microsoft-signed, version 14.x)
 #   vision\runtime\<variant>\, vision\models\<packDirectory>\
 #   plates\python-plates-pilot-wheelhouse\, plates\plates-pilot-payloads\
 #   smoke\ (optional)
@@ -54,65 +59,6 @@ if ([string]::IsNullOrWhiteSpace($BinaryKitRoot)) { throw "The PoC bundle needs 
 $BinaryKitRoot = (Resolve-Path -LiteralPath $BinaryKitRoot).Path
 & (Join-Path $PSScriptRoot "Test-MaviOfflineBinaryKit.ps1") -KitRoot $BinaryKitRoot
 
-# The PoC bundle takes four things from the kit: the PostgreSQL runtime pack (with pgvector
-# and pg_trgm), FFmpeg and the ASP.NET Core Hosting Bundle. Their catalogue entries must be
-# exactly the repository's. The kit's developer caches are not shipped, so their freshness
-# (the Development setup's staleness check) does not bear on this bundle.
-$repoCatalog = Read-MaviJson -Path (Join-Path $repoRoot "config\dependencies\offline-binary-catalog-v1.json")
-$kitCatalog = Read-MaviJson -Path (Join-Path $BinaryKitRoot "catalog\offline-binary-catalog-v1.json")
-foreach ($componentId in @("postgresql-win-x64", "pgvector-pg18-win-x64", "ffmpeg-win-x64", "dotnet-hosting-win-x64")) {
-    $repoEntry = @($repoCatalog.applicationAndSetup | Where-Object { $_.id -eq $componentId })
-    $kitEntry = @($kitCatalog.applicationAndSetup | Where-Object { $_.id -eq $componentId })
-    if ($repoEntry.Count -ne 1 -or $kitEntry.Count -ne 1 -or ($repoEntry[0] | ConvertTo-Json -Depth 8 -Compress) -ne ($kitEntry[0] | ConvertTo-Json -Depth 8 -Compress)) {
-        throw "MAVI-Offline-Binary-Kit is stale for the PoC bundle: catalogue entry '$componentId' differs from the repository. Rebuild the kit."
-    }
-}
-$postgresPack = Join-Path $BinaryKitRoot "vendor\postgresql\pg18\win-x64"
-$postgresManifest = Test-MaviManifest -Root $postgresPack -ManifestPath (Join-Path $postgresPack "manifest.json") -ExpectedSchemaVersion "mavi-postgresql-runtime-pack-v1"
-$postgresFiles = @($postgresManifest.artifacts | ForEach-Object { [string]$_.relativePath })
-foreach ($required in @("share/extension/pg_trgm.control", "lib/pg_trgm.dll", "share/extension/vector.control")) {
-    if (@($postgresFiles | Where-Object { $_ -like "*$required" }).Count -eq 0) { throw "The kit's PostgreSQL runtime pack lacks $required." }
-}
-$ffmpegPack = Join-Path $BinaryKitRoot "vendor\ffmpeg"
-[void](Test-MaviManifest -Root $ffmpegPack -ManifestPath (Join-Path $ffmpegPack "manifest.json"))
-$hostingBundle = Join-Path $BinaryKitRoot "vendor\installers\win-x64\dotnet-hosting.exe"
-if (-not (Test-Path -LiteralPath $hostingBundle -PathType Leaf)) { throw "The kit has no ASP.NET Core Hosting Bundle." }
-
-# Vision composition: the binding decides what is shipped (ADR-014), as in Setup.
-$binding = Read-MaviJson -Path (Join-Path $repoRoot "src\vision\config\components\phase1-bindings-v2.json")
-$variants = $binding.runtimePacks[0].variants
-function Resolve-MaviPocRuntimeSource {
-    param([string]$Root, [string]$Variant)
-    $candidate = [IO.Path]::GetFullPath($Root)
-    if (-not (Test-Path -LiteralPath (Join-Path $candidate "runtime-pack-manifest.json") -PathType Leaf)) { $candidate = Join-Path $candidate $Variant }
-    $manifestPath = Join-Path $candidate "runtime-pack-manifest.json"
-    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "No $Variant Runtime Pack manifest under '$Root'." }
-    $manifest = Read-MaviJson -Path $manifestPath
-    $expected = [string]$variants.$Variant.runtimePackId
-    if ([string]$manifest.runtimePackId -ne $expected -or [string]$manifest.platformVariant -ne $Variant) {
-        throw "The $Variant Runtime Pack at '$candidate' is '$($manifest.runtimePackId)'; the binding names '$expected'."
-    }
-    return $candidate
-}
-$cpuSource = Resolve-MaviPocRuntimeSource -Root $VisionRuntimeCpuSource -Variant "windows-x86_64-cpu"
-$cudaSource = if ($VisionRuntimeCudaSource) { Resolve-MaviPocRuntimeSource -Root $VisionRuntimeCudaSource -Variant "windows-x86_64-cuda" } else { $null }
-$boundModelPackIds = @($binding.capabilityBindings | Where-Object { $_.roleId -eq "vision" -and $_.enabled } | ForEach-Object { [string]$_.modelPackId } | Sort-Object -Unique)
-$modelSources = @{}
-foreach ($root in $ModelPackSource) {
-    $full = [IO.Path]::GetFullPath($root)
-    $manifest = Read-MaviJson -Path (Join-Path $full "model-pack-manifest.json")
-    $modelSources[[string]$manifest.modelPackId] = $full
-}
-foreach ($id in $boundModelPackIds) { if (-not $modelSources.ContainsKey($id)) { throw "Bound Model Pack '$id' was not supplied." } }
-foreach ($id in $modelSources.Keys) { if ($boundModelPackIds -notcontains $id) { throw "Model Pack '$id' is not bound for role vision; it would not be used." } }
-
-if ([string]::IsNullOrWhiteSpace($PlatesCache)) { $PlatesCache = Join-Path $BinaryKitRoot "vendor\developer-cache\win-x64" }
-$PlatesCache = [IO.Path]::GetFullPath($PlatesCache)
-foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads")) {
-    if (-not (Test-Path -LiteralPath (Join-Path $PlatesCache $name) -PathType Container)) { throw "The plates cache '$PlatesCache' has no $name\ (Prepare-MaviDeveloperOfflineCache.ps1)." }
-}
-if ($SmokeClip -and [string]::IsNullOrWhiteSpace($SmokeClipLicence)) { throw "A shipped smoke clip needs -SmokeClipLicence (CC0 / CC-BY attribution text)." }
-
 $destination = [IO.Path]::GetFullPath($Destination)
 if (Test-Path -LiteralPath $destination) {
     if (@(Get-ChildItem -LiteralPath $destination -Force).Count -gt 0) { throw "Destination '$destination' is not empty." }
@@ -129,7 +75,9 @@ function Copy-MaviPocTree {
 }
 
 try {
-    # 1. One export of the exact commit; both the publish and the overlay come from it.
+    # 1. One export of the exact commit, first: the publish and the overlay come from it, and so
+    #    does every composition input (component binding, binary catalogue), so the bundle never
+    #    depends on the preparer's checkout.
     $export = Join-Path $WorkRoot "source"
     New-Item -ItemType Directory -Path $export -Force | Out-Null
     $archive = Join-Path $WorkRoot "source.tar"
@@ -138,6 +86,68 @@ try {
     # Windows bsdtar explicitly: a GNU tar earlier on PATH (Git for Windows) reads "E:" as a remote host.
     & (Join-Path $env:SystemRoot "System32\tar.exe") -xf $archive -C $export
     if ($LASTEXITCODE -ne 0) { throw "Extracting the source archive failed." }
+
+    # The PoC bundle takes four things from the kit: the PostgreSQL runtime pack (with pgvector
+    # and pg_trgm), FFmpeg and the ASP.NET Core Hosting Bundle. Their catalogue entries must be
+    # exactly the repository's. The kit's developer caches are not shipped, so their freshness
+    # (the Development setup's staleness check) does not bear on this bundle.
+    $repoCatalog = Read-MaviJson -Path (Join-Path $export "config\dependencies\offline-binary-catalog-v1.json")
+    $kitCatalog = Read-MaviJson -Path (Join-Path $BinaryKitRoot "catalog\offline-binary-catalog-v1.json")
+    foreach ($componentId in @("postgresql-win-x64", "pgvector-pg18-win-x64", "ffmpeg-win-x64", "dotnet-hosting-win-x64")) {
+        $repoEntry = @($repoCatalog.applicationAndSetup | Where-Object { $_.id -eq $componentId })
+        $kitEntry = @($kitCatalog.applicationAndSetup | Where-Object { $_.id -eq $componentId })
+        if ($repoEntry.Count -ne 1 -or $kitEntry.Count -ne 1 -or ($repoEntry[0] | ConvertTo-Json -Depth 8 -Compress) -ne ($kitEntry[0] | ConvertTo-Json -Depth 8 -Compress)) {
+            throw "MAVI-Offline-Binary-Kit is stale for the PoC bundle: catalogue entry '$componentId' differs from the repository. Rebuild the kit."
+        }
+    }
+    $postgresPack = Join-Path $BinaryKitRoot "vendor\postgresql\pg18\win-x64"
+    $postgresManifest = Test-MaviManifest -Root $postgresPack -ManifestPath (Join-Path $postgresPack "manifest.json") -ExpectedSchemaVersion "mavi-postgresql-runtime-pack-v1"
+    $postgresFiles = @($postgresManifest.artifacts | ForEach-Object { [string]$_.relativePath })
+    foreach ($required in @("share/extension/pg_trgm.control", "lib/pg_trgm.dll", "share/extension/vector.control")) {
+        if (@($postgresFiles | Where-Object { $_ -like "*$required" }).Count -eq 0) { throw "The kit's PostgreSQL runtime pack lacks $required." }
+    }
+    $ffmpegPack = Join-Path $BinaryKitRoot "vendor\ffmpeg"
+    [void](Test-MaviManifest -Root $ffmpegPack -ManifestPath (Join-Path $ffmpegPack "manifest.json"))
+    $hostingBundle = Join-Path $BinaryKitRoot "vendor\installers\win-x64\dotnet-hosting.exe"
+    if (-not (Test-Path -LiteralPath $hostingBundle -PathType Leaf)) { throw "The kit has no ASP.NET Core Hosting Bundle." }
+    if ([string]::IsNullOrWhiteSpace($VcRedistInstaller)) { $VcRedistInstaller = Join-Path $BinaryKitRoot "vendor\installers\win-x64\vc_redist.x64.exe" }
+    if (-not (Test-Path -LiteralPath $VcRedistInstaller -PathType Leaf)) { throw "No Visual C++ x64 redistributable: pass -VcRedistInstaller (vc_redist.x64.exe) or stage it in the kit." }
+    $vcRedist = Assert-MaviPocVcRedistInstaller -Path $VcRedistInstaller
+
+    # Vision composition: the binding decides what is shipped (ADR-014), as in Setup.
+    $binding = Read-MaviJson -Path (Join-Path $export "src\vision\config\components\phase1-bindings-v2.json")
+    $variants = $binding.runtimePacks[0].variants
+    function Resolve-MaviPocRuntimeSource {
+        param([string]$Root, [string]$Variant)
+        $candidate = [IO.Path]::GetFullPath($Root)
+        if (-not (Test-Path -LiteralPath (Join-Path $candidate "runtime-pack-manifest.json") -PathType Leaf)) { $candidate = Join-Path $candidate $Variant }
+        $manifestPath = Join-Path $candidate "runtime-pack-manifest.json"
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "No $Variant Runtime Pack manifest under '$Root'." }
+        $manifest = Read-MaviJson -Path $manifestPath
+        $expected = [string]$variants.$Variant.runtimePackId
+        if ([string]$manifest.runtimePackId -ne $expected -or [string]$manifest.platformVariant -ne $Variant) {
+            throw "The $Variant Runtime Pack at '$candidate' is '$($manifest.runtimePackId)'; the binding names '$expected'."
+        }
+        return $candidate
+    }
+    $cpuSource = Resolve-MaviPocRuntimeSource -Root $VisionRuntimeCpuSource -Variant "windows-x86_64-cpu"
+    $cudaSource = if ($VisionRuntimeCudaSource) { Resolve-MaviPocRuntimeSource -Root $VisionRuntimeCudaSource -Variant "windows-x86_64-cuda" } else { $null }
+    $boundModelPackIds = @($binding.capabilityBindings | Where-Object { $_.roleId -eq "vision" -and $_.enabled } | ForEach-Object { [string]$_.modelPackId } | Sort-Object -Unique)
+    $modelSources = @{}
+    foreach ($root in $ModelPackSource) {
+        $full = [IO.Path]::GetFullPath($root)
+        $manifest = Read-MaviJson -Path (Join-Path $full "model-pack-manifest.json")
+        $modelSources[[string]$manifest.modelPackId] = $full
+    }
+    foreach ($id in $boundModelPackIds) { if (-not $modelSources.ContainsKey($id)) { throw "Bound Model Pack '$id' was not supplied." } }
+    foreach ($id in $modelSources.Keys) { if ($boundModelPackIds -notcontains $id) { throw "Model Pack '$id' is not bound for role vision; it would not be used." } }
+
+    if ([string]::IsNullOrWhiteSpace($PlatesCache)) { $PlatesCache = Join-Path $BinaryKitRoot "vendor\developer-cache\win-x64" }
+    $PlatesCache = [IO.Path]::GetFullPath($PlatesCache)
+    foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $PlatesCache $name) -PathType Container)) { throw "The plates cache '$PlatesCache' has no $name\ (Prepare-MaviDeveloperOfflineCache.ps1)." }
+    }
+    if ($SmokeClip -and [string]::IsNullOrWhiteSpace($SmokeClipLicence)) { throw "A shipped smoke clip needs -SmokeClipLicence (CC0 / CC-BY attribution text)." }
 
     # 2. Platform publish (framework-dependent; ASP.NET Core 10 comes from the Hosting Bundle).
     $publish = Join-Path $destination "application\api"
@@ -163,6 +173,8 @@ try {
     Copy-MaviPocTree -Source $postgresPack -Target (Join-Path $destination "prerequisites\postgresql\pg18\win-x64")
     New-Item -ItemType Directory -Path (Join-Path $destination "prerequisites\hosting\win-x64") -Force | Out-Null
     Copy-Item -LiteralPath $hostingBundle -Destination (Join-Path $destination "prerequisites\hosting\win-x64\dotnet-hosting.exe")
+    New-Item -ItemType Directory -Path (Join-Path $destination "prerequisites\vcredist\win-x64") -Force | Out-Null
+    Copy-Item -LiteralPath $VcRedistInstaller -Destination (Join-Path $destination "prerequisites\vcredist\win-x64\vc_redist.x64.exe")
 
     # 5. Vision packs and the plates cache.
     Copy-MaviPocTree -Source $cpuSource -Target (Join-Path $destination "vision\runtime\windows-x86_64-cpu")
@@ -214,6 +226,7 @@ try {
             cudaRuntimePack = [bool]$cudaSource
             modelPackIds = @($boundModelPackIds)
             smokeClip = [bool]$SmokeClip
+            vcRedist = [ordered]@{ productVersion = $vcRedist.ProductVersion; sha256 = $vcRedist.Sha256 }
         }
         artifacts = $artifacts
     }

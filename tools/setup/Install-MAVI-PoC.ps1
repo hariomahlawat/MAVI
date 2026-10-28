@@ -217,6 +217,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Failed to give Administrators ownership of '$releaseRoot'." }
     Set-MaviPrivateDirectoryAcl -Path $releaseRoot -ApplicationIdentity "*S-1-5-11" -ApplicationRights "R"
 
+    # Visual C++ x64 runtime for the Vision runtimes' native code (torch, mmcv), from the
+    # bundle, only when absent or older (AGENTS.md: machine prerequisites belong to Setup).
+    $vcResult = Install-MaviPocVcRuntime -InstallerPath (Join-Path $BundleRoot "prerequisites\vcredist\win-x64\vc_redist.x64.exe")
+    Write-MaviSetupStatus -Name "Visual C++ x64 runtime" -Status "OK" -Detail $vcResult
+
     # Vision: the CPU Runtime Pack always; the CUDA one when a compatible GPU is present
     # and a pack is available; then every Model Pack the binding needs. The installers
     # write no Machine environment variable (H5).

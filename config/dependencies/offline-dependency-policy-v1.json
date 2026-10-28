@@ -368,7 +368,7 @@
       ],
       "stagingPath": "vendor/installers/win-x64/vc_redist.x64.exe",
       "packagedAs": "prerequisites/vcredist/win-x64/vc_redist.x64.exe",
-      "setupIntegration": "CUDA Runtime Pack installation/repair must verify the required VC runtime before loading MMCV native extensions; PoC S1 (ADR-020): the binary kit does not yet carry vc_redist.x64.exe, so Install-MAVI-PoC.ps1 does not install it; after installing each Vision Runtime Pack it imports torch and an mmcv native op in that runtime and fails closed, naming the Visual C++ 2015-2022 x64 redistributable, when the load fails. Staging it in the kit is an open owner decision.",
+      "setupIntegration": "CUDA Runtime Pack installation/repair must verify the required VC runtime before loading MMCV native extensions; PoC S1 (ADR-020): tools/setup/New-MaviPocSetupBundle.ps1 ships the Microsoft-signed vc_redist.x64.exe (14.x, at least 14.44; -VcRedistInstaller or the kit path) in prerequisites/vcredist/win-x64 and Install-MAVI-PoC.ps1 installs it (/install /quiet /norestart) when the registered x64 runtime is absent or older, before installing any Vision Runtime Pack, then imports torch and an mmcv native op in each runtime.",
       "verification": "signed installer identity plus an import/load smoke test for mmcv native ops on the installed runtime",
       "licenceHandling": "approved Microsoft Visual C++ redistributable retained as a controlled prerequisite if packaging is required"
     },
