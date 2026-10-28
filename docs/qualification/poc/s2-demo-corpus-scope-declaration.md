@@ -94,4 +94,21 @@ No label, box, count, identity, ground truth or annotation is created; no model 
 
 A trim window may sit inside a longer clip whose viewpoint changes elsewhere, provided the whole 60–180 s window is one fixed, uncut shot. A finer diagnostic screen (one frame every ~10 s) of the candidate window establishes this, with the same rationale as rule 3.
 
-If pass 3 still yields no CC0 or model-released lobby/close-range clip, the face scene class is recorded as a gap. It is not filled from a CC-BY clip with recognisable faces (rule 4), and it is not filled by default from a platform-licensed source.
+### A3 (2026-10-28, after pass 3, before pass 4): car park and indoor-hall pass
+
+**Reason.** After passes 1–3 (about 830 described files) and the diagnostic screens, seven clips have a fixed viewpoint for at least 60 s: five junction/gate/road and two pedestrian. There is still **no car park** and **no lobby/indoor** clip. Rules §4 are unchanged. Pass 4 targets those two classes only, with licence-filtered and multilingual terms (`P275`: CC0 `Q6938433`, CC-BY-4.0 `Q20007257`, CC-BY-3.0 `Q14947546`). It is the **last** discovery pass. Whatever it yields, selection then closes, and any unfilled class is recorded as a gap.
+
+| Scope | Search text (after `filetype:video`) | Class |
+|---|---|---|
+| U1 | `haswbstatement:P275=Q14947546 parking` | car park |
+| U2 | `Parkplatz` | car park |
+| U3 | `parkeerplaats` | car park |
+| U4 | `estacionamiento` | car park |
+| U5 | `haswbstatement:P275=Q14947546 hall people` | lobby |
+| U6 | `haswbstatement:P275=Q6938433 hall` | lobby |
+| U7 | `concourse` | lobby |
+| U8 | `atrium people` | lobby |
+| U9 | `escalator people` | lobby |
+| U10 | `Bahnhofshalle` | lobby |
+
+If pass 4 still yields no CC0 or model-released lobby/close-range clip, the face scene class is recorded as a gap. It is not filled from a CC-BY clip with recognisable faces (rule 4), and it is not filled by default from a platform-licensed source.
