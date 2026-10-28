@@ -2,6 +2,8 @@
 
 **Date:** 2026-10-28. **Base:** `main@393a16ed`. **Operator:** a Claude Code session (PoC S2) on the owner's instruction. The operator is not an independent reviewer. The two purpose-approval determinations (`poc-s2-commons-cc0-2026-10` and `poc-s2-commons-cc-by-2026-10`) are signed by the operator. **They need explicit owner ratification**, which is a condition of register B1. This is separate from owner acceptance of the attribution file (B2).
 
+> **Note (2026-10-28, after the cold review).** Both purpose-approval JSON files (`s2-purpose-approvals-batch{1,2}.json`, and the copies in the controlled store) carry an earlier wording in their `reviewedBy` and `approvedBy` fields: "owner acceptance of the attribution file, register B2, ratifies". **That wording is superseded:** ratifying the two determinations is a separate owner act and a condition of B1. The JSON files are left byte-identical on purpose, because the receipts bind their SHA-256.
+
 **Governing records:**
 - scope declaration and amendments: `s2-demo-corpus-scope-declaration.md`, committed before each pass (`82e04c05`, A1 `bd7ccce3`, A2 `041513da`, A3 `9bde864d`);
 - plan D3 and register rows B1–B5;
@@ -149,18 +151,31 @@ The derivative hashes are pinned in `tools/poc/demo-corpus/demo-corpus-v1.json`.
 
 **Retained on E:.** Everything below is in `E:\MAVI-Controlled\PoC\Corpus\`:
 - `manifests\originals.sha256`, `manifests\derivatives.sha256` and `manifests\derivation-record.json`;
-- the run evidence, in `evidence-2026-10-28\`, whose `SHA256SUMS` file has SHA-256 `c8e50c05a290d1b91f5fabfee47d36828f04fbde0b56c2d6fab7072768868723`. It holds the three import logs, both trim outputs, the manifests and the worker identity.
+- the run evidence, in `evidence-2026-10-28\`, whose `SHA256SUMS` file has SHA-256 `98118e3661c7c223be764dafb9f980af02160fff96be2ccb5717fa238a91d548`. It holds the four import logs, the API mutation extract, the two licence-review responses, both trim outputs, the manifests and the worker identity.
 
-**Import into a fresh database (B4).** "Clean install" here means a fresh, empty database and a Development build of this branch. It is not yet a kit installation: that is S1/S13 (A2, D1). The setup:
+**Import into a fresh database (B4).** This run used a fresh, empty database and a Development build of this branch. It is **not** a kit installation. The row's "clean install" criterion is met only when the same import runs after `Install-MAVI-PoC` (S1). B4 therefore stays IN PROGRESS. The setup:
 - **Database.** A new, empty database `mavi_poc_s2_20261028` on the Development PostgreSQL (no cameras or videos).
 - **API.** `Mavi.Api` built from this branch, Development environment, on `http://127.0.0.1:62183`, with media and evidence roots on `E:\MAVI-Working\poc-s2-runtime`.
 - **Worker.** `Start-MaviVisionWorker.ps1`, which resolved `cuda_selected` with Runtime Pack `windows-x86_64-cuda` and the bound RTMDet Model Pack.
 
 `python tools/poc/demo_corpus.py import --root E:\MAVI-Controlled\PoC\Corpus --api http://127.0.0.1:62183` then created eight cameras (`POC-S2-01`–`08`), eight assets and eight scene revisions (r1). It processed all eight runs to `Completed` with analytics `Ready`, and exited `0`.
 
-**Second run (idempotence).** Run 2 issued no camera create, no scene `PUT` and no `process`. Its only mutations were eight refused duplicate imports (`409 video_duplicate`, reused), and its result was identical to run 1. That was established from the API's request log.
+**Reruns (idempotence).** The API ran four imports in its lifetime. `evidence-2026-10-28\api-mutations-extract.log` holds every non-worker mutating request. It shows exactly:
+- 8 `POST /api/cameras` → 201;
+- 8 `POST /api/videos/import` → 201;
+- 8 `PUT …/scene` → 201;
+- 8 `POST …/process` → 202;
+- 24 `POST /api/videos/import` → 409 `video_duplicate`, from runs 2–4.
 
-**Third run (after the cold-review fixes).** The importer now logs every mutating call with its status, and the definition SHA-256 (`7661ddb4e1f906104d65d3224e0e123eb04a91fb06d62f755b918607ab0dd7e2`). Run 3 logs exactly eight `POST /api/videos/import -> 409 video_duplicate` and returns the same ids, revisions and runs (`evidence-2026-10-28\import-run3.log`). The duplicate path also checks each asset's recording start, against the server's own UTC offset, and that check passed.
+No rerun created, saved or queued anything, and every rerun returned the same ids, revisions and runs.
+
+Runs 3 and 4 log each mutating call themselves. Run 4 was made with the committed tool at `75b43dc3`, and its log pins both inputs:
+- definition SHA-256 `7661ddb4e1f906104d65d3224e0e123eb04a91fb06d62f755b918607ab0dd7e2`;
+- `demo_corpus.py` SHA-256 `9e7933559d80b38374bde61c0d727eb79b53ec75464eb4512d3539aed2f25999`.
+
+The duplicate path now also checks each asset's recording start, against the server's own UTC offset, and that check passed in runs 3 and 4.
+
+**Retained licence-review responses.** The two `LicenseReview` responses cited in §2 are retained as `licensereview-*.json`.
 
 | Clip | Run | Tracks created | Analytics |
 |---|---|---|---|
