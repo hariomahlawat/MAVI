@@ -18,7 +18,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Windows.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Windows.psm1") -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
 
 $statePath = Join-Path ([IO.Path]::GetFullPath($DataRoot)) "config\poc-installation.json"

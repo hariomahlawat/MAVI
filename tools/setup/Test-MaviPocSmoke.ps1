@@ -133,7 +133,7 @@ finally {
         apiBaseUrl = $apiBaseUrl
         completedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
         summary = $summary
-        steps = @($steps)
+        steps = $steps.ToArray()
         transcript = $transcriptPath
     }
     Write-MaviJson -Value $result -Path $resultPath -Depth 8

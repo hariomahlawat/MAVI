@@ -30,7 +30,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Windows.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Windows.psm1") -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot "Mavi.VisionRuntime.Common.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot "Mavi.VisionRuntime.Integrity.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
