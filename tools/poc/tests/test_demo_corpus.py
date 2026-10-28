@@ -392,3 +392,17 @@ def test_trim_timeout_is_a_refusal(tmp_path):
 
     with pytest.raises(dc.CorpusError, match="ffmpeg_failed:clip-01:TimeoutExpired"):
         dc.trim(definition, tmp_path, ffmpeg, run=run)
+
+
+def test_disabled_analytics_is_refused_not_awaited():
+    api, _state = _analysis_api(["Disabled"])
+    clock = _Clock()
+    with pytest.raises(dc.CorpusError, match="analytics_not_configured:clip-01:Disabled"):
+        dc.ensure_processed(api, "cam", {"id": "vid"}, _clip(1), 10, 3600, clock=clock, sleep=clock.sleep)
+
+
+def test_api_ignores_proxy_environment(monkeypatch):
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+    monkeypatch.setenv("http_proxy", "http://proxy.invalid:3128")
+    with pytest.raises(dc.CorpusError, match="api_unreachable"):
+        dc.Api("http://127.0.0.1:9", timeout=2).call("GET", "/api/cameras")

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import math
 import re
@@ -101,7 +102,8 @@ def _on_segment(p, a, b) -> bool:
     dx, dy = b[0] - a[0], b[1] - a[1]
     length_squared = dx * dx + dy * dy
     t = 0.0 if length_squared <= 0 else min(1.0, max(0.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length_squared))
-    return math.dist(p, (a[0] + t * dx, a[1] + t * dy)) <= _BOUNDARY_TOLERANCE
+    # The server rounds the projected point to 6 decimals (NormalizedPoint.FromRounded) before measuring.
+    return math.dist(p, (round(a[0] + t * dx, 6), round(a[1] + t * dy, 6))) <= _BOUNDARY_TOLERANCE
 
 
 def _segments_intersect(a1, a2, b1, b2) -> bool:
@@ -363,6 +365,8 @@ class Api:
     def __init__(self, base: str, timeout: float = 600.0):
         require(re.match(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?/?$", base) is not None, "api_not_local")
         self.base, self.timeout = base.rstrip("/"), timeout
+        # No proxy, whatever HTTP(S)_PROXY says: the importer only ever talks to the loopback API.
+        self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
     def call(self, method: str, path: str, json_body: Any = None, multipart: Multipart | None = None) -> tuple[int, Any]:
         headers = {"Accept": "application/json"}
@@ -373,11 +377,11 @@ class Api:
             data, headers["Content-Type"] = json.dumps(json_body).encode("utf-8"), "application/json"
         request = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310 - local API only
+            with self._opener.open(request, timeout=self.timeout) as response:  # noqa: S310 - local API only
                 status, raw = response.status, response.read()
         except urllib.error.HTTPError as exc:
             status, raw = exc.code, exc.read()
-        except (urllib.error.URLError, OSError) as exc:  # refused connection, timeout, reset
+        except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:  # refused, timeout, reset, truncated
             raise CorpusError(f"api_unreachable:{method}:{path}:{type(exc).__name__}") from exc
         try:
             return status, json.loads(raw.decode("utf-8")) if raw else None
@@ -496,6 +500,7 @@ def ensure_processed(api: Api, camera_id: str, asset: dict, clip: dict, poll_s: 
         run_status = latest.get("status")
         require(run_status not in TERMINAL_FAILURES, f"run_failed:{clip['clipId']}:{run_status}:{latest.get('failureCode')}")
         readiness = latest.get("analyticsReadiness")
+        require(readiness not in ("Disabled", "NotConfigured") or run_status != "Completed", f"analytics_not_configured:{clip['clipId']}:{readiness}")
         if run_status == "Completed" and readiness in ("Ready", "Failed"):
             require(readiness == "Ready", f"analytics_failed:{clip['clipId']}")
             return latest
@@ -566,7 +571,8 @@ def main(argv: list[str] | None = None) -> int:
             problems = verify(definition, args.root)
             print(json.dumps({"problems": problems}, indent=2))
             return 1 if problems else 0
-        print(f"definition {args.definition.name} sha256 {sha256_file(args.definition)}", flush=True)
+        print(f"definition {args.definition.name} sha256 {sha256_file(args.definition)}; "
+              f"tool demo_corpus.py sha256 {sha256_file(Path(__file__))}", flush=True)
         results = import_corpus(definition, args.root, Api(args.api), not args.no_process,
                                 timeout_s=args.timeout_seconds, only=set(args.clip) if args.clip else None)
         print(json.dumps(results, indent=2))
