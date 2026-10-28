@@ -298,3 +298,27 @@ The numbers are pipeline output for one run each. They are not counts of real ob
 | 6 | **s2-11 (hallway) has no usable event**, because people stay far down the corridor. Options:<br>(a) authorise one disclosed geometry redraw over the far corridor;<br>(b) keep it as a face and cross-camera view only. | B1 | (b) for S2, revisit in S6 |
 | 7 | **The car-park class is met by s2-09** (MEVA G424): parked vehicles are stationary ≥ 30 s, but little traffic passes. Accept it, or ask for a busier lot slot. | B1 | Accept |
 | 8 | **B4 closes only after the S2 import runs on a kit install** (`Install-MAVI-PoC`, S1). S1 must also seed `config/poc/demo-cameras-v1.json` equal to `tools/poc/demo-corpus/demo-cameras-v1.json` (hand-over sent). | B4 | — |
+
+## 10. Evidence for the MEVA addition and the audit (retained outside Git)
+
+`E:\MAVI-Controlled\PoC\Corpus\evidence-2026-10-29\`, `SHA256SUMS` = `41f45b285fc6831fd22444b57fe29fa09812f5a34abad2a0bd550f6c210d3168`. It holds:
+- the import logs for run 5 (scene revision 2 and re-analysis) and run 6 (MEVA);
+- the three audit outputs;
+- trim passes 3 and 4;
+- the manifests and derivation record;
+- the MEVA originals manifest, licence file, MEVID video list, MEVID annotation-zip hash and fetch log;
+- the worker identity;
+- the API mutation extract.
+
+**API mutation extract**, covering the whole life of the restarted API:
+
+| Calls | Status |
+|---|---|
+| 4 `POST /api/cameras` | 201 |
+| 8 scene `PUT` (4 × revision 2 + 4 new) | 201 |
+| 4 `…/scene/analyses` | 202 |
+| 4 `POST /api/videos/import` | 201 |
+| 16 `POST /api/videos/import` | 409 `video_duplicate` |
+| 4 `…/process` | 202 |
+
+**Reproducibility.** All **12** derivatives reproduced byte for byte on trim pass 4. The 8 Commons derivatives have now reproduced on three passes. Run 6 is pinned by the definition SHA-256 `014706a7fe28133a3742938320085eb296c7db0762c1182e28b12583823318fc` and the tool SHA-256 logged at its start.
