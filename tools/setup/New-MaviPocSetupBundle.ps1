@@ -20,7 +20,9 @@ param(
     # The commit to package; default HEAD. The application and the overlay are both built
     # from a `git archive` of this commit, so uncommitted changes never ship.
     [string]$Revision = "HEAD",
-    # Working directory for the export and the publish (never C:).
+    # Where the export and the publish are worked on (never C:). The builder creates its own
+    # uniquely named directory under it and removes only that; nothing else there is touched.
+    # Default: the destination's parent.
     [string]$WorkRoot,
     # The Microsoft Visual C++ 2015-2022 x64 redistributable (vc_redist.x64.exe) the Vision
     # runtimes need (torch, mmcv native ops). Defaults to the binary kit's
@@ -63,9 +65,10 @@ $destination = [IO.Path]::GetFullPath($Destination)
 if (Test-Path -LiteralPath $destination) {
     if (@(Get-ChildItem -LiteralPath $destination -Force).Count -gt 0) { throw "Destination '$destination' is not empty." }
 }
-if ([string]::IsNullOrWhiteSpace($WorkRoot)) { $WorkRoot = Join-Path (Split-Path $destination -Parent) ("mavi-poc-bundle-work-" + [Guid]::NewGuid().ToString("N")) }
-$WorkRoot = [IO.Path]::GetFullPath($WorkRoot)
-New-Item -ItemType Directory -Path $destination, $WorkRoot -Force | Out-Null
+if ([string]::IsNullOrWhiteSpace($WorkRoot)) { $WorkRoot = Split-Path $destination -Parent }
+$work = Join-Path ([IO.Path]::GetFullPath($WorkRoot)) ("mavi-poc-bundle-work-" + [Guid]::NewGuid().ToString("N"))
+if (Test-Path -LiteralPath $work) { throw "Work directory '$work' already exists." }
+New-Item -ItemType Directory -Path $destination, $work -Force | Out-Null
 
 function Copy-MaviPocTree {
     param([string]$Source, [string]$Target)
@@ -78,9 +81,9 @@ try {
     # 1. One export of the exact commit, first: the publish and the overlay come from it, and so
     #    does every composition input (component binding, binary catalogue), so the bundle never
     #    depends on the preparer's checkout.
-    $export = Join-Path $WorkRoot "source"
+    $export = Join-Path $work "source"
     New-Item -ItemType Directory -Path $export -Force | Out-Null
-    $archive = Join-Path $WorkRoot "source.tar"
+    $archive = Join-Path $work "source.tar"
     & $git -C $repoRoot archive --format=tar -o $archive $revisionSha
     if ($LASTEXITCODE -ne 0) { throw "git archive failed." }
     # Windows bsdtar explicitly: a GNU tar earlier on PATH (Git for Windows) reads "E:" as a remote host.
@@ -239,5 +242,5 @@ try {
     Write-Host "  Manifest    : $(Get-MaviSha256 -Path (Join-Path $destination 'mavi-poc-bundle.json'))"
 }
 finally {
-    Remove-Item -LiteralPath $WorkRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -216,6 +216,8 @@ try {
     if ($vcInstall -lt 0 -or $vcInstall -gt $install.IndexOf("& `$installRuntime")) { throw "The VC++ runtime must be installed before any Vision Runtime Pack." }
     $builder = Get-Content -LiteralPath (Join-Path $PSScriptRoot "New-MaviPocSetupBundle.ps1") -Raw
     if ($builder -notmatch 'prerequisites\\vcredist\\win-x64\\vc_redist\.x64\.exe' -or $builder -notmatch 'Assert-MaviPocVcRedistInstaller') { throw "The bundle must carry the verified VC++ redistributable." }
+    # The builder deletes only the work directory it created, never the caller's -WorkRoot.
+    if ($builder -match 'Remove-Item -LiteralPath \$WorkRoot' -or $builder -notmatch '\$work = Join-Path \(\[IO\.Path\]::GetFullPath\(\$WorkRoot\)\) \("mavi-poc-bundle-work-"') { throw "The bundle builder must work in, and remove, only its own subdirectory of -WorkRoot." }
     # The composition comes from the packaged revision, never from the preparer's checkout.
     if ($builder -match 'Join-Path \$repoRoot "src\\vision\\config' -or $builder -match 'Join-Path \$repoRoot "config\\dependencies') { throw "The bundle builder must read the binding and catalogue from the exported revision." }
     if ($builder.IndexOf('archive --format=tar') -gt $builder.IndexOf('phase1-bindings-v2.json')) { throw "The revision must be exported before its binding is read." }
