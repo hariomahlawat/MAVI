@@ -269,10 +269,25 @@ function Protect-MaviPocRoot {
     param([Parameter(Mandatory = $true)][string]$Path)
     Assert-MaviPocNoReparsePoint -Path $Path
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
-    & icacls.exe $Path /setowner "*S-1-5-32-544" /C | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Failed to give Administrators ownership of '$Path'." }
-    & icacls.exe $Path /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-11:(OI)(CI)RX" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Failed to secure '$Path'." }
+    # The whole DACL is replaced, not edited: icacls /grant:r keeps any other explicit entry
+    # (one a user who created the folder beforehand added for themselves).
+    $administrators = New-Object Security.Principal.SecurityIdentifier("S-1-5-32-544")
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetOwner($administrators)
+    $acl.SetAccessRuleProtection($true, $false)
+    $inherit = [Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit"
+    $none = [Security.AccessControl.PropagationFlags]::None
+    foreach ($entry in @(@("S-1-5-18", "FullControl"), @("S-1-5-32-544", "FullControl"), @("S-1-5-11", "ReadAndExecute"))) {
+        $sid = New-Object Security.Principal.SecurityIdentifier($entry[0])
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, [Security.AccessControl.FileSystemRights]$entry[1], $inherit, $none, "Allow")))
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+    $applied = Get-Acl -LiteralPath $Path
+    $explicit = @($applied.Access | Where-Object { -not $_.IsInherited })
+    $foreign = @($explicit | Where-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin @("S-1-5-18", "S-1-5-32-544", "S-1-5-11") })
+    if ($foreign.Count -gt 0 -or -not $applied.AreAccessRulesProtected -or $applied.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne "S-1-5-32-544") {
+        throw "Failed to secure '$Path': its owner or access list is not the one set."
+    }
     # Anything that was already there (a rerun, or a folder planted before the first run)
     # must not be a link now that nobody else can replace it.
     $links = @(Get-ChildItem -LiteralPath $Path -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue)
@@ -286,8 +301,9 @@ function Protect-MaviPocRoot {
 # recorded start time, and -ExpectedCommandFragment must appear in the command line where
 # that is readable (always for the operator's own processes and for an elevated caller).
 # An unreadable command line (another user's protected process, seen unelevated) is not
-# checked; Stop's taskkill is then denied and reported. When WMI cannot answer at all, a
-# live process keeps its record (it may be MAVI's) and is returned unverified.
+# checked; Stop's taskkill is then denied and reported. When WMI cannot answer at all for a
+# live process, the record is kept and the call fails: neither Start (which would launch a
+# second instance) nor Stop (which would report success) may proceed on a guess.
 function Get-MaviPocRecordedProcess {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -304,10 +320,7 @@ function Get-MaviPocRecordedProcess {
         $candidate = Get-Process -Id $processId -ErrorAction SilentlyContinue
         $wmi = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$processId" -ErrorAction SilentlyContinue
         if ($candidate -and -not $wmi -and $candidate.ProcessName -eq [string]$record.imageName) {
-            # Unverifiable: the record is kept (it may be MAVI's) but nothing acts on it, so an
-            # elevated Stop never kills a process identified by id and image alone.
-            Write-Warning "WMI could not describe process $processId; keeping its record and leaving the process alone."
-            return $null
+            throw "Cannot verify process $processId recorded in '$Path' (WMI did not describe it); it may still be MAVI's. Check it, then remove the record."
         }
         if ($candidate -and $wmi -and $candidate.ProcessName -eq [string]$record.imageName -and $wmi.CreationDate) {
             $started = ([DateTime]$wmi.CreationDate).ToUniversalTime()
