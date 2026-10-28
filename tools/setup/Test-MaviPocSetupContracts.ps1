@@ -122,6 +122,11 @@ try {
     $guards = ([regex]::Matches($runtimeInstaller, 'if\(-not\$NoMachineEnvironment\)\{\$variantEnv')).Count
     $writes = ([regex]::Matches($runtimeInstaller, 'SetEnvironmentVariable\(\$variantEnv')).Count
     if ($writes -ne 2 -or $guards -ne 2) { throw "Every Machine environment write of Install-MaviVisionRuntime.ps1 must be guarded by -NoMachineEnvironment ($guards of $writes)." }
+    # The CPython installer's paths survive a root with spaces (%ProgramFiles%\MAVI\PoC):
+    # Start-Process joins -ArgumentList into one command line, so each path carries quotes.
+    if (-not $runtimeInstaller.Contains('(''"''+$installerLog+''"'')') -or -not $runtimeInstaller.Contains('(''"TargetDir=''+$pythonRoot+''"'')')) {
+        throw "Install-MaviVisionRuntime.ps1 must quote the CPython installer's log path and TargetDir."
+    }
     $install = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Install-MAVI-PoC.ps1") -Raw
     if ($install -match "SetEnvironmentVariable") { throw "Install-MAVI-PoC must not write the Machine environment." }
     $packCalls = @($install -split "`n" | Where-Object { $_ -match [regex]::Escape("& `$install") -and $_ -match "-PackRoot|-BundleRoot" })
