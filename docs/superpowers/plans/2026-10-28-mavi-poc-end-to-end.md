@@ -19,13 +19,13 @@
 |---|---|---|
 | D1 | **PoC deployment profile** `poc-single-host` (ADR-020, amends ADR-008): P3 machinery plus a CUDA Runtime Pack when a compatible GPU is present; Development-grade evidence; mandatory "not Production-qualified" disclosure in UI and release metadata; promotion path = Task 18 unchanged. | Accept. |
 | D2 | **Evidence process.** Principle 6a and ADR-017 §10: reproducible, provenance, deterministic evaluation, honest limits; one independent cold review per PR; no protocol freeze, M3 authority or protected D inside the PoC. Stage-4 rows P4–P6/P13–P15 and IP-2/3/4 stay NOT STARTED. | Accept. |
-| D3 | **Demo corpus licence and privacy class.** Kit media = CC0 / CC-BY / Pexels-Pixabay licence only, attribution file shipped. For face demos, prefer model-released stock footage; biometric derivatives (face crops, embeddings, gallery) never enter the kit and are deleted by the uninstall path. BDD100K (research licence) is used only in live demos on owner machines. | Accept. |
+| D3 | **Demo corpus licence and privacy class.** Kit media = **CC0 / CC-BY only** (Wikimedia Commons and similar), attribution file shipped. Pexels/Pixabay-licensed clips are not redistributable as standalone files and, like BDD100K, may be used only in live demos on owner machines, each with a per-source admissibility record. For face demos, prefer model-released stock footage; biometric derivatives (face crops, embeddings, gallery) never enter the kit and are deleted by the uninstall path. BDD100K (research licence) is used only in live demos on owner machines. | Accept. |
 | D4 | **Plate composition:** PD5 PP-OCRv5-mobile det (Apache-2.0) + OC1-S fast-plate-ocr (MIT), the #226 pair (52/110 on H3). Not yolo-v9 (GPL question open), not yolo11 (AGPL). Adapter selection stays so a cleared detector can replace PD5 later. | Accept. |
 | D5 | **Embedding model** for similarity, appearance query and zero-shot attributes: SigLIP 2 base (`google/siglip2-base-patch16-224`, Apache-2.0), ONNX, one Model Pack serving Stages 2, 5 and 6. | Accept. Specialist ReID (OSNet/TransReID) is a later swap under ADR-014. |
-| D6 | **Face stack:** detector YuNet (OpenCV Zoo, Apache-2.0, ONNX) ; embedder AdaFace IR-50 (MIT code and weights; training data WebFace4M, research provenance recorded) with SFace (OpenCV Zoo, Apache-2.0) as the fallback if AdaFace export or quality fails the S6 spike. Requires ADR-022 (biometric data handling, gallery and candidate-match semantics, ADR-013 §19 note on face-oriented selection). | Accept; the spike decides AdaFace vs SFace. |
-| D7 | **Language model for Ask MAVI:** Qwen2.5-3B-Instruct (Apache-2.0) in GGUF via llama.cpp (MIT) for the laptop; the same pack may select Qwen2.5-7B-Instruct on the 4090. The model only emits Stage-8 structured queries; MAVI computes. | Accept. |
+| D6 | **Face stack:** detector YuNet (OpenCV Zoo, ONNX; its model folder carries its own LICENSE — MIT or Apache-2.0 — recorded at the S6 spike); embedder AdaFace IR-50 (MIT code; checkpoints not separately licensed and trained on WebFace4M, whose terms are research/non-commercial — recorded as Development-only scope in ADR-022) with SFace (OpenCV Zoo, Apache-2.0) as the fallback if AdaFace export or quality fails the S6 spike. Requires ADR-022 (biometric data handling, gallery and candidate-match semantics, ADR-013 §19 note on face-oriented selection). | Accept; the spike decides AdaFace vs SFace. |
+| D7 | **Language model for Ask MAVI:** Qwen2.5-1.5B-Instruct (Apache-2.0) in GGUF via llama.cpp (MIT) for the laptop; the same pack may select Qwen2.5-7B-Instruct (Apache-2.0) on the 4090. The 3B and 72B Qwen2.5 sizes are under the non-commercial Qwen Research License and are not used. The model only emits Stage-8 structured queries; MAVI computes. | Accept. |
 | D8 | **Live RTSP/VMS** stays out of the PoC, as the roadmap states (§6). | Accept; revisit after S14. |
-| D9 | **4090 runtime.** The frozen CUDA build contract (`config/vision/windows-cuda-development-build-v1.json`) compiles mmcv for `sm_75` only; the 4090 is `sm_89`. A second Windows CUDA Runtime Pack variant (torch 2.6.0+cu124 already contains `sm_89`; mmcv rebuilt for `sm_75;sm_89`) is built and locked on the laptop as build host, and `onnxruntime-gpu` (CUDA EP) replaces CPU onnxruntime for plates, embeddings and faces on GPU hosts. Both are Development-grade packs under the PoC profile. | Accept; S1b below. |
+| D9 | **4090 runtime.** The frozen CUDA build contract (`config/vision/windows-cuda-development-build-v1.json`) compiles mmcv for `sm_75` only; the 4090 is `sm_89`. A second Windows CUDA Runtime Pack variant is built under a **second build contract** (`windows-cuda-development-build-v2.json`: target GPU list `7.5;8.9`, its own native ABI; the v1 contract is unchanged) with mmcv compiled for `sm_75;sm_89`; the pinned torch 2.6.0+cu124 wheels run on `sm_89` through 8.x SASS/PTX compatibility (confirmed with `torch.cuda.get_arch_list()` in S1b). The v1 contract names a controlled build host as authoritative; for the PoC profile only, the owner accepts the Development laptop as the v2 variant's build host. `onnxruntime-gpu` (CUDA EP) replaces CPU onnxruntime for plates, embeddings and faces on GPU hosts. Both are Development-grade packs under the PoC profile; the v2 variant is "built, hashed, locked" at S1b and earns `qualified-development-hardware` for the 4090 only on the S12 host observation (ADR-009). | Accept; S1b below. |
 
 ## 3. Target demonstration (30 minutes, on the 4090 host)
 
@@ -64,6 +64,10 @@ Each slice is one PR (some two), thin end-to-end first, exact-head CI, one cold 
 | **S12** 4090 bring-up | — | Install on the demonstration host from the kit, offline; verify `cuda:0` for every role, VRAM co-residency, throughput; record device/reason evidence. | S1b, all roles | 1 (plus owner host time) |
 | **S13** Acceptance + demo pack | — | PoC acceptance register (steps 1–12 of §3, retained evidence); throughput CPU/1650 Ti/4090; known-limits page; scripted demo; kit assembled with `New-MaviOfflineBinaryKit.ps1` + media + attribution + licences. | all | 2–3 |
 
+**Register rows per slice:** S0→A1; S1→A2–A5; S1b→A6; S2→B1–B5; S3→C4.1–C4.3; S4→C5.1–C5.4; S5→C2.1–C2.2; S6→C5A.1–C5A.5; S7→C6.1–C6.2; S8→C7.1–C7.2; S9→C8.1–C8.2; S10→C9.1–C9.3; S11→C10.1–C10.2; S12→A7; S13→D1–D5.
+
+**Principle-10 approval.** The owner's acceptance of these estimates is the principle-10 approval for the infrastructure slices S1, S1b and S12 to exceed one working day; a slice that exceeds its estimate by half a day returns to the owner before continuing.
+
 **Total:** ≈ 40–48 agent working days. With two or three streams in separate worktrees on disjoint modules (deployment; embeddings→attributes→faces→ReID; events→query→Ask MAVI), roughly 5–7 calendar weeks. Owner time: ADR approvals (020–024, 010, 022), attribution-file acceptance, ~16 merges, two host sessions (laptop CUDA variant check; 4090 bring-up).
 
 **Order.** S0 → {S1, S2} → {S1b, S3, S4, S11-min} → {S5, S8} → S6 → S7 → S9 → S10 → S11-full → S12 → S13.
@@ -75,10 +79,11 @@ Each slice is one PR (some two), thin end-to-end first, exact-head CI, one cold 
 | Detector/tracker | RTMDet-m + ByteTrack packs | Apache-2.0 | in `main` |
 | Plate det / OCR | PP-OCRv5 mobile det; fast-plate-ocr cct-s-v2 | Apache-2.0; MIT | in `main` (#226) |
 | Embeddings, attributes, appearance query | SigLIP 2 base patch16-224 | Apache-2.0 | resolved in S2c survey; export in S4 |
-| Face detector / embedder | YuNet; AdaFace IR-50 (fallback SFace) | Apache-2.0; MIT (Apache-2.0) | spike in S6 |
-| Language model / runtime | Qwen2.5-3B/7B-Instruct GGUF; llama.cpp | Apache-2.0; MIT | spike in S10 |
+| Face detector / embedder | YuNet; AdaFace IR-50 (fallback SFace) | YuNet per its model-folder LICENSE (verify at spike); AdaFace MIT code, checkpoints research provenance; SFace Apache-2.0 | spike in S6 |
+| Language model / runtime | Qwen2.5-1.5B / 7B-Instruct GGUF; llama.cpp | Apache-2.0; MIT | spike in S10 |
 | ONNX runtime | onnxruntime 1.31.0 CPU; onnxruntime-gpu (same pin) | MIT | CPU pinned; GPU in S1b |
-| Demo media | Wikimedia Commons CC0/CC-BY; Pexels/Pixabay | CC0 / CC-BY / platform licence | S2 |
+| Demo media (kit) | Wikimedia Commons and similar | CC0 / CC-BY only | S2 |
+| Demo media (owner-machine demos only) | Pexels/Pixabay clips; BDD100K H3 sequences | platform licences (no standalone redistribution); research licence | S2, held locally |
 | Plate demo media | BDD100K H3 sequences | research, non-redistributable | held locally |
 
 No weights, dataset bytes or media in Git. Each asset updates `offline-dependency-policy-v1.json`, the binary catalogue, the kit, licences and runbooks in its PR.

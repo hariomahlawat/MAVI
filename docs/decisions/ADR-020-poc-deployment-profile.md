@@ -24,7 +24,7 @@ Without a named profile, every PoC slice would either misrepresent itself as Pro
 
 One Windows host runs the complete stack — React UI, ASP.NET Core API, MAVI-owned PostgreSQL + pgvector, application-local FFmpeg, the Vision worker and **every capability role** the PoC binds (plates, embeddings, attributes, faces, language) — installed from the Offline Binary Kit and a PoC setup bundle on a machine that may be disconnected from the network throughout.
 
-Device policy is ADR-008's `Auto` / `CUDA` / `CPU`, unchanged: `Auto` prefers a compatible installed CUDA Runtime Pack variant and otherwise runs CPU with the resolved reason recorded; explicit `CUDA` fails closed; no silent fallback. The profile may use **Development-grade** Runtime Pack variants (`qualified-development-hardware`, including the `sm_75;sm_89` variant built for the demonstration host) and Development-grade Model Packs (`verificationStatus: unverified` with recorded hashes and licences).
+Device policy is ADR-008's `Auto` / `CUDA` / `CPU`, unchanged: `Auto` prefers a compatible installed CUDA Runtime Pack variant and otherwise runs CPU with the resolved reason recorded; explicit `CUDA` fails closed; no silent fallback. The profile may use **Development-grade** Runtime Pack variants (the existing `qualified-development-hardware` `sm_75` pack, and the `sm_75;sm_89` variant built for the demonstration host, which is "built, hashed, locked" until a bound observation on the 4090 host earns it `qualified-development-hardware` under ADR-009) and Development-grade Model Packs (`verificationStatus: unverified` with recorded hashes and licences).
 
 ### 2. Evidence class
 
@@ -58,6 +58,6 @@ A capability built under this profile becomes a Production candidate the way any
 
 - Setup tooling gains a PoC install path (`Install-MAVI-PoC`) and a PoC setup bundle; the release metadata schema gains the profile value and the disclosure fields.
 - The System/About page and banner become a tested contract.
-- A second Windows CUDA Runtime Pack variant (`sm_75;sm_89`) and `onnxruntime-gpu` pins are added as Development-grade packs.
+- A second Windows CUDA Runtime Pack variant (`sm_75;sm_89`) is added under a second build contract (`config/vision/windows-cuda-development-build-v2.json`, its own target-GPU list and native ABI); the frozen v1 contract is unchanged. For the PoC profile only, the owner accepts the Development laptop as the v2 variant's build host (plan D9). `onnxruntime-gpu` pins are added as Development-grade packs.
 - `docs/architecture/phase1-production-topology.md` and `docs/runbooks/mavi-offline-setup.md` gain a `poc-single-host` section stating that it is not a Production profile.
 - Task 18's `BLOCKED` state, P1/P2/P3 status and every existing qualification record are unchanged.
