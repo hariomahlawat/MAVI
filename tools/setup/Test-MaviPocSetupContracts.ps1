@@ -27,15 +27,18 @@ function Assert-Throws {
 
 try {
     # --- Layout: every path under the two roots; equal roots refused (no shared state). ---
-    $layout = Get-MaviPocLayout -InstallRoot "E:\PoC\Program" -DataRoot "E:\PoC\Data"
+    # Roots under the temporary directory: Join-Path in Windows PowerShell refuses a drive the
+    # host does not have, and CI runners have no E:.
+    $pocRoot = Join-Path $tempRoot "PoC"
+    $layout = Get-MaviPocLayout -InstallRoot (Join-Path $pocRoot "Program") -DataRoot (Join-Path $pocRoot "Data")
     foreach ($property in $layout.PSObject.Properties) {
         $value = [string]$property.Value
-        if (-not ($value.StartsWith("E:\PoC\Program", [StringComparison]::OrdinalIgnoreCase) -or $value.StartsWith("E:\PoC\Data", [StringComparison]::OrdinalIgnoreCase))) {
+        if (-not ($value.StartsWith($layout.InstallRoot, [StringComparison]::OrdinalIgnoreCase) -or $value.StartsWith($layout.DataRoot, [StringComparison]::OrdinalIgnoreCase))) {
             throw "Layout path '$($property.Name)' escapes the installation roots: $value"
         }
         if ($value -match "MAVI\\Development") { throw "Layout path '$($property.Name)' reuses the Development installation." }
     }
-    Assert-Throws { Get-MaviPocLayout -InstallRoot "E:\PoC" -DataRoot "E:\PoC\" } "must be different" "Equal install and data roots"
+    Assert-Throws { Get-MaviPocLayout -InstallRoot $pocRoot -DataRoot ($pocRoot + "\") } "must be different" "Equal install and data roots"
 
     # --- GPU check: only the build contract's compute capability gets the CUDA pack. ---
     $contract = Read-MaviJson -Path (Join-Path $repoRoot "config\vision\windows-cuda-development-build-v1.json")
@@ -154,7 +157,7 @@ try {
     if ($null -ne (Get-MaviPocRecordedProcess -Path (Join-Path $records "legacy.pid"))) { throw "A bare process id is not a process record." }
 
     # --- Layout roots carry no trailing separator (they are written into .cmd launchers). ---
-    $trailing = Get-MaviPocLayout -InstallRoot "E:\PoC\Program\" -DataRoot "E:\PoC\Data\"
+    $trailing = Get-MaviPocLayout -InstallRoot ((Join-Path $pocRoot "Program") + "\") -DataRoot ((Join-Path $pocRoot "Data") + "\")
     if ($trailing.DataRoot.EndsWith("\") -or $trailing.InstallRoot.EndsWith("\")) { throw "Layout roots must not end with a separator." }
     $platesInstaller = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Install-MaviPlatesPilotRuntime.ps1") -Raw
     if ($platesInstaller -notmatch 'if \(-not \$ReuseVerified -or -not \$state') { throw "The plates installer must reuse only an environment it installed for the same lock." }
