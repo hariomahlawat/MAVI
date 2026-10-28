@@ -133,6 +133,7 @@ try {
     # instance first; an explicit adoption on an unsupported GPU is refused; every
     # installed Runtime Pack must load its native code; the operator never inherits
     # elevated processes.
+    if ($install -notmatch '/reset /T /C') { throw "Files already inside the release directory must have their ACLs reset." }
     if ($install -notmatch 'Set-MaviPrivateDirectoryAcl -Path \$releaseRoot -ApplicationIdentity "\*S-1-5-11" -ApplicationRights "R"' -or $install -notmatch '/setowner "\*S-1-5-32-544"') { throw "The release metadata directory must be administrator-owned and administrator-writable only." }
     $modifyRoots = @($install -split "`n" | Where-Object { $_ -match 'foreach \(\$root in @\(' })
     if ($modifyRoots.Count -ne 1 -or $modifyRoots[0] -match 'ReleaseMetadataPath') { throw "The release metadata directory must not be among the operator-writable roots." }
@@ -165,7 +166,8 @@ try {
     $stopData = Join-Path $tempRoot "stopdata"
     $stopRun = Join-Path $stopData "run"
     New-Item -ItemType Directory -Path $stopRun -Force | Out-Null
-    $dummy = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 120") -WindowStyle Hidden -PassThru
+    # The dummy's command line carries the worker launcher's name, as Start's worker does.
+    $dummy = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 120 # Start-MaviVisionWorker.ps1") -WindowStyle Hidden -PassThru
     $bystander = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 120") -WindowStyle Hidden -PassThru
     try {
         Write-MaviPocProcessRecord -Path (Join-Path $stopRun "vision-worker.pid") -Process $dummy
@@ -177,6 +179,10 @@ try {
         if (Test-Path -LiteralPath (Join-Path $stopRun "vision-worker.pid")) { throw "Stop-MaviPoc left the worker record." }
         if (Test-Path -LiteralPath (Join-Path $stopRun "device-resolution.json")) { throw "Stop-MaviPoc left the device record." }
         if (-not (Get-Process -Id $bystander.Id -ErrorAction SilentlyContinue)) { throw "Stop-MaviPoc stopped a process recorded under another image." }
+        # Right image, right start time, but not the worker launcher: not MAVI's.
+        Write-MaviPocProcessRecord -Path (Join-Path $stopRun "vision-worker.pid") -Process $bystander
+        & (Join-Path $PSScriptRoot "Stop-MaviPoc.ps1") -DataRoot $stopData | Out-Null
+        if (-not (Get-Process -Id $bystander.Id -ErrorAction SilentlyContinue)) { throw "Stop-MaviPoc stopped a powershell process that is not the worker launcher." }
     }
     finally {
         foreach ($p in @($dummy, $bystander)) { if (Get-Process -Id $p.Id -ErrorAction SilentlyContinue) { Stop-Process -Id $p.Id -Force } }

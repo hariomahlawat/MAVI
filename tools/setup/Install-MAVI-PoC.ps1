@@ -207,6 +207,12 @@ try {
     & icacls.exe $releaseRoot /setowner "*S-1-5-32-544" /T /C | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Failed to give Administrators ownership of '$releaseRoot'." }
     Set-MaviPrivateDirectoryAcl -Path $releaseRoot -ApplicationIdentity "*S-1-5-11" -ApplicationRights "R"
+    # Anything already inside (a file planted with its own explicit grant) is reset to inherit
+    # the directory's ACL, so the metadata written next carries no grant but these.
+    if (@(Get-ChildItem -LiteralPath $releaseRoot -Force).Count -gt 0) {
+        & icacls.exe (Join-Path $releaseRoot "*") /reset /T /C | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Failed to reset the ACLs inside '$releaseRoot'." }
+    }
 
     # Vision: the CPU Runtime Pack always; the CUDA one when a compatible GPU is present
     # and a pack is available; then every Model Pack the binding needs. The installers

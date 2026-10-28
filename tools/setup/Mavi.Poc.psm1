@@ -236,15 +236,17 @@ function Write-MaviPocProcessRecord {
 }
 
 # The recorded process if it is still the one that was started; otherwise the stale record
-# is removed and $null returned. -ExpectedImageName limits a record to the image Start
-# launched for it, so a record pointing anywhere else is never acted on. A process whose
-# start time cannot be read (an elevated process seen from an unelevated session) is
-# returned with the record kept: it may well be MAVI's, and deleting the record would
-# orphan it.
+# is removed and $null returned. The identity comes from WMI (Win32_Process), which any
+# user can read for every process, elevated or SYSTEM ones included: the image must be the
+# one Start launched for this record (-ExpectedImageName), the creation time must be the
+# recorded start time, and -ExpectedCommandFragment must appear in the command line
+# wherever that is readable (always for the operator's own processes and for an elevated
+# caller), so a record pointed at someone else's process is never acted on.
 function Get-MaviPocRecordedProcess {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [string]$ExpectedImageName
+        [string]$ExpectedImageName,
+        [string]$ExpectedCommandFragment
     )
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     $record = $null
@@ -252,15 +254,16 @@ function Get-MaviPocRecordedProcess {
     $process = $null
     if ($record -and $record.PSObject.Properties["processId"] -and $record.PSObject.Properties["startTimeUtc"] -and $record.PSObject.Properties["imageName"] -and
         (-not $ExpectedImageName -or [string]$record.imageName -eq $ExpectedImageName)) {
-        $candidate = Get-Process -Id ([int]$record.processId) -ErrorAction SilentlyContinue
-        if ($candidate -and $candidate.ProcessName -eq [string]$record.imageName) {
-            $started = $null
-            try { $started = $candidate.StartTime.ToUniversalTime() } catch { $started = $null }
-            if ($null -eq $started) {
-                return $candidate
-            }
+        $processId = [int]$record.processId
+        $candidate = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        $wmi = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$processId" -ErrorAction SilentlyContinue
+        if ($candidate -and $wmi -and $candidate.ProcessName -eq [string]$record.imageName -and $wmi.CreationDate) {
+            $started = ([DateTime]$wmi.CreationDate).ToUniversalTime()
             $recorded = [DateTimeOffset]::Parse([string]$record.startTimeUtc).UtcDateTime
-            if ([Math]::Abs(($started - $recorded).TotalSeconds) -lt 2) { $process = $candidate }
+            $commandLine = [string]$wmi.CommandLine
+            $commandMatches = (-not $ExpectedCommandFragment) -or [string]::IsNullOrEmpty($commandLine) -or
+                $commandLine.IndexOf($ExpectedCommandFragment, [StringComparison]::OrdinalIgnoreCase) -ge 0
+            if ([Math]::Abs(($started - $recorded).TotalSeconds) -lt 2 -and $commandMatches) { $process = $candidate }
         }
     }
     if (-not $process) { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue }

@@ -42,7 +42,8 @@ Write-Host ""
 function Get-MaviPocRunningProcess {
     param([Parameter(Mandatory = $true)][string]$Name)
     $image = if ($Name -eq "api") { "Mavi.Api" } else { "powershell" }
-    Get-MaviPocRecordedProcess -Path (Join-Path $layout.RunRoot "$Name.pid") -ExpectedImageName $image
+    $command = if ($Name -eq "api") { "Mavi.Api.exe" } else { "Start-MaviVisionWorker.ps1" }
+    Get-MaviPocRecordedProcess -Path (Join-Path $layout.RunRoot "$Name.pid") -ExpectedImageName $image -ExpectedCommandFragment $command
 }
 
 # A start that fails part-way stops what it started, so nothing is left half-running.
@@ -152,7 +153,9 @@ Write-MaviSetupStatus -Name "Disclosure" -Status "OK" -Detail "$($deployment.pro
 catch {
     # Only what this start launched; an instance that was already running is left alone.
     if ($startedHere.Count -gt 0) {
-        & (Join-Path $PSScriptRoot "Stop-MaviPoc.ps1") -DataRoot $layout.DataRoot -Only $startedHere
+        # The start failure is what the operator needs; a failing rollback only adds to it.
+        try { & (Join-Path $PSScriptRoot "Stop-MaviPoc.ps1") -DataRoot $layout.DataRoot -Only $startedHere }
+        catch { Write-Warning "Rolling back the failed start also failed: $($_.Exception.Message)" }
     }
     throw
 }

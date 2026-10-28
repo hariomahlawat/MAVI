@@ -18,11 +18,12 @@ Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
 
 $runRoot = Join-Path ([IO.Path]::GetFullPath($DataRoot)) "run"
 $images = @{ "vision-worker" = "powershell"; "api" = "Mavi.Api" }
+$commands = @{ "vision-worker" = "Start-MaviVisionWorker.ps1"; "api" = "Mavi.Api.exe" }
 $failures = @()
 foreach ($name in @("vision-worker", "api")) {
     if ($Only -notcontains $name) { continue }
     $recordPath = Join-Path $runRoot "$name.pid"
-    $process = Get-MaviPocRecordedProcess -Path $recordPath -ExpectedImageName $images[$name]
+    $process = Get-MaviPocRecordedProcess -Path $recordPath -ExpectedImageName $images[$name] -ExpectedCommandFragment $commands[$name]
     if (-not $process) { continue }
     # taskkill reports on stderr (a child of the tree already gone, access denied); under
     # Stop, Windows PowerShell would turn that into a terminating error before the exit
