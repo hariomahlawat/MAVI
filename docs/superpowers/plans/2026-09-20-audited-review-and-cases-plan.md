@@ -7,6 +7,8 @@
 **Out of scope for this deferred increment:** image similarity, automatic entity grouping, face recognition, mission rules, live ingestion.
 
 > **Do not start Slice 0 / ADR-010 solely because this file exists.** Identity/audit plumbing should be introduced when a concrete operator mutation requires attribution, or when this deferred plan is deliberately reactivated by the capability roadmap.
+>
+> **Status note (2026-10-28):** the end-to-end PoC plan (`2026-10-28-mavi-poc-end-to-end.md`, slices S11-min and S11-full; ADR-020) reactivates this design: ADR-010 and the minimal attributable identity/audit plumbing are pulled forward for gallery enrolment (Stage 5A) and Entity confirmation (Stage 6), and the full review/cases slice follows. This file remains the design record; the PoC register governs acceptance.
 
 ## 1. What exists today (inspected)
 
