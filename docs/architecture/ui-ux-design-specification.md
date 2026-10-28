@@ -249,6 +249,7 @@ The inspector's 440px floor in place is the other half of the same finding. §4.
 | Processing detail | Operate › Processing | `Processing › {video}` |
 | Search | Investigate › Search | `Search` |
 | Review | Investigate › Search | `Search › {video} › Review` — the first crumb returns to the Investigation with its URL state intact when Review was opened from one, and to `/search` otherwise |
+| About | Administer › About | `About` — **amended for PoC S1 (ADR-020 §3):** the installation's profile, Production-qualification status, evidence class, resolved device and reason, and every pack's identity and verification status; read-only; `g a` |
 | Not found | none — the one surface with no rail highlight | `Not found` (the shell and Context Bar are still rendered) |
 
 - A rail label and its surface's root crumb are the same word.
@@ -256,6 +257,7 @@ The inspector's 440px floor in place is the other half of the same finding. §4.
 - The shell carries a **skip link** to the workspace as its first focusable element, and a landmark structure (`banner` for the rail head, `navigation` for the rail, `main` for the workspace) so assistive technology can move between them.
 - The rail's collapse control is a labelled control with a visible icon at 32px, not a 26px icon-only ghost at the rail foot; its state is announced.
 - The §22 `g`-then-letter destination keys and the `?` shortcut sheet are shell obligations and are implemented by Stage 3.5, not left to a feature.
+- **Amended for PoC S1 (ADR-020 §3) — deployment disclosure banner.** Under the `poc-single-host` profile the shell renders a persistent warning-tone band at the top of the workspace, above the Context Bar, on every surface: "Proof of concept · Profile poc-single-host · Not Production-qualified · Evidence class Development · Device {resolved} ({reason})" and a link to About. It is a §15 Banner: never dismissed, no close control and no preference that hides it; it renders nothing on a host that declares no PoC profile.
 - A new surface (for example the Stage-4 ANPR/OCR lookup, an Investigation per §4.4) adds one row to this map by amendment under its owning section; the rail, crumb and title follow from the row.
 
 ---

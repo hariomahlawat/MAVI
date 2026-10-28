@@ -241,11 +241,12 @@
       "id": "postgresql-pgvector-win-x64",
       "scope": [
         "development",
-        "production"
+        "production",
+        "poc-single-host"
       ],
       "stagingPath": "vendor/postgresql/pg18/win-x64",
       "packagedAs": "prerequisites/postgresql/pg18/win-x64",
-      "setupIntegration": "tools/setup/Setup-MAVI.ps1",
+      "setupIntegration": "tools/setup/Setup-MAVI.ps1; PoC S1 (ADR-020): tools/setup/Install-MAVI-PoC.ps1 installs it on poc-single-host hosts from the PoC setup bundle (tools/setup/New-MaviPocSetupBundle.ps1); not a Production use.",
       "verification": "SHA-256 manifest, PostgreSQL 18 executable version, pgvector availability/extension check, pg_trgm contrib presence at staging and availability/extension check at Setup, startup and Test-MaviEnvironment",
       "licenceHandling": "LICENSE-POSTGRESQL.txt and LICENSE-PGVECTOR.txt retained in the runtime pack; pg_trgm is PostgreSQL contrib under LICENSE-POSTGRESQL.txt",
       "extensions": [
@@ -257,22 +258,24 @@
       "id": "ffmpeg-win-x64",
       "scope": [
         "development",
-        "production"
+        "production",
+        "poc-single-host"
       ],
       "stagingPath": "vendor/ffmpeg",
       "packagedAs": "application/tools/ffmpeg",
-      "setupIntegration": "application-local dependency resolved by NativeMediaToolStartup/MediaToolPathResolver; the S3.2 development tools (tools/stage3/media_tools.py, probe_media.py, derive_mp4.py) consume the same staged pack only through --media-tools with the same manifest, runtime-id, SHA-256 and version checks, never PATH",
+      "setupIntegration": "application-local dependency resolved by NativeMediaToolStartup/MediaToolPathResolver; the S3.2 development tools (tools/stage3/media_tools.py, probe_media.py, derive_mp4.py) consume the same staged pack only through --media-tools with the same manifest, runtime-id, SHA-256 and version checks, never PATH; PoC S1 (ADR-020): tools/setup/Install-MAVI-PoC.ps1 installs it on poc-single-host hosts from the PoC setup bundle (tools/setup/New-MaviPocSetupBundle.ps1); not a Production use.",
       "verification": "manifest SHA-256 plus executable/version viability before serving requests",
       "licenceHandling": "FFmpeg licence/notices retained with the application payload"
     },
     {
       "id": "dotnet-hosting-win-x64",
       "scope": [
-        "production"
+        "production",
+        "poc-single-host"
       ],
       "stagingPath": "vendor/installers/win-x64/dotnet-hosting.exe",
       "packagedAs": "prerequisites/hosting/win-x64/dotnet-hosting.exe",
-      "setupIntegration": "tools/setup/Setup-MAVI.ps1",
+      "setupIntegration": "tools/setup/Setup-MAVI.ps1; PoC S1 (ADR-020): tools/setup/Install-MAVI-PoC.ps1 installs it on poc-single-host hosts from the PoC setup bundle (tools/setup/New-MaviPocSetupBundle.ps1); not a Production use.",
       "verification": "ASP.NET Core 10 runtime and IIS ASP.NET Core Module V2 are verified after installation",
       "licenceHandling": "approved Microsoft redistributable retained as controlled release input"
     },
@@ -294,18 +297,19 @@
       ],
       "stagingPath": "vendor/developer-cache/win-x64",
       "packagedAs": "prerequisites/developer/win-x64/{nuget-packages,npm-cache,python-wheelhouse}",
-      "setupIntegration": "tools/setup/Mavi.Setup.Windows.psm1",
+      "setupIntegration": "tools/setup/Mavi.Setup.Windows.psm1; PoC S1: the plates-onnx-v1 wheelhouse and plates-pilot payloads are also carried by the PoC setup bundle (plates\\) and installed, not bound, by Install-MAVI-PoC; pip --no-index --require-hashes and the committed manifests verify them.",
       "verification": "offline restore/install followed by .NET build, frontend build and Python tests",
       "licenceHandling": "dependency licences remain governed by their upstream packages; release preparation must retain any redistribution notices required by a newly added package"
     },
     {
       "id": "vision-model-runtime-bundles",
       "scope": [
-        "production-vision"
+        "production-vision",
+        "poc-single-host"
       ],
       "stagingPath": "models + src/vision/runtime + src/vision/config/components",
       "packagedAs": "platform-specific qualified offline runtime/model bundles and content-addressed Runtime/Model Packs",
-      "setupIntegration": "Task-17 runtime qualification and deployment tooling",
+      "setupIntegration": "Task-17 runtime qualification and deployment tooling; PoC S1 (ADR-020): tools/setup/Install-MAVI-PoC.ps1 installs it on poc-single-host hosts from the PoC setup bundle (tools/setup/New-MaviPocSetupBundle.ps1); not a Production use.",
       "verification": "runtime locks, hashes, component binding v2 relationships (P-17 variant classes, derived Runtime/Model Pack ids), model manifest relationships and disconnected CPU/CUDA qualification",
       "licenceHandling": "model/runtime licence approval is required before promotion; every Model Pack ships its licence notice as an identity-bearing artefact"
     },
@@ -313,11 +317,12 @@
       "id": "nvidia-driver-win-x64",
       "scope": [
         "development",
-        "production-vision"
+        "production-vision",
+        "poc-single-host"
       ],
       "stagingPath": "external:nvidia-windows-driver",
       "packagedAs": "external operating-system prerequisite; not silently bundled in a Vision Runtime Pack",
-      "setupIntegration": "Vision worker/runtime preflight validates the installed NVIDIA driver before CUDA execution",
+      "setupIntegration": "Vision worker/runtime preflight validates the installed NVIDIA driver before CUDA execution; PoC S1 (ADR-020): tools/setup/Install-MAVI-PoC.ps1 installs it on poc-single-host hosts from the PoC setup bundle (tools/setup/New-MaviPocSetupBundle.ps1); not a Production use.",
       "verification": "nvidia-smi identity plus a minimum driver requirement frozen with the qualified CUDA Runtime Pack before hardware qualification",
       "licenceHandling": "NVIDIA driver redistribution, if ever added to MAVI media, requires separate licence approval; current policy treats it as externally installed"
     },
@@ -358,11 +363,12 @@
       "id": "vcredist-win-x64",
       "scope": [
         "development",
-        "production-vision"
+        "production-vision",
+        "poc-single-host"
       ],
       "stagingPath": "vendor/installers/win-x64/vc_redist.x64.exe",
       "packagedAs": "prerequisites/vcredist/win-x64/vc_redist.x64.exe",
-      "setupIntegration": "CUDA Runtime Pack installation/repair must verify the required VC runtime before loading MMCV native extensions",
+      "setupIntegration": "CUDA Runtime Pack installation/repair must verify the required VC runtime before loading MMCV native extensions; PoC S1 (ADR-020): tools/setup/Install-MAVI-PoC.ps1 installs it on poc-single-host hosts from the PoC setup bundle (tools/setup/New-MaviPocSetupBundle.ps1); not a Production use.",
       "verification": "signed installer identity plus an import/load smoke test for mmcv native ops on the installed runtime",
       "licenceHandling": "approved Microsoft Visual C++ redistributable retained as a controlled prerequisite if packaging is required"
     },

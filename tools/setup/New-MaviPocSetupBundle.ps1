@@ -135,7 +135,8 @@ try {
     $archive = Join-Path $WorkRoot "source.tar"
     & $git -C $repoRoot archive --format=tar -o $archive $revisionSha
     if ($LASTEXITCODE -ne 0) { throw "git archive failed." }
-    & tar.exe -xf $archive -C $export
+    # Windows bsdtar explicitly: a GNU tar earlier on PATH (Git for Windows) reads "E:" as a remote host.
+    & (Join-Path $env:SystemRoot "System32\tar.exe") -xf $archive -C $export
     if ($LASTEXITCODE -ne 0) { throw "Extracting the source archive failed." }
 
     # 2. Platform publish (framework-dependent; ASP.NET Core 10 comes from the Hosting Bundle).

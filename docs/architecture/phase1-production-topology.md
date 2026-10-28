@@ -84,6 +84,26 @@ Windows Production Host
 
 Use only where the qualified CPU performance envelope is acceptable.
 
+## poc-single-host — proof-of-concept profile (ADR-020); not a Production profile
+
+`poc-single-host` is the PoC programme's demonstration profile (ADR-020, plan `docs/superpowers/plans/2026-10-28-mavi-poc-end-to-end.md`). It is **not a Production profile**: its evidence class is Development, it is never Production-qualified, and no configuration turns it into P1, P2 or P3. Promotion of anything built under it is Task 18 on a frozen candidate.
+
+```text
+Windows host (Development laptop or the RTX 4090 demonstration host)
+├── Kestrel on 127.0.0.1 (no IIS), ASP.NET Core 10 from the kit's Hosting Bundle
+├── MAVI API + React UI (persistent "not Production-qualified" banner, About page)
+├── App-local FFmpeg
+├── MAVI-PoC-PostgreSQL-18 + pgvector + pg_trgm (port 55434)
+├── Application overlay (git-free export of the exact commit, hash-verified)
+└── MAVI Vision Worker (started by Start-MAVI-PoC.cmd)
+    ├── Windows CPU Runtime Pack (always)
+    ├── Windows CUDA Runtime Pack (sm_75 Development variant) when a compatible GPU is present
+    ├── bound Model Packs
+    └── plates-onnx-v1 runtime + plates Model Packs (installed; bound in S3)
+```
+
+Device policy is ADR-008's, unchanged: `Auto` prefers an installed, intact, bound CUDA Runtime Pack whose GPU answers and otherwise resolves CPU with the reason recorded; explicit `CUDA` fails closed. The resolved device, its reason and every pack's identity and verification status are served by `GET /api/system/deployment` and shown in the UI. Installation: `docs/runbooks/mavi-offline-setup.md`, section "poc-single-host". S1 implementation record: `docs/superpowers/plans/2026-10-28-poc-s1-deployable-v0.md`.
+
 ## Logical-plane mapping
 
 | Plane | Development | P1 | P2 | P3 |

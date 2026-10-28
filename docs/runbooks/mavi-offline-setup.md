@@ -6,6 +6,7 @@ The supported operator experience is deliberately minimal:
 
 - **Development workstation:** run **Setup-MAVI-Development.cmd**, approve elevation, restart Visual Studio once, then build/run MAVI.
 - **Production workstation:** run **Setup-MAVI-Production.cmd**, approve elevation, then open the URL reported by Setup.
+- **PoC host (`poc-single-host`, not Production):** run **Install-MAVI-PoC.cmd** from the PoC setup bundle, then **Start-MAVI-PoC.cmd** (section "poc-single-host" below).
 
 Operators do not manually select PostgreSQL versions/ports, edit connection strings, install pgvector, configure FFmpeg PATH, run EF migrations, create databases, or configure the IIS site.
 
@@ -297,6 +298,57 @@ http://127.0.0.1:8080
 ~~~
 
 The data root and HTTP port have defaults and normally require no operator input. They remain optional setup parameters for controlled deployments that need a different storage volume or port.
+
+## poc-single-host (PoC installation) — not a Production profile
+
+`poc-single-host` (ADR-020) installs the complete stack on one Windows host for the end-to-end proof of concept. **It is not a Production profile and never becomes one:** evidence class Development, not Production-qualified; the installer, the release metadata, the About page and a persistent banner say so, and the platform refuses to start if its release metadata claims otherwise. Design and spike record: `docs/superpowers/plans/2026-10-28-poc-s1-deployable-v0.md`.
+
+### Building the PoC setup bundle (connected preparation machine)
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviPocSetupBundle.ps1 `
+  -Destination "E:\Release\MAVI-PoC-Setup" `
+  -BinaryKitRoot "<MAVI-Offline-Binary-Kit>" `
+  -VisionRuntimeCpuSource "<Windows CPU Runtime Pack bundle>" `
+  -ModelPackSource "<built Model Pack>" `
+  -PlatesCache "<cache with python-plates-pilot-wheelhouse\ and plates-pilot-payloads\>" `
+  [-VisionRuntimeCudaSource "<Windows CUDA Runtime Pack bundle>"] [-SmokeClip <clip.mp4> -SmokeClipLicence "<CC0/CC-BY attribution>"]
+~~~
+
+The builder exports the exact commit (`git archive`; uncommitted changes never ship), publishes the platform from it, writes the **application overlay** (the repository subset the setup scripts and workers read, with `mavi-application-overlay.json`: revision + per-file SHA-256), copies the PostgreSQL runtime pack, FFmpeg and the Hosting Bundle from the kit, copies the Runtime and Model Packs the component binding names (and refuses any other), copies the plates cache, and hashes every file into `mavi-poc-bundle.json`. The kit's catalogue entries for PostgreSQL, pgvector, FFmpeg and the Hosting Bundle must equal the repository's; the kit's developer caches are not shipped, so their freshness does not apply. The plates payloads may come from `plates_pilot_packs.py fetch` or, verified by SHA-256, from the Stage-4 controlled candidate store.
+
+### Installing (target, network disconnected)
+
+Double-click `Install-MAVI-PoC.cmd` in the bundle and approve elevation, or from an elevated prompt:
+
+~~~powershell
+Install-MAVI-PoC.cmd -InstallRoot "E:\MAVI-PoC\Program" -DataRoot "E:\MAVI-PoC\Data" [-DevicePolicy Auto|CUDA|CPU] [-AdoptCudaRuntimeRoot <installed CUDA pack>] [-PlanOnly]
+~~~
+
+| Item | Value |
+| --- | --- |
+| Roots | `%ProgramFiles%\MAVI\PoC` and `%ProgramData%\MAVI\PoC` by default; every PoC file is under the two roots |
+| PostgreSQL | `MAVI-PoC-PostgreSQL-18`, port 55434, database `mavi_poc`, DPAPI-protected generated credentials |
+| Platform | Kestrel on `http://127.0.0.1:8090` (loopback only: no IIS, no firewall rule); ASP.NET Core 10 from the kit's Hosting Bundle when absent |
+| Vision | CPU Runtime Pack always; the `sm_75` CUDA Runtime Pack when `nvidia-smi` reports compute capability 7.5 and the bundle carries it (or `-AdoptCudaRuntimeRoot` names an installed one, which must pass the launcher's integrity preflight); every bound Model Pack |
+| Plates | `plates-onnx-v1` runtime and its Model Packs, installed and **not bound** (S3 binds them) |
+| Machine environment | none written; the launchers are given every root explicitly |
+
+Steps, all offline and idempotent (a rerun verifies and repairs): verify the bundle → PostgreSQL + pgvector + pg_trgm → ASP.NET Core 10 runtime → platform and overlay → Vision Runtime Pack(s) → Model Packs → plates runtime → machine configuration (`<DataRoot>\config\appsettings.poc.machine.json`) → release metadata (`<DataRoot>\release\mavi-release-metadata.json`) → launcher readiness check with the chosen device policy, which writes the device record (`<DataRoot>\release\device-resolution.json`) → start, migrate, seed the demo cameras (`config/poc/demo-cameras-v1.json`: placeholder names, no scene) → stop. `-PlanOnly` prints the plan and changes nothing; explicit `-DevicePolicy CUDA` without an installable CUDA pack fails closed, in plan-only too. Result: `<DataRoot>\setup\last-install-result.json`; log: `<DataRoot>\logs\install-*.log`.
+
+### Running and the smoke test
+
+In the install root: `Start-MAVI-PoC.cmd` (PostgreSQL service, platform, Vision worker through `Start-MaviVisionWorker.ps1` from the overlay; opens the UI), `Stop-MAVI-PoC.cmd`, and
+
+~~~text
+Test-MAVI-PoC.cmd -ClipPath "<small .mp4>" [-EvidenceDirectory <dir>]
+~~~
+
+The smoke test checks health and the disclosure, imports the clip to `DEMO-GATE` (a re-import reuses the existing video), waits for processing, requires `GET /api/tracks?videoAssetId=…` to return Tracks and reads the first Track's detail back. It exits 0 only when every step passed and always retains `smoke-result.json` and a transcript.
+
+### Device policy (ADR-008, unchanged)
+
+`Auto` resolves CUDA only when the CUDA Runtime Pack is installed, intact, bound and its GPU index answers; otherwise CPU with a reason code from the closed vocabulary (for example `cuda_pack_absent`). Explicit `CUDA` never falls back: with no CUDA pack the launcher refuses with `launch_runtime_pack_not_installed`. `Start-MAVI-PoC.cmd -DevicePolicy CPU|CUDA|Auto` overrides the installed policy for one start. The resolved device and reason appear on the About page and in the banner.
 
 ## Verification and repair
 
