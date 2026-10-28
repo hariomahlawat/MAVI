@@ -4,7 +4,7 @@ param(
     # One small MP4 clip. The repository carries no media: use the bundle's smoke clip or a
     # local clip the operator is entitled to use (owner-machine runs).
     [Parameter(Mandatory = $true)][string]$ClipPath,
-    [string]$CameraCode = "DEMO-GATE",
+    [string]$CameraCode = "POC-S2-01",
     # Local wall-clock start of the recording, in the camera's time zone.
     [string]$RecordingStartLocal = "2026-10-28T09:00:00",
     [int]$TimeoutMinutes = 60,

@@ -177,7 +177,8 @@ function New-MaviPocMachineConfig {
     }
 }
 
-# The demo cameras (S1: names and time zones only; S2 supplies media and scene geometry).
+# The demo cameras: the S2 demo-corpus manifest, seeded as names and time zones only
+# (S2's corpus definition carries each camera's media and scene geometry).
 function Read-MaviPocDemoCameras {
     param([Parameter(Mandatory = $true)][string]$Path)
     $document = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json

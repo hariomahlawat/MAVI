@@ -334,7 +334,7 @@ Install-MAVI-PoC.cmd -InstallRoot "E:\MAVI-PoC\Program" -DataRoot "E:\MAVI-PoC\D
 | Plates | `plates-onnx-v1` runtime and its Model Packs, installed and **not bound** (S3 binds them) |
 | Machine environment | none written; the launchers are given every root explicitly |
 
-Steps, all offline and idempotent (a rerun verifies and repairs): verify the bundle → PostgreSQL + pgvector + pg_trgm → ASP.NET Core 10 runtime → platform and overlay → Vision Runtime Pack(s) → Model Packs → plates runtime → machine configuration (`<DataRoot>\config\appsettings.poc.machine.json`) → release metadata (`<DataRoot>\release\mavi-release-metadata.json`) → launcher readiness check with the chosen device policy, which writes the device record (`<DataRoot>\run\device-resolution.json`) → start, migrate, seed the demo cameras (`config/poc/demo-cameras-v1.json`: placeholder names, no scene) → stop. `-PlanOnly` prints the plan and changes nothing; explicit `-DevicePolicy CUDA` without an installable CUDA pack fails closed, in plan-only too. Result: `<DataRoot>\setup\last-install-result.json`; log: `<DataRoot>\logs\install-*.log`.
+Steps, all offline and idempotent (a rerun verifies and repairs): verify the bundle → PostgreSQL + pgvector + pg_trgm → ASP.NET Core 10 runtime → platform and overlay → Vision Runtime Pack(s) → Model Packs → plates runtime → machine configuration (`<DataRoot>\config\appsettings.poc.machine.json`) → release metadata (`<DataRoot>\release\mavi-release-metadata.json`) → launcher readiness check with the chosen device policy, which writes the device record (`<DataRoot>\run\device-resolution.json`) → start, migrate, seed the demo cameras (`config/poc/demo-cameras-v1.json`: the twelve S2 demo-corpus cameras `POC-S2-01`…`POC-S2-12`, a byte-identical copy of `tools/poc/demo-corpus/demo-cameras-v1.json`; names and time zones only, no scene) → stop. `-PlanOnly` prints the plan and changes nothing; explicit `-DevicePolicy CUDA` without an installable CUDA pack fails closed, in plan-only too. Result: `<DataRoot>\setup\last-install-result.json`; log: `<DataRoot>\logs\install-*.log`.
 
 ### Protections and known limits
 
@@ -354,7 +354,7 @@ In the install root: `Start-MAVI-PoC.cmd` (PostgreSQL service, platform, Vision 
 Test-MAVI-PoC.cmd -ClipPath "<small .mp4>" [-EvidenceDirectory <dir>]
 ~~~
 
-The smoke test checks health and the disclosure, imports the clip to `DEMO-GATE` (a re-import reuses the existing video), waits for processing, requires `GET /api/tracks?videoAssetId=…` to return Tracks and reads the first Track's detail back. It exits 0 only when every step passed and always retains `smoke-result.json` and a transcript.
+The smoke test checks health and the disclosure, imports the clip to `POC-S2-01` (`-CameraCode` picks another seeded camera) (a re-import reuses the existing video), waits for processing, requires `GET /api/tracks?videoAssetId=…` to return Tracks and reads the first Track's detail back. It exits 0 only when every step passed and always retains `smoke-result.json` and a transcript.
 
 ### Device policy (ADR-008, unchanged)
 

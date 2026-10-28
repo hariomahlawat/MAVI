@@ -71,9 +71,20 @@ try {
     if ($config.Deployment.Profile -ne "poc-single-host" -or $config.Deployment.ReleaseMetadataPath -ne $layout.ReleaseMetadataPath) { throw "The machine configuration must declare the PoC profile and its metadata." }
     if (@($config.Deployment.Keys) -join "," -ne "Profile,ReleaseMetadataPath,DeviceResolutionPath") { throw "The Deployment section carries a key the platform does not define." }
 
-    # --- Demo cameras: names only, unique codes. ---
+    # --- Demo cameras: the S2 demo-corpus manifest (copied byte-identical), unique codes. ---
     $cameras = Read-MaviPocDemoCameras -Path (Join-Path $repoRoot "config\poc\demo-cameras-v1.json")
-    if ($cameras.Count -lt 5 -or @($cameras | Where-Object { $_.Name -notmatch "placeholder" }).Count -gt 0) { throw "The S1 seed is five or more placeholder cameras." }
+    $expectedCodes = @(1..12 | ForEach-Object { "POC-S2-{0:D2}" -f $_ })
+    if ((@($cameras.Code) -join ",") -ne ($expectedCodes -join ",") -or @($cameras | Where-Object { $_.TimeZoneId -ne "Asia/Kolkata" }).Count -gt 0) {
+        throw "The seed must be the S2 demo-corpus manifest: POC-S2-01..12, Asia/Kolkata."
+    }
+    $corpusCameras = Join-Path $repoRoot "tools\poc\demo-corpus\demo-cameras-v1.json"
+    if ((Test-Path -LiteralPath $corpusCameras) -and ([IO.File]::ReadAllText($corpusCameras).Replace("`r", "")) -cne ([IO.File]::ReadAllText((Join-Path $repoRoot "config\poc\demo-cameras-v1.json")).Replace("`r", ""))) {
+        throw "config\poc\demo-cameras-v1.json must be byte-identical (line endings aside) to tools\poc\demo-corpus\demo-cameras-v1.json."
+    }
+    $smokeScript = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Test-MaviPocSmoke.ps1") -Raw
+    if ($smokeScript -notmatch '\[string\]\$CameraCode = "([^"]+)"' -or @($cameras.Code) -notcontains $Matches[1]) {
+        throw "The smoke test's default camera must be one the installer seeds."
+    }
     $duplicate = Join-Path $tempRoot "cameras.json"
     '{"schemaVersion":"mavi-poc-demo-cameras-v1","cameras":[{"code":"A","name":"a","timeZoneId":"UTC"},{"code":"a","name":"b","timeZoneId":"UTC"}]}' | Set-Content -LiteralPath $duplicate -Encoding UTF8
     Assert-Throws { Read-MaviPocDemoCameras -Path $duplicate } "Duplicate" "Duplicate camera codes"
