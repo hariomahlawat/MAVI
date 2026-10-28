@@ -52,4 +52,27 @@ No label, box, count, identity, ground truth or annotation is created; no model 
 
 ## Amendments
 
-(none)
+### A1 (2026-10-28, after pass 1, before pass 2): second discovery pass
+
+**Reason.** Pass 1 (Q1–Q12) described 212 unique files. Only 20 meet rules 1–2 (kit licence, ≥ 60 s, ≥ 640×360), and most of those are press conferences, slideshows or drive-arounds. That leaves fewer than 8 plausible fixed-camera candidates and **no lobby/close-range candidate**. Licence mix of pass 1: PD 77, CC-BY-SA 75, CC-BY 43, CC0 17, other 0. Rules §4 are **unchanged**; only the scope list grows. Pass-1 results stay in the record.
+
+**Pass 2 scopes** (same tool and limit; categories use `discover --category`, which lists direct file members only):
+
+| Scope | Kind | Text | Scene class sought |
+|---|---|---|---|
+| R1 | search | `road traffic cars` | junction |
+| R2 | search | `roundabout traffic` | junction |
+| R3 | search | `street traffic people` | junction / pedestrian |
+| R4 | search | `crowd walking` | pedestrian |
+| R5 | search | `people walking` | pedestrian / lobby |
+| R6 | search | `shopping mall people` | lobby |
+| R7 | search | `airport terminal people` | lobby |
+| R8 | search | `metro station people` | lobby |
+| R9 | search | `office lobby` | lobby |
+| R10 | search | `parking garage` | car park |
+| R11 | category | `Category:Videos of road traffic` | junction |
+| R12 | category | `Category:Videos of pedestrians` | pedestrian |
+| R13 | category | `Category:Videos of crowds` | pedestrian / lobby |
+| R14 | category | `Category:Videos of people walking` | pedestrian / lobby |
+
+If pass 2 still yields no CC0 or model-released lobby/close-range clip, the face scene class is filled from the closest kit-eligible pedestrian clip with the most frontal, nearest faces, and the gap is recorded rather than filled from a platform-licensed source by default.
