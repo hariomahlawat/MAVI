@@ -28,6 +28,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timedelta
@@ -47,6 +48,7 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 TERMINAL_FAILURES = ("Failed", "Cancelled")
 REANALYSIS_GRACE_S = 120.0
+STATIONARY_DEMO_MS = 30_000  # audit-only: "stopped vehicle in a restricted bay" (chosen after the first audit; disclosed)
 
 # Pinned derivation, mirroring tools/benchmarks/prepare.py: libx264 single-threaded with bit-exact flags,
 # so the same FFmpeg binary and original always give the same bytes. Audio, subtitles, data streams,
@@ -226,6 +228,10 @@ def validate_definition(document: Any) -> dict:
             parsed = None
         require(parsed is not None and parsed.tzinfo is None, f"definition_recording_start:{cid}")
         validate_scene(clip.get("scene"), f"definition_scene:{cid}")
+        # A loitering threshold the clip cannot exhibit is not demonstrable: at most half the trimmed window.
+        for zone in clip["scene"]["zones"]:
+            threshold = zone["loiteringThresholdSeconds"]
+            require(threshold is None or threshold * 2 <= trim["durationSeconds"], f"definition_loitering_exceeds_window:{cid}:{zone['name']}")
     return document
 
 
@@ -539,6 +545,81 @@ def import_corpus(definition: dict, root: Path, api: Api, process: bool = True, 
     return results
 
 
+# --------------------------------------------------------------------------- functional audit (read-only)
+
+def _count_tracks(api: Api, query: str, page: int = 100) -> int:  # the endpoint accepts at most 100
+    total, cursor = 0, None
+    while True:
+        path = f"/api/tracks?{query}&limit={page}" + (f"&cursor={urllib.parse.quote(cursor)}" if cursor else "")
+        status, body = api.call("GET", path)
+        require(status == 200 and isinstance(body, dict), f"api_tracks:{status}:{_problem(body)}")
+        total += len(body.get("items") or [])
+        cursor = body.get("nextCursor")
+        if not cursor:
+            return total
+
+
+def audit_clip(api: Api, camera_id: str, asset: dict, clip: dict) -> dict:
+    """Positive and negative functional evidence for each configured event of one clip.
+
+    Reads only aggregates and Track search over the clip's own recording window. Every number is pipeline
+    output for this one run, not a count of real objects: no ground truth exists or is created (B5)."""
+    start = datetime.fromisoformat(str(asset["recordingStartUtc"]).replace("Z", "+00:00"))
+    hour = start.replace(minute=0, second=0, microsecond=0)
+    window = f"fromUtc={urllib.parse.quote(hour.isoformat())}&toUtc={urllib.parse.quote((hour + timedelta(hours=1)).isoformat())}"
+    status, agg = api.call("GET", f"/api/cameras/{camera_id}/analytics/aggregates?{window}&bucketSeconds=3600")
+    require(status == 200 and isinstance(agg, dict), f"api_aggregates:{clip['clipId']}:{status}:{_problem(agg)}")
+    coverage = agg.get("coverage") or {}
+    require(coverage.get("complete") is True and coverage.get("staleRuns") == 0, f"audit_coverage_incomplete:{clip['clipId']}")
+    tracks = {c["objectClass"]: c["windowDistinctTrackCount"] for c in agg.get("classes") or []}
+    analysed = int(coverage.get("analysedTracks") or 0)
+    base = f"cameraId={camera_id}"
+    zones = {z["name"]: z for z in clip["scene"]["zones"]}
+    events = []
+    for zone in agg.get("zones") or []:
+        unique = int(zone["windowUniqueTrackCount"])
+        events.append({"event": "zone entry", "object": zone["name"], "positive": int(zone["windowEntryCount"]),
+                       "negative": analysed - unique, "negativeMeaning": "analysed Tracks that never entered the zone"})
+        threshold = zones[zone["name"]]["loiteringThresholdSeconds"]
+        if threshold is not None:
+            # The engine's loitering rule applies to Persons only (plan §M; LoiteringRule).
+            loitering = _count_tracks(api, f"{base}&objectClass=Person&zoneId={zone['zoneId']}&loitering=true")
+            dwelled = _count_tracks(api, f"{base}&objectClass=Person&zoneId={zone['zoneId']}&zoneRelation=dwelled")
+            events.append({"event": f"person loitering >= {threshold} s", "object": zone["name"], "positive": loitering,
+                           "negative": dwelled - loitering, "negativeMeaning": "Persons that dwelled in the zone below the threshold"})
+        if zones[zone["name"]]["kind"] == "Restricted":
+            stationary = _count_tracks(api, f"{base}&objectClass=Vehicle&zoneId={zone['zoneId']}&minStationaryMs={STATIONARY_DEMO_MS}")
+            dwelled = _count_tracks(api, f"{base}&objectClass=Vehicle&zoneId={zone['zoneId']}&zoneRelation=dwelled")
+            events.append({"event": f"vehicle stationary >= {STATIONARY_DEMO_MS // 1000} s", "object": zone["name"], "positive": stationary,
+                           "negative": dwelled - stationary, "negativeMeaning": "Vehicles in the zone that were not stationary that long"})
+    for line in agg.get("lines") or []:
+        a_to_b, b_to_a = int(line["windowAToBCount"]), int(line["windowBToACount"])
+        events.append({"event": f"crossing {line['aToBLabel']}", "object": line["name"], "positive": a_to_b,
+                       "negative": b_to_a, "negativeMeaning": f"crossings in the opposite direction ({line['bToALabel']})"})
+        events.append({"event": f"crossing {line['bToALabel']}", "object": line["name"], "positive": b_to_a,
+                       "negative": a_to_b, "negativeMeaning": f"crossings in the opposite direction ({line['aToBLabel']})"})
+    for event in events:
+        event["demonstrable"] = event["positive"] > 0 and event["negative"] > 0
+    return {"clipId": clip["clipId"], "sceneRevision": agg.get("sceneRevisionNumber"), "analysedTracks": analysed,
+            "unavailableTracks": coverage.get("unavailableTracks"), "tracksByClass": tracks, "events": events}
+
+
+def audit_corpus(definition: dict, api: Api) -> list[dict]:
+    status, cameras = api.call("GET", "/api/cameras")
+    require(status == 200 and isinstance(cameras, list), f"api_cameras:{status}")
+    by_code = {c.get("code"): c for c in cameras if isinstance(c, dict)}
+    status, videos = api.call("GET", "/api/videos")
+    require(status == 200 and isinstance(videos, list), f"api_videos:{status}")
+    reports = []
+    for clip in definition["clips"]:
+        camera = by_code.get(clip["camera"]["code"])
+        require(camera is not None, f"audit_camera_missing:{clip['camera']['code']}")
+        asset = next((v for v in videos if v.get("cameraId") == camera["id"] and v.get("originalFileName") == clip["derivative"]["fileName"]), None)
+        require(asset is not None, f"audit_asset_missing:{clip['clipId']}")
+        reports.append(audit_clip(api, camera["id"], asset, clip))
+    return reports
+
+
 # --------------------------------------------------------------------------- command line
 
 def main(argv: list[str] | None = None) -> int:
@@ -557,6 +638,8 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--no-process", action="store_true")
     i.add_argument("--clip", action="append", help="limit to these clip ids (repeatable)")
     i.add_argument("--timeout-seconds", type=float, default=7200.0)
+    a = sub.add_parser("audit", help="read-only positive/negative functional evidence per configured event")
+    a.add_argument("--api", default="http://localhost:62153")
     args = parser.parse_args(argv)
     try:
         definition = load_definition(args.definition)
@@ -571,6 +654,11 @@ def main(argv: list[str] | None = None) -> int:
             problems = verify(definition, args.root)
             print(json.dumps({"problems": problems}, indent=2))
             return 1 if problems else 0
+        if args.command == "audit":
+            reports = audit_corpus(definition, Api(args.api))
+            print(json.dumps({"definitionSha256": sha256_file(args.definition), "toolSha256": sha256_file(Path(__file__)),
+                              "clips": reports}, indent=2))
+            return 0
         print(f"definition {args.definition.name} sha256 {sha256_file(args.definition)}; "
               f"tool demo_corpus.py sha256 {sha256_file(Path(__file__))}", flush=True)
         results = import_corpus(definition, args.root, Api(args.api), not args.no_process,

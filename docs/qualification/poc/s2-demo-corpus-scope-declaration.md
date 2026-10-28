@@ -111,4 +111,33 @@ A trim window may sit inside a longer clip whose viewpoint changes elsewhere, pr
 | U9 | `escalator people` | lobby |
 | U10 | `Bahnhofshalle` | lobby |
 
-If pass 4 still yields no CC0 or model-released lobby/close-range clip, the face scene class is recorded as a gap. It is not filled from a CC-BY clip with recognisable faces (rule 4), and it is not filled by default from a platform-licensed source.
+### A4 (2026-10-28, owner instruction after the first review; recorded before any MEVA media request)
+
+**Reason.** The owner instructed S2 to close the face and car-park gaps, to prioritise a credible usable-face demonstration and genuine cross-camera repeat appearances, and to research legally reusable, redistributable sources first. Commons (A1–A3) had no candidate. ADR-017 prefers established datasets, so this pass uses one.
+
+**Source: MEVA**, the Multiview Extended Video with Activities dataset, by Kitware Inc. and IARPA.
+- **Licence.** The release is under **CC BY 4.0**. The verbatim licence file `https://mevadata.org/resources/MEVA-data-license.txt` was retained, SHA-256 `bdeedfb765049c87f92a2450369ad70882fca3371190b2a6b7e560e103c922e8`.
+- **Consent.** The actors were volunteers who gave IRB-approved informed consent. The consent briefing included the CC BY 4.0 release (WACV 2021 paper, arXiv:2012.00914).
+- **Access.** The release is a public bucket, `mevadata-public-01`, reached over HTTPS with no credentials.
+- **Licence class.** CC BY is a D3 kit-eligible licence class.
+
+**Why it fits.** MEVA records fixed cameras at one facility. The same scripted actors move between those cameras in the same time slots, so cross-camera repeat appearances are real, not staged by us. **MEVID** (Kitware, WACV 2023) is an existing identity annotation of 158 actors across 33 MEVA views. Its public video list (`mevid-v1-video-URLS.txt`, SHA-256 `99b674beb9fb98192259d04e33cb3f95bfc6f94d8eb6d0d926573e5e0157530d`) is used **only** to select clips known to contain identity-labelled actors. **No label is created** (B5). Using MEVID's labels for any measurement would be a separate, recorded ADR-017 reuse.
+
+**Fixed selection, made from the MEVID camera-location figure and the video list before any media was viewed.**
+- **Slot.** The 5-minute slot 2018-03-11 16:20, the slot in that list with the most target views (9).
+- **Four views of one school building**, chosen within the 12-clip cap:
+
+| Camera | View | Scene class sought |
+|---|---|---|
+| G424 | parking lot | car park |
+| G421 | cafe | lobby / indoor, faces |
+| G423 | school hall | indoor, people walking toward the camera, faces |
+| G419 | stairwell 1 | close-range faces |
+
+**Rules §4 apply unchanged, with these differences:**
+- **Transfer.** MEVA is a dataset release, not a Commons file, so it is recorded with a **release-level** ADR-017 admissibility record. It is fetched by HTTPS `curl` with the SHA-256 recorded at acquisition, because `tools/qualification/source_acquisition` implements only Commons. That differs from register B1's wording ("acquired through `tools/qualification/source_acquisition`") and is an **owner decision**.
+- **Faces.** Rule 4 requires CC0 or a model release for face-bearing clips. Whether MEVA's IRB consent, given with the CC BY release, satisfies that is also an **owner decision**.
+- **Trim.** Each clip is trimmed to its first 180 s.
+- **Diagnostic look.** One look at three frames per clip checks only that the view is fixed and populated. No face is detected, counted or labelled in S2; S6 measures face usability.
+
+If pass 4 (A1–A3) still yields no CC0 or model-released lobby/close-range clip, the face scene class is recorded as a gap. It is not filled from a CC-BY clip with recognisable faces (rule 4), and it is not filled by default from a platform-licensed source.

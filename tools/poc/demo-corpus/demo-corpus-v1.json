@@ -172,7 +172,7 @@
                 0.62
               ]
             ],
-            "loiteringThresholdSeconds": 60
+            "loiteringThresholdSeconds": 40
           }
         ],
         "tripLines": [
@@ -244,7 +244,7 @@
                 0.63
               ]
             ],
-            "loiteringThresholdSeconds": 120
+            "loiteringThresholdSeconds": 30
           }
         ],
         "tripLines": [
@@ -388,7 +388,7 @@
                 0.54
               ]
             ],
-            "loiteringThresholdSeconds": 60
+            "loiteringThresholdSeconds": 50
           },
           {
             "name": "Gate approach",
@@ -578,7 +578,7 @@
                 0.85
               ]
             ],
-            "loiteringThresholdSeconds": 60
+            "loiteringThresholdSeconds": 40
           },
           {
             "name": "Near corner",
@@ -601,7 +601,7 @@
                 0.99
               ]
             ],
-            "loiteringThresholdSeconds": 120
+            "loiteringThresholdSeconds": 40
           }
         ],
         "tripLines": [
