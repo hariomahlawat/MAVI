@@ -429,3 +429,94 @@ def test_loitering_threshold_must_fit_the_window():
     document["clips"][0]["scene"]["zones"][0]["loiteringThresholdSeconds"] = 31  # window is 60 s
     with pytest.raises(dc.CorpusError, match="definition_loitering_exceeds_window"):
         dc.validate_definition(document)
+
+
+def test_camera_manifest_is_generated_from_the_definition():
+    definition = dc.load_definition(dc.DEFAULT_DEFINITION)
+    expected = dc.cameras_manifest(definition)
+    assert dc.CAMERAS_MANIFEST.read_text(encoding="utf-8") == expected, "run: python tools/poc/demo_corpus.py cameras"
+    document = json.loads(expected)
+    assert document["schemaVersion"] == "mavi-poc-demo-cameras-v1"
+    assert [c["code"] for c in document["cameras"]] == [clip["camera"]["code"] for clip in definition["clips"]]
+    # The fields S1's Read-MaviPocDemoCameras requires, non-empty, with unique codes (case-insensitive).
+    assert all(all(isinstance(c[k], str) and c[k].strip() for k in ("code", "name", "timeZoneId")) for c in document["cameras"])
+    assert len({c["code"].casefold() for c in document["cameras"]}) == len(document["cameras"])
+
+
+INSTALLER_SEED = Path(__file__).resolve().parents[3] / "config" / "poc" / "demo-cameras-v1.json"
+
+
+def test_installer_seed_matches_the_demo_corpus_when_present():
+    # PoC S1 seeds cameras from config/poc/demo-cameras-v1.json. Once that file is on the same branch, it must be
+    # the S2 manifest, so a kit install and the demo import agree on every camera (one authoritative list).
+    assert (Path(__file__).resolve().parents[3] / "tools" / "poc" / "demo_corpus.py").is_file()  # repo root resolved
+    if not INSTALLER_SEED.exists():
+        pytest.skip("config/poc/demo-cameras-v1.json (PoC S1, PR #238) is not on this branch yet")
+    assert json.loads(INSTALLER_SEED.read_text(encoding="utf-8")) == json.loads(dc.CAMERAS_MANIFEST.read_text(encoding="utf-8")), \
+        "config/poc/demo-cameras-v1.json must equal tools/poc/demo-corpus/demo-cameras-v1.json"
+
+
+def test_cameras_command_writes_the_manifest(tmp_path):
+    out = tmp_path / "cameras.json"
+    assert dc.main(["cameras", "--out", str(out)]) == 0
+    assert out.read_text(encoding="utf-8") == dc.CAMERAS_MANIFEST.read_text(encoding="utf-8")
+
+
+def test_null_loitering_threshold_uses_the_engine_default():
+    document = _definition()
+    document["clips"][0]["trim"]["durationSeconds"] = 180
+    document["clips"][0]["scene"]["zones"][0]["loiteringThresholdSeconds"] = None  # engine default 120 s > 90 s
+    with pytest.raises(dc.CorpusError, match="definition_loitering_exceeds_window"):
+        dc.validate_definition(document)
+
+
+def test_audit_window_covers_whole_hours():
+    asset = {"recordingStartUtc": "2026-10-01T03:58:30Z"}
+    first, last = dc.audit_window(asset, {"trim": {"durationSeconds": 180}})
+    assert first.isoformat() == "2026-10-01T03:00:00+00:00" and last.isoformat() == "2026-10-01T05:00:00+00:00"
+
+
+class AuditApi:
+    """Aggregates plus a Track search that answers by predicate, with paging."""
+
+    def __init__(self, counts):
+        self.counts, self.calls = counts, []
+
+    def call(self, method, path, json_body=None, multipart=None):
+        self.calls.append(path)
+        if "/analytics/aggregates" in path:
+            return 200, {"sceneRevisionNumber": 1, "coverage": {"complete": True, "staleRuns": 0, "analysedTracks": 10, "unavailableTracks": 0},
+                         "classes": [{"objectClass": "Person", "windowDistinctTrackCount": 6}, {"objectClass": "Vehicle", "windowDistinctTrackCount": 4}],
+                         "zones": [{"zoneId": "z1", "name": "Zone A", "windowEntryCount": 9, "windowUniqueTrackCount": 7}],
+                         "lines": [{"name": "Gate", "aToBLabel": "In", "bToALabel": "Out", "windowAToBCount": 5, "windowBToACount": 0}]}
+        assert path.startswith("/api/tracks?")
+        query = path.split("?", 1)[1]
+        key = next(k for k in self.counts if all(part in query.split("&") for part in k.split("&")))
+        total = self.counts[key]
+        offset = int(query.split("cursor=")[1]) if "cursor=" in query else 0
+        page = min(100, total - offset)
+        return 200, {"items": [{}] * page, "nextCursor": str(offset + page) if offset + page < total else None}
+
+
+def test_audit_clip_positive_and_negative_in_the_same_unit():
+    clip = _clip(1)
+    clip["scene"]["zones"][0]["kind"] = "Restricted"
+    counts = {"zoneRelation=entered": 150, "loitering=true": 1, "objectClass=Vehicle&zoneRelation=dwelled&minStationaryMs=30000": 2,
+              "objectClass=Vehicle&zoneRelation=dwelled": 3, "objectClass=Person&zoneRelation=dwelled": 4,
+              **{f"objectClass=Person&zoneRelation=dwelled&minDwellMs={sec * 1000}": max(0, 4 - sec // 5) for sec in dc.DWELL_PROFILE_S}}
+    # Most specific predicates first, so a query matches its own key.
+    counts = dict(sorted(counts.items(), key=lambda kv: -kv[0].count("&") - len(kv[0])))
+    report = dc.audit_clip(AuditApi(counts), "cam", {"recordingStartUtc": "2026-10-01T03:30:00Z"}, clip)
+    events = {(e["event"], e["object"]): e for e in report["events"]}
+    entry = events[("zone entry", "Zone A")]
+    assert (entry["positive"], entry["negative"], entry["entryEvents"]) == (150, 3, 9)  # paged past 100; 10 analysed - 7 present
+    assert entry["unit"] == "Tracks" and entry["demonstrable"]
+    loiter = events[("person loitering >= 30 s", "Zone A")]
+    assert (loiter["positive"], loiter["negative"]) == (1, 3)
+    stationary = events[("vehicle in zone, stationary >= 30 s (anywhere)", "Zone A")]
+    assert (stationary["positive"], stationary["negative"]) == (2, 1)
+    gate_in, gate_out = events[("crossing In", "Gate")], events[("crossing Out", "Gate")]
+    assert (gate_in["positive"], gate_in["negative"], gate_in["demonstrable"]) == (5, 0, False)
+    assert (gate_out["positive"], gate_out["negative"]) == (0, 5)
+    assert report["personDwellProfile"][0]["personsDwelledAtLeastSeconds"] == {"5": 3, "10": 2, "15": 1, "20": 0, "30": 0}
+

@@ -51,6 +51,8 @@ SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 TERMINAL_FAILURES = ("Failed", "Cancelled")
 REANALYSIS_GRACE_S = 120.0
 STATIONARY_DEMO_MS = 30_000  # audit-only: "stopped vehicle in a restricted bay" (chosen after the first audit; disclosed)
+DWELL_PROFILE_S = (5, 10, 15, 20, 30)  # audit-only: retained person-dwell profile per zone
+LOITERING_DEFAULT_S = 120  # SceneAnalyticsAlgorithm.LoiteringDefaultSeconds: a zone without a threshold uses it
 
 # Pinned derivation, mirroring tools/benchmarks/prepare.py: libx264 single-threaded with bit-exact flags,
 # so the same FFmpeg binary and original always give the same bytes. Audio, subtitles, data streams,
@@ -239,9 +241,11 @@ def validate_definition(document: Any) -> dict:
         require(parsed is not None and parsed.tzinfo is None, f"definition_recording_start:{cid}")
         validate_scene(clip.get("scene"), f"definition_scene:{cid}")
         # A loitering threshold the clip cannot exhibit is not demonstrable: at most half the trimmed window.
+        # A zone without a threshold uses the engine default (120 s), which must fit too.
         for zone in clip["scene"]["zones"]:
             threshold = zone["loiteringThresholdSeconds"]
-            require(threshold is None or threshold * 2 <= trim["durationSeconds"], f"definition_loitering_exceeds_window:{cid}:{zone['name']}")
+            effective = LOITERING_DEFAULT_S if threshold is None else threshold
+            require(effective * 2 <= trim["durationSeconds"], f"definition_loitering_exceeds_window:{cid}:{zone['name']}")
     return document
 
 
@@ -584,14 +588,25 @@ def _count_tracks(api: Api, query: str, page: int = 100) -> int:  # the endpoint
             return total
 
 
+def audit_window(asset: dict, clip: dict) -> tuple[datetime, datetime]:
+    """Whole UTC hours covering the clip's recording window (aggregates need whole buckets)."""
+    start = datetime.fromisoformat(str(asset["recordingStartUtc"]).replace("Z", "+00:00"))
+    end = start + timedelta(seconds=clip["trim"]["durationSeconds"])
+    first = start.replace(minute=0, second=0, microsecond=0)
+    last = end.replace(minute=0, second=0, microsecond=0)
+    if last < end:
+        last += timedelta(hours=1)
+    return first, last
+
+
 def audit_clip(api: Api, camera_id: str, asset: dict, clip: dict) -> dict:
     """Positive and negative functional evidence for each configured event of one clip.
 
-    Reads only aggregates and Track search over the clip's own recording window. Every number is pipeline
-    output for this one run, not a count of real objects: no ground truth exists or is created (B5)."""
-    start = datetime.fromisoformat(str(asset["recordingStartUtc"]).replace("Z", "+00:00"))
-    hour = start.replace(minute=0, second=0, microsecond=0)
-    window = f"fromUtc={urllib.parse.quote(hour.isoformat())}&toUtc={urllib.parse.quote((hour + timedelta(hours=1)).isoformat())}"
+    Reads only aggregates and Track search over the clip's own recording window. Each event compares two
+    disjoint sets in the same unit (Tracks, or crossings). Every number is pipeline output for this one run,
+    not a count of real objects: no ground truth exists or is created (B5)."""
+    first, last = audit_window(asset, clip)
+    window = f"fromUtc={urllib.parse.quote(first.isoformat())}&toUtc={urllib.parse.quote(last.isoformat())}"
     status, agg = api.call("GET", f"/api/cameras/{camera_id}/analytics/aggregates?{window}&bucketSeconds=3600")
     require(status == 200 and isinstance(agg, dict), f"api_aggregates:{clip['clipId']}:{status}:{_problem(agg)}")
     coverage = agg.get("coverage") or {}
@@ -600,33 +615,50 @@ def audit_clip(api: Api, camera_id: str, asset: dict, clip: dict) -> dict:
     analysed = int(coverage.get("analysedTracks") or 0)
     base = f"cameraId={camera_id}"
     zones = {z["name"]: z for z in clip["scene"]["zones"]}
-    events = []
+    events, dwell = [], []
     for zone in agg.get("zones") or []:
-        unique = int(zone["windowUniqueTrackCount"])
-        events.append({"event": "zone entry", "object": zone["name"], "positive": int(zone["windowEntryCount"]),
-                       "negative": analysed - unique, "negativeMeaning": "analysed Tracks that never entered the zone"})
-        threshold = zones[zone["name"]]["loiteringThresholdSeconds"]
-        if threshold is not None:
-            # The engine's loitering rule applies to Persons only (plan §M; LoiteringRule).
-            loitering = _count_tracks(api, f"{base}&objectClass=Person&zoneId={zone['zoneId']}&loitering=true")
-            dwelled = _count_tracks(api, f"{base}&objectClass=Person&zoneId={zone['zoneId']}&zoneRelation=dwelled")
-            events.append({"event": f"person loitering >= {threshold} s", "object": zone["name"], "positive": loitering,
-                           "negative": dwelled - loitering, "negativeMeaning": "Persons that dwelled in the zone below the threshold"})
-        if zones[zone["name"]]["kind"] == "Restricted":
-            stationary = _count_tracks(api, f"{base}&objectClass=Vehicle&zoneId={zone['zoneId']}&minStationaryMs={STATIONARY_DEMO_MS}")
-            dwelled = _count_tracks(api, f"{base}&objectClass=Vehicle&zoneId={zone['zoneId']}&zoneRelation=dwelled")
-            events.append({"event": f"vehicle stationary >= {STATIONARY_DEMO_MS // 1000} s", "object": zone["name"], "positive": stationary,
-                           "negative": dwelled - stationary, "negativeMeaning": "Vehicles in the zone that were not stationary that long"})
+        zid, name = zone["zoneId"], zone["name"]
+        # Tracks with an entry event (a visit that did not start inside the zone) vs Tracks never in the zone.
+        entered = _count_tracks(api, f"{base}&zoneId={zid}&zoneRelation=entered")
+        events.append({"event": "zone entry", "object": name, "unit": "Tracks", "positive": entered,
+                       "positiveMeaning": "Tracks that entered the zone",
+                       "negative": analysed - int(zone["windowUniqueTrackCount"]),
+                       "negativeMeaning": "analysed Tracks never present in the zone",
+                       "entryEvents": int(zone["windowEntryCount"])})
+        threshold = zones[name]["loiteringThresholdSeconds"]
+        effective = LOITERING_DEFAULT_S if threshold is None else threshold
+        # The engine's loitering rule applies to Persons only (plan §M; LoiteringRule).
+        loitering = _count_tracks(api, f"{base}&objectClass=Person&zoneId={zid}&loitering=true")
+        dwelled = _count_tracks(api, f"{base}&objectClass=Person&zoneId={zid}&zoneRelation=dwelled")
+        events.append({"event": f"person loitering >= {effective} s", "object": name, "unit": "Tracks", "positive": loitering,
+                       "positiveMeaning": "Persons whose dwell in the zone reached the threshold",
+                       "negative": dwelled - loitering, "negativeMeaning": "Persons that dwelled in the zone below the threshold"})
+        dwell.append({"object": name, "personsDwelledAtLeastSeconds": {
+            str(seconds): _count_tracks(api, f"{base}&objectClass=Person&zoneId={zid}&zoneRelation=dwelled&minDwellMs={seconds * 1000}")
+            for seconds in DWELL_PROFILE_S}})
+        if zones[name]["kind"] == "Restricted":
+            # minStationaryMs filters on the Track's longest stationary period anywhere in its life
+            # (LongestStationaryMs), not on time stationary inside the zone.
+            stationary = _count_tracks(api, f"{base}&objectClass=Vehicle&zoneId={zid}&zoneRelation=dwelled&minStationaryMs={STATIONARY_DEMO_MS}")
+            vehicles = _count_tracks(api, f"{base}&objectClass=Vehicle&zoneId={zid}&zoneRelation=dwelled")
+            events.append({"event": f"vehicle in zone, stationary >= {STATIONARY_DEMO_MS // 1000} s (anywhere)", "object": name,
+                           "unit": "Tracks", "positive": stationary,
+                           "positiveMeaning": "Vehicles present in the zone whose longest stationary period reached the value",
+                           "negative": vehicles - stationary, "negativeMeaning": "Vehicles present in the zone that never stood that long"})
     for line in agg.get("lines") or []:
         a_to_b, b_to_a = int(line["windowAToBCount"]), int(line["windowBToACount"])
-        events.append({"event": f"crossing {line['aToBLabel']}", "object": line["name"], "positive": a_to_b,
+        events.append({"event": f"crossing {line['aToBLabel']}", "object": line["name"], "unit": "crossings", "positive": a_to_b,
+                       "positiveMeaning": f"crossings {line['aToBLabel']}",
                        "negative": b_to_a, "negativeMeaning": f"crossings in the opposite direction ({line['bToALabel']})"})
-        events.append({"event": f"crossing {line['bToALabel']}", "object": line["name"], "positive": b_to_a,
+        events.append({"event": f"crossing {line['bToALabel']}", "object": line["name"], "unit": "crossings", "positive": b_to_a,
+                       "positiveMeaning": f"crossings {line['bToALabel']}",
                        "negative": a_to_b, "negativeMeaning": f"crossings in the opposite direction ({line['aToBLabel']})"})
     for event in events:
         event["demonstrable"] = event["positive"] > 0 and event["negative"] > 0
-    return {"clipId": clip["clipId"], "sceneRevision": agg.get("sceneRevisionNumber"), "analysedTracks": analysed,
-            "unavailableTracks": coverage.get("unavailableTracks"), "tracksByClass": tracks, "events": events}
+    return {"clipId": clip["clipId"], "sceneRevision": agg.get("sceneRevisionNumber"),
+            "window": {"fromUtc": first.isoformat(), "toUtc": last.isoformat()}, "analysedTracks": analysed,
+            "unavailableTracks": coverage.get("unavailableTracks"), "tracksByClass": tracks, "events": events,
+            "personDwellProfile": dwell}
 
 
 def audit_corpus(definition: dict, api: Api) -> list[dict]:

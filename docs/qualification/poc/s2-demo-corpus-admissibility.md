@@ -122,8 +122,8 @@ Both have purposes `development`, rights `PERMITTED_FOR_ENGINEERING_USE` and pri
 |---|---|---|
 | Junction / gate / road | ≥ 3 | 6: s2-01 Düsseldorf junction, s2-02 Sofia junction, s2-03 Crest Hill road, s2-04 night highway, s2-05 archway gate, s2-06 level-crossing barrier |
 | Pedestrian | ≥ 2 | 2: s2-07 Shibuya scramble crossing, s2-08 Damascus Gate overhead |
-| Car park | ≥ 1 | **GAP** |
-| Lobby / close-range faces | ≥ 1 | **GAP** |
+| Car park | ≥ 1 | 1 after A4: s2-09 (MEVA G424). **GAP** in Commons, closed by MEVA (§7) |
+| Lobby / close-range faces | ≥ 1 | 3 after A4: s2-10 cafe, s2-11 hallway, s2-12 stairwell (MEVA; consent is owner decision 3). **GAP** in Commons, closed by MEVA (§7) |
 
 **Car park gap.** No kit-licensed fixed-camera car-park clip of at least 60 s was found in 964 described files. What is available instead:
 - Two clips carry a "Restricted" bay zone: s2-03, over the roadside lot, and s2-05, over the parked cars beside the gate. They support dwell and restricted-area demos, but they are not car-park scenes.
@@ -195,27 +195,43 @@ The duplicate path now also checks each asset's recording start, against the ser
 
 ## 7. MEVA addition: car park, indoor faces, cross-camera (amendment A4, owner instruction)
 
-**Release-level admissibility (ADR-017 §7).**
+**Release-level admissibility of MEVA video (ADR-017 §7).**
 - **Status.** The MEVA public release is **RESEARCH-ADMISSIBLE** for Development. Redistribution in the kit is permitted by CC BY 4.0, with attribution and indication of changes.
-- **Terms.** The verbatim licence file `https://mevadata.org/resources/MEVA-data-license.txt` is retained at `E:\MAVI-Controlled\PoC\Corpus\approvals\MEVA-data-license.txt`, SHA-256 `bdeedfb765049c87f92a2450369ad70882fca3371190b2a6b7e560e103c922e8`. It opens: '"Multiview Extended Video with Activities" (MEVA) dataset by Kitware Inc. and the Intelligence Advanced Research Projects Activity (IARPA) is licensed under a Creative Commons Attribution 4.0 International License'.
+- **Terms.** The verbatim licence file `https://mevadata.org/resources/MEVA-data-license.txt` is retained at `approvals\MEVA-data-license.txt`, SHA-256 `bdeedfb765049c87f92a2450369ad70882fca3371190b2a6b7e560e103c922e8`. It opens: '"Multiview Extended Video with Activities" (MEVA) dataset by Kitware Inc. and the Intelligence Advanced Research Projects Activity (IARPA) is licensed under a Creative Commons Attribution 4.0 International License'.
 - **Access.** Public S3 bucket `mevadata-public-01` (us-east-1), over HTTPS, with no credentials or account.
-- **Why release-level.** The terms are uniform across the release, so one release-level record covers all four files (ADR-017 "release-level by default").
+- **Why release-level.** The terms are uniform across the release, so one release-level record covers all four files.
 
 **Privacy and consent (B3).**
-- **Who is shown.** The people are volunteer actors at the Muscatatuck Urban Training Center.
-- **What the paper states.** The MEVA paper (Corona et al., WACV 2021, arXiv:2012.00914) states that participants signed informed-consent forms after a briefing. It also states that the protocol and briefing included the CC BY 4.0 licence under which the data may be released, and that collection was under IRB oversight and approval.
-- **Faces.** This is a consented, release-cleared recording, but it is **not literally a "model release"** as B3 words it. Whether it satisfies B3 is an **owner decision**.
+- **Who is shown.** The people are volunteer actors at an access-controlled training facility.
+- **What the paper states.** The MEVA paper is retained as `approvals\meva-wacv2021-arxiv-2012.00914v1.pdf`, SHA-256 `48f7773d522358bf7509030f6059c7abe36aa8b6124cd181855f5afdd6d39831`. Its §3.1 "Releasability" (p. 4) states that:
+  - the collection was overseen by an IRB;
+  - a human-subjects protocol and informed-consent documents described how the data would be released;
+  - the consent briefing included a sample licence, CC BY 4.0;
+  - participants who chose to take part signed consent forms;
+  - collection took place at an access-controlled facility, to minimise non-participants in view.
+- **Faces.** This is consent with a stated CC BY release, but it is **not literally a "model release"** as B3 words it. That is **owner decision 3**.
 - **What S2 creates.** No face is detected, cropped, counted or labelled in S2.
 
-**Identity labels reused, none created.**
-- **The source.** MEVID (Kitware, WACV 2023) labels 158 actors (598 person-outfits) across 33 MEVA views. Two of its public files are retained in the controlled store:
-  - `mevid-v1-video-URLS.txt`, SHA-256 `99b674beb9fb98192259d04e33cb3f95bfc6f94d8eb6d0d926573e5e0157530d`, used only to select clips that contain labelled actors;
+**Cross-camera repeat appearances.**
+- **By design.** The same paper (§3.2, p. 4) says activities "were scripted to be performed by the same individual in different, singular cameras with the goal of associating the same individual across different cameras".
+- **The selected clips.** The four clips come from one real 5-minute slot in one school building, all fixed cameras. Their demo start times keep the real offsets between cameras (09:40:00–09:40:02).
+
+**MEVID identity labels: ADR-017 reuse record, added after the cold review.**
+- **What MEVID is.** MEVID (Kitware, WACV 2023, `github.com/Kitware/mevid`) labels 158 actors and 598 person-outfits. Per its paper, it covers 33 MEVA views; the annotation files themselves contain 25 camera ids.
+- **Where it is published.** In the same public MEVA bucket, under `mevid-annotations/`. mevadata.org states "All MEVA data is available for use under a CC BY-4.0 license". The MEVID GitHub repository carries no separate licence file. That ambiguity is recorded, not resolved.
+- **Status.** **RESEARCH-ADMISSIBLE** for Development (ADR-017 §7: lawfully obtainable, and no term prohibits the use).
+- **Use.** Read-only selection and statistics. No labels are created, and none enter the kit.
+- **Files retained:**
+  - `mevid-v1-video-URLS.txt`, SHA-256 `99b674beb9fb98192259d04e33cb3f95bfc6f94d8eb6d0d926573e5e0157530d`, used to select clips that contain labelled actors;
   - `mevid-v1-annotation-data.zip`, SHA-256 `18a91691a0ccb3b79302c55643840bc5b7f16a9ed813d93bbe91edd151f982e8`.
-- **Read-only statistics** from `track_{train,test}_info.txt`:
-  - **132** of the 598 person-outfits have tracklets in at least two of the four selected cameras;
-  - by camera pair: G419–G421 68, G419–G424 61, G419–G423 54, G421–G424 42, G421–G423 28, G423–G424 24;
-  - **11** appear in all four.
-- **What this shows, and what it does not.** Genuine cross-camera repeat appearances between these views are an established fact of the source, not something MEVA staged for us. MEVID's files carry no clip or time stamp, so S2 does **not** claim which actors repeat inside the selected 5-minute slot. Any ReID result on these clips is a *candidate*. It is not identity evidence and not a ReID performance measure (D3, C6).
+- **Order of events, disclosed.** A4 said any further use of the labels would need a separate recorded reuse. The annotation zip was nevertheless fetched and read before this record existed. This record is that reuse record, written afterwards. Keeping or dropping the statistics is **owner decision 9**.
+
+**Statistics** from `track_{train,test}_info.txt`:
+- **132** of the 598 person-outfits have tracklets in at least two of the four selected cameras;
+- by camera pair: G419–G421 68, G419–G424 61, G419–G423 54, G421–G424 42, G421–G423 28, G423–G424 24;
+- **11** appear in all four.
+
+MEVID's files carry no clip or time stamp, so S2 does **not** claim which actors repeat inside the selected slot. Any ReID result on these clips is a *candidate*. It is not identity evidence and not a ReID performance measure (D3, C6).
 
 **Files.** Slot 2018-03-11 16:20; all four are school-building cameras, fixed, 1920×1072/1080 at 30 fps, 300 s:
 
@@ -228,76 +244,91 @@ The duplicate path now also checks each asset's recording start, against the ser
 
 **Transfer.**
 - **Method.** Resumable HTTPS `curl`, with no credentials, into `source-store\media\meva\…`.
-- **Integrity.** Each file's size matched the bucket's declared `Content-Length`. S3 publishes no content digest for these multipart objects (the ETags are multipart, not MD5), so integrity rests on the declared size and on the SHA-256 recorded at acquisition (`approvals\meva-originals.sha256`).
-- **B1 wording.** This is not `tools/qualification/source_acquisition`, which implements only Commons. B1 says "acquired through `tools/qualification/source_acquisition`", so accepting this path is an **owner decision**.
+- **Integrity.** Each file's size matched the bucket's declared `Content-Length`. S3 publishes no content digest for these multipart objects, so integrity rests on the declared size and on the SHA-256 recorded at acquisition (`approvals\meva-originals.sha256`).
+- **Order, and its limit.** The order "A4 committed (23:08:09), then the first MEVA media file created (23:08:32)" rests on filesystem times. `meva-fetch.log` holds no timestamps. This is disclosed.
+- **B1 wording.** This is not `tools/qualification/source_acquisition`, so accepting this path is **owner decision 2**.
 
 **Diagnostic look (B5).** Three frames per clip, at 5, 90 and 175 s, to confirm a fixed and populated view. No label or count was made.
 
-**Demo timing.** The demo start times keep the real offsets between cameras (09:40:00–09:40:02), so cross-camera timing in the demo is genuine.
-
 ## 8. Functional evidence per event (owner instruction 5)
 
-**Thresholds (fixed before any loitering output was read).** A loitering threshold must be demonstrable inside its clip. The rule is: threshold ≤ half the trimmed window, rounded down to 5 s. `validate` enforces it. It lowered five thresholds:
+**Thresholds (fixed before any loitering output was read).** A loitering threshold must be demonstrable inside its clip. The rule is: threshold ≤ half the trimmed window, rounded down to 5 s. `validate` enforces it, and a zone with no threshold is checked at the engine default of 120 s. Changes:
 
-| Clip | Zone | Old | New |
+| Clip | Zone | Old | New | Applied in |
+|---|---|---|---|---|
+| s2-02 | Right pavement | 60 s | 40 s | run 5 |
+| s2-03 | Roadside lot bays | 120 s | 30 s | run 5 |
+| s2-05 | Parking bay | 60 s | 50 s | run 5 |
+| s2-07 | Crossing | 60 s | 40 s | run 5 |
+| s2-07 | Near corner | 120 s | 40 s | run 5 |
+| s2-09 | Upper bays | unset (default 120 s) | 90 s | run 7, after the cold review |
+| s2-09 | Lower bays | unset (default 120 s) | 90 s | run 7, after the cold review |
+
+Each change saved a new scene revision. The runs went `Stale`, and the importer's re-analysis request (202) returned them to `Ready`.
+
+**Audit definition** (`python tools/poc/demo_corpus.py audit`). For each clip it reads aggregates over whole UTC hours covering the clip, plus Track search, for each configured event. It compares two **disjoint sets in the same unit**:
+
+| Event | Unit | Positive | Negative |
 |---|---|---|---|
-| s2-02 | Right pavement | 60 s | 40 s |
-| s2-03 | Roadside lot bays | 120 s | 30 s |
-| s2-05 | Parking bay | 60 s | 50 s |
-| s2-07 | Crossing | 60 s | 40 s |
-| s2-07 | Near corner | 120 s | 40 s |
+| Zone entry | Tracks | Tracks with an entry event (`zoneRelation=entered`) | Analysed Tracks never present in the zone |
+| Crossing, each direction | Crossings | That direction | The opposite direction |
+| Person loitering (the engine's rule is person-only, plan §M) | Tracks | Persons whose dwell reached the threshold | Persons who dwelled below it |
+| Vehicle in a `Restricted` zone, stationary ≥ 30 s | Tracks | Vehicles present in the zone whose **longest stationary period anywhere** reached 30 s | Vehicles present in the zone that never stood that long |
 
-The import saved revision 2 for the four affected cameras. Their runs went `Stale` and the importer's re-analysis path requested analysis (202), after which they returned to `Ready`.
+Notes on the definitions:
+- **Zone entry.** Tracks that start inside the zone are in neither set. The aggregate's entry-*event* count is reported separately, as `entryEvents`.
+- **Stationary.** The query cannot show that the vehicle stood *inside* the zone, because `minStationaryMs` filters the Track's longest stationary period. The 30 s value was **chosen after the first audit**, so accepting it is **owner decision 10**.
 
-**Audit.** `python tools/poc/demo_corpus.py audit` reads aggregates and Track search for each clip's own window. It reports, for every configured event, a **positive** (the event fired) and a **meaningful negative** (the same population where it did not), and calls an event *demonstrable* only when both are non-zero:
+An event is *demonstrable* only when both sets are non-empty. The numbers are pipeline output for one run each. They are not counts of real objects; no ground truth exists.
 
-| Event | Positive | Negative |
+**Results** (`audit-4.json`). Audit tool SHA-256 `618954f7f98f7888fcbeba411a7879aba11764da9e8f5e904621bee458c222e8`, definition SHA-256 `6a4e2c9bb74385011f3d02d1af040d51afd311ad49f76f8084328b7925ad0c97`. Each event is shown as positive / negative; ✔ marks one that is demonstrable.
+
+| Clip | Tracks (Person / Vehicle) | Demonstrable | Not demonstrable |
+|---|---|---|---|
+| s2-01-dusseldorf-junction | 36 / 66 | ✔ zone entry — Corner pavement 43 / 40; ✔ zone entry — Tram box 5 / 96; ✔ crossing Outbound — Junction exit 11 / 9; ✔ crossing Inbound — Junction exit 9 / 11 | person loitering >= 60 s — Corner pavement 0 / 27; person loitering >= 20 s — Tram box 0 / 3; vehicle in zone, stationary >= 30 s (anywhere) — Tram box 0 / 3 |
+| s2-02-sofia-junction | 29 / 112 | ✔ zone entry — Junction box 47 / 94; ✔ zone entry — Right pavement 41 / 61; ✔ crossing Away — Crosswalk 3 / 24; ✔ crossing Toward — Crosswalk 24 / 3 | person loitering >= 30 s — Junction box 0 / 4; vehicle in zone, stationary >= 30 s (anywhere) — Junction box 0 / 43; person loitering >= 40 s — Right pavement 0 / 10 |
+| s2-03-crest-hill-road | 0 / 55 | ✔ zone entry — Roadside lot bays 39 / 14; ✔ crossing Rightward — Count line 12 / 7; ✔ crossing Leftward — Count line 7 / 12 | person loitering >= 30 s — Roadside lot bays 0 / 0; vehicle in zone, stationary >= 30 s (anywhere) — Roadside lot bays 0 / 41 |
+| s2-04-night-highway | 0 / 333 | ✔ zone entry — Near carriageway 258 / 53; ✔ crossing Away — Overpass line 123 / 223; ✔ crossing Toward — Overpass line 223 / 123 | person loitering >= 10 s — Near carriageway 0 / 0 |
+| s2-05-vrhnika-arch-gate | 0 / 23 | ✔ vehicle in zone, stationary >= 30 s (anywhere) — Parking bay 3 / 20 | zone entry — Gate approach 0 / 23; person loitering >= 30 s — Gate approach 0 / 0; zone entry — Parking bay 6 / 0; person loitering >= 50 s — Parking bay 0 / 0; crossing Exit — Arch gate 0 / 0; crossing Entry — Arch gate 0 / 0 |
+| s2-06-beynost-level-crossing | 1 / 3 | ✔ zone entry — Crossing box 2 / 2 | person loitering >= 10 s — Crossing box 0 / 1; vehicle in zone, stationary >= 30 s (anywhere) — Crossing box 0 / 1; zone entry — Waiting area 0 / 1; person loitering >= 30 s — Waiting area 0 / 0; crossing Away — Barrier line 0 / 1; crossing Toward — Barrier line 1 / 0 |
+| s2-07-shibuya-crossing | 2 / 17 | ✔ zone entry — Crossing 4 / 1; ✔ zone entry — Near corner 6 / 12; ✔ crossing Away — Crossing midline 2 / 3; ✔ crossing Toward — Crossing midline 3 / 2 | person loitering >= 40 s — Crossing 0 / 1; person loitering >= 40 s — Near corner 0 / 2 |
+| s2-08-damascus-gate-overhead | 0 / 0 | — | zone entry — Passage centre 0 / 0; person loitering >= 30 s — Passage centre 0 / 0; vehicle in zone, stationary >= 30 s (anywhere) — Passage centre 0 / 0; zone entry — Stall front 0 / 0; person loitering >= 60 s — Stall front 0 / 0; crossing Rightward — Gate midline 0 / 0; crossing Leftward — Gate midline 0 / 0 |
+| s2-09-meva-parking-lot | 2 / 10 | ✔ zone entry — Upper bays 1 / 6; ✔ person loitering >= 90 s — Upper bays 1 / 1 | zone entry — Lower bays 0 / 11; person loitering >= 90 s — Lower bays 0 / 0; vehicle in zone, stationary >= 30 s (anywhere) — Lower bays 1 / 0; vehicle in zone, stationary >= 30 s (anywhere) — Upper bays 4 / 0; crossing Rightward — Lot lane 1 / 0; crossing Leftward — Lot lane 0 / 1 |
+| s2-10-meva-cafe-lobby | 8 / 0 | ✔ zone entry — Seating area 3 / 5 | zone entry — Entrance floor 8 / 0; person loitering >= 30 s — Entrance floor 0 / 8; person loitering >= 30 s — Seating area 0 / 3; crossing Out — Doorway line 0 / 0; crossing In — Doorway line 0 / 0 |
+| s2-11-meva-school-hall | 20 / 0 | — | zone entry — Corridor near 0 / 20; person loitering >= 30 s — Corridor near 0 / 0; crossing Away — Hall midline 0 / 0; crossing Toward — Hall midline 0 / 0 |
+| s2-12-meva-stairwell | 9 / 0 | ✔ zone entry — Landing 6 / 3; ✔ crossing To door — Landing line 2 / 3; ✔ crossing From door — Landing line 3 / 2 | person loitering >= 30 s — Landing 0 / 6 |
+
+**Person-dwell profile** (retained in `audit-4.json`): persons with dwell ≥ 5 / 10 / 15 / 20 / 30 s, for zones where any person dwelled ≥ 5 s.
+
+| Clip | Zone | ≥ 5 / 10 / 15 / 20 / 30 s |
 |---|---|---|
-| Zone entry | Tracks that entered | Analysed Tracks that never entered |
-| Crossing, each direction | Crossings in that direction | Crossings in the opposite direction |
-| Person loitering | Persons whose dwell reached the threshold | Persons who dwelled below it |
-| Vehicle stationary ≥ 30 s in a `Restricted` zone | Vehicles stationary that long | Vehicles that dwelled there without |
-
-The person-only loitering rule is the engine's own (plan §M). The 30 s stationary value was **chosen after the first audit, and is disclosed as such**.
-
-The numbers are pipeline output for one run each. They are not counts of real objects; no ground truth exists.
-
-**Results (audit of the final definition, 12 clips).** Audit tool SHA-256 `db649df4f4dbada71a5154fe04d723e76b7fe1a38cefb5b16c5748ef4866203e`, definition SHA-256 `014706a7fe28133a3742938320085eb296c7db0762c1182e28b12583823318fc`. Each event is shown as positive / negative; ✔ marks one that is demonstrable.
-
-| Clip | Tracks (P/V) | Demonstrable events (positive / negative) | Not demonstrable |
-|---|---|---|---|
-| s2-01-dusseldorf-junction | 36/66 | ✔ zone entry Corner pavement 64/40; ✔ zone entry Tram box 6/96; ✔ crossing Outbound Junction exit 11/9; ✔ crossing Inbound Junction exit 9/11 | person loitering >= 60 s Corner pavement 0/27; person loitering >= 20 s Tram box 0/3; vehicle stationary >= 30 s Tram box 0/3 |
-| s2-02-sofia-junction | 29/112 | ✔ zone entry Junction box 54/94; ✔ zone entry Right pavement 70/61; ✔ crossing Away Crosswalk 3/24; ✔ crossing Toward Crosswalk 24/3 | person loitering >= 30 s Junction box 0/4; vehicle stationary >= 30 s Junction box 0/43; person loitering >= 40 s Right pavement 0/10 |
-| s2-03-crest-hill-road | 0/55 | ✔ zone entry Roadside lot bays 84/14; ✔ crossing Rightward Count line 12/7; ✔ crossing Leftward Count line 7/12 | person loitering >= 30 s Roadside lot bays 0/0; vehicle stationary >= 30 s Roadside lot bays 0/41 |
-| s2-04-night-highway | 0/333 | ✔ zone entry Near carriageway 275/53; ✔ crossing Away Overpass line 123/223; ✔ crossing Toward Overpass line 223/123 | person loitering >= 10 s Near carriageway 0/0 |
-| s2-05-vrhnika-arch-gate | 0/23 | ✔ vehicle stationary >= 30 s Parking bay 3/20 | zone entry Gate approach 0/23; person loitering >= 30 s Gate approach 0/0; zone entry Parking bay 16/0; person loitering >= 50 s Parking bay 0/0; crossing Exit Arch gate 0/0; crossing Entry Arch gate 0/0 |
-| s2-06-beynost-level-crossing | 1/3 | ✔ zone entry Crossing box 2/2 | person loitering >= 10 s Crossing box 0/1; vehicle stationary >= 30 s Crossing box 0/1; zone entry Waiting area 0/1; person loitering >= 30 s Waiting area 0/0; crossing Away Barrier line 0/1; crossing Toward Barrier line 1/0 |
-| s2-07-shibuya-crossing | 2/17 | ✔ zone entry Crossing 4/1; ✔ zone entry Near corner 8/12; ✔ crossing Away Crossing midline 2/3; ✔ crossing Toward Crossing midline 3/2 | person loitering >= 40 s Crossing 0/1; person loitering >= 40 s Near corner 0/2 |
-| s2-08-damascus-gate-overhead | 0/0 | — | zone entry Passage centre 0/0; person loitering >= 30 s Passage centre 0/0; vehicle stationary >= 30 s Passage centre 0/0; zone entry Stall front 0/0; person loitering >= 60 s Stall front 0/0; crossing Rightward Gate midline 0/0; crossing Leftward Gate midline 0/0 |
-| s2-09-meva-parking-lot | 2/10 | ✔ zone entry Upper bays 1/6 | zone entry Lower bays 0/11; vehicle stationary >= 30 s Lower bays 1/0; vehicle stationary >= 30 s Upper bays 4/0; crossing Rightward Lot lane 1/0; crossing Leftward Lot lane 0/1 |
-| s2-10-meva-cafe-lobby | 8/0 | ✔ zone entry Seating area 5/5 | zone entry Entrance floor 8/0; person loitering >= 30 s Entrance floor 0/8; person loitering >= 30 s Seating area 0/3; crossing Out Doorway line 0/0; crossing In Doorway line 0/0 |
-| s2-11-meva-school-hall | 20/0 | — | zone entry Corridor near 0/20; person loitering >= 30 s Corridor near 0/0; crossing Away Hall midline 0/0; crossing Toward Hall midline 0/0 |
-| s2-12-meva-stairwell | 9/0 | ✔ zone entry Landing 7/3; ✔ crossing To door Landing line 2/3; ✔ crossing From door Landing line 3/2 | person loitering >= 30 s Landing 0/6 |
+| s2-01-dusseldorf-junction | Corner pavement | 8 / 4 / 2 / 1 / 0 |
+| s2-02-sofia-junction | Right pavement | 4 / 1 / 0 / 0 / 0 |
+| s2-07-shibuya-crossing | Crossing | 1 / 0 / 0 / 0 / 0 |
+| s2-07-shibuya-crossing | Near corner | 1 / 0 / 0 / 0 / 0 |
+| s2-09-meva-parking-lot | Upper bays | 1 / 1 / 1 / 1 / 1 |
 
 **Findings.**
 - **Zone entry and two-direction crossing** are demonstrable on s2-01, s2-02, s2-03, s2-04, s2-07 and s2-12. Zone entry alone is demonstrable on s2-06, s2-09 and s2-10.
-- **Stationary vehicle ≥ 30 s in a restricted bay** has a real negative only on s2-05 (3 / 20). On s2-09 (parking lot), parked vehicles are positive (4 and 1), but no vehicle passed through a bay without stopping, so it has no in-zone negative.
-- **Person loitering** is **not demonstrated on any clip.** The longest person dwell in any zone is about 20 s (s2-01 corner, threshold 60 s). The zones with 10–20 s thresholds (s2-01 tram box, s2-04, s2-06 crossing box) had no person dwelling at all. People in this corpus pass through; none waits. Lowering thresholds after reading the output would be tuning to the result, so it was not done.
-- **No usable event:** s2-08 (overhead, 0 Tracks) and s2-11 (hallway). On s2-11 the 20 person Tracks stay far down the corridor; the zone and line drawn near the camera are never reached. The geometry was **not** moved after reading the output; that is an owner choice (§9).
-- **No demonstrable crossing:** s2-05 (gate line) and s2-06 (barrier line); their Tracks are few or never cross.
+- **Person loitering** is demonstrable **once**, and weakly: s2-09 upper bays, at 90 s, 1 / 1. That threshold came from the predeclared cap, not from reading the output. Elsewhere people pass through: no person dwelled ≥ 30 s in any other zone, and the longest dwell in the street clips is 20 s (s2-01 corner).
+- **Vehicle in a restricted zone, stationary ≥ 30 s**, with the query semantics above, is demonstrable only on s2-05 (3 / 20).
+- **No usable event** on s2-08 (overhead, 0 Tracks) or s2-11 (hallway). On s2-11 the 20 person Tracks stay far down the corridor, and the near zone and line are never reached. The geometry was **not** moved after reading the output; see decision 6.
+- **No demonstrable crossing** on s2-05, s2-06, s2-09 or s2-10: Tracks are few, or none crosses in both directions.
 
 ## 9. Owner decisions required (none is taken by the operator)
 
 | # | Decision | Row | Operator recommendation |
 |---|---|---|---|
-| 1 | **Ratify** the operator-signed determinations `poc-s2-commons-cc0-2026-10` and `poc-s2-commons-cc-by-2026-10`. This is separate from accepting the attribution file. The hash-bound approval JSONs stay unchanged. | B1 | Ratify |
-| 2 | **Accept the MEVA acquisition path.** It uses a release-level ADR-017 record and an HTTPS transfer with SHA-256, not `tools/qualification/source_acquisition`, against B1's wording. | B1 | Accept, or have the helper extended later |
-| 3 | **Accept MEVA's IRB informed consent with its CC BY 4.0 release as satisfying B3's "model-released"** for the face-bearing clips s2-10, s2-11 and s2-12. | B3 | Accept |
+| 1 | **Ratify** the operator-signed Commons determinations `poc-s2-commons-cc0-2026-10` and `poc-s2-commons-cc-by-2026-10`. This is separate from accepting the attribution file. The hash-bound approval JSONs stay unchanged. | B1 | Ratify |
+| 2 | **MEVA acquisition path.** It uses a release-level ADR-017 record and an HTTPS transfer with SHA-256, not `tools/qualification/source_acquisition`, against B1's wording. Options:<br>(a) accept it;<br>(b) the non-relaxing alternative: extend the helper with a MEVA provider and re-acquire through it. | B1 | (a), or (b) if the literal wording is to hold |
+| 3 | **MEVA consent and B3.** Options:<br>(a) accept MEVA's IRB-overseen informed consent, with its CC BY 4.0 release, as satisfying B3's "model-released" for the face-bearing clips s2-10, s2-11 and s2-12;<br>(b) the non-relaxing alternative: keep those three clips **owner-machine-only**, out of the kit, so the kit has no face-bearing clip. | B3 | (a) |
 | 4 | **Accept `demo-corpus-attribution.md`** (12 clips; MEVA notice). | B2 | Accept |
-| 5 | **Person loitering is not demonstrated** on any clip. Options:<br>(a) record it as a known limit;<br>(b) replace s2-08 (0 Tracks) with MEVA G331, the bus-stop interior in the same 2018-03-11 16:20 slot, where actors wait. That keeps the cap of 12 and needs a recorded amendment;<br>(c) authorise a disclosed post-hoc threshold on s2-01's corner. That threshold would be 15 s, giving 2 / 20. | B1 | (b) |
-| 6 | **s2-11 (hallway) has no usable event**, because people stay far down the corridor. Options:<br>(a) authorise one disclosed geometry redraw over the far corridor;<br>(b) keep it as a face and cross-camera view only. | B1 | (b) for S2, revisit in S6 |
-| 7 | **The car-park class is met by s2-09** (MEVA G424): parked vehicles are stationary ≥ 30 s, but little traffic passes. Accept it, or ask for a busier lot slot. | B1 | Accept |
-| 8 | **B4 closes only after the S2 import runs on a kit install** (`Install-MAVI-PoC`, S1). S1 must also seed `config/poc/demo-cameras-v1.json` equal to `tools/poc/demo-corpus/demo-cameras-v1.json` (hand-over sent). | B4 | — |
+| 5 | **Person loitering** is demonstrated once, weakly (s2-09, 1 / 1). Options:<br>(a) accept that;<br>(b) replace s2-08 (0 Tracks) with MEVA G331, the bus-stop interior in the same slot, where actors wait. That keeps the cap of 12 and needs a recorded amendment;<br>(c) set a disclosed post-hoc threshold of 15 s on s2-01's corner. The retained profile shows 2 persons ≥ 15 s. | B1 | (b) |
+| 6 | **s2-11 (hallway) has no usable event.** Options:<br>(a) allow one disclosed geometry redraw over the far corridor;<br>(b) keep it as a face and cross-camera view only. | B1 | (b) for S2, revisit in S6 |
+| 7 | **The car-park class is met by s2-09** (MEVA G424), which has little through-traffic. Accept it, or ask for a busier lot slot. | B1 | Accept |
+| 8 | **B4 closes only after the S2 import runs on a kit install** (`Install-MAVI-PoC`, S1). S1 must also seed `config/poc/demo-cameras-v1.json` equal to `tools/poc/demo-corpus/demo-cameras-v1.json`. The hand-over has been sent, and a test enforces it once both files are on one branch. | B4 | — |
+| 9 | **MEVID label reuse**, recorded after the files were read (§7). Keep the read-only cross-camera statistics, or drop them and cite only the paper's design statement. | B1, B5 | Keep |
+| 10 | **Accept the post-hoc 30 s value** for the stationary-vehicle demonstration (§8), or choose another value before any further reading. | B1 | Accept, disclosed |
 
 ## 10. Evidence for the MEVA addition and the audit (retained outside Git)
 
@@ -322,3 +353,22 @@ The numbers are pipeline output for one run each. They are not counts of real ob
 | 4 `…/process` | 202 |
 
 **Reproducibility.** All **12** derivatives reproduced byte for byte on trim pass 4. The 8 Commons derivatives have now reproduced on three passes. Run 6 is pinned by the definition SHA-256 `014706a7fe28133a3742938320085eb296c7db0762c1182e28b12583823318fc` and the tool SHA-256 logged at its start.
+
+**After the cold review** (`E:\MAVI-Controlled\PoC\Corpus\evidence-2026-10-29-r2\`, `SHA256SUMS` = `e8d5e6a00b081750bd17a95adf53f1ceb1c1a6e1bfdc39f04f3b75f2dab1141f`). The bundle holds:
+- `audit-4.json`, the corrected audit with its retained person-dwell profile;
+- `import-run7.log`: s2-09 scene revision 2, re-analysis 202, everything else unchanged with 12 × `409 video_duplicate`;
+- the MEVA paper, which is the consent source;
+- the cumulative API mutation extract for the restarted API.
+
+The mutation extract counts:
+
+| Calls | Status |
+|---|---|
+| 4 cameras | 201 |
+| 9 scene saves | 201 |
+| 5 re-analyses | 202 |
+| 4 imports | 201 |
+| 28 duplicate imports | 409 |
+| 4 process | 202 |
+
+Run 7 is pinned by the definition SHA-256 `6a4e2c9bb74385011f3d02d1af040d51afd311ad49f76f8084328b7925ad0c97`. The s2-09 threshold change touched scene configuration only; every derivative SHA-256 is unchanged.
