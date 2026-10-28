@@ -252,9 +252,31 @@ function Assert-MaviPocNoReparsePoint {
         $current = $parent
     }
     if ($Recurse -and (Test-Path -LiteralPath $Path -PathType Container)) {
-        $links = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -Attributes ReparsePoint -ErrorAction Stop)
+        try { $links = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -Attributes ReparsePoint -ErrorAction Stop) }
+        catch { throw "Refusing '$Path': part of it cannot be inspected ($($_.Exception.Message)). Remove what you did not create there and rerun." }
         if ($links.Count -gt 0) { throw "Refusing '$Path': it contains a junction or symbolic link ($($links[0].FullName))." }
     }
+}
+
+# Secures an installation root before anything is created in it. Owned by Administrators,
+# inheritance removed: SYSTEM and Administrators full control, Authenticated Users read and
+# execute. No other user can then create, rename or replace anything under it, so a
+# directory checked here cannot be swapped for a junction before the elevated installer
+# uses it (the default ACL of ProgramData, or of another drive, lets every user create and
+# own folders). The operator-writable directories get their own grants afterwards. The
+# PostgreSQL service runs as LocalSystem and keeps full control.
+function Protect-MaviPocRoot {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    Assert-MaviPocNoReparsePoint -Path $Path
+    New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    & icacls.exe $Path /setowner "*S-1-5-32-544" /C | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to give Administrators ownership of '$Path'." }
+    & icacls.exe $Path /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-11:(OI)(CI)RX" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to secure '$Path'." }
+    # Anything that was already there (a rerun, or a folder planted before the first run)
+    # must not be a link now that nobody else can replace it.
+    $links = @(Get-ChildItem -LiteralPath $Path -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue)
+    if ($links.Count -gt 0) { throw "Refusing '$Path': it contains a junction or symbolic link ($($links[0].FullName))." }
 }
 
 # The recorded process if it is still the one that was started; otherwise the stale record
@@ -282,8 +304,10 @@ function Get-MaviPocRecordedProcess {
         $candidate = Get-Process -Id $processId -ErrorAction SilentlyContinue
         $wmi = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$processId" -ErrorAction SilentlyContinue
         if ($candidate -and -not $wmi -and $candidate.ProcessName -eq [string]$record.imageName) {
-            Write-Warning "WMI could not describe process $processId; keeping its record unverified."
-            return $candidate
+            # Unverifiable: the record is kept (it may be MAVI's) but nothing acts on it, so an
+            # elevated Stop never kills a process identified by id and image alone.
+            Write-Warning "WMI could not describe process $processId; keeping its record and leaving the process alone."
+            return $null
         }
         if ($candidate -and $wmi -and $candidate.ProcessName -eq [string]$record.imageName -and $wmi.CreationDate) {
             $started = ([DateTime]$wmi.CreationDate).ToUniversalTime()
@@ -298,4 +322,4 @@ function Get-MaviPocRecordedProcess {
     return $process
 }
 
-Export-ModuleMember -Function Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras
+Export-ModuleMember -Function Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras

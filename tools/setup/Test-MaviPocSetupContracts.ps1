@@ -135,9 +135,15 @@ try {
     # elevated processes.
     if ($install -match '/T /C' -or $install -match '/reset') { throw "The installer must not change ACLs or owners recursively." }
     if ($install -notmatch 'Assert-MaviPocNoReparsePoint -Path \$releaseRoot -Recurse') { throw "The release directory must be refused when it is or contains a reparse point." }
+    $protectInstall = $install.IndexOf('Protect-MaviPocRoot -Path $layout.InstallRoot')
+    $protectData = $install.IndexOf('Protect-MaviPocRoot -Path $layout.DataRoot')
+    if ($protectInstall -lt 0 -or $protectData -lt 0 -or $protectData -gt $install.IndexOf('Start-Transcript') -or $protectData -gt $install.IndexOf('Install-MaviPostgreSqlInstance')) {
+        throw "Both roots must be secured before anything is created in them."
+    }
     $junctionRoot = Join-Path $tempRoot "junction"
     New-Item -ItemType Directory -Path (Join-Path $junctionRoot "release"), (Join-Path $junctionRoot "target") -Force | Out-Null
     & cmd.exe /c mklink /J (Join-Path $junctionRoot "release\link") (Join-Path $junctionRoot "target") | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "mklink /J failed ($LASTEXITCODE); the junction refusal cannot be tested." }
     Assert-Throws { Assert-MaviPocNoReparsePoint -Path (Join-Path $junctionRoot "release") -Recurse } "junction or symbolic link" "A release directory containing a junction"
     Assert-Throws { Assert-MaviPocNoReparsePoint -Path (Join-Path $junctionRoot "release\link") } "junction or symbolic link" "A directory that is a junction"
     Assert-MaviPocNoReparsePoint -Path (Join-Path $junctionRoot "target") -Recurse

@@ -133,6 +133,9 @@ if ($PlanOnly) {
     return
 }
 
+# Both roots are secured before anything is created in them (see Protect-MaviPocRoot).
+Protect-MaviPocRoot -Path $layout.InstallRoot
+Protect-MaviPocRoot -Path $layout.DataRoot
 New-Item -ItemType Directory -Path $layout.SetupRoot, $layout.LogRoot -Force | Out-Null
 Set-MaviPrivateDirectoryAcl -Path $layout.SetupRoot
 $logPath = Join-Path $layout.LogRoot ("install-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
