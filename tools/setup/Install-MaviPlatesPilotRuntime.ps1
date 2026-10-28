@@ -64,18 +64,26 @@ if (Test-Path -LiteralPath $destination) {
     $reused = $true
 }
 else {
-    & $Python -m venv $destination
-    if ($LASTEXITCODE -ne 0) {
-        throw "Virtual environment creation failed."
-    }
+    # A fresh environment that fails part-way is removed, so a rerun starts clean instead of
+    # meeting a destination it must refuse.
+    try {
+        & $Python -m venv $destination
+        if ($LASTEXITCODE -ne 0) {
+            throw "Virtual environment creation failed."
+        }
 
-    & $venvPython -m pip install --no-index --find-links $wheelhouse --require-hashes --no-deps -r $lock
-    if ($LASTEXITCODE -ne 0) {
-        throw "Offline installation of the plates-onnx-v1 runtime failed."
+        & $venvPython -m pip install --no-index --find-links $wheelhouse --require-hashes --no-deps -r $lock
+        if ($LASTEXITCODE -ne 0) {
+            throw "Offline installation of the plates-onnx-v1 runtime failed."
+        }
+        & $venvPython -m pip check
+        if ($LASTEXITCODE -ne 0) {
+            throw "The installed plates-onnx-v1 environment is not consistent."
+        }
     }
-    & $venvPython -m pip check
-    if ($LASTEXITCODE -ne 0) {
-        throw "The installed plates-onnx-v1 environment is not consistent."
+    catch {
+        Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction SilentlyContinue
+        throw
     }
 }
 

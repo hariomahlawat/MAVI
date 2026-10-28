@@ -87,10 +87,15 @@ public static class DeploymentDisclosureReader
     /// Fails closed at start-up: an unknown profile, or PoC release metadata that is missing
     /// or claims anything other than the fixed disclosure, stops the host.
     /// </summary>
-    public static void Verify(DeploymentOptions options)
+    /// <param name="buildProfile">
+    /// The profile the platform was built for (assembly metadata <c>MaviDeploymentProfile</c>,
+    /// set by the PoC bundle build). When present it is the authority: configuration can
+    /// confirm it but can neither clear nor change it.
+    /// </param>
+    public static void Verify(DeploymentOptions options, string? buildProfile = null)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var profile = NormalizeProfile(options.Profile);
+        var profile = EffectiveProfile(options.Profile, buildProfile);
         if (profile != DeploymentProfiles.PocSingleHost)
             return;
         if (string.IsNullOrWhiteSpace(options.ReleaseMetadataPath))
@@ -104,10 +109,10 @@ public static class DeploymentDisclosureReader
     /// constants above whatever the files say; an unreadable file is reported as
     /// unavailable, never as an absence of the disclosure.
     /// </summary>
-    public static DeploymentDisclosure Read(DeploymentOptions options)
+    public static DeploymentDisclosure Read(DeploymentOptions options, string? buildProfile = null)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var profile = NormalizeProfile(options.Profile);
+        var profile = EffectiveProfile(options.Profile, buildProfile);
         var (deviceStatus, device) = ReadDevice(options.DeviceResolutionPath);
         if (profile != DeploymentProfiles.PocSingleHost)
         {
@@ -141,6 +146,18 @@ public static class DeploymentDisclosureReader
             deviceStatus,
             device,
             metadata?.Packs ?? []);
+    }
+
+    private static string EffectiveProfile(string? configured, string? buildProfile)
+    {
+        var fromConfiguration = NormalizeProfile(configured);
+        if (string.IsNullOrWhiteSpace(buildProfile))
+            return fromConfiguration;
+        var fromBuild = NormalizeProfile(buildProfile);
+        if (fromConfiguration != DeploymentProfiles.Unspecified && fromConfiguration != fromBuild)
+            throw new DeploymentDisclosureException(
+                $"{DeploymentOptions.SectionName}:Profile '{configured}' contradicts the profile this platform was built for ({fromBuild}).");
+        return fromBuild;
     }
 
     private static string NormalizeProfile(string? configured)

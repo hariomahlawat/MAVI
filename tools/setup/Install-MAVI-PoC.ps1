@@ -15,9 +15,7 @@ param(
     # it is referenced, never copied or modified.
     [string]$AdoptCudaRuntimeRoot,
     # Resolve and print the plan; change nothing.
-    [switch]$PlanOnly,
-    # Leave the platform and the Vision worker running after installation.
-    [switch]$LeaveRunning
+    [switch]$PlanOnly
 )
 
 # MAVI poc-single-host installer (PoC S1; ADR-020). Not a Production installer: the
@@ -78,10 +76,22 @@ $requiredComputeCapability = [string]$buildContract.targetGpu.computeCapability
 $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
 $smiLines = $null
 if ($nvidiaSmi) {
-    $smiLines = @(& $nvidiaSmi.Source --query-gpu=index,name,compute_cap --format=csv,noheader 2>$null)
-    if ($LASTEXITCODE -ne 0) { $smiLines = @() }
+    # A driver that answers on stderr must not stop the installer (Windows PowerShell turns a
+    # native command's stderr into a terminating error under Stop); it is "no usable GPU".
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $smiLines = @(& $nvidiaSmi.Source --query-gpu=index,name,compute_cap --format=csv,noheader 2>$null)
+        if ($LASTEXITCODE -ne 0) { $smiLines = @() }
+    }
+    catch { $smiLines = @() }
+    finally { $ErrorActionPreference = $previousPreference }
 }
 $gpu = Test-MaviPocCudaCompatibleGpu -NvidiaSmiLines $smiLines -RequiredComputeCapability $requiredComputeCapability
+if ($AdoptCudaRuntimeRoot -and -not $gpu.Compatible) {
+    # An explicit request is never silently dropped: the sm_75 pack does not serve this GPU.
+    throw "-AdoptCudaRuntimeRoot was given, but this host's GPU is not served by the sm_$($requiredComputeCapability.Replace('.', '')) CUDA Runtime Pack ($($gpu.Reason); compute capability $($gpu.ComputeCapability))."
+}
 $cudaSource = "none"
 if ($gpu.Compatible) {
     if ($AdoptCudaRuntimeRoot) { $cudaSource = "adopted" }
@@ -164,6 +174,12 @@ try {
         Write-MaviSetupStatus -Name "ASP.NET Core 10" -Status "OK" -Detail "already present"
     }
 
+    # A rerun while MAVI is running would find the platform's files locked: stop the
+    # processes a previous installation started (the PostgreSQL service keeps running).
+    if (Test-Path -LiteralPath $layout.InstallationStatePath -PathType Leaf) {
+        & (Join-Path $PSScriptRoot "Stop-MaviPoc.ps1") -DataRoot $layout.DataRoot
+    }
+
     # Platform (API + UI, app-local FFmpeg) and the application overlay the
     # workers read. Both are replaced wholesale from the verified bundle on every run.
     foreach ($copy in @(@{ Source = (Join-Path $BundleRoot "application\api"); Destination = $layout.ApplicationRoot }, @{ Source = $bundleOverlay; Destination = $layout.OverlayRoot })) {
@@ -178,20 +194,25 @@ try {
 
     New-Item -ItemType Directory -Path $layout.ConfigRoot -Force | Out-Null
     # The operator starts MAVI unelevated (Start-MAVI-PoC.cmd); the platform and the worker
-    # write media, evidence, logs, process ids and the device record as that user.
-    foreach ($root in @($layout.MediaRoot, $layout.EvidenceRoot, (Split-Path $layout.ReleaseMetadataPath -Parent), $layout.RunRoot, $layout.LogRoot)) {
+    # write media, evidence, logs, process records and the device record as that user.
+    foreach ($root in @($layout.MediaRoot, $layout.EvidenceRoot, $layout.RunRoot, $layout.LogRoot)) {
         Set-MaviDirectoryAcl -Path $root -Identity "*S-1-5-11" -Rights "M"
     }
+    # The release metadata is the installer's alone: readable by every user, writable only
+    # by administrators, so no local user can rewrite a pack's identity or status.
+    Set-MaviPrivateDirectoryAcl -Path (Split-Path $layout.ReleaseMetadataPath -Parent) -ApplicationIdentity "*S-1-5-11" -ApplicationRights "R"
 
     # Vision: the CPU Runtime Pack always; the CUDA one when a compatible GPU is present
     # and a pack is available; then every Model Pack the binding needs. The installers
     # write no Machine environment variable (H5).
     $installRuntime = Join-Path $layout.OverlayRoot "tools\setup\Install-MaviVisionRuntime.ps1"
     & $installRuntime -BundleRoot $cpuRuntimeSource -RepositoryRoot $layout.OverlayRoot -Variant "windows-x86_64-cpu" -InstallRoot $layout.VisionRuntimeCpuRoot -NoMachineEnvironment
-    Write-MaviSetupStatus -Name "Vision CPU Runtime Pack" -Status "OK" -Detail $layout.VisionRuntimeCpuRoot
+    Assert-MaviPocRuntimeLoads -RuntimeRoot $layout.VisionRuntimeCpuRoot
+    Write-MaviSetupStatus -Name "Vision CPU Runtime Pack" -Status "OK" -Detail "$($layout.VisionRuntimeCpuRoot) (torch and mmcv native ops load)"
     switch ($cudaSource) {
         "bundle" {
             & $installRuntime -BundleRoot $cudaRuntimeSource -RepositoryRoot $layout.OverlayRoot -Variant "windows-x86_64-cuda" -InstallRoot $layout.VisionRuntimeCudaRoot -NoMachineEnvironment
+            Assert-MaviPocRuntimeLoads -RuntimeRoot $layout.VisionRuntimeCudaRoot
             Write-MaviSetupStatus -Name "Vision CUDA Runtime Pack" -Status "OK" -Detail "$($gpu.Gpu) (compute $($gpu.ComputeCapability))"
         }
         "adopted" {
@@ -200,6 +221,7 @@ try {
             [void](Assert-MaviVisionRuntimePackManifest -Manifest $adoptedManifest)
             [void](Assert-MaviVisionRuntimeInstalledStatePreflight -RuntimeRoot $cudaRuntimeRoot -InstalledState $adoptedState -Manifest $adoptedManifest -RuntimePackManifestPath (Join-Path $cudaRuntimeRoot "runtime-pack-manifest.json"))
             if ([string]$adoptedManifest.platformVariant -ne "windows-x86_64-cuda") { throw "The adopted runtime '$cudaRuntimeRoot' is not a Windows CUDA Runtime Pack." }
+            Assert-MaviPocRuntimeLoads -RuntimeRoot $cudaRuntimeRoot
             Write-MaviSetupStatus -Name "Vision CUDA Runtime Pack" -Status "OK" -Detail "adopted (integrity preflight passed): $cudaRuntimeRoot"
         }
         default {
@@ -229,8 +251,11 @@ try {
     if (-not $cursorSigningKey) { $cursorSigningKey = New-MaviCursorSigningKey }
     $connectionString = "Host=127.0.0.1;Port=$postgresPort;Database=$databaseName;Username=$databaseUser;Password=$databasePassword"
     Write-MaviJson -Value (New-MaviPocMachineConfig -Layout $layout -ConnectionString $connectionString -CursorSigningKey $cursorSigningKey -HttpPort $HttpPort) -Path $layout.MachineConfigPath -Depth 8
-    $operator = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-    & icacls.exe $layout.MachineConfigPath /inheritance:r /grant:r "SYSTEM:F" "Administrators:F" ("{0}:R" -f $operator) | Out-Null
+    # Read for Authenticated Users, as on a Development workstation: whoever signs in starts
+    # MAVI unelevated and the platform reads this file as that user (an installing
+    # administrator is often not the operator). It holds the PoC database credentials; a
+    # single-host PoC accepts that every local user can read them (runbook).
+    & icacls.exe $layout.MachineConfigPath /inheritance:r /grant:r "SYSTEM:F" "Administrators:F" "*S-1-5-11:R" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Failed to secure the PoC machine configuration." }
     Write-MaviSetupStatus -Name "Machine config" -Status "OK" -Detail $layout.MachineConfigPath
 
@@ -284,12 +309,11 @@ try {
     Write-MaviSetupStatus -Name "Vision composition" -Status "OK" -Detail "READY; device $($device.resolvedDevicePolicy) ($($device.deviceResolutionReason))"
 
     # Start once: migrations run, the disclosure is checked by the platform, the demo
-    # cameras are seeded. Stopped afterwards unless -LeaveRunning.
+    # cameras are seeded. Always stopped afterwards: processes started here run elevated, and
+    # the operator starts MAVI unelevated with Start-MAVI-PoC.cmd.
     $start = Join-Path $layout.OverlayRoot "tools\setup\Start-MaviPoc.ps1"
     & $start -DataRoot $layout.DataRoot -Seed
-    if (-not $LeaveRunning) {
-        & (Join-Path $layout.OverlayRoot "tools\setup\Stop-MaviPoc.ps1") -DataRoot $layout.DataRoot
-    }
+    & (Join-Path $layout.OverlayRoot "tools\setup\Stop-MaviPoc.ps1") -DataRoot $layout.DataRoot
 
     # Operator launchers in the install root.
     foreach ($launcherName in @("Start-MAVI-PoC.cmd", "Stop-MAVI-PoC.cmd", "Test-MAVI-PoC.cmd")) {
@@ -308,7 +332,7 @@ try {
         completedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
         applicationRevision = $revision
         bundleSha256 = $bundleSha256
-        device = [ordered]@{ requested = $DevicePolicy; resolved = [string]$device.resolvedDevicePolicy; reason = [string]$device.deviceResolutionReason }
+        device = [ordered]@{ requested = $DevicePolicy.ToLowerInvariant(); resolved = [string]$device.resolvedDevicePolicy; reason = [string]$device.deviceResolutionReason }
         cuda = $cudaDecision
         logPath = $logPath
     }

@@ -115,6 +115,38 @@ public sealed class DeploymentDisclosureTests : IDisposable
         Assert.Throws<DeploymentDisclosureException>(() => DeploymentDisclosureReader.Read(options));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void APocBuildKeepsTheDisclosureWhenConfigurationClearsTheProfile(string? configured)
+    {
+        // The PoC bundle builds the platform with MaviDeploymentProfile=poc-single-host; an
+        // empty Deployment__Profile environment variable or a deleted key cannot unprofile it.
+        var options = new DeploymentOptions
+        {
+            Profile = configured,
+            ReleaseMetadataPath = WriteMetadata(ValidMetadata()),
+        };
+
+        DeploymentDisclosureReader.Verify(options, DeploymentProfiles.PocSingleHost);
+        var disclosure = DeploymentDisclosureReader.Read(options, DeploymentProfiles.PocSingleHost);
+
+        Assert.Equal(DeploymentProfiles.PocSingleHost, disclosure.Profile);
+        Assert.False(disclosure.ProductionQualified);
+        Assert.Equal(PocDisclosure.Statement, disclosure.Statement);
+        Assert.Throws<DeploymentDisclosureException>(() =>
+            DeploymentDisclosureReader.Verify(new DeploymentOptions(), DeploymentProfiles.PocSingleHost));
+    }
+
+    [Fact]
+    public void ConfigurationCannotContradictTheBuildProfile()
+    {
+        var options = new DeploymentOptions { Profile = "P3", ReleaseMetadataPath = WriteMetadata(ValidMetadata()) };
+        Assert.Throws<DeploymentDisclosureException>(() => DeploymentDisclosureReader.Verify(options, DeploymentProfiles.PocSingleHost));
+        Assert.Throws<DeploymentDisclosureException>(() => DeploymentDisclosureReader.Verify(new DeploymentOptions(), "P1"));
+    }
+
     [Fact]
     public void AnUnprofiledHostMakesNoProfileClaim()
     {

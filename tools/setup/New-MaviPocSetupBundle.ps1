@@ -142,7 +142,7 @@ try {
     # 2. Platform publish (framework-dependent; ASP.NET Core 10 comes from the Hosting Bundle).
     $publish = Join-Path $destination "application\api"
     & dotnet publish (Join-Path $export "src\platform\Mavi.Api\Mavi.Api.csproj") -c Release -r win-x64 --self-contained false `
-        "-p:MaviBuild=poc-$($revisionSha.Substring(0, 12))" "-p:MaviCommit=$revisionSha" "-p:MaviNativeMediaToolsDirectory=$ffmpegPack" -o $publish
+        "-p:MaviBuild=poc-$($revisionSha.Substring(0, 12))" "-p:MaviCommit=$revisionSha" "-p:MaviDeploymentProfile=$(Get-MaviPocProfile)" "-p:MaviNativeMediaToolsDirectory=$ffmpegPack" -o $publish
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
     if (-not (Test-Path -LiteralPath (Join-Path $publish "wwwroot\index.html") -PathType Leaf)) { throw "The publish has no UI (wwwroot\index.html)." }
     [void](Test-MaviManifest -Root (Join-Path $publish "tools\ffmpeg") -ManifestPath (Join-Path $publish "tools\ffmpeg\manifest.json"))

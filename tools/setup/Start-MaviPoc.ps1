@@ -7,7 +7,11 @@ param(
     # Create the demo cameras (config\poc\demo-cameras-v1.json) that do not exist yet.
     [switch]$Seed,
     [int]$HealthTimeoutSeconds = 180,
-    [int]$WorkerTimeoutSeconds = 180
+    [int]$WorkerTimeoutSeconds = 180,
+    # How long the worker must stay up after its launcher passed every check. The worker
+    # refuses some conditions itself at start-up (an explicit CUDA device that does not
+    # answer), and a refusal must not be reported as a running worker.
+    [int]$WorkerSettleSeconds = 20
 )
 
 # Starts the poc-single-host stack (PoC S1; ADR-020): the platform (published API + UI,
@@ -37,12 +41,12 @@ Write-Host ""
 
 function Get-MaviPocRunningProcess {
     param([Parameter(Mandatory = $true)][string]$Name)
-    $pidPath = Join-Path $layout.RunRoot "$Name.pid"
-    if (-not (Test-Path -LiteralPath $pidPath -PathType Leaf)) { return $null }
-    $processId = [int](Get-Content -LiteralPath $pidPath -Raw).Trim()
-    return Get-Process -Id $processId -ErrorAction SilentlyContinue
+    Get-MaviPocRecordedProcess -Path (Join-Path $layout.RunRoot "$Name.pid")
 }
 
+# A start that fails part-way stops what it started, so nothing is left half-running.
+$startedHere = $false
+try {
 $service = Get-Service -Name ([string]$state.postgresqlServiceName) -ErrorAction SilentlyContinue
 if (-not $service) { throw "PostgreSQL service '$($state.postgresqlServiceName)' is not installed; rerun Install-MAVI-PoC." }
 if ($service.Status -ne "Running") {
@@ -62,7 +66,8 @@ else {
     $env:MAVI_MACHINE_CONFIG = $layout.MachineConfigPath
     $api = Start-Process -FilePath $apiExe -WorkingDirectory $layout.ApplicationRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $layout.LogRoot "api-$stamp.out.log") -RedirectStandardError (Join-Path $layout.LogRoot "api-$stamp.err.log")
-    Set-Content -LiteralPath (Join-Path $layout.RunRoot "api.pid") -Value $api.Id -Encoding ascii
+    $startedHere = $true
+    Write-MaviPocProcessRecord -Path (Join-Path $layout.RunRoot "api.pid") -Process $api
 }
 $health = Wait-MaviHealth -BaseUrl $apiBaseUrl -TimeoutSeconds $HealthTimeoutSeconds
 Write-MaviSetupStatus -Name "Platform" -Status "OK" -Detail "$apiBaseUrl ($($health.build) / $($health.commit))"
@@ -91,7 +96,10 @@ else {
     $quoted = @($arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
     $worker = Start-Process -FilePath "powershell.exe" -ArgumentList $quoted -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $layout.LogRoot "vision-worker-$stamp.out.log") -RedirectStandardError (Join-Path $layout.LogRoot "vision-worker-$stamp.err.log")
-    Set-Content -LiteralPath (Join-Path $layout.RunRoot "vision-worker.pid") -Value $worker.Id -Encoding ascii
+    # Touching Handle keeps the exit code readable after the process ends (PowerShell 5.1).
+    [void]$worker.Handle
+    $startedHere = $true
+    Write-MaviPocProcessRecord -Path (Join-Path $layout.RunRoot "vision-worker.pid") -Process $worker
 
     # The launcher writes the device record once every check has passed, just before the
     # worker starts. A launcher that exits first has refused; its log says why.
@@ -105,6 +113,13 @@ else {
             throw "The Vision worker launcher exited with code $($worker.ExitCode) before starting the worker. See $(Join-Path $layout.LogRoot "vision-worker-$stamp.out.log")."
         }
         if ([DateTime]::UtcNow -gt $deadline) { throw "The Vision worker launcher did not complete its checks within $WorkerTimeoutSeconds s." }
+        Start-Sleep -Seconds 2
+    }
+    $settleUntil = [DateTime]::UtcNow.AddSeconds($WorkerSettleSeconds)
+    while ([DateTime]::UtcNow -lt $settleUntil) {
+        if ($worker.HasExited) {
+            throw "The Vision worker exited with code $($worker.ExitCode) during start-up. See $(Join-Path $layout.LogRoot "vision-worker-$stamp.err.log")."
+        }
         Start-Sleep -Seconds 2
     }
     Write-MaviSetupStatus -Name "Vision worker" -Status "OK" -Detail "device $($report.resolvedDevicePolicy) ($($report.deviceResolutionReason)); requested $($report.requestedDevicePolicy)"
@@ -129,5 +144,12 @@ if ([string]$deployment.profile -ne (Get-MaviPocProfile) -or [bool]$deployment.p
     throw "The platform does not report the $(Get-MaviPocProfile) disclosure."
 }
 Write-MaviSetupStatus -Name "Disclosure" -Status "OK" -Detail "$($deployment.profile); not Production-qualified; evidence $($deployment.evidenceClass)"
+}
+catch {
+    if ($startedHere) {
+        & (Join-Path $PSScriptRoot "Stop-MaviPoc.ps1") -DataRoot $layout.DataRoot
+    }
+    throw
+}
 Write-Host ""
 Write-Host "MAVI PoC running: $apiBaseUrl" -ForegroundColor Green

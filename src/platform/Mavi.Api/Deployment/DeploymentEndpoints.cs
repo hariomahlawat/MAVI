@@ -1,3 +1,4 @@
+using System.Reflection;
 using Mavi.Application.Deployment;
 using Microsoft.Extensions.Options;
 
@@ -14,7 +15,7 @@ public static class DeploymentEndpoints
     public static IEndpointRouteBuilder MapDeploymentEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/system/deployment",
-            (IOptions<DeploymentOptions> options) => Results.Ok(DeploymentDisclosureReader.Read(options.Value)));
+            (IOptions<DeploymentOptions> options) => Results.Ok(DeploymentDisclosureReader.Read(options.Value, BuildProfile)));
         return endpoints;
     }
 
@@ -25,6 +26,16 @@ public static class DeploymentEndpoints
     public static void VerifyDeploymentDisclosure(this WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
-        DeploymentDisclosureReader.Verify(app.Services.GetRequiredService<IOptions<DeploymentOptions>>().Value);
+        DeploymentDisclosureReader.Verify(app.Services.GetRequiredService<IOptions<DeploymentOptions>>().Value, BuildProfile);
     }
+
+    /// <summary>
+    /// The profile this platform was built for (<c>-p:MaviDeploymentProfile</c>), or
+    /// <see langword="null"/> for an ordinary build. A PoC bundle's platform carries
+    /// <c>poc-single-host</c>, so removing <c>Deployment:Profile</c> from its configuration
+    /// does not remove the disclosure.
+    /// </summary>
+    internal static string? BuildProfile { get; } = typeof(DeploymentEndpoints).Assembly
+        .GetCustomAttributes<AssemblyMetadataAttribute>()
+        .FirstOrDefault(attribute => attribute.Key == "MaviDeploymentProfile")?.Value is { Length: > 0 } value ? value : null;
 }

@@ -19,9 +19,13 @@ function Get-MaviPocLayout {
         [Parameter(Mandatory = $true)][string]$InstallRoot,
         [Parameter(Mandatory = $true)][string]$DataRoot
     )
+    # No trailing separator: the roots are written into .cmd launchers, where "...\" would
+    # escape the closing quote. A drive root keeps its separator.
     $install = [IO.Path]::GetFullPath($InstallRoot.Trim().Trim('"'))
     $data = [IO.Path]::GetFullPath($DataRoot.Trim().Trim('"'))
-    if ($install.TrimEnd("\").Equals($data.TrimEnd("\"), [StringComparison]::OrdinalIgnoreCase)) {
+    if ($install.Length -gt 3) { $install = $install.TrimEnd("\") }
+    if ($data.Length -gt 3) { $data = $data.TrimEnd("\") }
+    if ($install.Equals($data, [StringComparison]::OrdinalIgnoreCase)) {
         throw "InstallRoot and DataRoot must be different directories."
     }
     [pscustomobject]@{
@@ -43,7 +47,9 @@ function Get-MaviPocLayout {
         MachineConfigPath = Join-Path $data "config\appsettings.poc.machine.json"
         InstallationStatePath = Join-Path $data "config\poc-installation.json"
         ReleaseMetadataPath = Join-Path $data "release\mavi-release-metadata.json"
-        DeviceResolutionPath = Join-Path $data "release\device-resolution.json"
+        # Operator-writable (the launcher rewrites it on every start), so it lives under run\,
+        # not beside the administrator-only release metadata.
+        DeviceResolutionPath = Join-Path $data "run\device-resolution.json"
         SetupRoot = Join-Path $data "setup"
         LogRoot = Join-Path $data "logs"
         RunRoot = Join-Path $data "run"
@@ -189,4 +195,67 @@ function Read-MaviPocDemoCameras {
     return $cameras
 }
 
-Export-ModuleMember -Function Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras
+# A Runtime Pack is installed only when its native code loads on this host: torch and
+# an mmcv native op are imported in the installed runtime. On a clean Windows machine the
+# usual failure is the absent Visual C++ 2015-2022 x64 redistributable, which the kit does
+# not carry yet; the installer then fails closed and says so (dependency policy
+# vcredist-win-x64) instead of leaving a worker that cannot start.
+function Assert-MaviPocRuntimeLoads {
+    param([Parameter(Mandatory = $true)][string]$RuntimeRoot)
+    $python = Join-Path $RuntimeRoot "venv\Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "The Runtime Pack at '$RuntimeRoot' has no interpreter." }
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = (& $python -c "import torch, mmcv; from mmcv.ops import nms; print('torch', torch.__version__, 'mmcv', mmcv.__version__)" 2>&1 | Out-String).Trim()
+        $exitCode = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $previousPreference }
+    if ($exitCode -ne 0) {
+        $hint = if ($output -match "DLL load failed|msvcp140|vcruntime140") { " Install the Microsoft Visual C++ 2015-2022 x64 redistributable on this host, then rerun the installer." } else { "" }
+        throw "The Runtime Pack at '$RuntimeRoot' does not load on this host.$hint Diagnostic: $output"
+    }
+    Write-Host "  $output"
+}
+
+# Process records for what Start-MaviPoc started. A bare process id is not enough: MAVI
+# does not survive a reboot, so a stale id can name an unrelated process by the next start.
+# The record keeps the image name and start time, and a process that does not match both
+# is not MAVI's.
+function Write-MaviPocProcessRecord {
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process)
+    $record = [ordered]@{
+        schemaVersion = "mavi-poc-process-v1"
+        processId = $Process.Id
+        imageName = $Process.ProcessName
+        startTimeUtc = $Process.StartTime.ToUniversalTime().ToString("O")
+    }
+    $directory = Split-Path $Path -Parent
+    if ($directory) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
+    [IO.File]::WriteAllText($Path, ($record | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding -ArgumentList $false))
+}
+
+# The recorded process if it is still the one that was started; otherwise the stale record
+# is removed and $null returned.
+function Get-MaviPocRecordedProcess {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    $record = $null
+    try { $record = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json } catch { $record = $null }
+    $process = $null
+    if ($record -and $record.PSObject.Properties["processId"] -and $record.PSObject.Properties["startTimeUtc"]) {
+        $candidate = Get-Process -Id ([int]$record.processId) -ErrorAction SilentlyContinue
+        if ($candidate -and $candidate.ProcessName -eq [string]$record.imageName) {
+            try {
+                $started = $candidate.StartTime.ToUniversalTime()
+                $recorded = [DateTimeOffset]::Parse([string]$record.startTimeUtc).UtcDateTime
+                if ([Math]::Abs(($started - $recorded).TotalSeconds) -lt 2) { $process = $candidate }
+            }
+            catch { $process = $null }
+        }
+    }
+    if (-not $process) { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue }
+    return $process
+}
+
+Export-ModuleMember -Function Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras

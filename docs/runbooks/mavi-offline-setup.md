@@ -334,7 +334,17 @@ Install-MAVI-PoC.cmd -InstallRoot "E:\MAVI-PoC\Program" -DataRoot "E:\MAVI-PoC\D
 | Plates | `plates-onnx-v1` runtime and its Model Packs, installed and **not bound** (S3 binds them) |
 | Machine environment | none written; the launchers are given every root explicitly |
 
-Steps, all offline and idempotent (a rerun verifies and repairs): verify the bundle → PostgreSQL + pgvector + pg_trgm → ASP.NET Core 10 runtime → platform and overlay → Vision Runtime Pack(s) → Model Packs → plates runtime → machine configuration (`<DataRoot>\config\appsettings.poc.machine.json`) → release metadata (`<DataRoot>\release\mavi-release-metadata.json`) → launcher readiness check with the chosen device policy, which writes the device record (`<DataRoot>\release\device-resolution.json`) → start, migrate, seed the demo cameras (`config/poc/demo-cameras-v1.json`: placeholder names, no scene) → stop. `-PlanOnly` prints the plan and changes nothing; explicit `-DevicePolicy CUDA` without an installable CUDA pack fails closed, in plan-only too. Result: `<DataRoot>\setup\last-install-result.json`; log: `<DataRoot>\logs\install-*.log`.
+Steps, all offline and idempotent (a rerun verifies and repairs): verify the bundle → PostgreSQL + pgvector + pg_trgm → ASP.NET Core 10 runtime → platform and overlay → Vision Runtime Pack(s) → Model Packs → plates runtime → machine configuration (`<DataRoot>\config\appsettings.poc.machine.json`) → release metadata (`<DataRoot>\release\mavi-release-metadata.json`) → launcher readiness check with the chosen device policy, which writes the device record (`<DataRoot>\run\device-resolution.json`) → start, migrate, seed the demo cameras (`config/poc/demo-cameras-v1.json`: placeholder names, no scene) → stop. `-PlanOnly` prints the plan and changes nothing; explicit `-DevicePolicy CUDA` without an installable CUDA pack fails closed, in plan-only too. Result: `<DataRoot>\setup\last-install-result.json`; log: `<DataRoot>\logs\install-*.log`.
+
+### Protections and known limits
+
+- The release metadata directory is writable only by administrators; the device record lives under `run\`, where the operator's unelevated start rewrites it, and `Stop-MAVI-PoC.cmd` removes it with the worker, so the disclosure never shows a device for a worker that is not running.
+- The bundle's platform is built with `MaviDeploymentProfile=poc-single-host`: removing or emptying `Deployment:Profile` does not remove the disclosure, and a contradicting profile stops the platform at start-up.
+- The machine configuration (which holds the PoC database credentials) is readable by every signed-in user, as on a Development workstation, because the operator starts MAVI unelevated. Production keeps its administrator/application-pool-only ACL.
+- After each Vision Runtime Pack is installed (or adopted), the installer imports `torch` and an `mmcv` native op in it. The kit does not carry the Visual C++ 2015-2022 x64 redistributable yet; a host without it fails at this step with an instruction to install it, rather than leaving a worker that cannot start.
+- A rerun stops a running PoC instance before replacing its files. The installer's own start (migrations, camera seed) is always stopped again: the operator runs MAVI unelevated.
+- `-AdoptCudaRuntimeRoot` on a GPU the `sm_75` pack does not serve (for example an RTX 4090) is refused; S1b provides that variant.
+- Start-up writes process records with image name and start time; Start and Stop ignore a stale record (after a reboot) and never stop an unrelated process. Start waits for the worker to stay up after its launch checks and stops what it started if any step fails.
 
 ### Running and the smoke test
 

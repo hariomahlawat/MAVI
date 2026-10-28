@@ -247,10 +247,12 @@ if ($resolvedDevicePolicy -eq "cuda" -and $runtimeVariant -ne "windows-x86_64-cu
 if ($resolvedDevicePolicy -eq "cpu" -and $runtimeVariant -ne "windows-x86_64-cpu") { Stop-MaviLaunch launch_cpu_policy_requires_cpu_pack "Resolved CPU device policy requires the Windows CPU Runtime Pack." }
 [void](Invoke-MaviLaunchStep launch_component_compatibility_failed { Assert-MaviVisionWorkerComponentCompatibility -RuntimeState $runtimeState -RuntimeManifest $runtimeManifest -RequiredRuntimePackId ([string]$runtimeRequirement.runtimePackId) -RequiredThirdPartyLockSha256 ([string]$runtimeRequirement.thirdPartyLockSha256) -RequiredRuntimeRequirementsSha256 ([string]$runtimeRequirement.runtimeRequirementsSha256) -RequiredModelPacks @($storeResolution.ModelPacks) })
 
-if ($DeviceReportPath) {
-    # The device-resolution record (ADR-008 reason vocabulary; ADR-020 §3 disclosure).
-    # Written only after every check above passed, so it never describes a launch
-    # that was refused.
+# The device-resolution record (ADR-008 reason vocabulary; ADR-020 §3 disclosure).
+# Written only after every launch check has passed -- for -VerifyOnly at its
+# boundary, for a launch after the source-overlay probe, immediately before the
+# worker starts -- so it never describes a launch the launcher refused.
+function Write-MaviDeviceReport {
+    if (-not $DeviceReportPath) { return }
     $deviceReport = [ordered]@{
         schemaVersion = "mavi-device-resolution-v1"
         requestedDevicePolicy = $DevicePolicy
@@ -268,6 +270,7 @@ if ($DeviceReportPath) {
 }
 
 if ($VerifyOnly) {
+    Write-MaviDeviceReport
     Write-Host "MAVI Vision composition verified for launch." -ForegroundColor Green
     Write-Host "  Device       : requested=$DevicePolicy resolved=$resolvedDevicePolicy reason=$deviceResolutionReason"
     Write-Host "  Runtime Pack : $($runtimeManifest.runtimePackId) ($runtimeVariant)"
@@ -306,6 +309,7 @@ if ($LASTEXITCODE -ne 0 -or -not $sourceProbe) { Stop-MaviLaunch launch_vision_s
 $expectedSourcePrefix = [IO.Path]::GetFullPath($visionSourceRoot).TrimEnd("\") + "\"
 $resolvedSource = [IO.Path]::GetFullPath($sourceProbe)
 if (-not $resolvedSource.StartsWith($expectedSourcePrefix,[StringComparison]::OrdinalIgnoreCase)) { Stop-MaviLaunch launch_vision_source_overlay_foreign "Vision worker resolved MAVI source from '$resolvedSource' instead of repository '$visionSourceRoot'." }
+Write-MaviDeviceReport
 
 Push-Location $RepositoryRoot
 try {
