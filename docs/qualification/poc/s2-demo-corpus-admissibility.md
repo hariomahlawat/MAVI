@@ -117,3 +117,41 @@ No label, annotation, bounding box, count, identity or ground truth was created.
 - reference frames used to place scene geometry. Rationale: draw zones and lines on the actual view; this is operator configuration, not annotation.
 
 No model output was read during selection.
+
+## 6. Trims, manifests and the end-to-end import (B4)
+
+**Trims.** `tools/poc/demo_corpus.py trim` derived all eight clips. It used the repository FFmpeg 9.0.1 essentials build, `ffmpeg.exe` SHA-256 `72a489eccd008c2ec2c0a5856c5c75bc3d8bbfa90166c4566865c246445e6aa3`, with the pinned argument list `FFMPEG_ARGS` (single-threaded libx264 CRF 20, bit-exact flags, audio and metadata dropped).
+- The trim windows run 68–180 s.
+- s2-03 and s2-04 are resampled to 30 fps: s2-03 is AV1 4K at 59.94 fps, and s2-04 reports an unreliable average rate. Every other clip keeps its native rate.
+- **Reproduced.** A second full trim pass reproduced all eight derivative SHA-256 values byte for byte (`"reproduced": true` × 8).
+
+The derivative hashes are pinned in `tools/poc/demo-corpus/demo-corpus-v1.json`.
+
+**Retained on E:.** Everything below is in `E:\MAVI-Controlled\PoC\Corpus\`:
+- `manifests\originals.sha256`, `manifests\derivatives.sha256` and `manifests\derivation-record.json`;
+- the run evidence, in `evidence-2026-10-28\`, whose `SHA256SUMS` file has SHA-256 `5f8ce14013588fb122c1ae20db5c10e0c5da5610544ac36cc728daa95d58c957`. It holds both import logs, both trim outputs, the manifests and the worker identity.
+
+**Import from a clean install (B4).** The setup:
+- **Database.** A new, empty database `mavi_poc_s2_20261028` on the Development PostgreSQL (no cameras or videos).
+- **API.** `Mavi.Api` built from this branch, Development environment, on `http://127.0.0.1:62183`, with media and evidence roots on `E:\MAVI-Working\poc-s2-runtime`.
+- **Worker.** `Start-MaviVisionWorker.ps1`, which resolved `cuda_selected` with Runtime Pack `windows-x86_64-cuda` and the bound RTMDet Model Pack.
+
+`python tools/poc/demo_corpus.py import --root E:\MAVI-Controlled\PoC\Corpus --api http://127.0.0.1:62183` then created eight cameras (`POC-S2-01`–`08`), eight assets and eight scene revisions (r1). It processed all eight runs to `Completed` with analytics `Ready`, and exited `0`.
+
+**Second run (idempotence).** Run 2 issued no camera create, no scene `PUT` and no `process`. Its only mutations were eight refused duplicate imports (`409 video_duplicate`, reused), and its result was identical to run 1.
+
+| Clip | Run | Tracks created | Analytics |
+|---|---|---|---|
+| s2-01 Düsseldorf junction | `01a1830f-d22e-7ef5-a366-7eeb28bec06a` | 104 | Ready |
+| s2-02 Sofia junction | `01a18314-44e7-7402-bfe6-d6a76f46e6d6` | 141 | Ready |
+| s2-03 Crest Hill road | `01a18318-6870-7451-98c9-73b35624132c` | 55 | Ready |
+| s2-04 night highway | `01a1831c-68ae-78d8-89fa-25cbedb6f71b` | 334 | Ready |
+| s2-05 archway gate | `01a18325-21df-7731-8e2a-2fb25aa2bc11` | 23 | Ready |
+| s2-06 level crossing | `01a18329-475f-7d5e-aee0-3f4e36dc2416` | 4 | Ready |
+| s2-07 Shibuya crossing | `01a1832c-cd7b-73b1-83ab-1360398bd012` | 19 | Ready |
+| s2-08 Damascus Gate overhead | `01a18330-2e8f-7544-9a94-c3277bdd3807` | **0** | Ready |
+
+**Observed limits.** These are operational observations, not measurements. Track counts are pipeline output, not counts of objects; no ground truth exists or was created.
+- **s2-08 yields no Tracks.** The phase-1 RTMDet (COCO) detector does not detect people seen from directly above. The clip still demonstrates import, scene configuration and an empty-result path, but it is weak for person demos.
+- **s2-07 yields few Tracks.** It is 640×480 with a dense, small-scale crowd, so it yields few Tracks for its content.
+- **Replacement needs an owner decision.** Replacing either clip would need a new discovery pass. Selection closed at A3, so that is an owner decision.

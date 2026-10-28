@@ -23,7 +23,7 @@
       },
       "derivative": {
         "fileName": "s2-01-dusseldorf-junction.mp4",
-        "sha256": null
+        "sha256": "72c150df70228d7116ecdb62c0ba2d4b66c62e63a8b675cbeddf1f1f365f2459"
       },
       "camera": {
         "code": "POC-S2-01",
@@ -118,7 +118,7 @@
       },
       "derivative": {
         "fileName": "s2-02-sofia-junction.mp4",
-        "sha256": null
+        "sha256": "013cb556498bfac00b7080cfaa3dbce0ad018cdf09e4d5abc5dee1e44538cffe"
       },
       "camera": {
         "code": "POC-S2-02",
@@ -213,7 +213,7 @@
       },
       "derivative": {
         "fileName": "s2-03-crest-hill-road.mp4",
-        "sha256": null
+        "sha256": "4ff8db4123e2325c1dafb53f1dda5f87eeb8f70af29a1e9bad3d9c9a46212347"
       },
       "camera": {
         "code": "POC-S2-03",
@@ -285,7 +285,7 @@
       },
       "derivative": {
         "fileName": "s2-04-night-highway.mp4",
-        "sha256": null
+        "sha256": "da326b6923c88a517d8378078d51665c4225c4a3913b35075e33ef15e0665314"
       },
       "camera": {
         "code": "POC-S2-04",
@@ -357,7 +357,7 @@
       },
       "derivative": {
         "fileName": "s2-05-vrhnika-arch-gate.mp4",
-        "sha256": null
+        "sha256": "0f72d97b046d78b5708e56b9b9d0981dc5c7eb5c4e692a0135d30925b99cc46a"
       },
       "camera": {
         "code": "POC-S2-05",
@@ -452,7 +452,7 @@
       },
       "derivative": {
         "fileName": "s2-06-beynost-level-crossing.mp4",
-        "sha256": null
+        "sha256": "0b8c8a6567d40ef4addbed6f2fac71a48ae9fe7d1485fe8fbf35dcf2e03783d5"
       },
       "camera": {
         "code": "POC-S2-06",
@@ -547,7 +547,7 @@
       },
       "derivative": {
         "fileName": "s2-07-shibuya-crossing.mp4",
-        "sha256": null
+        "sha256": "93b89ed660491746c6abb221f9972bda3cdb77d9871e924d2025210ee06a331a"
       },
       "camera": {
         "code": "POC-S2-07",
@@ -642,7 +642,7 @@
       },
       "derivative": {
         "fileName": "s2-08-damascus-gate-overhead.mp4",
-        "sha256": null
+        "sha256": "d0c89ef38760e1be8670e9dbeeec0664f68e19059231397cf9398ca1b2313499"
       },
       "camera": {
         "code": "POC-S2-08",
