@@ -37,7 +37,11 @@ python tools/poc/demo_corpus.py import --root <root> --api http://localhost:6215
   1. `POST /api/cameras` creates the camera. An existing camera with the same code is reused only if its name and time zone match.
   2. `POST /api/videos/import` uploads the clip. A `video_duplicate` is reused only if it belongs to the same camera.
   3. `PUT /api/cameras/{id}/scene` saves the scene. This is skipped when the active revision already has identical geometry.
-  4. `POST /api/videos/{id}/process` starts processing. The importer then waits until the run is `Completed` and its scene analytics are `Ready`. If a run completed before its scene existed, it asks for re-analysis with `POST /api/cameras/{id}/scene/analyses`.
+  4. `POST /api/videos/{id}/process` starts processing. The importer then waits until the run is `Completed` and its scene analytics are `Ready`. It requests re-analysis once, with `POST /api/cameras/{id}/scene/analyses` (scope `latestRuns`), in two cases:
+     - the analysis is `Stale`;
+     - the analysis is still `Pending` 120 s after the run completed. For example, the run finished before its scene existed and outside the reconciler's look-back window.
+
+  Every mutating call is logged with its HTTP status, along with the definition's SHA-256. A duplicate asset is reused only when its camera and its recording start (from the server's UTC offset) match the definition. Network failures and FFmpeg timeouts end the command with `REFUSED` and exit code 2.
 
   The import is idempotent, so a second run changes nothing. It never sends credentials: the Development API has no authentication. It refuses any non-loopback API URL.
 

@@ -1,6 +1,6 @@
 # PoC S2 — demo corpus: discovery, ADR-017 admissibility and acquisition record
 
-**Date:** 2026-10-28. **Base:** `main@393a16ed`. **Operator:** a Claude Code session (PoC S2) on the owner's instruction. The operator is not an independent reviewer. Owner acceptance of `demo-corpus-attribution.md` (register B2) ratifies the determinations below.
+**Date:** 2026-10-28. **Base:** `main@393a16ed`. **Operator:** a Claude Code session (PoC S2) on the owner's instruction. The operator is not an independent reviewer. The two purpose-approval determinations (`poc-s2-commons-cc0-2026-10` and `poc-s2-commons-cc-by-2026-10`) are signed by the operator. **They need explicit owner ratification**, which is a condition of register B1. This is separate from owner acceptance of the attribution file (B2).
 
 **Governing records:**
 - scope declaration and amendments: `s2-demo-corpus-scope-declaration.md`, committed before each pass (`82e04c05`, A1 `bd7ccce3`, A2 `041513da`, A3 `9bde864d`);
@@ -12,7 +12,7 @@
 
 ## 1. Discovery (metadata only)
 
-Every request went through `tools/qualification/source_acquisition_cli.py discover`. That tool applies the HTTPS and allow-list rules and retains each file's metadata response by content hash. The User-Agent contact was the repository URL. Discovery reports and evidence are in the controlled store, `E:\MAVI-Controlled\PoC\Corpus\source-store\discovery\` and `...\evidence\`. The per-scope result files are in `...\Corpus\discovery-log\`.
+Every **metadata** request went through `tools/qualification/source_acquisition_cli.py discover`. That tool applies the HTTPS and allow-list rules and retains each file's metadata response by content hash. The User-Agent contact was the repository URL. Discovery reports and evidence are in the controlled store, `E:\MAVI-Controlled\PoC\Corpus\source-store\discovery\` and `...\evidence\`. The per-scope result files are in `...\Corpus\discovery-log\`.
 
 | Pass | Scopes | Unique files described (cumulative) | Notes |
 |---|---|---|---|
@@ -30,10 +30,23 @@ Discovery-report SHA-256 prefixes, per scope:
 | 3 | T1 `2d01a7e0`, T2 `ee169b62`, T3 `78977d05`, T4 `e305fcad`, T5 `5421ba92`, T6 `1201ed9d`, T7 `b40ead9e`, T8 `38098eff`, T9 `f7267319`, T10 `8921c11f` |
 | 4 | U1 `11e7288e`, U2 `4b5916d6`, U3 `94afd909`, U4 `90c6fe06`, U6 `98c15e0d`, U7 `0d2752fc`, U8 `1af5cfad`, U9 `6a45cfd9`, U10 `f9647297` |
 
+**Clips that depend on A2's window clarification.** A2 says a 60–180 s fixed, uncut window may sit inside a longer clip whose view changes elsewhere. It was written after passes 1–2 had been seen, and it reads rule 3's "fixed for the usable span" this way. Two selected clips depend on it:
+- **s2-02** (Sofia): 441 s source, 2–90 s window;
+- **s2-03** (Crest Hill): 91 s source, 1–69 s window.
+
+The other six are fixed for their whole source.
+
 **Selection (rules §4).** After rules 1–2 (kit licence; ≥ 60 s; ≥ 640×360), rule 3 was applied to the plausible candidates:
 - **First screen:** three frames per candidate, about 45 candidates.
 - **Finer screen:** one frame every 10–15 s for 26 candidates.
 - **Frames used:** rendered by Commons at 330–500 px and kept only on `E:\MAVI-Working\tmp`. Rationale: confirm a fixed, uncut viewpoint so that zone and line geometry stays valid. No label, count or annotation was produced.
+- **How the frames were fetched (outside the helper, disclosed):**
+  - **Requests.** Small Python `urllib` scratch scripts made plain HTTPS GETs to `upload.wikimedia.org/wikipedia/commons/thumb/…/<width>px-seek=<s>-<file>.jpg`, Commons' public video-thumbnail renderer. Each script was run with `python -I` and was not committed.
+  - **Headers.** A User-Agent naming MAVI and the repository URL; no credentials or cookies.
+  - **Volume.** About 330 thumbnails.
+  - **A further 8 frames.** Reference frames for drawing scene geometry were fetched the same way.
+  - **Two metadata checks.** The `LicenseReview` lookups in §2 were two read-only `action=query&prop=revisions` calls to `commons.wikimedia.org/w/api.php`, made with `curl`.
+  - **No original media** was fetched this way. Originals: §3.
 
 Rule 3 rejected most kit-licensed files: walking tours, drive-throughs, drone and dashcam footage, handheld or edited news pieces, slideshows and press events. Eight files passed.
 
@@ -60,8 +73,11 @@ For all eight files:
 The full hashes are in the receipts, `E:\MAVI-Controlled\PoC\Corpus\source-store\receipts\<sha256>.json`, and in `tools/poc/demo-corpus/demo-corpus-v1.json`.
 
 **Licence notes.**
-- s2-02 and s2-04 were imported to Commons from YouTube, where the uploader marked them CC BY. The Commons page licence governs (rule 1).
-- s2-02's YouTube title contains "PD". The file page licence is CC BY 3.0, so the clip is attributed under CC BY.
+- **YouTube-sourced pages.** s2-02 and s2-04 were imported to Commons from YouTube, where the uploader marked them CC BY. The Commons page licence governs (rule 1).
+- **Both licence claims passed Commons licence review.** At the bound revisions, each page carries a passed `{{LicenseReview}}`. That is a Commons reviewer's check that the YouTube source showed the CC BY licence at review time, which mitigates the known YouTube licence-laundering risk:
+  - s2-02, revision 1035020995: reviewer Explicit, 2017-11-24, YouTube `Fao9_a0ZgP4`;
+  - s2-04, revision 1274270458: reviewer McZusatz, 2013-02-03, YouTube `Ina7KMV2OEI`.
+- **s2-02's "PD" title.** s2-02's YouTube title contains "PD". The reviewed licence is CC BY 3.0, so the clip is attributed under CC BY.
 
 **Privacy and faces (B3).** All eight clips show public streets, squares, a level crossing or a gate passage.
 - **People are incidental.** People appear distant or from above, are not identifiable at close range and are not the subject.
@@ -88,7 +104,11 @@ Both have purposes `development`, rights `PERMITTED_FOR_ENGINEERING_USE` and pri
 `verify` reports no problems.
 
 **Transfer deviation, disclosed.**
-- **Helper-transferred files.** The helper's own transport downloaded four files, recorded in receipts with status `ACQUIRED`: s2-01, s2-04, s2-05 and s2-07.
+- **Helper-transferred files.** The helper's own transport downloaded four files. Their `ACQUIRED` receipts are kept beside the later `ALREADY_PRESENT_VERIFIED` ones:
+  - s2-01: `d23f39fe70f472f6c894685bae2a4ec20ebe9e65ccfefe889cc6f559557b2dd2`;
+  - s2-04: `723de7d668ced6a78a5e474d8ab7cb1da0d9b8a54b4904c563b29b0a53538e7d`;
+  - s2-05: `52920cf349f028208dccd06f740cc6232b5d9d0e37efc8b1e0831ed9b0e9ab09`;
+  - s2-07: `6df4e69db2f69eda7bcddb11409864af8fbc0f0252e702505b609ff42a9df8b5`.
 - **The problem.** Wikimedia throttled each long-lived download connection to about 50–65 KB/s after an initial burst, which put the remaining ~575 MB at several hours.
 - **What was done instead.** The other four originals (s2-02, s2-03, s2-06, s2-08) were transferred with resumable `curl`, which restarted on a stalled connection. Each request went over HTTPS to the same `upload.wikimedia.org` original URL, used the helper's User-Agent and sent no credentials. The files were written into the helper's exact store paths.
 - **How they were verified.** `acquire` then checked each file against the provider's declared size and SHA-1 and issued its receipt with status `ALREADY_PRESENT_VERIFIED`. This is the same integrity check a helper download applies before promotion.
@@ -129,16 +149,18 @@ The derivative hashes are pinned in `tools/poc/demo-corpus/demo-corpus-v1.json`.
 
 **Retained on E:.** Everything below is in `E:\MAVI-Controlled\PoC\Corpus\`:
 - `manifests\originals.sha256`, `manifests\derivatives.sha256` and `manifests\derivation-record.json`;
-- the run evidence, in `evidence-2026-10-28\`, whose `SHA256SUMS` file has SHA-256 `5f8ce14013588fb122c1ae20db5c10e0c5da5610544ac36cc728daa95d58c957`. It holds both import logs, both trim outputs, the manifests and the worker identity.
+- the run evidence, in `evidence-2026-10-28\`, whose `SHA256SUMS` file has SHA-256 `c8e50c05a290d1b91f5fabfee47d36828f04fbde0b56c2d6fab7072768868723`. It holds the three import logs, both trim outputs, the manifests and the worker identity.
 
-**Import from a clean install (B4).** The setup:
+**Import into a fresh database (B4).** "Clean install" here means a fresh, empty database and a Development build of this branch. It is not yet a kit installation: that is S1/S13 (A2, D1). The setup:
 - **Database.** A new, empty database `mavi_poc_s2_20261028` on the Development PostgreSQL (no cameras or videos).
 - **API.** `Mavi.Api` built from this branch, Development environment, on `http://127.0.0.1:62183`, with media and evidence roots on `E:\MAVI-Working\poc-s2-runtime`.
 - **Worker.** `Start-MaviVisionWorker.ps1`, which resolved `cuda_selected` with Runtime Pack `windows-x86_64-cuda` and the bound RTMDet Model Pack.
 
 `python tools/poc/demo_corpus.py import --root E:\MAVI-Controlled\PoC\Corpus --api http://127.0.0.1:62183` then created eight cameras (`POC-S2-01`–`08`), eight assets and eight scene revisions (r1). It processed all eight runs to `Completed` with analytics `Ready`, and exited `0`.
 
-**Second run (idempotence).** Run 2 issued no camera create, no scene `PUT` and no `process`. Its only mutations were eight refused duplicate imports (`409 video_duplicate`, reused), and its result was identical to run 1.
+**Second run (idempotence).** Run 2 issued no camera create, no scene `PUT` and no `process`. Its only mutations were eight refused duplicate imports (`409 video_duplicate`, reused), and its result was identical to run 1. That was established from the API's request log.
+
+**Third run (after the cold-review fixes).** The importer now logs every mutating call with its status, and the definition SHA-256 (`7661ddb4e1f906104d65d3224e0e123eb04a91fb06d62f755b918607ab0dd7e2`). Run 3 logs exactly eight `POST /api/videos/import -> 409 video_duplicate` and returns the same ids, revisions and runs (`evidence-2026-10-28\import-run3.log`). The duplicate path also checks each asset's recording start, against the server's own UTC offset, and that check passed.
 
 | Clip | Run | Tracks created | Analytics |
 |---|---|---|---|

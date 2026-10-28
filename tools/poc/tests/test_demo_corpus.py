@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from datetime import datetime, timedelta
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -92,14 +94,22 @@ def test_polygon_rules():
     assert dc.polygon_problems([(0, 0), (1, 0), (1, 1), (0, 1)]) == []
     assert "self_intersection" in dc.polygon_problems([(0, 0), (1, 1), (1, 0), (0, 1)])
     assert dc.polygon_problems([(0, 0), (1, 0)]) == ["vertex_count"]
-    assert "area" in dc.polygon_problems([(0, 0), (0.5, 0.5), (1, 1)])
+    assert dc.polygon_problems([(0, 0), (0.5, 0.5), (1, 1)]) == ["degenerate"]
+    assert dc.polygon_problems([(0, 0), (0, 0), (1, 0), (1, 1)]) == ["degenerate"]
+    # Non-adjacent edges that only touch, and an edge that doubles back, are not simple (SceneGeometry.IsSimple).
+    assert dc.polygon_problems([(0, 0), (1, 0), (0.5, 0.5), (1, 1), (0, 1), (0.5, 0.0)]) == ["self_intersection"]
+    assert dc.polygon_problems([(0, 0), (1, 0), (0.5, 0), (0.5, 1)]) == ["self_intersection"]
+    assert dc.polygon_problems([(0, 0), (0.0005, 0), (0, 0.0005)]) == ["area"]
 
 
 @pytest.mark.parametrize("mutate, code", [
     (lambda s: s["zones"][0].__setitem__("kind", "restricted"), "zone_kind"),
     (lambda s: s["zones"][0]["vertices"].__setitem__(0, [1.2, 0.1]), "vertex"),
     (lambda s: s["tripLines"][0].__setitem__("b", [0.201, 0.8]), "line_length"),
-    (lambda s: s["tripLines"][0].__setitem__("name", "Zone A"), "line_name"),
+    (lambda s: s["tripLines"].append(dict(s["tripLines"][0], name="GATE")), "line_name"),
+    (lambda s: s["zones"].append(dict(s["zones"][0], name="zone a")), "zone_name"),
+    (lambda s: s["zones"][0].__setitem__("name", "Zone A "), "zone_name"),
+    (lambda s: s["tripLines"][0].__setitem__("bToALabel", " Out"), "line_label"),
     (lambda s: s["zones"][0].__setitem__("loiteringThresholdSeconds", 0), "loitering"),
     (lambda s: s["tripLines"][0].__setitem__("aToBLabel", "x" * 33), "line_label"),
 ])
@@ -108,6 +118,16 @@ def test_scene_rules_mirror_server(mutate, code):
     mutate(document["clips"][0]["scene"])
     with pytest.raises(dc.CorpusError, match=code):
         dc.validate_definition(document)
+
+
+def test_zone_and_line_names_are_separate_namespaces():
+    document = _definition()
+    document["clips"][0]["scene"]["tripLines"][0]["name"] = "Zone A"
+    dc.validate_definition(document)
+
+
+def test_points_are_rounded_like_the_server():
+    assert dc._point([0.1234567, 0.9999996], "c") == (0.123457, 1.0)
 
 
 def test_ffmpeg_argv_is_pinned_and_deterministic(tmp_path):
@@ -193,7 +213,9 @@ class FakeApi:
             name = multipart.file_path.name
             if name in self.videos:
                 return 409, {"code": "video_duplicate", "videoAssetId": self.videos[name]["id"]}
-            video = {"id": f"vid-{name}", "cameraId": multipart.fields["cameraId"]}
+            local = datetime.fromisoformat(multipart.fields["recordingStartLocal"])
+            video = {"id": f"vid-{name}", "cameraId": multipart.fields["cameraId"], "recordingUtcOffsetMinutes": 330,
+                     "recordingStartUtc": (local - timedelta(minutes=330)).isoformat() + "Z"}
             self.videos[name] = video
             return 201, video
         parts = path.strip("/").split("/")
@@ -281,3 +303,92 @@ def test_api_must_be_local():
 def test_committed_definition_round_trips_as_json():
     text = dc.DEFAULT_DEFINITION.read_text(encoding="utf-8")
     assert json.loads(text)["schemaVersion"] == dc.SCHEMA
+
+
+def test_import_logs_every_mutation(tmp_path):
+    definition = _definition()
+    root = _imported_root(tmp_path, definition)
+    api, lines = FakeApi(), []
+    dc.import_corpus(definition, root, api, poll_s=0, log=lines.append)
+    assert "  POST /api/cameras -> 201" in lines and "  PUT /api/cameras/cam-0/scene -> 201" in lines
+    lines.clear()
+    dc.import_corpus(definition, root, api, poll_s=0, log=lines.append)
+    mutations = [line for line in lines if line.startswith("  ")]
+    assert mutations == ["  POST /api/videos/import -> 409 video_duplicate"] * 8
+
+
+def test_duplicate_with_other_recording_start_is_refused(tmp_path):
+    definition = _definition()
+    root = _imported_root(tmp_path, definition)
+    api = FakeApi()
+    dc.import_corpus(definition, root, api, poll_s=0, log=lambda _m: None)
+    definition["clips"][0]["recordingStartLocal"] = "2026-10-01T10:00:00"
+    with pytest.raises(dc.CorpusError, match="asset_preexisting_recording_start:clip-01"):
+        dc.import_corpus(definition, root, api, poll_s=0, log=lambda _m: None)
+
+
+class _Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += max(seconds, 30.0)
+
+
+def _analysis_api(readiness_sequence):
+    """A completed run whose analytics readiness follows the sequence; records re-analysis requests."""
+    state = {"requests": 0, "sequence": list(readiness_sequence)}
+
+    def call(method, path, json_body=None, multipart=None):
+        if path.endswith("/scene/analyses"):
+            state["requests"] += 1
+            assert json_body == {"scope": "latestRuns"}
+            return 202, {}
+        assert (method, path) == ("GET", "/api/videos/vid/processing")
+        readiness = state["sequence"].pop(0) if len(state["sequence"]) > 1 else state["sequence"][0]
+        return 200, {"latestRun": {"processingRunId": "run", "status": "Completed", "analyticsReadiness": readiness}}
+
+    return SimpleNamespace(call=call), state
+
+
+def test_stale_analysis_is_requested_once():
+    api, state = _analysis_api(["Stale", "Stale", "Stale", "Ready"])
+    clock = _Clock()
+    latest = dc.ensure_processed(api, "cam", {"id": "vid"}, _clip(1), 10, 3600, clock=clock, sleep=clock.sleep)
+    assert latest["analyticsReadiness"] == "Ready" and state["requests"] == 1
+
+
+def test_pending_analysis_is_requested_only_after_grace():
+    api, state = _analysis_api(["Pending"] * 3 + ["Ready"])
+    clock = _Clock()
+    dc.ensure_processed(api, "cam", {"id": "vid"}, _clip(1), 10, 3600, clock=clock, sleep=clock.sleep)
+    assert state["requests"] == 0  # became Ready within the grace: the reconciler did it
+    api, state = _analysis_api(["Pending"] * 8 + ["Ready"])
+    clock = _Clock()
+    dc.ensure_processed(api, "cam", {"id": "vid"}, _clip(1), 10, 3600, clock=clock, sleep=clock.sleep)
+    assert state["requests"] == 1
+
+
+def test_unreachable_api_is_a_refusal():
+    with pytest.raises(dc.CorpusError, match="api_unreachable"):
+        dc.Api("http://127.0.0.1:9", timeout=2).call("GET", "/api/cameras")
+
+
+def test_trim_timeout_is_a_refusal(tmp_path):
+    import subprocess
+    ffmpeg = tmp_path / "ffmpeg.exe"
+    ffmpeg.write_bytes(b"ffmpeg")
+    definition = _definition()
+    for clip in definition["clips"]:
+        _write_original(tmp_path, clip)
+
+    def run(argv, **kwargs):
+        if "-version" in argv:
+            return SimpleNamespace(returncode=0, stdout=b"ffmpeg version test\n")
+        raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
+
+    with pytest.raises(dc.CorpusError, match="ffmpeg_failed:clip-01:TimeoutExpired"):
+        dc.trim(definition, tmp_path, ffmpeg, run=run)

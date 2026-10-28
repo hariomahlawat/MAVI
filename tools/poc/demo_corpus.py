@@ -29,7 +29,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -45,6 +45,7 @@ CAMERA_CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{0,31}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 TERMINAL_FAILURES = ("Failed", "Cancelled")
+REANALYSIS_GRACE_S = 120.0
 
 # Pinned derivation, mirroring tools/benchmarks/prepare.py: libx264 single-threaded with bit-exact flags,
 # so the same FFmpeg binary and original always give the same bytes. Audio, subtitles, data streams,
@@ -76,39 +77,79 @@ def sha256_file(path: Path) -> str:
 # --------------------------------------------------------------------------- definition and scene rules
 
 def _point(value: Any, code: str) -> tuple[float, float]:
+    """A normalised point, rounded to 6 decimals as the server stores it (NormalizedPoint)."""
     require(isinstance(value, list) and len(value) == 2 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value), code)
     x, y = float(value[0]), float(value[1])
-    require(0.0 <= x <= 1.0 and 0.0 <= y <= 1.0 and math.isfinite(x) and math.isfinite(y), code)
-    return x, y
+    require(math.isfinite(x) and math.isfinite(y) and 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0, code)
+    return round(x, 6), round(y, 6)
+
+
+# SceneGeometry tolerances (Mavi.Domain/Scene/Geometry): boundary 1e-9, orientation 1e-12, minimum area 1e-6.
+_BOUNDARY_TOLERANCE, _ORIENTATION_TOLERANCE, _MINIMUM_AREA = 1e-9, 1e-12, 1e-6
 
 
 def _cross(o: tuple[float, float], a: tuple[float, float], b: tuple[float, float]) -> float:
     return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 
 
-def _segments_cross(p1, p2, q1, q2) -> bool:
-    d1, d2, d3, d4 = _cross(q1, q2, p1), _cross(q1, q2, p2), _cross(p1, p2, q1), _cross(p1, p2, q2)
-    return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)) and 0 not in (d1, d2, d3, d4)
+def _orientation(o, a, b) -> int:
+    value = _cross(o, a, b)
+    return 1 if value > _ORIENTATION_TOLERANCE else -1 if value < -_ORIENTATION_TOLERANCE else 0
+
+
+def _on_segment(p, a, b) -> bool:
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length_squared = dx * dx + dy * dy
+    t = 0.0 if length_squared <= 0 else min(1.0, max(0.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length_squared))
+    return math.dist(p, (a[0] + t * dx, a[1] + t * dy)) <= _BOUNDARY_TOLERANCE
+
+
+def _segments_intersect(a1, a2, b1, b2) -> bool:
+    """Closed segments share a point (SceneGeometry.SegmentsIntersect): touching counts."""
+    d1, d2, d3, d4 = _orientation(b1, b2, a1), _orientation(b1, b2, a2), _orientation(a1, a2, b1), _orientation(a1, a2, b2)
+    if d1 * d2 < 0 and d3 * d4 < 0:
+        return True
+    return ((d1 == 0 and _on_segment(a1, b1, b2)) or (d2 == 0 and _on_segment(a2, b1, b2))
+            or (d3 == 0 and _on_segment(b1, a1, a2)) or (d4 == 0 and _on_segment(b2, a1, a2)))
+
+
+def _is_simple(vertices: list[tuple[float, float]]) -> bool:
+    """SceneGeometry.IsSimple: adjacent edges may only share their vertex; other edges may not meet."""
+    count = len(vertices)
+    for i in range(count):
+        a1, a2 = vertices[i], vertices[(i + 1) % count]
+        for j in range(i + 1, count):
+            b1, b2 = vertices[j], vertices[(j + 1) % count]
+            if j == i + 1:
+                if _on_segment(a1, b1, b2) or _on_segment(b2, a1, a2):
+                    return False
+            elif i == 0 and j == count - 1:
+                if _on_segment(a2, b1, b2) or _on_segment(b1, a1, a2):
+                    return False
+            elif _segments_intersect(a1, a2, b1, b2):
+                return False
+    return True
 
 
 def polygon_problems(vertices: list[tuple[float, float]]) -> list[str]:
-    """The server's zone rules (SceneRules): 3..64 vertices, positive area, no self-intersection."""
-    problems = []
+    """The server's zone rules (SceneZone.Create), in its order: vertex count, degenerate, self-intersection, area."""
     if not 3 <= len(vertices) <= 64:
-        problems.append("vertex_count")
-        return problems
-    area = 0.5 * abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(vertices, vertices[1:] + vertices[:1])))
-    if area < 1e-6:
-        problems.append("area")
+        return ["vertex_count"]
     edges = list(zip(vertices, vertices[1:] + vertices[:1]))
-    for i, (a, b) in enumerate(edges):
-        for j in range(i + 2, len(edges)):
-            if i == 0 and j == len(edges) - 1:
-                continue  # adjacent through the closing edge
-            if _segments_cross(a, b, *edges[j]):
-                problems.append("self_intersection")
-                return problems
-    return problems
+    origin = vertices[0]
+    direction = next((v for v in vertices[1:] if v != origin), None)
+    collinear = direction is None or all(abs(_cross(origin, direction, v)) <= _ORIENTATION_TOLERANCE for v in vertices)
+    if any(math.dist(a, b) <= _BOUNDARY_TOLERANCE for a, b in edges) or collinear:
+        return ["degenerate"]
+    if not _is_simple(vertices):
+        return ["self_intersection"]
+    area = 0.5 * abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in edges))
+    return ["area"] if area < _MINIMUM_AREA else []
+
+
+def _clean_text(value: Any, limit: int) -> bool:
+    """Non-empty, within ``limit`` and already trimmed: the server trims, so an untrimmed value would never compare equal."""
+    return isinstance(value, str) and value == value.strip() and 0 < len(value) <= limit
 
 
 def validate_scene(scene: Any, code: str) -> None:
@@ -116,12 +157,12 @@ def validate_scene(scene: Any, code: str) -> None:
     zones, lines = scene["zones"], scene["tripLines"]
     require(isinstance(zones, list) and isinstance(lines, list) and (zones or lines), f"{code}:empty")
     require(len(zones) <= 64 and len(lines) <= 64, f"{code}:count")
-    names = set()
+    zone_names, line_names = set(), set()  # separate namespaces, compared case-insensitively (SceneRules.NameComparer)
     for zone in zones:
         require(isinstance(zone, dict) and set(zone) == {"name", "kind", "vertices", "loiteringThresholdSeconds"}, f"{code}:zone")
         name = zone["name"]
-        require(isinstance(name, str) and 0 < len(name.strip()) <= 64 and name not in names, f"{code}:zone_name")
-        names.add(name)
+        require(_clean_text(name, 64) and name.casefold() not in zone_names, f"{code}:zone_name")
+        zone_names.add(name.casefold())
         require(zone["kind"] in ZONE_KINDS, f"{code}:zone_kind:{name}")
         threshold = zone["loiteringThresholdSeconds"]
         require(threshold is None or (isinstance(threshold, int) and 1 <= threshold <= 86400), f"{code}:loitering:{name}")
@@ -132,12 +173,12 @@ def validate_scene(scene: Any, code: str) -> None:
     for line in lines:
         require(isinstance(line, dict) and set(line) == {"name", "a", "b", "aToBLabel", "bToALabel"}, f"{code}:line")
         name = line["name"]
-        require(isinstance(name, str) and 0 < len(name.strip()) <= 64 and name not in names, f"{code}:line_name")
-        names.add(name)
+        require(_clean_text(name, 64) and name.casefold() not in line_names, f"{code}:line_name")
+        line_names.add(name.casefold())
         a, b = _point(line["a"], f"{code}:endpoint:{name}"), _point(line["b"], f"{code}:endpoint:{name}")
         require(math.dist(a, b) >= 0.005, f"{code}:line_length:{name}")
         for label in ("aToBLabel", "bToALabel"):
-            require(isinstance(line[label], str) and 0 < len(line[label]) <= 32, f"{code}:line_label:{name}")
+            require(_clean_text(line[label], 32), f"{code}:line_label:{name}")
 
 
 def validate_definition(document: Any) -> dict:
@@ -237,7 +278,12 @@ def trim(definition: dict, root: Path, ffmpeg: Path, run: Callable[..., Any] = s
             partial.unlink()
         argv = ffmpeg_argv(ffmpeg, clip, original, partial)
         require(sha256_file(ffmpeg) == ffmpeg_sha, "ffmpeg_changed")
-        result = run(argv, capture_output=True, check=False, timeout=FFMPEG_TIMEOUT_S)
+        try:
+            result = run(argv, capture_output=True, check=False, timeout=FFMPEG_TIMEOUT_S)
+        except (subprocess.SubprocessError, OSError) as exc:
+            if partial.exists():
+                partial.unlink()
+            raise CorpusError(f"ffmpeg_failed:{clip['clipId']}:{type(exc).__name__}") from exc
         require(result.returncode == 0 and partial.is_file(), f"ffmpeg_failed:{clip['clipId']}:{result.returncode}")
         digest = sha256_file(partial)
         expected = clip["derivative"]["sha256"]
@@ -331,6 +377,8 @@ class Api:
                 status, raw = response.status, response.read()
         except urllib.error.HTTPError as exc:
             status, raw = exc.code, exc.read()
+        except (urllib.error.URLError, OSError) as exc:  # refused connection, timeout, reset
+            raise CorpusError(f"api_unreachable:{method}:{path}:{type(exc).__name__}") from exc
         try:
             return status, json.loads(raw.decode("utf-8")) if raw else None
         except ValueError:
@@ -339,6 +387,19 @@ class Api:
 
 def _problem(body: Any) -> str:
     return str(body.get("code")) if isinstance(body, dict) else "-"
+
+
+class LoggedApi:
+    """Records every mutating call with its outcome, so a run log shows exactly what changed (and what did not)."""
+
+    def __init__(self, api: Any, log: Callable[[str], None]):
+        self.api, self.log = api, log
+
+    def call(self, method: str, path: str, json_body: Any = None, multipart: Multipart | None = None) -> tuple[int, Any]:
+        status, body = self.api.call(method, path, json_body=json_body, multipart=multipart)
+        if method != "GET":
+            self.log(f"  {method} {path} -> {status} {_problem(body) if status >= 400 else ''}".rstrip())
+        return status, body
 
 
 def scene_request(scene: dict, expected_revision: int, note: str) -> dict:
@@ -381,9 +442,20 @@ def ensure_asset(api: Api, camera_id: str, clip: dict, path: Path) -> dict:
         status, existing = api.call("GET", f"/api/videos/{created.get('videoAssetId')}")
         require(status == 200 and isinstance(existing, dict) and existing.get("cameraId") == camera_id,
                 f"asset_preexisting_elsewhere:{clip['clipId']}")
+        require(_recording_start_local(existing) == datetime.fromisoformat(clip["recordingStartLocal"]),
+                f"asset_preexisting_recording_start:{clip['clipId']}")
         return existing
     require(status == 201 and isinstance(created, dict) and created.get("id"), f"import_refused:{clip['clipId']}:{status}:{_problem(created)}")
     return created
+
+
+def _recording_start_local(asset: dict) -> datetime | None:
+    """The asset's recording start in its camera-local wall clock, from the server's own UTC offset."""
+    try:
+        utc = datetime.fromisoformat(str(asset["recordingStartUtc"]).replace("Z", "+00:00"))
+        return (utc + timedelta(minutes=int(asset["recordingUtcOffsetMinutes"]))).replace(tzinfo=None)
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def ensure_scene(api: Api, camera_id: str, clip: dict) -> int:
@@ -404,10 +476,12 @@ def ensure_processed(api: Api, camera_id: str, asset: dict, clip: dict, poll_s: 
                      clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> dict:
     """Queues processing unless a run already exists, then waits for the run and its scene analysis.
 
-    A run that completed before the active scene revision existed is not re-analysed automatically,
-    so its analysis is requested explicitly (``POST /api/cameras/{id}/scene/analyses``)."""
+    The reconciler normally analyses a completed run within seconds. A run whose analysis is ``Stale``
+    (older active revision), or still ``Pending`` after ``REANALYSIS_GRACE_S`` (for example a run that
+    completed before its scene existed, outside the reconciler's look-back), gets one explicit request
+    (``POST /api/cameras/{id}/scene/analyses``, scope ``latestRuns``)."""
     asset_id = asset["id"]
-    reanalysed = False
+    reanalysed, pending_since = False, None
     status, state = api.call("GET", f"/api/videos/{asset_id}/processing")
     require(status == 200 and isinstance(state, dict), f"api_processing:{status}")
     latest = state.get("latestRun")
@@ -425,7 +499,10 @@ def ensure_processed(api: Api, camera_id: str, asset: dict, clip: dict, poll_s: 
         if run_status == "Completed" and readiness in ("Ready", "Failed"):
             require(readiness == "Ready", f"analytics_failed:{clip['clipId']}")
             return latest
-        if run_status == "Completed" and readiness in ("NotConfigured", "Stale") and not reanalysed:
+        if run_status == "Completed" and readiness == "Pending" and pending_since is None:
+            pending_since = clock()
+        overdue = readiness == "Pending" and pending_since is not None and clock() - pending_since >= REANALYSIS_GRACE_S
+        if run_status == "Completed" and (readiness == "Stale" or overdue) and not reanalysed:
             status, body = api.call("POST", f"/api/cameras/{camera_id}/scene/analyses", json_body={"scope": "latestRuns"})
             require(status == 202, f"analysis_refused:{clip['clipId']}:{status}:{_problem(body)}")
             reanalysed = True
@@ -434,9 +511,11 @@ def ensure_processed(api: Api, camera_id: str, asset: dict, clip: dict, poll_s: 
 
 
 def import_corpus(definition: dict, root: Path, api: Api, process: bool = True, poll_s: float = 10.0,
-                  timeout_s: float = 7200.0, only: set[str] | None = None, log: Callable[[str], None] = print) -> list[dict]:
+                  timeout_s: float = 7200.0, only: set[str] | None = None,
+                  log: Callable[[str], None] = lambda message: print(message, flush=True)) -> list[dict]:
     problems = verify_derivatives(definition, root)
     require(not problems, "derivatives_not_verified:" + "; ".join(problems))
+    api = LoggedApi(api, log)
     results = []
     for clip in definition["clips"]:
         if only and clip["clipId"] not in only:
@@ -487,6 +566,7 @@ def main(argv: list[str] | None = None) -> int:
             problems = verify(definition, args.root)
             print(json.dumps({"problems": problems}, indent=2))
             return 1 if problems else 0
+        print(f"definition {args.definition.name} sha256 {sha256_file(args.definition)}", flush=True)
         results = import_corpus(definition, args.root, Api(args.api), not args.no_process,
                                 timeout_s=args.timeout_seconds, only=set(args.clip) if args.clip else None)
         print(json.dumps(results, indent=2))
