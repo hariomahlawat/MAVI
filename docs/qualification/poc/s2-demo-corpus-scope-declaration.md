@@ -75,4 +75,23 @@ No label, box, count, identity, ground truth or annotation is created; no model 
 | R13 | category | `Category:Videos of crowds` | pedestrian / lobby |
 | R14 | category | `Category:Videos of people walking` | pedestrian / lobby |
 
-If pass 2 still yields no CC0 or model-released lobby/close-range clip, the face scene class is filled from the closest kit-eligible pedestrian clip with the most frontal, nearest faces, and the gap is recorded rather than filled from a platform-licensed source by default.
+### A2 (2026-10-28, after pass 2, before pass 3): licence-targeted pass
+
+**Reason.** Pass 2 raised the pool to 501 described files and 80 that pass rules 1–2. The diagnostic three-frame screen (rule 3) found only three fully fixed viewpoints. Most rule-passing files are walking tours, drive-throughs, drone shots, dashcams or press events. There is still no CC0 or model-released close-range face candidate. Rules §4 are **unchanged**. Pass 3 narrows each search by the file's structured-data licence statement (Commons `haswbstatement:P275=<item>`: CC0 = `Q6938433`, CC-BY-4.0 = `Q20007257`, CC-BY-3.0 = `Q14947546`). This is a discovery filter only: the licence used for every decision is still the one in the file page's own `extmetadata` (rule 1).
+
+| Scope | Search text (after the helper's `filetype:video`) | Scene class sought |
+|---|---|---|
+| T1 | `haswbstatement:P275=Q6938433 people` | lobby / pedestrian, faces |
+| T2 | `haswbstatement:P275=Q6938433 street` | pedestrian / junction |
+| T3 | `haswbstatement:P275=Q6938433 traffic` | junction |
+| T4 | `haswbstatement:P275=Q6938433 station` | lobby |
+| T5 | `haswbstatement:P275=Q6938433 parking` | car park |
+| T6 | `haswbstatement:P275=Q20007257 traffic` | junction |
+| T7 | `haswbstatement:P275=Q20007257 street people` | pedestrian |
+| T8 | `haswbstatement:P275=Q20007257 parking` | car park |
+| T9 | `haswbstatement:P275=Q14947546 traffic camera` | junction |
+| T10 | `haswbstatement:P275=Q6938433 walking` | pedestrian / faces |
+
+A trim window may sit inside a longer clip whose viewpoint changes elsewhere, provided the whole 60–180 s window is one fixed, uncut shot. A finer diagnostic screen (one frame every ~10 s) of the candidate window establishes this, with the same rationale as rule 3.
+
+If pass 3 still yields no CC0 or model-released lobby/close-range clip, the face scene class is recorded as a gap. It is not filled from a CC-BY clip with recognisable faces (rule 4), and it is not filled by default from a platform-licensed source.
