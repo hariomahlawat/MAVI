@@ -2,8 +2,12 @@
 
 `demo_corpus.py` reproduces the PoC S2 demo state (register rows B1–B5). It uses only the Python standard library and the repository's pinned FFmpeg. It adds no dependency and is not part of the production runtime.
 
-**Single source of truth:** `demo-corpus/demo-corpus-v1.json`. For each of the eight clips it records:
-- which acquired Wikimedia Commons original the clip comes from: page revision, provider SHA-1, original SHA-256 and store path;
+**Single source of truth:** `demo-corpus/demo-corpus-v1.json`. For each of the twelve clips it records:
+- which original the clip comes from:
+  - a Wikimedia Commons file, by page revision and provider SHA-1;
+  - or a MEVA release object (CC BY 4.0), by object URL and declared size;
+
+  plus, for both, the original SHA-256 and store path;
 - the trim window;
 - the expected derivative SHA-256;
 - the demo camera;
@@ -27,6 +31,8 @@ On the owner laptop, `<root>` is `E:\MAVI-Controlled\PoC\Corpus`.
 
 ```
 python tools/poc/demo_corpus.py validate
+python tools/poc/demo_corpus.py cameras                     # regenerate demo-corpus/demo-cameras-v1.json
+python tools/poc/demo_corpus.py audit  --api <base>          # read-only positive/negative evidence per event
 python tools/poc/demo_corpus.py trim   --root <root> --ffmpeg <repo>/vendor/ffmpeg/win-x64/ffmpeg.exe
 python tools/poc/demo_corpus.py verify --root <root>
 python tools/poc/demo_corpus.py import --root <root> --api http://localhost:62153 [--no-process] [--clip <id>]...
@@ -44,6 +50,19 @@ python tools/poc/demo_corpus.py import --root <root> --api http://localhost:6215
   Every mutating call is logged with its HTTP status, along with the definition's and the tool's SHA-256. A run that completed with analytics `Disabled` or `NotConfigured` is refused rather than waited on. HTTP proxies are bypassed. A duplicate asset is reused only when its camera and its recording start (from the server's UTC offset) match the definition. Network failures and FFmpeg timeouts end the command with `REFUSED` and exit code 2.
 
   The import is idempotent, so a second run changes nothing. It never sends credentials: the Development API has no authentication. It refuses any non-loopback API URL.
+
+- **`cameras`** writes `demo-corpus/demo-cameras-v1.json` in PoC S1's seed schema (`mavi-poc-demo-cameras-v1`). It is the authoritative demo-camera list, and a test keeps it equal to the definition. When S1's `config/poc/demo-cameras-v1.json` is on the same branch, another test requires that file to be identical, so the installer and the import agree on every camera.
+- **`audit`** reads aggregates and Track search, over each clip's own window. For every configured event it reports a positive and a meaningful negative:
+
+  | Event | Positive | Negative |
+  |---|---|---|
+  | Zone entry | Tracks that entered | Tracks that never entered |
+  | Crossing, each direction | Crossings in that direction | Crossings in the opposite direction |
+  | Person loitering | Persons whose dwell reached the zone threshold | Persons below the threshold |
+  | Vehicle stationary ≥ 30 s in `Restricted` zones | Vehicles stationary that long | Vehicles in the zone that were not |
+
+  The numbers are pipeline output, not ground truth.
+- **Loitering thresholds** must be at most half the clip window. `validate` enforces this, so every configured threshold is demonstrable inside the clip.
 
 ## What it never does
 

@@ -38,6 +38,8 @@ from typing import Any, Callable
 SCHEMA = "mavi-poc-demo-corpus-v1"
 DEFAULT_DEFINITION = Path(__file__).resolve().parent / "demo-corpus" / "demo-corpus-v1.json"
 KIT_LICENCES = ("cc0", "cc-by-2.0", "cc-by-2.5", "cc-by-3.0", "cc-by-4.0")
+PROVIDERS = {"wikimedia-commons": "media/commons/", "meva": "media/meva/"}  # provider -> store prefix
+MEVA_BUCKET_URL = "https://mevadata-public-01.s3.amazonaws.com/"
 SCENE_CLASSES = ("junction", "gate", "car-park", "pedestrian", "lobby")
 ZONE_KINDS = ("General", "Restricted", "Entrance", "Exit")
 MIN_CLIPS, MAX_CLIPS = 8, 12
@@ -198,10 +200,18 @@ def validate_definition(document: Any) -> dict:
         require(clip.get("sceneClass") in SCENE_CLASSES, f"definition_scene_class:{cid}")
         source = clip.get("source")
         require(isinstance(source, dict), f"definition_source:{cid}")
-        require(isinstance(source.get("fileTitle"), str) and source["fileTitle"].startswith("File:"), f"definition_source_title:{cid}")
-        require(isinstance(source.get("pageRevisionId"), int) and SHA1_RE.match(str(source.get("fileSha1"))) is not None, f"definition_source_identity:{cid}")
+        provider = source.get("provider")
+        require(provider in PROVIDERS, f"definition_source_provider:{cid}")
+        if provider == "wikimedia-commons":
+            # One exact Commons file revision, acquired by tools/qualification/source_acquisition.
+            require(isinstance(source.get("fileTitle"), str) and source["fileTitle"].startswith("File:"), f"definition_source_title:{cid}")
+            require(isinstance(source.get("pageRevisionId"), int) and SHA1_RE.match(str(source.get("fileSha1"))) is not None, f"definition_source_identity:{cid}")
+        else:
+            # One object of the MEVA public release (CC BY 4.0), acquired over HTTPS with its declared size.
+            require(isinstance(source.get("objectUrl"), str) and source["objectUrl"].startswith(MEVA_BUCKET_URL)
+                    and isinstance(source.get("contentLength"), int) and source["contentLength"] > 0, f"definition_source_identity:{cid}")
         require(SHA256_RE.match(str(source.get("originalSha256"))) is not None, f"definition_original_sha256:{cid}")
-        require(isinstance(source.get("storeRelativePath"), str) and source["storeRelativePath"].startswith("media/commons/")
+        require(isinstance(source.get("storeRelativePath"), str) and source["storeRelativePath"].startswith(PROVIDERS[provider])
                 and ".." not in source["storeRelativePath"].split("/"), f"definition_store_path:{cid}")
         require(source["originalSha256"] not in originals, f"definition_original_duplicate:{cid}")
         originals.add(source["originalSha256"])
@@ -241,6 +251,21 @@ def load_definition(path: Path) -> dict:
     except (OSError, ValueError) as exc:
         raise CorpusError("definition_unreadable") from exc
     return validate_definition(document)
+
+
+# --------------------------------------------------------------------------- demo-camera manifest
+
+CAMERAS_SCHEMA = "mavi-poc-demo-cameras-v1"  # the seed schema PoC S1's installer reads (Read-MaviPocDemoCameras)
+CAMERAS_MANIFEST = DEFAULT_DEFINITION.parent / "demo-cameras-v1.json"
+
+
+def cameras_manifest(definition: dict) -> str:
+    """The demo cameras in S1's seed schema, derived from the corpus definition (the single source of truth)."""
+    document = {"schemaVersion": CAMERAS_SCHEMA,
+                "note": ("Generated from tools/poc/demo-corpus/demo-corpus-v1.json by `python tools/poc/demo_corpus.py cameras`; "
+                         "do not edit. One camera per PoC S2 demo clip; its scene geometry and media are in the definition."),
+                "cameras": [dict(clip["camera"]) for clip in definition["clips"]]}
+    return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
 
 
 # --------------------------------------------------------------------------- trims and manifests
@@ -627,6 +652,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--definition", type=Path, default=DEFAULT_DEFINITION)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("validate")
+    m = sub.add_parser("cameras", help="write the demo-camera manifest in S1's seed schema")
+    m.add_argument("--out", type=Path, default=CAMERAS_MANIFEST)
     t = sub.add_parser("trim")
     t.add_argument("--root", type=Path, required=True)
     t.add_argument("--ffmpeg", type=Path, required=True)
@@ -645,6 +672,10 @@ def main(argv: list[str] | None = None) -> int:
         definition = load_definition(args.definition)
         if args.command == "validate":
             print(json.dumps({"clips": len(definition["clips"]), "valid": True}))
+            return 0
+        if args.command == "cameras":
+            args.out.write_text(cameras_manifest(definition), encoding="utf-8", newline="\n")
+            print(json.dumps({"cameras": len(definition["clips"]), "out": args.out.name}))
             return 0
         if args.command == "trim":
             record = trim(definition, args.root, args.ffmpeg)

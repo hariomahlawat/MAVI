@@ -1,12 +1,13 @@
 {
   "schemaVersion": "mavi-poc-demo-corpus-v1",
-  "$comment": "PoC S2 demo corpus (Development). Media bytes never enter Git: originals are in the source-acquisition store, derivatives under <root>/derivatives (E:/MAVI-Controlled/PoC/Corpus on the owner laptop). recordingStartLocal is a demo-assigned time, not the capture time. Scene geometry is operator configuration, not annotation. See docs/qualification/poc/demo-corpus-attribution.md and s2-demo-corpus-admissibility.md.",
+  "$comment": "PoC S2 demo corpus (Development). Media bytes never enter Git: Commons originals are in the source-acquisition store, MEVA originals under source-store/media/meva, derivatives under <root>/derivatives (E:/MAVI-Controlled/PoC/Corpus on the owner laptop). recordingStartLocal is a demo-assigned time, not the capture time. Scene geometry is operator configuration, not annotation. See docs/qualification/poc/demo-corpus-attribution.md and s2-demo-corpus-admissibility.md.",
   "clips": [
     {
       "clipId": "s2-01-dusseldorf-junction",
       "sceneClass": "junction",
       "kit": true,
       "source": {
+        "provider": "wikimedia-commons",
         "fileTitle": "File:Straßenverkehr in Düsseldorf.ogv",
         "pageId": 31636169,
         "pageRevisionId": 1227822546,
@@ -102,6 +103,7 @@
       "sceneClass": "junction",
       "kit": true,
       "source": {
+        "provider": "wikimedia-commons",
         "fileTitle": "File:Trams and road cars at Macedonia square in Sofia.webm",
         "pageId": 62252665,
         "pageRevisionId": 1035020995,
@@ -197,6 +199,7 @@
       "sceneClass": "junction",
       "kit": true,
       "source": {
+        "provider": "wikimedia-commons",
         "fileTitle": "File:Views of Caton Farm Road in Crest Hill, Illinois 04.webm",
         "pageId": 198954882,
         "pageRevisionId": 1292261971,
@@ -269,6 +272,7 @@
       "sceneClass": "junction",
       "kit": true,
       "source": {
+        "provider": "wikimedia-commons",
         "fileTitle": "File:Cars driving at night.webm",
         "pageId": 24403804,
         "pageRevisionId": 1274270458,
@@ -341,6 +345,7 @@
       "sceneClass": "gate",
       "kit": true,
       "source": {
+        "provider": "wikimedia-commons",
         "fileTitle": "File:Road traffic – cobblestone road.webm",
         "pageId": 75044923,
         "pageRevisionId": 1035455639,
@@ -436,6 +441,7 @@
       "sceneClass": "gate",
       "kit": true,
       "source": {
+        "provider": "wikimedia-commons",
         "fileTitle": "File:Passage à niveaux Beynost 2016.webm",
         "pageId": 50746298,
         "pageRevisionId": 993905209,
@@ -531,6 +537,7 @@
       "sceneClass": "pedestrian",
       "kit": true,
       "source": {
+        "provider": "wikimedia-commons",
         "fileTitle": "File:Shibuya Crossing.ogv",
         "pageId": 8804999,
         "pageRevisionId": 1048146516,
@@ -626,6 +633,7 @@
       "sceneClass": "pedestrian",
       "kit": true,
       "source": {
+        "provider": "wikimedia-commons",
         "fileTitle": "File:Three Minutes of Damascus Gate.webm",
         "pageId": 71591077,
         "pageRevisionId": 689333972,
@@ -712,6 +720,348 @@
             ],
             "aToBLabel": "Rightward",
             "bToALabel": "Leftward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-09-meva-parking-lot",
+      "sceneClass": "car-park",
+      "kit": true,
+      "source": {
+        "provider": "meva",
+        "objectUrl": "https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-02.16-25-02.school.G424.r13.avi",
+        "contentLength": 97989578,
+        "originalSha256": "a092f15c3c55dce8c30418aa78f60ff6921962e01b373c616233c7a3e27dd952",
+        "storeRelativePath": "media/meva/drops-123-r13/2018-03-11/16/2018-03-11.16-20-02.16-25-02.school.G424.r13.avi",
+        "licenceCode": "cc-by-4.0",
+        "release": "MEVA (Kitware/IARPA) drops-123-r13",
+        "camera": "G424",
+        "captureSlot": "2018-03-11 16:20 (5 min)"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-09-meva-parking-lot.mp4",
+        "sha256": "cde2966f70f9378d70d6ea558531f394f4b2ad0eeabfbb58f94b00353fab2931"
+      },
+      "camera": {
+        "code": "POC-S2-09",
+        "name": "PoC demo 09 - School parking lot (MEVA G424)",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:40:02",
+      "scene": {
+        "zones": [
+          {
+            "name": "Upper bays",
+            "kind": "Restricted",
+            "vertices": [
+              [
+                0.45,
+                0.42
+              ],
+              [
+                0.99,
+                0.4
+              ],
+              [
+                0.99,
+                0.56
+              ],
+              [
+                0.45,
+                0.58
+              ]
+            ],
+            "loiteringThresholdSeconds": null
+          },
+          {
+            "name": "Lower bays",
+            "kind": "Restricted",
+            "vertices": [
+              [
+                0.38,
+                0.75
+              ],
+              [
+                0.8,
+                0.75
+              ],
+              [
+                0.82,
+                0.99
+              ],
+              [
+                0.38,
+                0.99
+              ]
+            ],
+            "loiteringThresholdSeconds": null
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Lot lane",
+            "a": [
+              0.42,
+              0.58
+            ],
+            "b": [
+              0.42,
+              0.74
+            ],
+            "aToBLabel": "Rightward",
+            "bToALabel": "Leftward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-10-meva-cafe-lobby",
+      "sceneClass": "lobby",
+      "kit": true,
+      "source": {
+        "provider": "meva",
+        "objectUrl": "https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-00.school.G421.r13.avi",
+        "contentLength": 103000564,
+        "originalSha256": "bba8290ef6e8f9c81516b15eb6fa36372bbe4346f9d8acb0360c3a6cfdd6d28c",
+        "storeRelativePath": "media/meva/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-00.school.G421.r13.avi",
+        "licenceCode": "cc-by-4.0",
+        "release": "MEVA (Kitware/IARPA) drops-123-r13",
+        "camera": "G421",
+        "captureSlot": "2018-03-11 16:20 (5 min)"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-10-meva-cafe-lobby.mp4",
+        "sha256": "54281656c3be114b66ee0543fc2e5cff7e2cc07515406376c495974022db97b0"
+      },
+      "camera": {
+        "code": "POC-S2-10",
+        "name": "PoC demo 10 - School cafe lobby (MEVA G421)",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:40:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Seating area",
+            "kind": "General",
+            "vertices": [
+              [
+                0.17,
+                0.35
+              ],
+              [
+                0.52,
+                0.35
+              ],
+              [
+                0.52,
+                0.62
+              ],
+              [
+                0.17,
+                0.62
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          },
+          {
+            "name": "Entrance floor",
+            "kind": "Entrance",
+            "vertices": [
+              [
+                0.55,
+                0.4
+              ],
+              [
+                0.85,
+                0.4
+              ],
+              [
+                0.85,
+                0.62
+              ],
+              [
+                0.55,
+                0.62
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Doorway line",
+            "a": [
+              0.55,
+              0.62
+            ],
+            "b": [
+              0.9,
+              0.62
+            ],
+            "aToBLabel": "Out",
+            "bToALabel": "In"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-11-meva-school-hall",
+      "sceneClass": "lobby",
+      "kit": true,
+      "source": {
+        "provider": "meva",
+        "objectUrl": "https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-01.school.G423.r13.avi",
+        "contentLength": 80699352,
+        "originalSha256": "443bce856d638f002fcfb19d6da9212bfce58814ed6bd1f36520151c0fb37d91",
+        "storeRelativePath": "media/meva/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-01.school.G423.r13.avi",
+        "licenceCode": "cc-by-4.0",
+        "release": "MEVA (Kitware/IARPA) drops-123-r13",
+        "camera": "G423",
+        "captureSlot": "2018-03-11 16:20 (5 min)"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-11-meva-school-hall.mp4",
+        "sha256": "62559507cf24d1694c81834f5e8cc5d3af08c0dde63164e8b0a57fe0c996e5f0"
+      },
+      "camera": {
+        "code": "POC-S2-11",
+        "name": "PoC demo 11 - School hallway (MEVA G423)",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:40:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Corridor near",
+            "kind": "General",
+            "vertices": [
+              [
+                0.42,
+                0.6
+              ],
+              [
+                0.75,
+                0.6
+              ],
+              [
+                0.88,
+                0.99
+              ],
+              [
+                0.42,
+                0.99
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Hall midline",
+            "a": [
+              0.42,
+              0.55
+            ],
+            "b": [
+              0.7,
+              0.55
+            ],
+            "aToBLabel": "Away",
+            "bToALabel": "Toward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-12-meva-stairwell",
+      "sceneClass": "lobby",
+      "kit": true,
+      "source": {
+        "provider": "meva",
+        "objectUrl": "https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-01.16-25-01.school.G419.r13.avi",
+        "contentLength": 88315936,
+        "originalSha256": "93ec12fafcb0ee166c71ec7a46061223e4257de9404d9992f118de275bfc416a",
+        "storeRelativePath": "media/meva/drops-123-r13/2018-03-11/16/2018-03-11.16-20-01.16-25-01.school.G419.r13.avi",
+        "licenceCode": "cc-by-4.0",
+        "release": "MEVA (Kitware/IARPA) drops-123-r13",
+        "camera": "G419",
+        "captureSlot": "2018-03-11 16:20 (5 min)"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-12-meva-stairwell.mp4",
+        "sha256": "174658c288934cdb95e12d65854cd36ee1a058e1d97bb1092130c8c87ade28a1"
+      },
+      "camera": {
+        "code": "POC-S2-12",
+        "name": "PoC demo 12 - School stairwell (MEVA G419)",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:40:01",
+      "scene": {
+        "zones": [
+          {
+            "name": "Landing",
+            "kind": "General",
+            "vertices": [
+              [
+                0.25,
+                0.68
+              ],
+              [
+                0.55,
+                0.68
+              ],
+              [
+                0.55,
+                0.8
+              ],
+              [
+                0.22,
+                0.8
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Landing line",
+            "a": [
+              0.22,
+              0.7
+            ],
+            "b": [
+              0.55,
+              0.7
+            ],
+            "aToBLabel": "To door",
+            "bToALabel": "From door"
           }
         ]
       }

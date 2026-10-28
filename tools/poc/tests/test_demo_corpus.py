@@ -22,7 +22,7 @@ def _clip(index: int) -> dict:
     cid = f"clip-{index:02d}"
     return {
         "clipId": cid, "sceneClass": "junction", "kit": True,
-        "source": {"fileTitle": f"File:Clip {index}.webm", "pageId": 1000 + index, "pageRevisionId": 5000 + index,
+        "source": {"provider": "wikimedia-commons", "fileTitle": f"File:Clip {index}.webm", "pageId": 1000 + index, "pageRevisionId": 5000 + index,
                    "fileSha1": f"{index:040x}", "originalSha256": hashlib.sha256(f"original-{index}".encode()).hexdigest(),
                    "storeRelativePath": f"media/commons/{1000 + index}/{index:040x}/Clip_{index}.webm", "licenceCode": "cc-by-4.0"},
         "trim": {"startSeconds": 0, "durationSeconds": 60, "maxWidth": 1920, "fps": None},
@@ -30,7 +30,7 @@ def _clip(index: int) -> dict:
         "camera": {"code": f"POC-{index:02d}", "name": f"Demo {index}", "timeZoneId": "Asia/Kolkata"},
         "recordingStartLocal": "2026-10-01T09:00:00",
         "scene": {"zones": [{"name": "Zone A", "kind": "General", "vertices": [[0.1, 0.1], [0.5, 0.1], [0.5, 0.5], [0.1, 0.5]],
-                             "loiteringThresholdSeconds": 120}],
+                             "loiteringThresholdSeconds": 30}],
                   "tripLines": [{"name": "Gate", "a": [0.2, 0.8], "b": [0.8, 0.8], "aToBLabel": "In", "bToALabel": "Out"}]},
     }
 
@@ -406,3 +406,26 @@ def test_api_ignores_proxy_environment(monkeypatch):
     monkeypatch.setenv("http_proxy", "http://proxy.invalid:3128")
     with pytest.raises(dc.CorpusError, match="api_unreachable"):
         dc.Api("http://127.0.0.1:9", timeout=2).call("GET", "/api/cameras")
+
+
+def test_meva_source_identity_and_store_prefix():
+    document = _definition()
+    source = document["clips"][0]["source"]
+    for key in ("fileTitle", "pageId", "pageRevisionId", "fileSha1"):
+        source.pop(key)
+    source.update(provider="meva", objectUrl=dc.MEVA_BUCKET_URL + "drops-123-r13/x.avi", contentLength=10,
+                  storeRelativePath="media/meva/drops-123-r13/x.avi", licenceCode="cc-by-4.0")
+    dc.validate_definition(document)
+    source["storeRelativePath"] = "media/commons/x.avi"
+    with pytest.raises(dc.CorpusError, match="definition_store_path"):
+        dc.validate_definition(document)
+    source.update(storeRelativePath="media/meva/x.avi", objectUrl="https://example.org/x.avi")
+    with pytest.raises(dc.CorpusError, match="definition_source_identity"):
+        dc.validate_definition(document)
+
+
+def test_loitering_threshold_must_fit_the_window():
+    document = _definition()
+    document["clips"][0]["scene"]["zones"][0]["loiteringThresholdSeconds"] = 31  # window is 60 s
+    with pytest.raises(dc.CorpusError, match="definition_loitering_exceeds_window"):
+        dc.validate_definition(document)
