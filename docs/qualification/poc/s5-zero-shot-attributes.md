@@ -1,6 +1,11 @@
 # PoC S5: zero-shot attributes, calibration note
 
-**Status:** IN PROGRESS. Protocol v2 is frozen and committed, the held Tracks are selected and scored, and the **labels are not yet entered**. The thresholds in `src/vision/config/attributes/parameters-siglip2-zero-shot-v1.json` are therefore the **provisional uncalibrated value 0.5 for every attribute**. Register row C2.1 stays IN PROGRESS until the calibration result below is entered.
+**Status:** Calibrated under **protocol v3** (owner decision S5-1, 2026-10-29, option C+D: "Go UPAR route for now").
+
+- **Person attributes:** tuned on UPAR/PA-100K. This is Development scope; the data is a different domain from the demo cameras.
+- **Vehicle colour:** a predeclared, **uncalibrated** rule.
+- **Owner labels:** none were made, and no AI-made label counts as calibration.
+- **Protocols v1 and v2** were never run with labels. They are kept below as the record of how the method changed.
 **Evidence class:** Development (ADR-020). Zero-shot, Development; not qualified, not a Stage-2 S2c learned Model Pack, and closing no Stage-2 F/G row.
 **Governing:** plan slice S5; ADR-021 and its 2026-10-29 amendment; register rows C2.1 and C2.2.
 
@@ -60,11 +65,34 @@ For orientation only, the withdrawn v1 run gave these unlabelled distributions o
 | `person-headwear` | p(present) 0.01 / 0.10 / 0.41 | `present` > 0.5 on 5 of 100 |
 | `vehicle-colour` | 0.38 / 0.71 / 0.96 | black 40, grey 17, white 15, silver 13 |
 
-## 5. Calibration result
+## 5. Calibration result (protocol v3, `docs/qualification/poc/s5-zero-shot-protocol-v3.json`)
 
-**Not run: waiting for owner decision S5-1, the label source.** Once the labels exist, `tools/poc/attributes_zero_shot_spike.py calibrate` writes `calibration.json` and `thresholds.json`, and `tools/poc/attributes_zero_shot_profile.py --thresholds` regenerates the release. The thresholds become a new identity; the old one reads as Stale. The per-attribute thresholds, precision and coverage then go here.
+The protocol was frozen in `dc83dd51` before the tuning run. The owner's scope extension from "evaluate" to "tuning" for the UPAR and PA-100K releases is recorded in `E:\MAVI-Controlled\Evidence\S5\2026-10-29-owner-tuning-scope-extension.json` (SHA-256 `118622df…`). It is the owner's decision, not an R-5 licence ruling. Whether ShareAlike attaches to the tuned thresholds is still undecided.
+
+**Data.** UPAR Task-1 labels over PA-100K images, read in memory from the pinned archive.
+- **Tuning split:** PA-100K official train.
+- **Held split:** PA-100K official test.
+- The splits are image-disjoint. PA-100K has no identity or scene ids, so identity and scene disjointness is not claimed.
+- Each split is 1,500 images with shorter side at least 80 px. Only 42% (tuning) and 38% (held) of the examined images reach that floor.
+- Each image is a one-crop Track, decided through the runtime's own `abstention_score` and `aggregate_track`.
+
+**Scoring.** 3,000 images on CPU (`embeddings-onnx-v1`), about 11 minutes.
+
+| Attribute | Threshold | Held precision (Wilson 95%) | Held coverage | Outcome |
+|---|---|---|---|---|
+| `person-carried-bag` | **0.55** | 0.846 (0.807–0.879), 325/384 | 25.6% | target met on tuning (0.816, 423 Observed) |
+| `person-upper-colour` | **0.80** | 0.797 (0.756–0.833), 338/424 | 28.3% | target met on tuning (0.818, 488 Observed); held point estimate just under 0.80 |
+| `person-lower-colour` | 0.99 (fallback) | 0/1 | 0.07% | target **not met**: tuning precision 0.38–0.45 at every threshold, so the attribute is effectively always Unknown |
+| `person-headwear` | 0.99 (fallback) | none Observed | 0% | target **not met** with at least 20 Observed (0.71 at 0.55, 24 Observed), so the attribute is effectively always Unknown |
+| `vehicle-colour` | **0.5**, predeclared | not measured | not measured | uncalibrated rule, committed in `d6262172` before any demo-corpus run |
+
+**Why lower colour fails** (hypothesis, not tested). UPAR's lower-body colour is often grey or black trousers on small, low-contrast crops, and the "trousers / pants / skirt" prompts do not separate them well. Changing the prompts would need a new protocol and is not done here.
+
+**Release.** The thresholds are written by `tools/poc/attributes_zero_shot_profile.py --thresholds`. The new analysis identity is `11f06733…10e4`; the earlier `d51e7347…` analyses read as Stale.
 
 ## 6. Honest limits
+
+- **Calibrated domain.** The person thresholds come from PA-100K surveillance crops, a different source from the demo cameras. They are a Development scope, not a measured accuracy for the demo cameras.
 
 - **Domain.** The held crops are US dash-camera footage (BDD100K), not fixed CCTV. Person crops are small, and lighting and compression differ from the demo corpus.
 - **Generalisation.** A threshold that meets 0.80 precision on about 50 calibration crops per class is a Development scope, not a qualified operating point. The check-half interval states how wide the uncertainty is.
@@ -72,4 +100,4 @@ For orientation only, the withdrawn v1 run gave these unlabelled distributions o
 
 ## 7. Evidence
 
-The folder `E:\MAVI-Controlled\PoC\S5\spike\` (protocol v2) contains `selection.json`, `scores-cpu.json`, `labels-template.csv`, `contact-sheet.html` and `SHA256SUMS`. The withdrawn v1 outputs are in `E:\MAVI-Controlled\PoC\S5\spike-v1-withdrawn\`, also with `SHA256SUMS`. When calibration runs, it will also hold `labels.csv`, `calibration.json` and `thresholds.json`.
+The folder `E:\MAVI-Controlled\PoC\S5\spike\` (protocol v2) contains `selection.json`, `scores-cpu.json`, `labels-template.csv`, `contact-sheet.html` and `SHA256SUMS`. The withdrawn v1 outputs are in `E:\MAVI-Controlled\PoC\S5\spike-v1-withdrawn\`, also with `SHA256SUMS`. No labels were made for it. The protocol v3 run is in `E:\MAVI-Controlled\PoC\S5\upar\`: `selection.json`, `scores-cpu.json`, `calibration.json`, `thresholds.json` and `SHA256SUMS` (SHA-256 `55ec78a7…`).

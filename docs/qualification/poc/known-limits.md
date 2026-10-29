@@ -19,5 +19,9 @@ This page is the PoC's record of what each capability does not do. The operator 
 - **Candidates, not facts.** An attribute value is a model output with an abstention-normalised score (0.5 is the threshold, and the score is not a probability). Check it against the supporting crop before acting on it.
 - **Unknown is not absent.** The model abstains (Unknown) when no value reaches its threshold. Bag and headwear are only ever `present` or Unknown: the PoC never claims a person carries no bag. A search never matches an Unknown or an unanalysed Track; the coverage line counts them instead.
 - **Small crops.** A crop whose shorter side is under 80 px contributes zero scores (ADR-021 §1). These are averaged in and can only pull a Track towards Unknown, so distant subjects are usually Unknown.
-- **Calibration.** Thresholds come from a frozen protocol on held BDD100K dash-camera crops (`docs/qualification/poc/s5-zero-shot-attributes.md`). They are a Development scope on a different domain from the demo corpus, not a measured accuracy for the demo cameras. Until that calibration is entered, the shipped thresholds are a provisional, uncalibrated 0.5 for every attribute.
+- **Calibration.** Only two person attributes are calibrated, by owner decision S5-1, on UPAR labels over PA-100K images (`docs/qualification/poc/s5-zero-shot-attributes.md`). This data is a different domain from the demo cameras, so these are Development-scope thresholds, not a measured accuracy here.
+  - **Carried bag:** threshold 0.55; held precision 0.85, with 26% of people asserted.
+  - **Upper clothing colour:** threshold 0.80; held precision 0.80, with 28% asserted.
+  - **Lower clothing colour and headwear:** did not reach the precision target, so they are effectively always Unknown.
+  - **Vehicle colour:** uses a predeclared, **uncalibrated** rule. A colour is asserted only when it holds at least half of the model's score across the 11 colours.
 - **Search scale.** Attribute search is exact and measured only at demo scale; the Stage-2 E8 volume measurement is not attempted.
