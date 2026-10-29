@@ -106,6 +106,10 @@ if ($AdoptCudaRuntimeRoot -and -not $gpu.Compatible) {
 if ($CudaRuntimePack -ne "Auto" -and -not $gpu.Compatible) {
     throw "-CudaRuntimePack $CudaRuntimePack was requested, but it does not target this host's GPU ($($gpu.Reason); compute capability $($gpu.ComputeCapability))."
 }
+if ($CudaRuntimePack -ne "Auto" -and -not $AdoptCudaRuntimeRoot -and -not $gpu.Pack.Available) {
+    # An explicit request is never silently dropped.
+    throw "-CudaRuntimePack $CudaRuntimePack was requested, but this bundle does not carry that CUDA Runtime Pack."
+}
 $cudaSource = "none"
 $cudaRuntimeSource = $null
 if ($gpu.Compatible) {
@@ -248,14 +252,14 @@ try {
     & $installRuntime -BundleRoot $cpuRuntimeSource -RepositoryRoot $layout.OverlayRoot -Variant "windows-x86_64-cpu" -InstallRoot $layout.VisionRuntimeCpuRoot -NoMachineEnvironment
     Assert-MaviPocRuntimeLoads -RuntimeRoot $layout.VisionRuntimeCpuRoot
     Write-MaviSetupStatus -Name "Vision CPU Runtime Pack" -Status "OK" -Detail "$($layout.VisionRuntimeCpuRoot) (torch and mmcv native ops load)"
+    $overlayBinding = Read-MaviJson -Path (Join-Path $layout.OverlayRoot "src\vision\config\components\phase1-bindings-v2.json")
     switch ($cudaSource) {
         "bundle" {
-            if ($gpu.Pack.Key -ne "sm75") {
-                # The sm_75;sm_89 build is not in the release binding; the catalogue is what names it.
-                $bundledId = [string](Read-MaviJson -Path (Join-Path $cudaRuntimeSource "runtime-pack-manifest.json")).runtimePackId
-                if ((Get-MaviPocCudaBuildStatus -OverlayRoot $layout.OverlayRoot -RuntimePackId $bundledId) -eq "unrecorded") {
-                    throw "The bundled $($gpu.Pack.Key) CUDA Runtime Pack '$bundledId' is not the one the offline catalogue records."
-                }
+            # The pack must be the one the component binding declares for the selected build: its
+            # windows-x86_64-cuda pin (sm75) or that Development build (ADR-014 amendment 2026-10-29).
+            $bundledId = [string](Read-MaviJson -Path (Join-Path $cudaRuntimeSource "runtime-pack-manifest.json")).runtimePackId
+            if ((Get-MaviPocCudaBuildKey -Binding $overlayBinding -RuntimePackId $bundledId) -ne $gpu.Pack.Key) {
+                throw "The bundled $($gpu.Pack.Key) CUDA Runtime Pack '$bundledId' is not the one the component binding declares for that build."
             }
             & $installRuntime -BundleRoot $cudaRuntimeSource -RepositoryRoot $layout.OverlayRoot -Variant "windows-x86_64-cuda" -InstallRoot $layout.VisionRuntimeCudaRoot -NoMachineEnvironment
             Assert-MaviPocRuntimeLoads -RuntimeRoot $layout.VisionRuntimeCudaRoot
@@ -267,6 +271,9 @@ try {
             [void](Assert-MaviVisionRuntimePackManifest -Manifest $adoptedManifest)
             [void](Assert-MaviVisionRuntimeInstalledStatePreflight -RuntimeRoot $cudaRuntimeRoot -InstalledState $adoptedState -Manifest $adoptedManifest -RuntimePackManifestPath (Join-Path $cudaRuntimeRoot "runtime-pack-manifest.json"))
             if ([string]$adoptedManifest.platformVariant -ne "windows-x86_64-cuda") { throw "The adopted runtime '$cudaRuntimeRoot' is not a Windows CUDA Runtime Pack." }
+            if ((Get-MaviPocCudaBuildKey -Binding $overlayBinding -RuntimePackId ([string]$adoptedManifest.runtimePackId)) -ne $gpu.Pack.Key) {
+                throw "The adopted $($gpu.Pack.Key) CUDA Runtime Pack '$($adoptedManifest.runtimePackId)' is not the one the component binding declares for that build."
+            }
             Assert-MaviPocRuntimeLoads -RuntimeRoot $cudaRuntimeRoot
             Write-MaviSetupStatus -Name "Vision CUDA Runtime Pack" -Status "OK" -Detail "adopted (integrity preflight passed): $cudaRuntimeRoot"
         }

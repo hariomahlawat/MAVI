@@ -23,6 +23,21 @@
           "runtimeRequirementsSha256": "aef75d1960c0fc07483b5ffba4b6ba1471efde8fdf06d4bae3d0e3275b30b981",
           "nativeAbi": "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75"
         }
+      },
+      "developmentBuilds": {
+        "windows-x86_64-cuda": [
+          {
+            "buildId": "sm75-sm89",
+            "computeCapabilities": [
+              "7.5",
+              "8.9"
+            ],
+            "runtimePackId": "mavi-runtime-v2-7807ca241ad292adfc7815f3e1d09078e98ab48756071c0ef8aa0acc8269488d",
+            "thirdPartyLockSha256": "e208c79a1a3b09339022132bd597a99996518d6e09677cbd2915c50845ccb46a",
+            "runtimeRequirementsSha256": "aef75d1960c0fc07483b5ffba4b6ba1471efde8fdf06d4bae3d0e3275b30b981",
+            "nativeAbi": "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75-sm89"
+          }
+        ]
       }
     }
   ],

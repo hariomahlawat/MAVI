@@ -36,6 +36,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
 Assert-MaviWindows
 
 $destination = [IO.Path]::GetFullPath($Destination)
@@ -106,27 +107,29 @@ Copy-MaviTree -Source $postgreSqlRuntimePack -Target (Join-Path $destination "ve
 Copy-MaviTree -Source $ffmpegPack -Target (Join-Path $destination "vendor\ffmpeg")
 Copy-MaviTree -Source $developerDependencyCache -Target (Join-Path $destination "vendor\developer-cache\win-x64")
 
-# PoC Development-grade vision payloads (S1b). Each CUDA pack must be one a tracked record
-# names -- the release binding's windows-x86_64-cuda pack (sm75) or the catalogue's
-# windowsCudaPocSm89Candidate (sm75-sm89) -- and every file must match its manifest.
+# PoC Development-grade vision payloads (S1b). Each CUDA pack must be one the component
+# binding declares -- its windows-x86_64-cuda pin (sm75) or a Development build of that
+# variant (ADR-014 amendment 2026-10-29) -- and every file must match its manifest. The
+# binding and the catalogue entries are read only when such a payload is requested.
 $visionPayload = [ordered]@{}
-$repoBinding = Read-MaviJson -Path (Join-Path $PSScriptRoot "..\..\src\vision\config\components\phase1-bindings-v2.json")
-$bindingCudaId = [string]$repoBinding.runtimePacks[0].variants."windows-x86_64-cuda".runtimePackId
-$sm89Candidate = $catalog.visionRuntime.windowsCudaPocSm89Candidate
+if (@($VisionCudaRuntimePack).Count -gt 0) {
+    $repoBinding = Read-MaviJson -Path (Join-Path $PSScriptRoot "..\..\src\vision\config\components\phase1-bindings-v2.json")
+}
 foreach ($packRoot in @($VisionCudaRuntimePack)) {
     $root = (Resolve-Path -LiteralPath $packRoot).Path
     $packManifest = Test-MaviManifest -Root $root -ManifestPath (Join-Path $root "runtime-pack-manifest.json") -ExpectedSchemaVersion "mavi-vision-runtime-pack-v2"
     $packId = [string]$packManifest.runtimePackId
-    $build = if ($packId -eq $bindingCudaId) { "windows-x86_64-cuda" } elseif ($sm89Candidate -and $packId -eq [string]$sm89Candidate.runtimePackId) { "windows-x86_64-cuda-sm75-sm89" } else { $null }
+    $buildKey = Get-MaviPocCudaBuildKey -Binding $repoBinding -RuntimePackId $packId
+    $build = if ($buildKey -eq "sm75") { "windows-x86_64-cuda" } elseif ($buildKey) { "windows-x86_64-cuda-$buildKey" } else { $null }
     if (-not $build -or [string]$packManifest.platformVariant -ne "windows-x86_64-cuda") {
-        throw "CUDA Runtime Pack '$packId' at '$root' is neither the release binding's windows-x86_64-cuda pack nor the catalogue's sm75-sm89 pack."
+        throw "CUDA Runtime Pack '$packId' at '$root' is not a windows-x86_64-cuda pack the component binding declares."
     }
     if ($visionPayload.Contains($build)) { throw "Two CUDA Runtime Packs given for $build." }
     Copy-MaviTree -Source $root -Target (Join-Path $destination "vendor\vision\runtime\$build")
     $visionPayload[$build] = [ordered]@{ path = "vendor/vision/runtime/$build"; runtimePackId = $packId }
 }
-$ortCandidate = $catalog.visionRuntime.onnxruntimeGpuDevelopmentCandidate
 foreach ($wheel in @($OnnxRuntimeGpuWheel)) {
+    $ortCandidate = $catalog.visionRuntime.onnxruntimeGpuDevelopmentCandidate
     $item = Get-Item -LiteralPath $wheel
     $pinned = @($ortCandidate.wheels | Where-Object { [string]$_.fileName -eq $item.Name })
     if ($pinned.Count -ne 1 -or (Get-MaviSha256 -Path $item.FullName) -ne [string]$pinned[0].sha256) {
@@ -313,7 +316,7 @@ $manifest = [ordered]@{
         installers = "vendor/installers/win-x64"
         developerCache = "vendor/developer-cache/win-x64"
     }
-    # poc-single-host Development-grade vision payloads (S1b); absent when none were given.
+    # poc-single-host Development-grade vision payloads (S1b); null when none were given.
     pocVision = $(if ($visionPayload.Count -gt 0) { $visionPayload } else { $null })
     artifacts = @($artifacts)
 }

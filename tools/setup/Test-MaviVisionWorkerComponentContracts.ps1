@@ -167,9 +167,10 @@ function New-AutoFixture {
     return $PackId
 }
 function Assert-AutoReason {
-    param([Parameter(Mandatory=$true)][string]$Expected,[scriptblock]$DriverProbe,[string]$ComponentPath = $autoComponentPath,[string]$Root = $autoPackRoot)
+    param([Parameter(Mandatory=$true)][string]$Expected,[scriptblock]$DriverProbe,[string]$ComponentPath = $autoComponentPath,[string]$Root = $autoPackRoot,[scriptblock]$CapabilityProbe)
     $arguments = @{Root=$Root;ComponentBindingPath=$ComponentPath;DeviceIndex=0}
     if ($DriverProbe) { $arguments["DriverProbe"] = $DriverProbe }
+    if ($CapabilityProbe) { $arguments["CapabilityProbe"] = $CapabilityProbe }
     $resolution = Resolve-MaviVisionCudaAvailability @arguments
     if ([string]$resolution.Reason -ne $Expected) { throw "Expected Auto reason '$Expected', got '$($resolution.Reason)'." }
     if ($Expected -eq "cuda_selected") {
@@ -192,6 +193,27 @@ try {
     Assert-AutoReason -Expected "cuda_selected" -ComponentPath $bindingPath -DriverProbe { param($i) return [string]$i } | Out-Null
     [void](New-AutoFixture)
     Assert-AutoReason -Expected "cuda_pack_id_mismatch" -ComponentPath $bindingPath -DriverProbe { param($i) throw "driver must not be probed" } | Out-Null
+
+    # ADR-014 amendment 2026-10-29: the release pin is matched first and never asks the
+    # GPU's compute capability, so the sm_75 pack resolves exactly as before.
+    [void](New-AutoFixture -PackId $committedCudaId)
+    $primary = Assert-AutoReason -Expected "cuda_selected" -ComponentPath $bindingPath -DriverProbe { param($i) return [string]$i } -CapabilityProbe { param($i) throw "the release pin must not ask the compute capability" }
+    if ($null -ne $primary.BuildId) { throw "The release CUDA pin is not a Development build." }
+    # The committed sm75-sm89 Development build is selected only on a listed compute capability.
+    $committedBuilds = @((Get-Content -LiteralPath $bindingPath -Raw | ConvertFrom-Json).runtimePacks[0].developmentBuilds."windows-x86_64-cuda")
+    if ($committedBuilds.Count -ne 1 -or [string]$committedBuilds[0].buildId -ne "sm75-sm89" -or (@($committedBuilds[0].computeCapabilities) -join ";") -ne "7.5;8.9") { throw "The release binding must declare exactly the sm75-sm89 Development build for 7.5 and 8.9." }
+    [void](New-AutoFixture -PackId ([string]$committedBuilds[0].runtimePackId))
+    foreach ($capability in @("8.9", "7.5")) {
+        $build = Assert-AutoReason -Expected "cuda_selected" -ComponentPath $bindingPath -DriverProbe { param($i) return [string]$i } -CapabilityProbe ([scriptblock]::Create("param(`$i) '$capability'"))
+        if ($build.BuildId -ne "sm75-sm89") { throw "The selected Development build must be named." }
+    }
+    Assert-AutoReason -Expected "cuda_device_unavailable" -ComponentPath $bindingPath -DriverProbe { param($i) return [string]$i } -CapabilityProbe { param($i) "8.6" } | Out-Null
+    Assert-AutoReason -Expected "cuda_device_unavailable" -ComponentPath $bindingPath -DriverProbe { param($i) return [string]$i } -CapabilityProbe { param($i) $null } | Out-Null
+    Assert-AutoReason -Expected "cuda_device_unavailable" -ComponentPath $bindingPath -DriverProbe { param($i) return [string]$i } -CapabilityProbe { param($i) throw "nvidia-smi exploded" } | Out-Null
+    # A build is not a way around integrity, identity or the driver: those still come first.
+    Assert-AutoReason -Expected "cuda_driver_probe_unavailable" -ComponentPath $bindingPath -DriverProbe { param($i) return $null } -CapabilityProbe { param($i) throw "capability must not be asked before the driver answers" } | Out-Null
+    $launcher = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviVisionWorker.ps1") -Raw
+    if ($launcher -notmatch 'notcontains \[string\]\$buildCapability\) \{ Stop-MaviLaunch launch_component_compatibility_failed') { throw "Explicit CUDA on a Development build must refuse a GPU whose compute capability it does not list." }
 
     # An absent pack is the default answer, it is not usable, and it does not
     # reach the driver.

@@ -404,7 +404,7 @@
         "cuda-toolkit-12.4-win-x64-build",
         "msvc-cuda-build-toolchain-win-x64"
       ],
-      "workerBinding": "not bound: the release component binding names the v1 sm_75 pack, so a worker launched on this pack resolves Auto to CPU (cuda_pack_id_mismatch) until a poc-single-host runtime-variant binding is approved (follow-up before S12)",
+      "workerBinding": "declared by the release component binding as Development build sm75-sm89 of windows-x86_64-cuda (developmentBuilds; ADR-014 amendment 2026-10-29, owner decision to ratify): the launcher and resolver accept it in Development only, on a GPU whose compute capability is 7.5 or 8.9; Production refuses it (runtime_pack_development_build_forbidden)",
       "qualificationBoundary": "Development-grade PoC pack (ADR-020). built-hashed-locked until a bound RTX 4090 host observation (register row A7) earns qualified-development-hardware under ADR-009; never Production."
     },
     "onnxruntimeGpuDevelopmentCandidate": {

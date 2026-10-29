@@ -567,6 +567,24 @@ def check_poc_cuda_build_contract(errors: list[str]) -> None:
             fail(f"Windows CUDA build contract v2 and its catalogue entry disagree on '{contract_name}'.", errors)
     if candidate.get("deploymentProfileScope") != ["poc-single-host"]:
         fail("Offline catalogue windowsCudaPocSm89Candidate must be scoped to poc-single-host.", errors)
+    # The catalogue status is what the PoC installer discloses for this pack. Nothing
+    # qualifies it yet (A7 is the bound host observation), so it is exactly this value.
+    if candidate.get("status") != "built-hashed-locked" or contract.get("status") != "built-hashed-locked":
+        fail("The PoC sm_75;sm_89 build must stay built-hashed-locked in its contract and catalogue until A7 qualifies it.", errors)
+    # The ABI is derived from the contract by the tool that builds the pack, never typed.
+    try:
+        tools_vision = str(Path(__file__).resolve().parent / "vision")
+        if tools_vision not in sys.path:
+            sys.path.insert(0, tools_vision)
+        from build_runtime_pack import derive_native_abi  # noqa: PLC0415
+        derived_abi = derive_native_abi(contract)
+    except Exception as exc:  # noqa: BLE001 - any refusal is a contract defect
+        fail(f"Windows CUDA build contract v2 native ABI cannot be derived: {exc}", errors)
+        derived_abi = None
+    if derived_abi is not None and contract.get("nativeAbi") != derived_abi:
+        fail("Windows CUDA build contract v2 nativeAbi is not the one its toolchain and targetGpus derive.", errors)
+    if contract.get("nativeAbi") == v1.get("nativeAbi"):
+        fail("Windows CUDA build contracts v1 and v2 must have different native ABIs.", errors)
 
     if not lock_path.exists():
         if candidate.get("lock") is not None:
@@ -584,8 +602,16 @@ def check_poc_cuda_build_contract(errors: list[str]) -> None:
 
     v1_mmcv = [line for line in v1_lock.splitlines() if line.startswith("mmcv==")]
     v2_mmcv = [line for line in lock_bytes.decode("utf-8").splitlines() if line.startswith("mmcv==")]
-    if _without_mmcv(lock_bytes.decode("utf-8")) != _without_mmcv(v1_lock) or len(v2_mmcv) != 1 or v2_mmcv == v1_mmcv:
-        fail("The PoC sm_75;sm_89 CUDA lock must equal the v1 CUDA lock except for its own MMCV wheel.", errors)
+    expected_pin = f"mmcv=={mmcv.get('version')} --hash=sha256:"
+    if (
+        _without_mmcv(lock_bytes.decode("utf-8")) != _without_mmcv(v1_lock)
+        or len(v2_mmcv) != 1
+        or len(v1_mmcv) != 1
+        or v2_mmcv == v1_mmcv
+        or not v2_mmcv[0].startswith(expected_pin)
+        or not v1_mmcv[0].startswith(expected_pin)
+    ):
+        fail("The PoC sm_75;sm_89 CUDA lock must equal the v1 CUDA lock except for its own MMCV wheel hash.", errors)
     elif v2_mmcv[0].split("sha256:")[-1] != candidate.get("mmcvWheelSha256"):
         fail("Offline catalogue windowsCudaPocSm89Candidate mmcvWheelSha256 differs from the PoC CUDA lock.", errors)
 
@@ -617,6 +643,22 @@ def check_poc_cuda_build_contract(errors: list[str]) -> None:
                 v1_requirements_sha = entry.get("runtimeRequirementsSha256")
     if not requirements.exists() or candidate.get("runtimeRequirementsSha256") != v1_requirements_sha:
         fail("The PoC sm_75;sm_89 Runtime Pack must use the v1 CUDA requirements projection.", errors)
+    # The binding declares the pack as the Development build sm75-sm89 (ADR-014 amendment
+    # 2026-10-29); the resolver checks its identity, this checks it is the catalogue's pack.
+    declared = []
+    if isinstance(binding, dict):
+        for family in binding.get("runtimePacks") or []:
+            for build in (((family or {}).get("developmentBuilds") or {}).get("windows-x86_64-cuda") or []):
+                if isinstance(build, dict) and build.get("buildId") == "sm75-sm89":
+                    declared.append(build)
+    targets = [item.get("computeCapability") for item in contract.get("targetGpus") or [] if isinstance(item, dict)]
+    if (
+        len(declared) != 1
+        or declared[0].get("runtimePackId") != candidate.get("runtimePackId")
+        or declared[0].get("nativeAbi") != contract.get("nativeAbi")
+        or declared[0].get("computeCapabilities") != targets
+    ):
+        fail("The release binding must declare the catalogue's sm_75;sm_89 pack as Development build sm75-sm89 for the contract's target GPUs.", errors)
 
 
 def _read_json_or_none(path: Path) -> object | None:

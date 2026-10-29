@@ -104,6 +104,8 @@ def test_no_binding_is_refused(overlay: RepositoryOverlay) -> None:
 
 def test_a_class_b_variant_missing_from_the_binding(overlay: RepositoryOverlay) -> None:
     del overlay.binding["runtimePacks"][0]["variants"]["windows-x86_64-cuda"]
+    # Its Development build goes with it (a build of an undeclared variant is refused on parse).
+    del overlay.binding["runtimePacks"][0]["developmentBuilds"]
     overlay.write()
     # Refused by the family check (P-17), independently of the record check.
     _only(overlay, "inconsistent with its runtime family: binding_variant_missing:windows-x86_64-cuda")

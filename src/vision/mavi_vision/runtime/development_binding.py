@@ -254,7 +254,9 @@ def check_replacement_binding(
     if dict(candidate.runtime_pack_families) != dict(release.runtime_pack_families) or any(
         dict(candidate.runtime_pack_families[family]) != dict(variants)
         for family, variants in release.runtime_pack_families.items()
-    ):
+    ) or {family: dict(builds) for family, builds in candidate.development_builds.items()} != {
+        family: dict(builds) for family, builds in release.development_builds.items()
+    }:
         raise _fail("development_binding_runtime_packs_changed")
     if dict(candidate.roles) != dict(release.roles):
         raise _fail("development_binding_roles_changed")

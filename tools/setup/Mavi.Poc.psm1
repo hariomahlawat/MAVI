@@ -103,7 +103,11 @@ function Get-MaviPocCudaRuntimePackCandidates {
             @{ Key = "sm75"; Contract = "windows-cuda-development-build-v1.json"; Directory = "windows-x86_64-cuda" },
             @{ Key = "sm75-sm89"; Contract = "windows-cuda-development-build-v2.json"; Directory = "windows-x86_64-cuda-sm75-sm89" })) {
         $contractPath = Join-Path $OverlayRoot "config\vision\$($spec.Contract)"
-        if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf)) { continue }
+        if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf)) {
+            # The frozen v1 contract is required; only a later build's contract may be absent.
+            if ($spec.Key -eq "sm75") { throw "The Windows CUDA build contract '$contractPath' is missing." }
+            continue
+        }
         $contract = Get-Content -LiteralPath $contractPath -Raw | ConvertFrom-Json
         $targets = if ($contract.PSObject.Properties["targetGpus"]) { @($contract.targetGpus) } else { @($contract.targetGpu) }
         $source = if ($BundleRoot) { Join-Path $BundleRoot "vision\runtime\$($spec.Directory)" } else { $null }
@@ -153,6 +157,30 @@ function Select-MaviPocCudaRuntimePack {
     }
     $none.Reason = "compute_capability_unsupported"
     return $none
+}
+
+# Which declared Windows CUDA build a Runtime Pack id is, from the component binding (ADR-014
+# amendment 2026-10-29): "sm75" for the release pin (variants.windows-x86_64-cuda), a build id
+# for one of its developmentBuilds, $null for anything else. The binding is the one source the
+# bundle builder, the kit builder and the installer all consult.
+function Get-MaviPocCudaBuildKey {
+    param(
+        [Parameter(Mandatory = $true)]$Binding,
+        [Parameter(Mandatory = $true)][string]$RuntimePackId
+    )
+    $family = @($Binding.runtimePacks | Where-Object { [string]$_.runtimePackFamilyId -eq "mmdetection-phase1-v1" })
+    if ($family.Count -ne 1) { return $null }
+    $variants = $family[0].PSObject.Properties["variants"]
+    $primary = if ($variants) { $variants.Value.PSObject.Properties["windows-x86_64-cuda"] } else { $null }
+    if ($primary -and [string]$primary.Value.runtimePackId -ceq $RuntimePackId) { return "sm75" }
+    $builds = $family[0].PSObject.Properties["developmentBuilds"]
+    if (-not $builds) { return $null }
+    $cudaBuilds = $builds.Value.PSObject.Properties["windows-x86_64-cuda"]
+    if (-not $cudaBuilds) { return $null }
+    foreach ($build in @($cudaBuilds.Value)) {
+        if ([string]$build.runtimePackId -ceq $RuntimePackId) { return [string]$build.buildId }
+    }
+    return $null
 }
 
 # The status the offline catalogue records for the PoC sm_75;sm_89 CUDA build
@@ -472,4 +500,4 @@ function Get-MaviPocRecordedProcess {
     return $process
 }
 
-Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras
+Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras

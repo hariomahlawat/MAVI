@@ -250,7 +250,8 @@
             "torch/torchvision": "BSD-3-Clause (as in the v1 lock)",
             "other wheels": "identical to the v1 Windows CUDA lock"
           },
-          "runbook": "docs/runbooks/poc-windows-cuda-sm89-variant.md"
+          "runbook": "docs/runbooks/poc-windows-cuda-sm89-variant.md",
+          "boundBy": "src/vision/config/components/phase1-bindings-v2.json runtimePacks[mmdetection-phase1-v1].developmentBuilds.windows-x86_64-cuda[sm75-sm89] (ADR-014 amendment 2026-10-29); Development only, compute capability 7.5 or 8.9"
         }
       },
       "pocOnnxRuntimeGpu": {

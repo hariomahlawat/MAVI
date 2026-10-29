@@ -141,13 +141,12 @@ try {
     $cudaSource = if ($VisionRuntimeCudaSource) { Resolve-MaviPocRuntimeSource -Root $VisionRuntimeCudaSource -Variant "windows-x86_64-cuda" } else { $null }
     $cudaSm89Source = $null
     if ($VisionRuntimeCudaSm89Source) {
-        # Not in the release binding (plan D9): the catalogue entry, which verify_repo derives
-        # from the v2 contract and lock, is what names this pack.
-        $sm89Candidate = (Read-MaviJson -Path (Join-Path $export "config\dependencies\offline-binary-catalog-v1.json")).visionRuntime.windowsCudaPocSm89Candidate
+        # The binding declares it as the Development build sm75-sm89 of windows-x86_64-cuda
+        # (ADR-014 amendment 2026-10-29); any other pack is refused.
         $cudaSm89Source = [IO.Path]::GetFullPath($VisionRuntimeCudaSm89Source)
         $sm89Manifest = Read-MaviJson -Path (Join-Path $cudaSm89Source "runtime-pack-manifest.json")
-        if ([string]$sm89Manifest.runtimePackId -ne [string]$sm89Candidate.runtimePackId -or [string]$sm89Manifest.platformVariant -ne "windows-x86_64-cuda") {
-            throw "The sm75-sm89 CUDA Runtime Pack at '$cudaSm89Source' is '$($sm89Manifest.runtimePackId)'; the catalogue names '$($sm89Candidate.runtimePackId)'."
+        if ((Get-MaviPocCudaBuildKey -Binding $binding -RuntimePackId ([string]$sm89Manifest.runtimePackId)) -ne "sm75-sm89" -or [string]$sm89Manifest.platformVariant -ne "windows-x86_64-cuda") {
+            throw "The CUDA Runtime Pack at '$cudaSm89Source' is '$($sm89Manifest.runtimePackId)', which the component binding does not declare as the sm75-sm89 build."
         }
     }
     $boundModelPackIds = @($binding.capabilityBindings | Where-Object { $_.roleId -eq "vision" -and $_.enabled } | ForEach-Object { [string]$_.modelPackId } | Sort-Object -Unique)

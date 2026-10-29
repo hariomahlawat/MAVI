@@ -81,8 +81,32 @@ try {
     Assert-Throws { Select-MaviPocCudaRuntimePack -NvidiaSmiLines @("0, X, 8.9") -Candidates $candidates -Requested "sm90" } "not declared" "An undeclared pack name"
     if ((Get-MaviPocCudaBuildStatus -OverlayRoot $repoRoot -RuntimePackId ("mavi-runtime-v2-" + "0" * 64)) -ne "unrecorded") { throw "A pack the catalogue does not name has no recorded status." }
     $install = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Install-MAVI-PoC.ps1") -Raw
-    if ($install -notmatch 'is not the one the offline catalogue records') { throw "The installer must refuse a bundled sm75-sm89 pack the catalogue does not name." }
     if ($install -notmatch 'Get-MaviPocCudaBuildStatus -OverlayRoot') { throw "The sm75-sm89 pack must report its own status, never v1's." }
+    if (([regex]::Matches($install, 'Get-MaviPocCudaBuildKey -Binding \$overlayBinding')).Count -ne 2) { throw "The installer must check both a bundled and an adopted CUDA pack against the component binding." }
+    if ($install -notmatch 'this bundle does not carry that CUDA Runtime Pack') { throw "An explicit -CudaRuntimePack the bundle lacks must not be dropped silently." }
+
+    # --- The component binding decides which CUDA pack is which build (ADR-014 amendment 2026-10-29). ---
+    # One rule for the bundle builder, the kit builder and the installer: the release pin is sm75,
+    # a declared Development build is its buildId, anything else is nothing.
+    $releaseBinding = Read-MaviJson -Path (Join-Path $repoRoot "src\vision\config\components\phase1-bindings-v2.json")
+    $pinId = [string]$releaseBinding.runtimePacks[0].variants."windows-x86_64-cuda".runtimePackId
+    $buildId = [string]@($releaseBinding.runtimePacks[0].developmentBuilds."windows-x86_64-cuda")[0].runtimePackId
+    if ((Get-MaviPocCudaBuildKey -Binding $releaseBinding -RuntimePackId $pinId) -ne "sm75") { throw "The release CUDA pin must be the sm75 build." }
+    if ((Get-MaviPocCudaBuildKey -Binding $releaseBinding -RuntimePackId $buildId) -ne "sm75-sm89") { throw "The declared Development build must be sm75-sm89." }
+    if ($null -ne (Get-MaviPocCudaBuildKey -Binding $releaseBinding -RuntimePackId ("mavi-runtime-v2-" + "0" * 64))) { throw "An undeclared pack is no build." }
+    $catalogEntry = (Read-MaviJson -Path (Join-Path $repoRoot "config\dependencies\offline-binary-catalog-v1.json")).visionRuntime.windowsCudaPocSm89Candidate
+    if ([string]$catalogEntry.runtimePackId -ne $buildId -or (Get-MaviPocCudaBuildStatus -OverlayRoot $repoRoot -RuntimePackId $buildId) -ne "built-hashed-locked") { throw "The disclosed sm75-sm89 status must be the catalogue's built-hashed-locked for the bound build." }
+    $withoutBuilds = Read-MaviJson -Path (Join-Path $repoRoot "src\vision\config\components\phase1-bindings-v2.json")
+    $withoutBuilds.runtimePacks[0].PSObject.Properties.Remove("developmentBuilds")
+    if ($null -ne (Get-MaviPocCudaBuildKey -Binding $withoutBuilds -RuntimePackId $buildId)) { throw "Without the declaration the sm75-sm89 pack is no build." }
+    if ((Get-MaviPocCudaBuildKey -Binding $withoutBuilds -RuntimePackId $pinId) -ne "sm75") { throw "The release pin must not depend on the Development builds." }
+    $bundleBuilder = Get-Content -LiteralPath (Join-Path $PSScriptRoot "New-MaviPocSetupBundle.ps1") -Raw
+    if ($bundleBuilder -notmatch 'Get-MaviPocCudaBuildKey -Binding \$binding') { throw "The bundle builder must accept the sm75-sm89 pack only as the binding's declared build." }
+    $kitBuilder = Get-Content -LiteralPath (Join-Path $PSScriptRoot "New-MaviOfflineBinaryKit.ps1") -Raw
+    if ($kitBuilder -notmatch 'Get-MaviPocCudaBuildKey -Binding \$repoBinding') { throw "The kit builder must accept only CUDA packs the binding declares." }
+    $noV1 = Join-Path $tempRoot "no-v1"
+    New-Item -ItemType Directory -Path (Join-Path $noV1 "config\vision") -Force | Out-Null
+    Assert-Throws { Get-MaviPocCudaRuntimePackCandidates -OverlayRoot $noV1 -BundleRoot $null } "is missing" "A bundle without the frozen v1 build contract"
 
     # --- Release metadata: the disclosure is fixed; the platform's start-up checks hold. ---
     $packs = @([ordered]@{ kind = "runtime"; role = "vision"; capabilityId = $null; packId = "mavi-runtime-v2-x"; variant = "windows-x86_64-cpu"; verificationStatus = "qualified-hosted-cpu"; note = $null })

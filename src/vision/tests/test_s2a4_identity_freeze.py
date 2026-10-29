@@ -18,8 +18,11 @@ ROOT = Path(__file__).parents[3]
 # now declares completion 3.3 (was 081c0c89...), and the qualification record binds the
 # 1.3.0-candidate pipeline profile (was 100b8f10...). The manifest and the runtime profile
 # are unchanged, and so are the Model Pack and Runtime Pack ids below.
+# Re-issued again by PoC S1b (ADR-014 amendment 2026-10-29): the binding gains the additive
+# developmentBuilds entry for the sm_75;sm_89 CUDA build (was 7ef22619...); every pinned
+# variant entry, and so every Runtime Pack id below, is unchanged.
 FROZEN_SHA256 = {
-    "src/vision/config/components/phase1-bindings-v2.json": "7ef226193232b90b0a20f8648a95f21e0bbc9416b353605c9be6d81262abe205",
+    "src/vision/config/components/phase1-bindings-v2.json": "48c6f10d7ad959a3d1430b2a4e5535e9b2c1c361028d99ced54ed7d88702ae8e",
     "models/manifests/rtmdet-m-coco-phase1-v2.json": "bc8127c1c00513a90f1b00325dcae3d4f31243ef1ce04ebe38350f945cb79c90",
     "models/qualifications/rtmdet-m-coco-phase1-v2.json": "2c2ba3d674cebf18955af1b224ef41c8c1a1fbc189cc28a6d605436c46c2a224",
     "src/vision/runtime/mmdetection-phase1-v1/runtime.json": "296b034d5f80ee13ab3f3bf86ed41b84109abd47d0103600b15b24078412acfb",

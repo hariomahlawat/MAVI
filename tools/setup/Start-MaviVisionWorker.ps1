@@ -197,6 +197,19 @@ if ((Get-MaviVisionPropertyText -Value $runtimeProfile -Name "schemaVersion") -n
 # The variant entry of the binding feeds the unchanged Runtime Pack checks.
 $runtimeRequirement = Get-MaviVisionBindingRuntimeRequirement -BindingRole $bindingRole -Variant $runtimeVariant
 if ($null -eq $runtimeRequirement) { Stop-MaviLaunch launch_component_pack_requirement_missing "Vision component binding declares no complete '$runtimeVariant' Runtime Pack entry for family '$runtimeFamilyId'." }
+# A declared Development build of the variant (ADR-014 amendment 2026-10-29) replaces the
+# primary entry and its lock for these checks. The primary entry is matched first, so a pack
+# the release pins resolves exactly as before. A build runs only on a GPU whose compute
+# capability it lists; Auto already chose CPU otherwise, and explicit CUDA refuses here.
+$runtimeSelection = Get-MaviVisionBindingRuntimeEntryForPack -BindingRole $bindingRole -Variant $runtimeVariant -RuntimePackId ([string]$runtimeManifest.runtimePackId)
+if ($null -ne $runtimeSelection -and $null -ne $runtimeSelection.BuildId) {
+    $runtimeRequirement = $runtimeSelection.Entry
+    $runtimeLockPath = Join-Path $runtimeFamilyRoot ([string]$runtimeSelection.LockName)
+    if (-not (Test-Path -LiteralPath $runtimeLockPath -PathType Leaf)) { Stop-MaviLaunch launch_overlay_file_missing "Required Vision application overlay file is missing: $runtimeLockPath" }
+    $buildCapability = Get-MaviVisionGpuComputeCapability -Index $DeviceIndex
+    if (@($runtimeSelection.ComputeCapabilities) -notcontains [string]$buildCapability) { Stop-MaviLaunch launch_component_compatibility_failed "Vision Runtime Pack build '$($runtimeSelection.BuildId)' serves compute capability $(@($runtimeSelection.ComputeCapabilities) -join ', '); GPU $DeviceIndex reports '$buildCapability'." }
+    Write-Host "  Runtime build: $($runtimeSelection.BuildId) (Development build; compute capability $buildCapability)" -ForegroundColor Yellow
+}
 if ((Get-Sha256 $runtimeLockPath) -ne ([string]$runtimeRequirement.thirdPartyLockSha256).ToLowerInvariant()) { Stop-MaviLaunch launch_runtime_lock_binding_stale "Vision application Runtime Pack lock binding is stale." }
 if ((Get-Sha256 $runtimeRequirementsPath) -ne ([string]$runtimeRequirement.runtimeRequirementsSha256).ToLowerInvariant()) { Stop-MaviLaunch launch_runtime_requirements_binding_stale "Vision application runtime-requirements binding is stale." }
 if ([string]$runtimeRequirement.nativeAbi -ne [string]$runtimeManifest.nativeAbi) { Stop-MaviLaunch launch_runtime_native_abi_binding_stale "Vision application Runtime Pack native ABI binding is stale." }

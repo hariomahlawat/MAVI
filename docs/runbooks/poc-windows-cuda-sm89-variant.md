@@ -37,13 +37,22 @@ All work under `E:\MAVI-Working\` (`TMP`/`TEMP` there; never C:). The recipe is 
 
 ## Carrying and installing it
 
-- **Kit:** `New-MaviOfflineBinaryKit.ps1 … -VisionCudaRuntimePack <v1 pack>,<v2 pack> -OnnxRuntimeGpuWheel <wheel>` copies each pack to `vendor\vision\runtime\<build>` (only a pack the release binding or the catalogue names) and the pinned onnxruntime-gpu wheel to `vendor\vision\onnxruntime-gpu`, and records them under `payload.pocVision`.
+- **Kit:** `New-MaviOfflineBinaryKit.ps1 … -VisionCudaRuntimePack <v1 pack>,<v2 pack> -OnnxRuntimeGpuWheel <wheel>` copies each pack to `vendor\vision\runtime\<build>` (only a pack the release binding or the catalogue names) and the pinned onnxruntime-gpu wheel to `vendor\vision\onnxruntime-gpu`, and records them under the manifest's top-level `pocVision`.
 - **PoC bundle:** `New-MaviPocSetupBundle.ps1 … -VisionRuntimeCudaSource <v1 pack> -VisionRuntimeCudaSm89Source <v2 pack>`; the v2 pack lands in `vision\runtime\windows-x86_64-cuda-sm75-sm89\` and must carry the catalogue's `runtimePackId`.
 - **Installer:** `Install-MAVI-PoC.cmd [-CudaRuntimePack Auto|sm75|sm75-sm89]`. `Auto` installs the first build whose contract lists the GPU's exact compute capability: **sm_75 keeps the v1 pack**; sm_89 gets the v2 pack; any other capability (for example sm_86) gets none. Naming a build installs it only if it targets the GPU (the v2 pack may be named on the sm_75 laptop to exercise it). Release metadata records the build, its contract and its own status (`built-hashed-locked`), never v1's.
 
-## Known limit: the worker binding names the v1 pack
+## How the worker accepts it (ADR-014 amendment 2026-10-29, owner decision to ratify)
 
-The release component binding (`src/vision/config/components/phase1-bindings-v2.json`) names exactly one `windows-x86_64-cuda` Runtime Pack, the v1 pack, and the launcher, the bundle builder and the Python resolver all enforce it (ADR-014). With the v2 pack installed, the launcher's Auto decision therefore resolves **CPU with reason `cuda_pack_id_mismatch`**, and explicit `-DevicePolicy CUDA` refuses. Accepting the v2 pack at worker launch needs an ADR-014 amendment (a Development runtime-variant binding for `poc-single-host`); it is tracked as a follow-up that must land before S12. The installer and kit work above do not depend on it.
+The release component binding (`src/vision/config/components/phase1-bindings-v2.json`) keeps its single `windows-x86_64-cuda` pin, the v1 `sm_75` pack, and adds `developmentBuilds.windows-x86_64-cuda = [sm75-sm89]` with `computeCapabilities: ["7.5", "8.9"]`. The installed pack's id selects the entry, the pin first, so `sm_75` hardware with the v1 pack resolves exactly as before:
+
+| Layer | v1 pin installed | `sm75-sm89` build installed |
+| --- | --- | --- |
+| Bundle and kit builders | accepted (`sm75`) | accepted (`sm75-sm89`) |
+| Launcher, Development Auto | `cuda_selected`, compute capability never asked | `cuda_selected` on 7.5 or 8.9; otherwise CPU with `cuda_device_unavailable` |
+| Launcher, explicit CUDA | as before | refuses another compute capability (`launch_component_compatibility_failed`) |
+| Python resolver | as before | resolves in Development with the build's lock; Production refuses (`runtime_pack_development_build_forbidden`) |
+
+Observed on the laptop (sm_75): the v1 pack → Auto `cuda_selected`; the v2 pack → Auto `cuda_selected` and explicit CUDA accepted, both naming build `sm75-sm89`; the Python resolver run in the installed v2 interpreter resolves it in Development and refuses it in Production. No new device-resolution reason was added (the vocabulary is frozen in the completion contracts).
 
 ## onnxruntime-gpu (Development grade, for S3/S4/S6)
 

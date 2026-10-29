@@ -804,3 +804,41 @@ def test_poc_lock_without_its_contract_is_refused(tmp_path, monkeypatch) -> None
 
     errors = _run_poc(root, monkeypatch)
     assert any("exists without its v2 build contract" in error for error in errors)
+
+
+def test_poc_build_status_may_not_claim_more_than_built_hashed_locked(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(root / CATALOG_RELATIVE, lambda c: c["visionRuntime"]["windowsCudaPocSm89Candidate"].update(status="qualified-development-hardware"))
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("must stay built-hashed-locked" in error for error in errors)
+
+
+def test_poc_native_abi_must_be_the_derived_one(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    v1_abi = json.loads((root / CONTRACT_RELATIVE).read_text(encoding="utf-8"))["nativeAbi"]
+    _edit_json(root / CONTRACT_V2_RELATIVE, lambda c: c.update(nativeAbi=v1_abi))
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("not the one its toolchain and targetGpus derive" in error for error in errors)
+    assert any("must have different native ABIs" in error for error in errors)
+
+
+def test_poc_lock_may_not_change_the_mmcv_version(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    lock = root / _POC_FILES[4]
+    lock.write_text(lock.read_text(encoding="utf-8").replace("mmcv==2.1.0", "mmcv==2.2.0"), encoding="utf-8", newline="\n")
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("except for its own MMCV wheel hash" in error for error in errors)
+
+
+def test_poc_pack_must_be_the_binding_declared_development_build(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(
+        root / "src/vision/config/components/phase1-bindings-v2.json",
+        lambda b: b["runtimePacks"][0]["developmentBuilds"]["windows-x86_64-cuda"][0].update(computeCapabilities=["8.9"]),
+    )
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("Development build sm75-sm89" in error for error in errors)
