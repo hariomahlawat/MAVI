@@ -33,11 +33,18 @@ public sealed record TrackSearchQuery(
     int Limit = 50,
     TrackAnalyticsQuery? Analytics = null,
     string? ObjectSubclass = null,
-    TrackPlateQuery? Plate = null)
+    TrackPlateQuery? Plate = null,
+    TrackAttributeQuery? Attributes = null)
 {
     public bool IsAnalytic => Analytics is not null;
 
     public bool IsPlate => Plate is not null;
+
+    /// <summary>
+    /// A visual-attribute search (PoC S5; Stage-2 plan §16). The object class its types imply is resolved against the
+    /// bound schema by the service, which then searches the query with that class stated.
+    /// </summary>
+    public bool IsAttribute => Attributes is not null;
 
     /// <summary>The canonical form: a subclass or plate filter states its implied Vehicle class.</summary>
     public TrackSearchQuery Canonical =>

@@ -90,7 +90,8 @@ public sealed record VisualAttributeReleaseDefinition(
     string RoleId,
     string ComponentBindingSha256,
     string PipelineProfileSha256,
-    string AttributeSchemaJson);
+    string AttributeSchemaJson,
+    string? Disclosure = null);
 
 /// <summary>Either no attribute analysis is configured (and why), or exactly one definition.</summary>
 public sealed record VisualAttributeReleaseResolution(
@@ -124,6 +125,7 @@ public static class VisualAttributeReleaseParser
     public const string AggregationSchema = "mavi-visual-attribute-aggregation-v1";
     public const string ParametersSchema = "mavi-visual-attribute-parameters-v1";
     public const string IdentitySchema = "mavi-visual-attribute-identity-v1";
+    public const int MaximumDisclosureLength = 64;
 
     private static readonly Dictionary<string, string> CapabilityObjectClass =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -211,7 +213,8 @@ public static class VisualAttributeReleaseParser
             found.RoleId,
             Sha256Hex(componentBindingBytes),
             Sha256Hex(profileBytes),
-            profile.AttributeSchemaJson));
+            profile.AttributeSchemaJson,
+            profile.Disclosure));
     }
 
     // --- Pipeline profile ----------------------------------------------------------------
@@ -225,7 +228,8 @@ public static class VisualAttributeReleaseParser
         string AggregationPolicyId,
         string AggregationPolicyVersion,
         string AggregationPolicySha256,
-        string ParametersSha256);
+        string ParametersSha256,
+        string? Disclosure);
 
     private static ParsedProfile ParseProfile(byte[] profileBytes, Func<string, byte[]> readSibling)
     {
@@ -261,6 +265,7 @@ public static class VisualAttributeReleaseParser
             aggregationVersion = Version(element, "aggregationPolicyVersion", "aggregation_policy_invalid:aggregationPolicyVersion");
         }
 
+        string? disclosure = null;
         using (var parameters = ParseReleaseJson(parametersBytes, "attribute_parameters_invalid"))
         {
             var element = parameters.RootElement;
@@ -268,6 +273,15 @@ public static class VisualAttributeReleaseParser
             if (ReadString(element, "schemaVersion", "attribute_parameters_invalid") != ParametersSchema ||
                 element.GetProperty("parameters").ValueKind != JsonValueKind.Object)
                 throw new VisualAttributeReleaseException("attribute_parameters_invalid");
+            // The operator-facing disclosure a Development pipeline states (PoC S5: "zero-shot, Development"). It is
+            // optional; when present it must be short printable ASCII, and every search and detail surface shows it.
+            if (element.GetProperty("parameters").TryGetProperty("disclosure", out var stated))
+            {
+                if (stated.ValueKind != JsonValueKind.String || stated.GetString() is not { Length: >= 1 and <= MaximumDisclosureLength } text ||
+                    !text.All(character => character is >= ' ' and <= '~'))
+                    throw new VisualAttributeReleaseException("attribute_parameters_invalid:disclosure");
+                disclosure = text;
+            }
         }
 
         return new ParsedProfile(
@@ -279,7 +293,8 @@ public static class VisualAttributeReleaseParser
             aggregationId,
             aggregationVersion,
             aggregationSha256,
-            parametersSha256);
+            parametersSha256,
+            disclosure);
     }
 
     /// <summary>

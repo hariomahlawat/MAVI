@@ -54,6 +54,8 @@ public static class DependencyInjection
         services.AddScoped<ITrackSearchRepository, TrackSearchRepository>();
         // Stage 4 plate search and detail; the plate release and readiness are PR-3's registrations.
         services.AddScoped<ITrackPlateSearchRepository, TrackSearchRepository>();
+        // PoC S5 attribute search and detail; the attribute release and readiness are S2b's registrations.
+        services.AddScoped<ITrackAttributeSearchRepository, TrackSearchRepository>();
         services.AddScoped<TrackSearchService>();
         services.AddScoped<ISceneConfigurationRepository, SceneConfigurationRepository>();
         services.AddScoped<SceneConfigurationService>();

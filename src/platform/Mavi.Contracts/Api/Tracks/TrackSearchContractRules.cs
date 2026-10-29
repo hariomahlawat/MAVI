@@ -55,6 +55,39 @@ public static class TrackSearchContractRules
     public static readonly IReadOnlyList<string> PlateQueryKeys = [PlateTextKey, PlateMatchKey];
 
     /// <summary>
+    /// The visual-attribute predicate (Stage-2 plan §16; PoC S5): repeated, each <c>type:value</c> of schema tokens,
+    /// ANDed. An ordinary cross-camera filter, not an analytic one; it implies the object class of its types and is
+    /// paged by the v4 cursor. The only key the search grammar accepts more than once.
+    /// </summary>
+    public const string AttributeKey = "attribute";
+
+    /// <summary>The most attribute predicates one search may carry (the person schema has four types).</summary>
+    public const int MaximumAttributePredicates = 4;
+
+    /// <summary>The longest attribute type or value token (the schema's own bound).</summary>
+    public const int MaximumAttributeTokenLength = 64;
+
+    /// <summary>A schema token: lower-case kebab, starting with a letter (the attribute schema's grammar).</summary>
+    public static bool IsAttributeToken(string? value)
+    {
+        if (value is not { Length: >= 1 and <= MaximumAttributeTokenLength } || value[0] is < 'a' or > 'z' || value[^1] == '-')
+            return false;
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (character is >= 'a' and <= 'z' or >= '0' and <= '9')
+                continue;
+            if (character != '-' || value[index - 1] == '-')
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>A Track's attribute readiness on the detail surface (ADR-013 §12 run-level words).</summary>
+    public static readonly IReadOnlyList<string> AttributeReadinessValues = ["NotConfigured", "NotApplicable", "Pending", "Ready", "Failed", "Stale"];
+
+    /// <summary>
     /// The keys whose presence makes a Track query analytics-dependent. Any one of
     /// them turns an ordinary search into one that resolves a scene identity and
     /// reports coverage.

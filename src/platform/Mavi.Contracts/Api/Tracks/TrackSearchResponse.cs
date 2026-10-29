@@ -9,6 +9,9 @@ namespace Mavi.Contracts.Api.Tracks;
 /// query (plan §H, §S) and is omitted from the JSON otherwise, so an ordinary search
 /// response is byte-for-byte what it was before Slice 4.
 /// <para>
+/// <paramref name="AttributeCoverage"/> is present exactly when the query carried <c>attribute</c> (PoC S5).
+/// </para>
+/// <para>
 /// <paramref name="PlateCoverage"/> is present exactly when the query carried <c>plateText</c>
 /// (Stage 4, plan §5.4), so an empty plate result is never read as "no such plate".
 /// </para>
@@ -21,7 +24,9 @@ public sealed record TrackSearchResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     PlateCoverageResponse? PlateCoverage = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    AppearanceSearchResponse? Appearance = null);
+    AppearanceSearchResponse? Appearance = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    AttributeCoverageResponse? AttributeCoverage = null);
 
 /// <summary>One Track result.</summary>
 /// <remarks>
@@ -65,4 +70,6 @@ public sealed record TrackSearchItemResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     TrackItemPlateResponse? Plate = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    double? AppearanceScore = null);
+    double? AppearanceScore = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<TrackItemAttributeResponse>? Attributes = null);
