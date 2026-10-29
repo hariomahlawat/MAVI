@@ -152,7 +152,10 @@ public sealed class PlateLifecycle(
     {
         var created = 0;
         var already = 0;
-        foreach (var runId in runIds)
+        // One insert order for every caller: an explicit request runs in its audit transaction (ADR-010), so its
+        // inserted rows stay locked until commit, and two requests naming the same runs in different orders would
+        // otherwise deadlock on the unique index.
+        foreach (var runId in runIds.Order())
         {
             db.ChangeTracker.Clear();
             if (await db.PlateAnalyses.AsNoTracking().AnyAsync(unit => unit.ProcessingRunId == runId && unit.IdentityFingerprint == fields.Fingerprint, cancellationToken))

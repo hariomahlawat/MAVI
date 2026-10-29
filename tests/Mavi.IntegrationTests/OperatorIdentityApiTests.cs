@@ -260,19 +260,13 @@ public sealed class OperatorIdentityApiTests : IDisposable
         return new HttpClient(new HttpClientHandler { UseDefaultCredentials = defaultCredentials }) { BaseAddress = new Uri(address) };
     }
 
-    private static Dictionary<string, string?> WindowsMode() => new()
-    {
-        ["Identity:Mode"] = "windows-negotiate",
-        ["Identity:Operators:AuthorizedUsers:0"] = "HOST\\alice",
-        ["Identity:Operators:AuthorizedGroups:0"] = "HOST\\MAVI Operators",
-    };
+    private static Dictionary<string, string?> WindowsMode() => TestOperatorIdentity.WindowsMode();
 
     private static ApiTestFactory WindowsFactory() => new()
     {
         Clock = new FixedClock(),
         AdditionalConfiguration = WindowsMode(),
-        OverrideServices = services => services.PostConfigure<AuthenticationOptions>(options =>
-            options.SchemeMap[NegotiateDefaults.AuthenticationScheme].HandlerType = typeof(TestWindowsHandler)),
+        OverrideServices = TestOperatorIdentity.UseTestWindowsHandler,
     };
 
     private static HttpRequestMessage Request(HttpMethod method, string path, string user, string? sid = null, string? groups = null,
@@ -331,38 +325,6 @@ public sealed class OperatorIdentityApiTests : IDisposable
     private sealed class FixedClock : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => ServerNow;
-    }
-
-    /// <summary>Stands in for the Negotiate token exchange only: a header names the Windows account.</summary>
-    private sealed class TestWindowsHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
-        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
-    {
-        public const string UserHeader = "X-Test-Windows-User";
-        public const string SidHeader = "X-Test-Windows-Sid";
-        public const string GroupsHeader = "X-Test-Windows-Groups";
-
-        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-        {
-            var user = Request.Headers[UserHeader].ToString();
-            if (string.IsNullOrEmpty(user))
-                return Task.FromResult(AuthenticateResult.NoResult());
-            var claims = new List<Claim> { new(ClaimTypes.Name, user) };
-            var sid = Request.Headers[SidHeader].ToString();
-            if (!string.IsNullOrEmpty(sid))
-                claims.Add(new Claim(ClaimTypes.PrimarySid, sid));
-            claims.AddRange(Request.Headers[GroupsHeader].ToString()
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(group => new Claim(ClaimTypes.Role, group)));
-            var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, NegotiateDefaults.AuthenticationScheme));
-            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name)));
-        }
-
-        protected override Task HandleChallengeAsync(AuthenticationProperties properties)
-        {
-            Response.StatusCode = StatusCodes.Status401Unauthorized;
-            Response.Headers.WWWAuthenticate = NegotiateDefaults.AuthenticationScheme;
-            return Task.CompletedTask;
-        }
     }
 }
 

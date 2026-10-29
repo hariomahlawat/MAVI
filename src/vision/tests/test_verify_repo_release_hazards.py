@@ -184,6 +184,20 @@ def test_task12_windows_toolchain_is_pinned_by_compiler_build_not_toolset_direct
     # The exact-build check runs before the first compile.
     assert workflow.index("unexpected_msvc_compiler_build") < workflow.index("- name: Build local MMCV wheel")
 
+    # The Windows SDK is serviced in place under the same 10.0.26100.0 folders
+    # (10.1.26100.8249 -> 9457 changed the wheel bytes), so the SDK build comes
+    # from hash-pinned, signature-verified NuGet packages and the image's
+    # Windows Kits must not reach the compiler, linker or tool search path.
+    sdk = workflow.split("- name: Install pinned Windows SDK headers and libraries", 1)[1]
+    sdk = sdk.split("\n      - name: ", 1)[0]
+    assert "if: runner.os == 'Windows'" in sdk
+    assert "MAVI_WINSDK_VERSION: 10.0.26100.8249" in sdk
+    assert "winsdk_sha256_mismatch" in sdk and "dotnet nuget verify --all" in sdk
+    assert workflow.index("- name: Install pinned Windows SDK headers and libraries") < workflow.index(
+        "- name: Verify qualified Windows native build identity"
+    )
+    assert "unpinned_windows_sdk_in_" in verify and "unpinned_windows_sdk_tool" in verify
+
     # Windows proves a clean rebuild reproduces the bytes, as Linux already does,
     # and does so in PowerShell: Git Bash rewrites CL=/Brepro into a path and
     # resolves GNU link ahead of MSVC link.exe.
@@ -196,7 +210,7 @@ def test_task12_windows_toolchain_is_pinned_by_compiler_build_not_toolset_direct
 
     # PowerShell reads "$name:" inside a string as a scope/drive-qualified
     # variable and refuses to parse the whole step; delimit as "${name}:".
-    for block in (pinned, verify, rebuild):
+    for block in (pinned, sdk, verify, rebuild):
         assert re.search(r"\$(?!env:)[A-Za-z_][A-Za-z0-9_]*:", block) is None
 
 
@@ -258,6 +272,18 @@ def test_windows_cpu_build_toolchain_records_agree(tmp_path, monkeypatch) -> Non
         (_TOOLCHAIN_RECORDS[2], 'if ($clVersion -ne "19.44.35228.0")', 'if ($clVersion -ne "19.44.35229.0")', "does not carry the catalogued"),
         (_TOOLCHAIN_RECORDS[2], "MAVI_VS_BUILDTOOLS_SHA256: aac092d0", "MAVI_VS_BUILDTOOLS_SHA256: bac092d0", "does not carry the catalogued"),
         (_TOOLCHAIN_RECORDS[2], "-vcvars_ver=14.44", "-vcvars_ver=14.51", "does not carry the catalogued"),
+        # the Windows SDK build pin drifts
+        (_TOOLCHAIN_RECORDS[0], '"windowsSdkBuild": "10.0.26100.8249"', '"windowsSdkBuild": "10.0.26100"', "windowsSdkBuild is not a frozen identity"),
+        (_TOOLCHAIN_RECORDS[0], '"windowsSdkBuild": "10.0.26100.8249"', '"windowsSdkBuild": "10.0.22621.8249"', "not a build of its windowsSdk"),
+        (_TOOLCHAIN_RECORDS[0], '"sha256": "dba41191', '"sha256": "eba41191', "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[0], "/microsoft.windows.sdk.cpp/10.0.26100.8249/", "/microsoft.windows.sdk.cpp/10.0.26100.9457/", "not a pinned NuGet payload"),
+        (_TOOLCHAIN_RECORDS[1], "Microsoft.Windows.SDK.CPP (SHA-256 f8787b2f", "Microsoft.Windows.SDK.CPP (SHA-256 08787b2f", "does not state the pinned f8787b2f"),
+        (_TOOLCHAIN_RECORDS[2], "MAVI_WINSDK_VERSION: 10.0.26100.8249", "MAVI_WINSDK_VERSION: 10.0.26100.9457", "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], "MAVI_WINSDK_CPP_SHA256: f8787b2f", "MAVI_WINSDK_CPP_SHA256: 08787b2f", "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], "foreach ($entry in Get-ChildItem Env:) {", "foreach ($entry in @()) {", "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], '"LIB={0}" -f ((@(& $keep $env:LIB) + $lib)', '"LIB={0}" -f ((@($env:LIB) + $lib)', "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], "dotnet nuget verify --all $file", "Write-Output $file", "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[0], "C:\\\\MaviBuildTools\\\\winsdk-10.0.26100.8249", "C:\\\\MaviBuildTools\\\\winsdk", "does not name the pinned SDK path"),
     ],
 )
 def test_windows_cpu_build_toolchain_drift_fails_closed(tmp_path, monkeypatch, relative, old, new, expected) -> None:
