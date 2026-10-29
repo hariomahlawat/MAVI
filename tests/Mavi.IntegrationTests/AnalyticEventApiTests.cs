@@ -207,6 +207,45 @@ public sealed class AnalyticEventApiTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task EditingAPermittedDirectionSavesARevisionThatMakesTheRunStale()
+    {
+        // ADR-025 §6, stated cost: a permitted direction is geometry, so setting one is a new
+        // revision and the run's facts no longer describe the active scene until re-analysed.
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        await CommitFactsAsync(world);
+        await using var factory = CreateFactory(world);
+        using var client = factory.CreateClient();
+
+        var before = await client.GetFromJsonAsync<ProcessingRunAnalyticsResponse>(
+            $"/api/processing/runs/{world.RunId}/analytics", Json);
+        Assert.Equal("Ready", before!.Readiness);
+
+        var scene = await client.GetFromJsonAsync<Mavi.Contracts.Api.Scene.CameraSceneResponse>(
+            $"/api/cameras/{world.CameraId}/scene", Json);
+        var active = scene!.ActiveRevision!;
+        var request = new Mavi.Contracts.Api.Scene.SaveSceneRequest(
+            active.RevisionNumber,
+            "one-way kerb",
+            null,
+            null,
+            [.. active.Zones.Select(zone => new Mavi.Contracts.Api.Scene.SaveSceneZoneRequest(
+                zone.ZoneId, zone.Name, zone.Kind, zone.Enabled,
+                [.. zone.Vertices.Select(point => new Mavi.Contracts.Api.Scene.ScenePointRequest(point.X, point.Y))],
+                zone.LoiteringThresholdSeconds))],
+            [.. active.TripLines.Select(line => new Mavi.Contracts.Api.Scene.SaveSceneTripLineRequest(
+                line.LineId, line.Name, line.Enabled,
+                new Mavi.Contracts.Api.Scene.ScenePointRequest(line.A.X, line.A.Y),
+                new Mavi.Contracts.Api.Scene.ScenePointRequest(line.B.X, line.B.Y),
+                line.Directed, line.AToBLabel, line.BToALabel, "AToB"))]);
+        using var saved = await client.PutAsJsonAsync($"/api/cameras/{world.CameraId}/scene", request);
+        Assert.Equal(HttpStatusCode.Created, saved.StatusCode);
+
+        var after = await client.GetFromJsonAsync<ProcessingRunAnalyticsResponse>(
+            $"/api/processing/runs/{world.RunId}/analytics", Json);
+        Assert.Equal("Stale", after!.Readiness);
+    }
+
+    [Fact]
     public async Task TheHostCycleDerivesWhatIsDueAndNothingTwice()
     {
         var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
