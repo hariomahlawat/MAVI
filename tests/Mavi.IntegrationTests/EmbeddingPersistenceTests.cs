@@ -12,7 +12,7 @@ namespace Mavi.IntegrationTests;
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class EmbeddingPersistenceTests(PostgresFixture fixture)
 {
-    private const string Preceding = "20261016120000_LockTrackForPlateTextTrackStart";
+    private const string Preceding = "20261029103926_AddAuditEntries";
     private const string Migration = "20261029114149_AddTrackEmbeddings";
 
     private static readonly string[] EmbeddingTables =

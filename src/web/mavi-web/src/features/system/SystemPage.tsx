@@ -10,6 +10,12 @@ import Panel from '../../shared/components/Panel';
 import { ContextBar } from '../../shared/workspace';
 import PlateKnownLimits from './PlateKnownLimits';
 
+const identityModeText: Record<DeploymentDisclosure['identity']['mode'], string> = {
+  disabled: 'Disabled',
+  'windows-negotiate': 'Windows account (Negotiate)',
+  'development-unattributed': 'Development fallback (unattributed)',
+};
+
 const metadataText: Record<DeploymentDisclosure['metadataStatus'], string> = {
   verified: 'Verified at platform start',
   unavailable: 'Unavailable — the release metadata could not be read',
@@ -20,8 +26,8 @@ const metadataText: Record<DeploymentDisclosure['metadataStatus'], string> = {
  * System / About (ADR-020 §3): the installation's profile, its qualification
  * status and evidence class, the device the Vision launcher resolved and why,
  * each role runtime's own device and reason (PoC S3: plates), every bound
- * pack's identity, verification status and licence, and the capabilities'
- * known limits. Read-only.
+ * pack's identity, verification status and licence, the capabilities'
+ * known limits, and the operator identity mode in effect (ADR-010 §3). Read-only.
  */
 export default function SystemPage() {
   const deployment = useQuery({
@@ -86,6 +92,26 @@ function SystemDetails({ disclosure }: { disclosure: DeploymentDisclosure }) {
           {role.device ? <DeviceDetails device={role.device} /> : <p>{roleDeviceText[role.deviceStatus]}.</p>}
         </Panel>
       ))}
+      <Panel title="Operator identity" headingId="system-identity">
+        {disclosure.identity.installedMode && disclosure.identity.installedMode !== disclosure.identity.mode ? (
+          <Alert tone="warning" announce={false}>
+            The identity mode in effect differs from the mode recorded at install ({disclosure.identity.installedMode}).
+          </Alert>
+        ) : null}
+        {disclosure.identity.mode === 'development-unattributed' ? (
+          <Alert tone="warning" announce={false}>{disclosure.identity.statement}</Alert>
+        ) : (
+          <p>{disclosure.identity.statement}</p>
+        )}
+        <KeyValue
+          items={[
+            { label: 'Identity mode', value: identityModeText[disclosure.identity.mode] },
+            { label: 'Attributable actions', value: disclosure.identity.attributable ? 'Attributed to a Windows account' : 'Not attributable' },
+            { label: 'Operators configured', value: disclosure.identity.operatorsConfigured ? 'Yes' : 'No' },
+            { label: 'Recorded at install', value: disclosure.identity.installedMode ?? 'Not recorded', mono: Boolean(disclosure.identity.installedMode) },
+          ]}
+        />
+      </Panel>
       <Panel title="Packs" headingId="system-packs" body="flush">
         {disclosure.packs.length === 0 ? (
           <p className="system-page__none">No pack is recorded for this installation.</p>

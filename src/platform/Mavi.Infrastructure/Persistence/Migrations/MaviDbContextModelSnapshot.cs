@@ -28,6 +28,79 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
             modelBuilder.HasSequence("processing_visibility_sequence");
 
+            modelBuilder.Entity("Mavi.Domain.Audit.AuditEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<string>("IdentitySource")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("identity_source");
+
+                    b.Property<string>("OperatorDisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("operator_display_name");
+
+                    b.Property<string>("OperatorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("operator_id");
+
+                    b.Property<string>("PayloadSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("payload_sha256")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("recorded_at_utc");
+
+                    b.Property<string>("SubjectId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("subject_id");
+
+                    b.Property<string>("SubjectType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("subject_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecordedAtUtc")
+                        .HasDatabaseName("ix_audit_entries_recorded_at_utc");
+
+                    b.HasIndex("SubjectType", "SubjectId", "RecordedAtUtc")
+                        .HasDatabaseName("ix_audit_entries_subject");
+
+                    b.ToTable("audit_entries", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_audit_entries_payload_sha256", "payload_sha256 ~ '^[0-9a-f]{64}$'");
+                        });
+                });
+
             modelBuilder.Entity("Mavi.Domain.Cameras.Camera", b =>
                 {
                     b.Property<Guid>("Id")

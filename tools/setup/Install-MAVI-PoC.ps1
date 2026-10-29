@@ -144,7 +144,7 @@ $plan = [ordered]@{
     installRoot = $layout.InstallRoot
     dataRoot = $layout.DataRoot
     postgresql = [ordered]@{ serviceName = $serviceName; port = $postgresPort; database = $databaseName; installRoot = $layout.PostgreSqlInstallRoot; dataRoot = $layout.PostgreSqlDataRoot }
-    platform = [ordered]@{ url = "http://127.0.0.1:$HttpPort"; applicationRoot = $layout.ApplicationRoot; machineConfig = $layout.MachineConfigPath }
+    platform = [ordered]@{ url = (Get-MaviPocOperatorUrl -HttpPort $HttpPort); applicationRoot = $layout.ApplicationRoot; machineConfig = $layout.MachineConfigPath }
     vision = [ordered]@{ cpuRuntimeRoot = $layout.VisionRuntimeCpuRoot; cudaRuntimeRoot = $(if ($cudaSource -eq "none") { $null } else { $cudaRuntimeRoot }); modelStore = $layout.VisionModelRoot; devicePolicy = $DevicePolicy; cuda = $cudaDecision }
     plates = [ordered]@{ environment = $layout.PlatesEnvironmentRoot; modelStore = $layout.PlatesModelRoot; bound = $true; componentBinding = $layout.PlatesComponentBindingPath; devicePolicy = $PlatesDevicePolicy }
     embeddings = [ordered]@{ environment = $layout.EmbeddingsEnvironmentRoot; modelStore = $layout.EmbeddingsModelRoot; bound = $true; devicePolicy = "cpu" }
@@ -366,6 +366,7 @@ try {
         dataRoot = $layout.DataRoot
         httpPort = $HttpPort
         apiBaseUrl = "http://127.0.0.1:$HttpPort"
+        operatorUrl = Get-MaviPocOperatorUrl -HttpPort $HttpPort
         devicePolicy = $DevicePolicy
         platesDevicePolicy = $PlatesDevicePolicy
         cudaRuntimeRoot = $(if ($cudaSource -eq "none") { $null } else { $cudaRuntimeRoot })
@@ -406,7 +407,7 @@ try {
     # Operator launchers in the install root.
     foreach ($launcherName in @("Start-MAVI-PoC.cmd", "Stop-MAVI-PoC.cmd", "Test-MAVI-PoC.cmd")) {
         $text = [IO.File]::ReadAllText((Join-Path $layout.OverlayRoot "tools\setup\poc\$launcherName"))
-        $text = $text.Replace("__MAVI_POC_DATA_ROOT__", $layout.DataRoot).Replace("__MAVI_POC_URL__", "http://127.0.0.1:$HttpPort")
+        $text = $text.Replace("__MAVI_POC_DATA_ROOT__", $layout.DataRoot).Replace("__MAVI_POC_URL__", (Get-MaviPocOperatorUrl -HttpPort $HttpPort))
         [IO.File]::WriteAllText((Join-Path $layout.InstallRoot $launcherName), $text, (New-Object Text.ASCIIEncoding))
     }
 
@@ -427,7 +428,7 @@ try {
     }
     Write-MaviJson -Value $result -Path $resultPath -Depth 8
     Write-Host ""
-    Write-Host "MAVI PoC installed: http://127.0.0.1:$HttpPort (start with $(Join-Path $layout.InstallRoot 'Start-MAVI-PoC.cmd'))." -ForegroundColor Green
+    Write-Host "MAVI PoC installed: $(Get-MaviPocOperatorUrl -HttpPort $HttpPort) (start with $(Join-Path $layout.InstallRoot 'Start-MAVI-PoC.cmd'))." -ForegroundColor Green
     Write-MaviPocDisclosure
 }
 catch {

@@ -241,6 +241,18 @@ function Get-MaviPocModelVerificationStatus {
     return "unrecorded"
 }
 
+# Operator identity (ADR-010): every interactive local user of the dedicated, trusted PoC host
+# (owner decision S1-T1) is an operator, attributed to their own Windows account. The release
+# metadata records the mode installed; the platform discloses it beside the mode in effect.
+$script:PocIdentityMode = "windows-negotiate"
+$script:PocOperatorGroups = @("BUILTIN\Users")
+
+# The URL an operator opens (owner decision D-242-3). Browsers send Windows credentials silently to
+# localhost but not to 127.0.0.1 (ADR-010 section 3). The platform still listens on 127.0.0.1 only, and
+# scripts and the worker keep apiBaseUrl on 127.0.0.1: through localhost every new connection
+# first tries ::1 and costs about 2 s on Windows.
+function Get-MaviPocOperatorUrl([int]$HttpPort) { "http://localhost:$HttpPort" }
+
 # Release metadata (mavi-poc-release-metadata-v1). The disclosure fields are fixed here
 # and checked again by the platform at start-up (DeploymentDisclosureReader); there is no
 # parameter that changes them.
@@ -268,6 +280,7 @@ function New-MaviPocReleaseMetadata {
         application = [ordered]@{ revision = $ApplicationRevision; bundleSha256 = $BundleSha256 }
         installedAtUtc = $InstalledAtUtc
         devicePolicy = $DevicePolicy
+        identityMode = $script:PocIdentityMode
         cudaRuntimeDecision = $CudaDecision
         packs = @($Packs)
     }
@@ -284,6 +297,8 @@ function New-MaviPocMachineConfig {
     )
     [ordered]@{
         ConnectionStrings = [ordered]@{ Mavi = $ConnectionString }
+        # Loopback names only: a page on another host name (DNS rebinding) is refused before any endpoint.
+        AllowedHosts = "localhost;127.0.0.1"
         MediaStorage = [ordered]@{ RootPath = $Layout.MediaRoot; EvidenceRootPath = $Layout.EvidenceRoot }
         TrackSearch = [ordered]@{ CursorSigningKey = $CursorSigningKey }
         Kestrel = [ordered]@{ Endpoints = [ordered]@{ Http = [ordered]@{ Url = "http://127.0.0.1:$HttpPort" } } }
@@ -305,6 +320,10 @@ function New-MaviPocMachineConfig {
             Enabled = $true
             ModelManifestPath = Join-Path $Layout.OverlayRoot "models\manifests\embeddings-siglip2-base-p16-224-dev-v1.json"
             PipelineProfilePath = Join-Path $Layout.OverlayRoot "src\vision\config\embeddings\development-embeddings-siglip2-v1.json"
+        }
+        Identity = [ordered]@{
+            Mode = $script:PocIdentityMode
+            Operators = [ordered]@{ AuthorizedGroups = @($script:PocOperatorGroups) }
         }
     }
 }
@@ -585,4 +604,4 @@ function Get-MaviPocRecordedProcess {
     return $process
 }
 
-Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks
+Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks
