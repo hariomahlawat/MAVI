@@ -101,7 +101,8 @@ public sealed class SceneConfigurationRevision
                 lineDraft.B,
                 lineDraft.Directed,
                 lineDraft.AToBLabel,
-                lineDraft.BToALabel);
+                lineDraft.BToALabel,
+                lineDraft.PermittedDirection);
             if (!lineNames.Add(line.Name))
             {
                 throw new DomainValidationException(

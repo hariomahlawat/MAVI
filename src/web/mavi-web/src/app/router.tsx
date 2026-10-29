@@ -1,6 +1,7 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import AppShell from './AppShell';
 import AnalyticsPage from '../features/analytics/AnalyticsPage';
+import EventsPage from '../features/events/EventsPage';
 import CamerasPage from '../features/cameras/CamerasPage';
 import OverviewPage from '../features/overview/OverviewPage';
 import ProcessingPage from '../features/processing/ProcessingPage';
@@ -28,6 +29,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'cameras', element: <CamerasPage />, handle: { surface: 'cameras' } },
       { path: 'cameras/:cameraId/scene', element: <SceneEditorPage />, handle: { surface: 'scene' } },
       { path: 'cameras/:cameraId/analytics', element: <AnalyticsPage />, handle: { surface: 'analytics' } },
+      { path: 'cameras/:cameraId/events', element: <EventsPage />, handle: { surface: 'events' } },
       { path: 'videos', element: <VideosPage />, handle: { surface: 'videos' } },
       { path: 'import', element: <VideoImportPage />, handle: { surface: 'import' } },
       { path: 'processing', element: <ProcessingQueuePage />, handle: { surface: 'processing' } },

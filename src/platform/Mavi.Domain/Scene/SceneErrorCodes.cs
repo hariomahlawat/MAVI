@@ -24,6 +24,7 @@ public static class SceneErrorCodes
     public const string LineNameTooLong = "scene_line_name_too_long";
     public const string LineNameDuplicate = "scene_line_name_duplicate";
     public const string LineLabelTooLong = "scene_line_label_too_long";
+    public const string LinePermittedDirectionInvalid = "scene_line_permitted_direction_invalid";
 
     // Revision
     public const string GeometryCount = "scene_geometry_count";

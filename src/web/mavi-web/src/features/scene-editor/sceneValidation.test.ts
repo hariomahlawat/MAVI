@@ -27,6 +27,7 @@ function line(overrides: Partial<DraftTripLine> = {}): DraftTripLine {
     directed: false,
     aToBLabel: 'A to B',
     bToALabel: 'B to A',
+    permittedDirection: null,
     ...overrides,
   };
 }

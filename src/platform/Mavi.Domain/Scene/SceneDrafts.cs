@@ -24,7 +24,8 @@ public sealed record TripLineDraft(
     ScenePointDraft? B,
     bool Directed,
     string? AToBLabel,
-    string? BToALabel);
+    string? BToALabel,
+    string? PermittedDirection = null);
 
 /// <summary>The complete geometry of the revision the operator is asking to activate.</summary>
 public sealed record SceneRevisionDraft(

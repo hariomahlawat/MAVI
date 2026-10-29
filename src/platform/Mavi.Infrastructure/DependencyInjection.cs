@@ -68,6 +68,9 @@ public static class DependencyInjection
         services.AddScoped<IAnalyticsAggregateRepository, AnalyticsAggregateRepository>();
         services.AddScoped<IHeatmapEvidenceReader, HeatmapEvidenceReader>();
         services.AddScoped<AnalyticsAggregateService>();
+        // Deterministic analytic events (ADR-025).
+        services.AddScoped<Mavi.Application.Modules.Events.IAnalyticEventRepository, AnalyticEventRepository>();
+        services.AddScoped<Mavi.Application.Modules.Events.AnalyticEventService>();
         services.AddScoped<SceneAnalysisExecutor>();
         services.AddScoped<ISceneAnalyticsStatusReader, SceneAnalyticsStatusReader>();
         services.AddScoped<SceneAnalyticsStatusService>();
