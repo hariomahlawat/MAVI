@@ -10,11 +10,12 @@ This page is the PoC's record of what each capability does not do. The operator 
   - Every face result is a candidate: a cosine score next to the reference threshold and the model identity.
   - "Find this face" lists candidate Person Tracks. A gallery comparison lists candidate gallery matches.
   - Nothing stores a match or writes an `EntityId`, and nothing says "this is <name>" (ADR-022).
-- **Usable faces are rare in the demo corpus.** Protocol `s6-face-coverage-v1`: YuNet score ≥ 0.9, face shorter side ≥ 32 px.
-  - **2 of 110** Person Tracks have a usable face, both in the stairwell clip s2-12 (2 of 9).
-  - The cafe lobby s2-10 and the school hall s2-11 have none.
+- **Usable faces are rare in the demo corpus.** Protocols `s6-face-coverage-v1` (12 clips) and `s6-face-coverage-v2` (the A6 clip s2-13): YuNet score ≥ 0.9, face shorter side ≥ 32 px.
+  - **7 of 140** Person Tracks (5 %) have a usable face, all in the two indoor MEVA clips: the stairwell s2-12 (2 of 9) and the entrance hall s2-13 (5 of 30).
+  - The cafe lobby s2-10, the school hall s2-11 and every traffic clip have none.
   - Most Person Tracks are therefore **Unknown (no usable face)**, which means "not analysable", not "no match".
-  - A cross-camera face demonstration is not possible on this corpus (`docs/qualification/poc/s6-face-coverage.md`).
+  - "Find this face" can be shown across s2-12 and s2-13 (same MEVA slot) only for an actor whose face is usable in both; no identity label exists to confirm it is the same actor.
+  - The detector threshold stays at 0.9: the predeclared v2 rule found only 77 % of the 0.8–0.9 band to be faces, under its 90 % bar (`docs/qualification/poc/s6-face-coverage.md`).
 - **Opt-in per camera.** Face analysis runs only on cameras an operator has switched on. In the demonstration that is only the MEVA clips with consented actors.
 - **Model and threshold.**
   - AdaFace IR-50 scores 99.8 % on LFW 10-fold and 99.7 % with faces downscaled to 32 px.

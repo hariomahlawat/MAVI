@@ -9,8 +9,8 @@ import Panel from '../../shared/components/Panel';
  * documents. Nothing here is configured or fetched.
  */
 export const FACE_KNOWN_LIMITS = {
-  coverage: '2 of 110',
-  coverageClip: 's2-12 (2 of 9)',
+  coverage: '7 of 140',
+  coverageClip: 'the two indoor MEVA clips s2-12 (2 of 9) and s2-13 (5 of 30)',
   lfwNative: '99.8 %',
   lfw32: '99.7 %',
   referenceThreshold: '0.2121',

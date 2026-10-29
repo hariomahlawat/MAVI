@@ -460,6 +460,6 @@ The threshold was **not** changed after the audit (A5).
 |---|---|---|---|---|
 | s2-13 (A6) | G420 school entrance hall | `2018-03-11.16-20-01.16-25-01.school.G420.r13.avi` | 75 749 322 | `3e1cd6ebc9900a1c7582e3975537602ad7fae272d0e91a513d107d9802052f77` |
 
-**Count.** The plan's S2 row names 8–12 clips. A6 records 13, as the owner's decision allows. The cap in `tools/poc/demo_corpus.py` is now 13. The setup contract test `tools/setup/Test-MaviPocSetupContracts.ps1` still expects the codes POC-S2-01..12 and must follow, in the S6 PR.
+**Count.** The plan's S2 row names 8–12 clips. A6 records 13, as the owner's decision allows. The cap in `tools/poc/demo_corpus.py` is now 13. The setup contract test `tools/setup/Test-MaviPocSetupContracts.ps1` now expects the codes POC-S2-01..13 (S6 PR).
 
 **Import.** Only s2-13 was imported, into the S2 Development database `mavi_poc_s2_20261029`. It used the same Development API build (`Mavi.Api.dll` SHA-256 `4a1f1f0f…90aa`, S2 worktree), the same Runtime Pack `mavi-runtime-v2-89fd8bfc…` (`windows-x86_64-cuda`, `cuda_selected`) and the same RTMDet Model Pack `mavi-model-v2-86754e36…` as the clean re-import (§11). The clips already in that database are untouched. A clean 13-clip re-import on a fresh database (B4) is still to be done.

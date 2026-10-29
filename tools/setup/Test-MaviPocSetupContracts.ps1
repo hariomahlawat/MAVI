@@ -251,9 +251,9 @@ try {
     if (-not $bundleText.Contains('(Join-Path $PlatesCache "faces-payloads") -Target (Join-Path $destination "faces\faces-payloads")')) { throw "The PoC bundle must carry the face pack payloads." }
     # --- Demo cameras: the S2 demo-corpus manifest (copied byte-identical), unique codes. ---
     $cameras = Read-MaviPocDemoCameras -Path (Join-Path $repoRoot "config\poc\demo-cameras-v1.json")
-    $expectedCodes = @(1..12 | ForEach-Object { "POC-S2-{0:D2}" -f $_ })
+    $expectedCodes = @(1..13 | ForEach-Object { "POC-S2-{0:D2}" -f $_ })
     if ((@($cameras.Code) -join ",") -ne ($expectedCodes -join ",") -or @($cameras | Where-Object { $_.TimeZoneId -ne "Asia/Kolkata" }).Count -gt 0) {
-        throw "The seed must be the S2 demo-corpus manifest: POC-S2-01..12, Asia/Kolkata."
+        throw "The seed must be the S2 demo-corpus manifest: POC-S2-01..13, Asia/Kolkata."
     }
     $corpusCameras = Join-Path $repoRoot "tools\poc\demo-corpus\demo-cameras-v1.json"
     if ((Test-Path -LiteralPath $corpusCameras) -and ([IO.File]::ReadAllText($corpusCameras).Replace("`r", "")) -cne ([IO.File]::ReadAllText((Join-Path $repoRoot "config\poc\demo-cameras-v1.json")).Replace("`r", ""))) {
