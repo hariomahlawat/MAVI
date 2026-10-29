@@ -35,8 +35,15 @@ export default function AttributeCoverageLine({ coverage, developmentOnly = true
   );
 }
 
-/** The empty-result words of an attribute search, by what its coverage says. */
-export function attributeEmptyState(coverage: AttributeCoverage): { title: string; body: string; hatched: boolean } {
+/**
+ * The empty-result words of an attribute search, by what its coverage says. Attribute coverage counts the ordinary
+ * scope only, so when analytic filters are combined (`analytics`) an empty page proves nothing about the attribute
+ * values alone: it is stated as an empty conjunction, never as an attribute negative.
+ */
+export function attributeEmptyState(
+  coverage: AttributeCoverage,
+  analytics?: { complete: boolean },
+): { title: string; body: string; hatched: boolean } {
   if (coverage.identityFingerprint === null) {
     return {
       title: 'Attribute search is not configured in this installation.',
@@ -45,6 +52,15 @@ export function attributeEmptyState(coverage: AttributeCoverage): { title: strin
     };
   }
   const incomplete = coverage.analysed !== coverage.tracksInScope || coverage.unknown.some((item) => item.tracks > 0);
+  if (analytics) {
+    return {
+      title: 'No Track matched the attribute and scene analytics filters together.',
+      body: analytics.complete && !incomplete
+        ? 'Each filter was evaluated over this scope; no Track satisfied all of them. Remove one to see what each matches.'
+        : 'Scene analytics or attributes are not complete for this scope, so a match may exist in unevaluated evidence. See the coverage above.',
+      hatched: !analytics.complete || incomplete,
+    };
+  }
   return {
     title: 'No analysed Track has these attribute values.',
     body: incomplete

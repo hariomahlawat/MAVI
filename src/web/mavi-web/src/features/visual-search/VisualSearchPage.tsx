@@ -930,7 +930,7 @@ export default function VisualSearchPage() {
             empty={appearanceSearch
               ? APPEARANCE_EMPTY
               : attributeCoverage
-                ? { icon: 'search', ...attributeEmptyState(attributeCoverage) }
+                ? { icon: 'search', ...attributeEmptyState(attributeCoverage, coverage) }
                 : resultsEmpty(coverage, plateCoverage, activeFilters.plateText)}
             unavailableMessage={(error) => (appearanceSearch ? appearanceErrorMessage(error) : undefined)
               ?? describeError(error, 'The search could not be completed.')}

@@ -8,6 +8,7 @@ import {
   withPredicate,
 } from './attributeSearch';
 import { canonicalSearchKey, hasAppearanceConflict, parseCommittedSearch } from './searchState';
+import { attributeEmptyState } from './AttributeCoverageLine';
 
 describe('PoC S5 attribute predicates', () => {
   it('orders predicates canonically, so any order is one search (E6)', () => {
@@ -57,5 +58,18 @@ describe('PoC S5 attribute predicates', () => {
     expect(attributeDisclosure('zero-shot, Development', true)).toBe('zero-shot, Development');
     expect(attributeDisclosure(null, true)).toBe('Development');
     expect(attributeDisclosure(null, false)).toBeNull();
+  });
+
+  it('states an empty combination with analytics as a conjunction, never as an attribute negative (Codex P2)', () => {
+    const complete = { identityFingerprint: 'd'.repeat(64), disclosure: 'zero-shot, Development', predicates: ['person-upper-colour:red'],
+      tracksInScope: 5, analysed: 5, unavailable: 0, notAnalysed: 0, unknown: [{ attributeType: 'person-upper-colour', tracks: 0 }] };
+    expect(attributeEmptyState(complete).title).toBe('No analysed Track has these attribute values.');
+    const pending = attributeEmptyState(complete, { complete: false });
+    expect(pending.title).toBe('No Track matched the attribute and scene analytics filters together.');
+    expect(pending.body).not.toMatch(/none has these values/);
+    expect(pending.hatched).toBe(true);
+    const evaluated = attributeEmptyState(complete, { complete: true });
+    expect(evaluated.title).toBe('No Track matched the attribute and scene analytics filters together.');
+    expect(evaluated.hatched).toBe(false);
   });
 });
