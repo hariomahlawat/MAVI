@@ -121,9 +121,9 @@ Both have purposes `development`, rights `PERMITTED_FOR_ENGINEERING_USE` and pri
 | Class | Target (rule 5) | Selected |
 |---|---|---|
 | Junction / gate / road | ≥ 3 | 6: s2-01 Düsseldorf junction, s2-02 Sofia junction, s2-03 Crest Hill road, s2-04 night highway, s2-05 archway gate, s2-06 level-crossing barrier |
-| Pedestrian | ≥ 2 | 2: s2-07 Shibuya scramble crossing, s2-08 Damascus Gate overhead |
+| Pedestrian | ≥ 2 | 2 until A5: s2-07 Shibuya scramble crossing, s2-08 Damascus Gate overhead. After A5 (owner decision 5(b)), s2-07 plus the indoor walking views s2-08 bus stop, s2-11 hallway and s2-12 stairwell |
 | Car park | ≥ 1 | 1 after A4: s2-09 (MEVA G424). **GAP** in Commons, closed by MEVA (§7) |
-| Lobby / close-range faces | ≥ 1 | 3 after A4: s2-10 cafe, s2-11 hallway, s2-12 stairwell (MEVA; consent is owner decision 3). **GAP** in Commons, closed by MEVA (§7) |
+| Lobby / close-range faces | ≥ 1 | 3 after A4: s2-10 cafe, s2-11 hallway, s2-12 stairwell; 4 after A5 with s2-08 bus-stop waiting room (MEVA; consent accepted, owner decision 3(a)). **GAP** in Commons, closed by MEVA (§7) |
 
 **Car park gap.** No kit-licensed fixed-camera car-park clip of at least 60 s was found in 964 described files. What is available instead:
 - Two clips carry a "Restricted" bay zone: s2-03, over the roadside lot, and s2-05, over the parked cars beside the gate. They support dwell and restricted-area demos, but they are not car-park scenes.
@@ -230,10 +230,11 @@ The duplicate path now also checks each asset's recording start, against the ser
 - **132** of the 598 person-outfits have tracklets in at least two of the four selected cameras;
 - by camera pair: G419–G421 68, G419–G424 61, G419–G423 54, G421–G424 42, G421–G423 28, G423–G424 24;
 - **11** appear in all four.
+- **After A5, G331** (same method and files, same read-only reuse under decision 9): 37 person-outfits have G331 tracklets, and 18 of them also appear in at least one of the four school cameras (G331–G421 11, G331–G419 10, G331–G424 7, G331–G423 7). Across all five cameras, 138 person-outfits appear in at least two, and none in all five.
 
 MEVID's files carry no clip or time stamp, so S2 does **not** claim which actors repeat inside the selected slot. Any ReID result on these clips is a *candidate*. It is not identity evidence and not a ReID performance measure (D3, C6).
 
-**Files.** Slot 2018-03-11 16:20; all four are school-building cameras, fixed, 1920×1072/1080 at 30 fps, 300 s:
+**Files.** Slot 2018-03-11 16:20; fixed cameras, 1920×1072/1080 at 30 fps, 300 s. The four A4 files are school-building cameras; G331 (added by A5) is the bus-stop building:
 
 | Clip | Camera / view | Object (`drops-123-r13/2018-03-11/16/…`) | Bytes | Original SHA-256 |
 |---|---|---|---|---|
@@ -241,6 +242,7 @@ MEVID's files carry no clip or time stamp, so S2 does **not** claim which actors
 | s2-10 | G421 cafe | `2018-03-11.16-20-00.16-25-00.school.G421.r13.avi` | 103 000 564 | `bba8290ef6e8f9c81516b15eb6fa36372bbe4346f9d8acb0360c3a6cfdd6d28c` |
 | s2-11 | G423 hallway | `2018-03-11.16-20-00.16-25-01.school.G423.r13.avi` | 80 699 352 | `443bce856d638f002fcfb19d6da9212bfce58814ed6bd1f36520151c0fb37d91` |
 | s2-12 | G419 stairwell | `2018-03-11.16-20-01.16-25-01.school.G419.r13.avi` | 88 315 936 | `93ec12fafcb0ee166c71ec7a46061223e4257de9404d9992f118de275bfc416a` |
+| s2-08 (A5) | G331 bus-stop waiting room | `2018-03-11.16-20-00.16-25-00.bus.G331.r13.avi` | 87 225 020 | `e9428729f0ef403fa8676d6bd7c7b9f274cbdb6b1b5a1f7b0bbe658154f2995c` |
 
 **Transfer.**
 - **Method.** Resumable HTTPS `curl`, with no credentials, into `source-store\media\meva\…`.
@@ -374,3 +376,43 @@ The mutation extract counts:
 | 4 process | 202 |
 
 Run 7 is pinned by the definition SHA-256 `6a4e2c9bb74385011f3d02d1af040d51afd311ad49f76f8084328b7925ad0c97`. The s2-09 threshold change touched scene configuration only; every derivative SHA-256 is unchanged.
+
+## 11. Owner decisions applied (2026-10-29): A5 replacement and clean re-import
+
+**Order of events.** Each step happened in this order:
+1. Amendment A5 was committed (`4223bd3b`) and pushed before any G331 request.
+2. G331 was then fetched over HTTPS. Its size matched the bucket's `Content-Length` (87 225 020), and its SHA-256 `e9428729f0ef403fa8676d6bd7c7b9f274cbdb6b1b5a1f7b0bbe658154f2995c` was added to `approvals\meva-originals.sha256`.
+3. A diagnostic look at three frames (5, 90 and 170 s) confirmed a fixed view with people waiting.
+4. The geometry was drawn on the 5 s frame, with the 60 s threshold fixed in A5, before any pipeline output for G331 was read.
+
+**Retired, not deleted.** The old s2-08 derivative (Damascus Gate) moved to `E:\MAVI-Controlled\PoC\Corpus\retired\`, so it cannot be packaged by mistake. Its original, receipt and admissibility record are unchanged (§2–§3).
+
+**Trims.**
+- Pass 5 derived the new s2-08 (`02ed784a35626ea7aee87d6c8fd6c7ccb484f9cffc83e7c6f97a9bf71df30517`) and reproduced the other eleven.
+- Pass 6 reproduced all **12** byte for byte, s2-08 included, with the same pinned FFmpeg.
+
+**Clean re-import.** This run used a fresh, empty database `mavi_poc_s2_20261029` and `Mavi.Api` built from this branch on `main` (`4223bd3b`). The worker was `Start-MaviVisionWorker.ps1`, which resolved `cuda_selected`, `windows-x86_64-cuda`. The run is pinned by the definition SHA-256 `2527ee6b0ce87c320301cf16b703c3e37579a4b63e6a1416646e3b711778b676` and the tool SHA-256 `618954f7f98f7888fcbeba411a7879aba11764da9e8f5e904621bee458c222e8`.
+- **Run 1** created 12 cameras, 12 assets, 12 scene revisions (r1) and 12 runs, all `Completed` with analytics `Ready`. It exited `0`.
+- **Run 2** changed nothing: 12 × `409 video_duplicate`, the same ids, and no scene or process call.
+- **API mutation extract:** 12 cameras 201, 12 imports 201, 12 scene saves 201, 12 process 202, 12 duplicate imports 409.
+- **Same output on the unchanged clips.** The eleven unchanged clips produced the same Track counts as the 2026-10-28 runs, and their audit results equal `audit-4.json` event for event.
+
+**Audit of s2-08 (G331)** (`audit-1.json`):
+- **Tracks.** 3 Person Tracks. All three start inside the waiting area, so zone entry is 0 / 0.
+- **Person loitering ≥ 60 s.** 3 / 0. Every person in the zone dwelled at least 60 s (the dwell profile shows all three ≥ 30 s). Loitering fires on all three, but no person in that zone dwelled below the threshold.
+- **Hall midline.** No crossing.
+
+**What this shows for person loitering.** Under the audit's same-zone rule (§8), s2-08 is **not demonstrable on its own**, because its negative set is empty. Across the corpus:
+- **Positives.** Loitering fires on 4 persons in 2 clips: s2-08 3 and s2-09 1.
+- **Contrast in the same zone.** Only s2-09 has one (1 / 1).
+- **Persons below a threshold.** They occur in other zones, for example s2-10 entrance 0 / 8 and s2-12 landing 0 / 6.
+
+The threshold was **not** changed after the audit (A5).
+
+**Evidence.** `E:\MAVI-Controlled\PoC\Corpus\evidence-2026-10-29-a5\`, `SHA256SUMS` = `1df3384b2e4d88c4ae26eb8f552b04059229ba4e28fe392faa049ca5c06d7d52`. It holds:
+- both import logs and the audit;
+- trim passes 5 and 6, with their derivation records;
+- the manifests, the MEVA originals manifest and the fetch log;
+- the API mutation extract;
+- the worker identity and the device report;
+- the three G331 diagnostic frames.
