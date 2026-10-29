@@ -20,7 +20,8 @@ public sealed class TripLine
         ScenePointDraft? b,
         bool directed,
         string? aToBLabel,
-        string? bToALabel)
+        string? bToALabel,
+        string? permittedDirection = null)
     {
         if (revisionId == Guid.Empty || lineId == Guid.Empty)
         {
@@ -45,6 +46,16 @@ public sealed class TripLine
                 $"Trip line endpoints must be at least {SceneRules.MinimumLineEndpointSeparation} apart.");
         }
 
+        // A permitted direction is a statement about which way the line may be crossed
+        // (ADR-025 §6), so it only makes sense on a line whose direction matters.
+        if (permittedDirection is not null &&
+            (!directed || permittedDirection is not (PermittedDirectionAToB or PermittedDirectionBToA)))
+        {
+            throw new DomainValidationException(
+                SceneErrorCodes.LinePermittedDirectionInvalid,
+                "A permitted direction must be AToB or BToA, on a directed line.");
+        }
+
         return new TripLine
         {
             RevisionId = revisionId,
@@ -56,6 +67,7 @@ public sealed class TripLine
             Directed = directed,
             AToBLabel = NormalizeLabel(aToBLabel, "A to B"),
             BToALabel = NormalizeLabel(bToALabel, "B to A"),
+            PermittedDirection = permittedDirection,
         };
     }
 
@@ -81,6 +93,15 @@ public sealed class TripLine
     public string AToBLabel { get; private set; } = string.Empty;
 
     public string BToALabel { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// The one direction this line may be crossed in, or null when both are allowed.
+    /// Only the <c>wrong-way</c> event rule reads it (ADR-025 §6); Stage-3 facts do not.
+    /// </summary>
+    public string? PermittedDirection { get; private set; }
+
+    public const string PermittedDirectionAToB = "AToB";
+    public const string PermittedDirectionBToA = "BToA";
 
     private static string NormalizeName(string? name)
     {

@@ -58,6 +58,8 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<Configurations.FaceQueryEmbeddingRow> FaceQueryEmbeddings => Set<Configurations.FaceQueryEmbeddingRow>();
     public DbSet<EnrolledPerson> EnrolledPersons => Set<EnrolledPerson>();
     public DbSet<EnrolledPersonFace> EnrolledPersonFaces => Set<EnrolledPersonFace>();
+    public DbSet<Mavi.Domain.Events.AnalyticEventDerivation> AnalyticEventDerivations => Set<Mavi.Domain.Events.AnalyticEventDerivation>();
+    public DbSet<Mavi.Domain.Events.AnalyticEvent> AnalyticEvents => Set<Mavi.Domain.Events.AnalyticEvent>();
 
     // Model configuration
     protected override void OnModelCreating(ModelBuilder modelBuilder)

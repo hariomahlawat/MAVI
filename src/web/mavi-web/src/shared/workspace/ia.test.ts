@@ -25,6 +25,7 @@ describe('the IA map', () => {
       cameras: 'Cameras',
       scene: 'Cameras',
       analytics: 'Cameras',
+      events: 'Cameras',
       videos: 'Videos',
       import: 'Import',
       processing: 'Processing',

@@ -339,6 +339,45 @@ public sealed class SceneApiContractTests(PostgresFixture database)
     }
 
     [Fact]
+    public async Task APermittedDirectionRoundTripsAndIsVersionedWithTheRevision()
+    {
+        // ADR-025 §6: the one geometry input of the wrong-way rule.
+        using var factory = await CreateFactoryAsync();
+        using var client = factory.CreateClient();
+        var cameraId = await CreateCameraAsync(client, "CAM-S025");
+        var oneWay = new SaveSceneTripLineRequest(
+            null, "Gate", true, Point(0.1, 0.5), Point(0.9, 0.5), true, "In", "Out", "BToA");
+
+        var first = await SaveRevisionAsync(client, cameraId, new SaveSceneRequest(null, null, null, null, [], [oneWay]));
+        var line = Assert.Single(first.TripLines);
+        Assert.Equal("BToA", line.PermittedDirection);
+
+        var twoWay = oneWay with { LineId = line.LineId, PermittedDirection = null };
+        var second = await SaveRevisionAsync(client, cameraId, new SaveSceneRequest(1, null, null, null, [], [twoWay]));
+        Assert.Null(Assert.Single(second.TripLines).PermittedDirection);
+
+        var history = await client.GetFromJsonAsync<SceneRevisionResponse>($"/api/cameras/{cameraId}/scene/revisions/1");
+        Assert.Equal("BToA", Assert.Single(history!.TripLines).PermittedDirection);
+    }
+
+    [Theory]
+    [InlineData(false, "AToB")]
+    [InlineData(true, "Inbound")]
+    public async Task APermittedDirectionNeedsADirectedLineAndTheClosedVocabulary(bool directed, string permitted)
+    {
+        using var factory = await CreateFactoryAsync();
+        using var client = factory.CreateClient();
+        var cameraId = await CreateCameraAsync(client, "CAM-S026");
+        var line = new SaveSceneTripLineRequest(
+            null, "Gate", true, Point(0.1, 0.5), Point(0.9, 0.5), directed, null, null, permitted);
+
+        using var response = await SaveAsync(client, cameraId, new SaveSceneRequest(null, null, null, null, [], [line]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("scene_line_permitted_direction_invalid", await ReadProblemCodeAsync(response));
+    }
+
+    [Fact]
     public async Task UnknownStableIdentityIsRejected()
     {
         using var factory = await CreateFactoryAsync();

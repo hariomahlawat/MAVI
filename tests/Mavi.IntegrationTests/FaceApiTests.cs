@@ -765,7 +765,7 @@ public sealed class FaceApiTests(PostgresFixture fixture)
     [Fact]
     public async Task TheMigrationIsAdditiveAndRoundTrips()
     {
-        const string Preceding = "20261029114149_AddTrackEmbeddings";
+        const string Preceding = "20261029165017_AddAnalyticEvents";
         const string Migration = "20261029174307_AddFaceIntelligence";
         string[] tables =
         [

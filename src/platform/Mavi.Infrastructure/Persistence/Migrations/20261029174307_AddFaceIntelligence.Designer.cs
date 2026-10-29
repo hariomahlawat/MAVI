@@ -485,6 +485,213 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Mavi.Domain.Events.AnalyticEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AnalyticsAlgorithmVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("analytics_algorithm_version");
+
+                    b.Property<Guid>("CameraId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("camera_id");
+
+                    b.Property<string>("CatalogueVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("catalogue_version");
+
+                    b.Property<Guid>("DerivationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("derivation_id");
+
+                    b.Property<string>("Direction")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("direction");
+
+                    b.Property<long>("EndOffsetMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("end_offset_ms");
+
+                    b.Property<DateTimeOffset>("EndUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("end_utc");
+
+                    b.Property<string>("InputSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("input_sha256");
+
+                    b.Property<Guid?>("LineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("line_id");
+
+                    b.Property<string>("ObjectClass")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("object_class");
+
+                    b.Property<int>("ParticipantCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("participant_count");
+
+                    b.Property<Guid?>("PrimaryTrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("primary_track_id");
+
+                    b.Property<Guid>("ProcessingRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("processing_run_id");
+
+                    b.Property<string>("ProvenanceJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("provenance");
+
+                    b.Property<string>("RuleId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("rule_id");
+
+                    b.Property<int>("RuleVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("rule_version");
+
+                    b.Property<Guid>("SceneAnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("scene_analysis_id");
+
+                    b.Property<Guid>("SceneRevisionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("scene_revision_id");
+
+                    b.Property<long>("StartOffsetMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("start_offset_ms");
+
+                    b.Property<DateTimeOffset>("StartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("start_utc");
+
+                    b.Property<Guid>("VideoAssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("video_asset_id");
+
+                    b.Property<Guid?>("ZoneId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("zone_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DerivationId")
+                        .HasDatabaseName("ix_analytic_events_derivation");
+
+                    b.HasIndex("PrimaryTrackId")
+                        .HasDatabaseName("ix_analytic_events_primary_track");
+
+                    b.HasIndex("SceneAnalysisId")
+                        .HasDatabaseName("ix_analytic_events_scene_analysis");
+
+                    b.HasIndex("CameraId", "CatalogueVersion", "StartUtc")
+                        .HasDatabaseName("ix_analytic_events_camera_catalogue_start");
+
+                    b.ToTable("analytic_events", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_analytic_events_direction", "direction IS NULL OR direction IN ('AToB', 'BToA')");
+
+                            t.HasCheckConstraint("ck_analytic_events_participants", "participant_count >= 0");
+
+                            t.HasCheckConstraint("ck_analytic_events_provenance", "jsonb_typeof(provenance) = 'object'");
+
+                            t.HasCheckConstraint("ck_analytic_events_rule_version", "rule_version >= 1");
+
+                            t.HasCheckConstraint("ck_analytic_events_span", "start_offset_ms >= 0 AND end_offset_ms >= start_offset_ms AND end_utc >= start_utc");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Events.AnalyticEventDerivation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AnalyticsAlgorithmVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("analytics_algorithm_version");
+
+                    b.Property<Guid>("CameraId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("camera_id");
+
+                    b.Property<string>("CatalogueSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("catalogue_sha256");
+
+                    b.Property<string>("CatalogueVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("catalogue_version");
+
+                    b.Property<DateTimeOffset>("DerivedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("derived_at_utc");
+
+                    b.Property<int>("EventCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("event_count");
+
+                    b.Property<string>("InputsSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("inputs_sha256");
+
+                    b.Property<Guid>("ProcessingRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("processing_run_id");
+
+                    b.Property<string>("RuleStatesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("rule_states");
+
+                    b.Property<Guid>("SceneAnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("scene_analysis_id");
+
+                    b.Property<Guid>("SceneRevisionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("scene_revision_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SceneAnalysisId", "CatalogueVersion")
+                        .IsUnique()
+                        .HasDatabaseName("ux_analytic_event_derivations_unit_catalogue");
+
+                    b.ToTable("analytic_event_derivations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_analytic_event_derivations_count", "event_count >= 0");
+
+                            t.HasCheckConstraint("ck_analytic_event_derivations_rule_states", "jsonb_typeof(rule_states) = 'array'");
+                        });
+                });
+
             modelBuilder.Entity("Mavi.Domain.Faces.EnrolledPerson", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2417,6 +2624,11 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("name");
 
+                    b.Property<string>("PermittedDirection")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("permitted_direction");
+
                     b.ComplexProperty(typeof(Dictionary<string, object>), "A", "Mavi.Domain.Scene.TripLine.A#NormalizedPoint", b1 =>
                         {
                             b1.IsRequired();
@@ -2450,6 +2662,8 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
                     b.ToTable("trip_lines", null, t =>
                         {
+                            t.HasCheckConstraint("ck_trip_lines_permitted_direction", "permitted_direction IS NULL OR (directed AND permitted_direction IN ('AToB', 'BToA'))");
+
                             t.HasCheckConstraint("ck_trip_lines_range", "ax BETWEEN 0 AND 1 AND ay BETWEEN 0 AND 1 AND bx BETWEEN 0 AND 1 AND by BETWEEN 0 AND 1");
                         });
                 });
@@ -3531,6 +3745,29 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     b.HasOne("Mavi.Domain.Processing.ProcessingRun", null)
                         .WithMany()
                         .HasForeignKey("ProcessingRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Events.AnalyticEvent", b =>
+                {
+                    b.HasOne("Mavi.Domain.Events.AnalyticEventDerivation", null)
+                        .WithMany()
+                        .HasForeignKey("DerivationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("PrimaryTrackId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Events.AnalyticEventDerivation", b =>
+                {
+                    b.HasOne("Mavi.Domain.SceneAnalytics.SceneAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("SceneAnalysisId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

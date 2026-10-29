@@ -162,7 +162,8 @@
         },
         "directed": true,
         "aToBLabel": "inbound",
-        "bToALabel": "outbound"
+        "bToALabel": "outbound",
+        "permittedDirection": null
       }
     ],
     "analyticsEnabled": true

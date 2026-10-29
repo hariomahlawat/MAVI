@@ -304,6 +304,20 @@ function LineProperties({
           Direction matters
         </label>
 
+        <label htmlFor={`line-permitted-${line.key}`}>Permitted direction</label>
+        <select
+          id={`line-permitted-${line.key}`}
+          value={line.directed ? line.permittedDirection ?? '' : ''}
+          disabled={readOnly || !line.directed}
+          onChange={(event) => onUpdate(line.key, {
+            permittedDirection: event.target.value === 'AToB' || event.target.value === 'BToA' ? event.target.value : null,
+          })}
+        >
+          <option value="">Either (no wrong-way events)</option>
+          <option value="AToB">Only {line.aToBLabel || 'A to B'}</option>
+          <option value="BToA">Only {line.bToALabel || 'B to A'}</option>
+        </select>
+
         <label htmlFor={`line-atob-${line.key}`}>A to B</label>
         <input
           id={`line-atob-${line.key}`}

@@ -37,6 +37,12 @@ builder.Services.AddMaviOperatorIdentity(builder.Configuration);
 // puts the API host on the operational plane) and is bounded so it cannot compete with
 // serving requests; SceneAnalytics:Enabled turns it off entirely.
 builder.Services.AddHostedService<SceneAnalyticsHostedService>();
+// Deterministic analytic events (ADR-025): a bounded sweep that derives events from the facts of
+// fact-bearing analysis units. AnalyticEvents:Enabled turns it off.
+builder.Services.Configure<Mavi.Api.Events.AnalyticEventsOptions>(
+    builder.Configuration.GetSection(Mavi.Api.Events.AnalyticEventsOptions.SectionName));
+builder.Services.AddSingleton<Mavi.Api.Events.AnalyticEventsHostedService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<Mavi.Api.Events.AnalyticEventsHostedService>());
 // Platform-owned reclamation of worker attempt staging (ADR-006 §6, S1.2 §6.5).
 // The VisionJob row is its sole authority; StagingJanitor:Enabled turns it off.
 builder.Services.AddHostedService<StagingJanitorHostedService>();
@@ -140,6 +146,7 @@ app.MapFaceEndpoints();
 app.MapFaceOperatorEndpoints();
 app.MapTrackEndpoints();
 app.MapAnalyticsEndpoints();
+app.MapAnalyticEventEndpoints();
 app.MapArtifactEndpoints();
 app.MapSceneEndpoints();
 app.MapSceneAnalyticsEndpoints();
