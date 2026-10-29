@@ -20,11 +20,11 @@ public sealed class PlateOptions
     public const int MaximumReanalysisRunsCeiling = 100;
 
     /// <summary>
-    /// Runs the plate authority loop: activation and queueing, the deadline and attempts-exhausted sweep, and the
-    /// plate staging janitor. With it off none of them runs, while the control plane still serves a configured
-    /// release: a leased unit is then only reclaimed on lease expiry by another worker — never failed for its
-    /// deadline or exhausted attempts — and plate staging is never reclaimed. Off is for tests that drive cycles
-    /// themselves and for a deployment with no plate release; a deployment that serves plate workers runs it on.
+    /// Plate analysis of new work: the preferred identity's activation and the queueing of eligible runs. Off, nothing
+    /// new is activated or queued, but the authority loop keeps running: the deadline and attempts-exhausted sweep and
+    /// the plate staging janitor govern every unit already queued or leased, so disabling plates never strands a lease
+    /// or its staging (PoC S3, closing the Stage-4 PR-3 limit "<c>Plates:Enabled</c> off stops the whole authority
+    /// loop"). Already-queued units are still served to a READY worker.
     /// </summary>
     public bool Enabled { get; init; }
 
@@ -52,6 +52,19 @@ public sealed class PlateOptions
 
     /// <summary>The most runs one explicit re-analysis request may queue (plan §2.2: bounded, never automatic).</summary>
     public int MaximumRunsPerReanalysisRequest { get; init; } = 100;
+
+    /// <summary>
+    /// The interim authorisation of <c>POST /api/plates/reanalysis</c> (PoC S3; replaced by ADR-010 operator identity in
+    /// S11-min): the lowercase SHA-256 of the operator key a request must present in
+    /// <see cref="ReanalysisOperatorKeyHeader"/>. Empty — the default — refuses every request (fails closed); the key
+    /// itself is never configured, logged or stored by the platform.
+    /// </summary>
+    public string ReanalysisOperatorKeySha256 { get; init; } = string.Empty;
+
+    /// <summary>The request header carrying the re-analysis operator key.</summary>
+    public const string ReanalysisOperatorKeyHeader = "X-Mavi-Operator-Key";
+
+    public bool IsReanalysisAuthorisationConfigured => !string.IsNullOrEmpty(ReanalysisOperatorKeySha256);
 
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(ComponentBindingPath) || !string.IsNullOrWhiteSpace(PipelineProfilePath);
@@ -85,6 +98,9 @@ public sealed class PlateOptions
             problems.Add($"{SectionName}:MaximumRunsPerReanalysisRequest must be between 1 and {MaximumReanalysisRunsCeiling}.");
         if (string.IsNullOrWhiteSpace(ComponentBindingPath) != string.IsNullOrWhiteSpace(PipelineProfilePath))
             problems.Add($"{SectionName}:ComponentBindingPath and {SectionName}:PipelineProfilePath are configured together or not at all.");
+        if (IsReanalysisAuthorisationConfigured &&
+            (ReanalysisOperatorKeySha256.Length != 64 || !ReanalysisOperatorKeySha256.All(char.IsAsciiHexDigitLower)))
+            problems.Add($"{SectionName}:ReanalysisOperatorKeySha256 must be empty or a lowercase SHA-256 (64 hexadecimal characters).");
         return problems;
     }
 }
