@@ -21,7 +21,7 @@ This page is the PoC's record of what each capability does not do. The operator 
 - **Small crops.** A crop whose shorter side is under 80 px contributes zero scores (ADR-021 §1). These are averaged in and can only pull a Track towards Unknown, so distant subjects are usually Unknown.
 - **Calibration.** Only two person attributes are calibrated, by owner decision S5-1, on UPAR labels over PA-100K images (`docs/qualification/poc/s5-zero-shot-attributes.md`). This data is a different domain from the demo cameras, so these are Development-scope thresholds, not a measured accuracy here.
   - **Carried bag:** threshold 0.55; held precision 0.85, with 26% of people asserted.
-  - **Upper clothing colour:** threshold 0.80; held precision 0.80, with 28% asserted.
-  - **Lower clothing colour and headwear:** did not reach the precision target, so they are effectively always Unknown.
+  - **Upper clothing colour:** threshold 0.80; held precision 0.797 (95% CI 0.76–0.83), just under the 0.80 target, with 28% asserted.
+  - **Lower clothing colour and headwear:** did not reach the precision target, so they are almost always Unknown (lower colour asserted 1 of 1,500 held images, wrongly).
   - **Vehicle colour:** uses a predeclared, **uncalibrated** rule. A colour is asserted only when it holds at least half of the model's score across the 11 colours.
 - **Search scale.** Attribute search is exact and measured only at demo scale; the Stage-2 E8 volume measurement is not attempted.
