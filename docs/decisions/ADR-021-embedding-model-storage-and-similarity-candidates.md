@@ -52,7 +52,7 @@ Chance R@1 is 0.005. A post-hoc breakdown of the first run (hypothesis only) fou
   - Nothing is downloaded at install or first run.
 - **Runtime:** a new Development runtime family, `embeddings-onnx-v1` (Python 3.12, ONNX Runtime 1.31.0 CPU, NumPy, Pillow, SentencePiece, httpx, pydantic), with its own lock.
   - It is not part of the vision lock or any qualified Runtime Pack.
-  - Its CUDA variant uses whatever `onnxruntime-gpu` build S1b pins for the ONNX roles. The S4 spike found that the PyPI `onnxruntime-gpu 1.31.0` needs CUDA 13 and fails on the laptop's driver, so the CUDA variant is a dependency on S1b, not a decision here.
+  - Its CUDA variant uses the one GPU pin S1b chose for the ONNX roles: `onnxruntime-gpu 1.26.0`, the last CUDA 12 build. The S4 spike found that the PyPI `onnxruntime-gpu 1.31.0` needs CUDA 13 and fails on the laptop's driver. The CUDA 12.4 / cuDNN 9.1 DLLs come from the vision CUDA Runtime Pack's `torch/lib`. The variant is locked here once S1b's pin merges (PR #243); until then the packaged runtime is CPU and explicit CUDA fails closed.
 
 ### 3. The `embeddings` role: post-Track, lease-scoped, failure-isolated
 

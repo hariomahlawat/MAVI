@@ -1,0 +1,11 @@
+# schema: mavi-vision-runtime-requirements-v1
+# platform-variant: windows-x86_64-cpu
+# python-version: 3.12.10
+httpx<0.29,>=0.28
+numpy==2.5.3
+onnxruntime==1.31.0
+packaging<27,>=26
+pillow==11.3.0
+pydantic-settings<3,>=2.10
+pydantic<3,>=2.11
+sentencepiece==0.2.2

@@ -1201,7 +1201,11 @@ def check_embedding_contract(errors: list[str]) -> None:
     """The embedding identity vectors re-derive from the committed files, and the examples agree with them."""
     vectors = json.loads((ROOT / "contracts/test-vectors/embedding-identity-v1.json").read_text(encoding="utf-8"))
     for vector in vectors["vectors"]:
-        canonical, fingerprint = embedding_identity(ROOT / vector["modelManifest"], ROOT / vector["pipelineProfile"])
+        manifest_path, profile_path = ROOT / vector["modelManifest"], ROOT / vector["pipelineProfile"]
+        if not (manifest_path.is_file() and profile_path.is_file()):
+            # A contracts-only tree (the contract drift tests) has no manifests or profiles to re-derive from.
+            continue
+        canonical, fingerprint = embedding_identity(manifest_path, profile_path)
         if canonical != vector["canonicalIdentity"] or fingerprint != vector["fingerprint"]:
             fail(f"Embedding identity vector {vector['name']} no longer matches its manifest and profile.", errors)
     lease = json.loads((ROOT / "contracts/examples/embedding-lease-v1.example.json").read_text(encoding="utf-8"))
@@ -1214,7 +1218,7 @@ def check_embedding_contract(errors: list[str]) -> None:
         fail("The embedding completion example does not describe the lease example's Tracks in order.", errors)
 
 
-def check_embedding_profiles(tracked: list[Path], manifests: dict, errors: list[str]) -> set[str]:
+def check_embedding_profiles(tracked: list[Path], manifests: dict, errors: list[str], root: Path = ROOT) -> set[str]:
     """PoC S4 (ADR-021 §2-§3): the embeddings role is composed from explicit paths, not a Component Binding.
 
     Every tracked embedding pipeline profile is developmentOnly and names a tracked, unverified ``embedding``
@@ -1223,11 +1227,10 @@ def check_embedding_profiles(tracked: list[Path], manifests: dict, errors: list[
     """
     bound: set[str] = set()
     by_path = {manifest_path.resolve(): (pack_id, manifest) for pack_id, (manifest_path, manifest, _hash) in manifests.items()}
-    policy = json.loads((ROOT / "config/dependencies/offline-dependency-policy-v1.json").read_text(encoding="utf-8"))
-    families = ((policy.get("ecosystemStrategies") or {}).get("python") or {}).get("developmentRuntimeFamilies") or {}
+    families: dict | None = None
     tracked_set = {path.resolve() for path in tracked}
     for path in tracked:
-        relative = path.relative_to(ROOT).as_posix()
+        relative = path.relative_to(root).as_posix()
         if not (relative.startswith("src/vision/config/embeddings/") and relative.endswith(".json")):
             continue
         try:
@@ -1238,11 +1241,15 @@ def check_embedding_profiles(tracked: list[Path], manifests: dict, errors: list[
         if profile.get("schemaVersion") != "mavi-embedding-pipeline-v1" or profile.get("developmentOnly") is not True:
             fail(f"Embedding pipeline profile {relative} must be mavi-embedding-pipeline-v1 and developmentOnly.", errors)
             continue
-        manifest_path = (ROOT / str(profile.get("modelManifest"))).resolve()
+        manifest_path = (root / str(profile.get("modelManifest"))).resolve()
         if manifest_path not in tracked_set or manifest_path not in by_path:
             fail(f"Embedding pipeline profile {relative} names no tracked model manifest.", errors)
             continue
         pack_id, manifest = by_path[manifest_path]
+        if families is None:
+            policy_path = root / "config/dependencies/offline-dependency-policy-v1.json"
+            policy = json.loads(policy_path.read_text(encoding="utf-8")) if policy_path.is_file() else {}
+            families = ((policy.get("ecosystemStrategies") or {}).get("python") or {}).get("developmentRuntimeFamilies") or {}
         document = json.loads(manifest_path.read_text(encoding="utf-8"))
         family_ids = (document.get("runtimeCompatibility") or {}).get("runtimePackFamilyIds") or []
         if (document.get("capabilityIds") != ["embedding"] or manifest.verification_status != "unverified"
@@ -2325,7 +2332,7 @@ def check_vision_release_metadata(
     for qualification_id, (record_path, _record, _hash) in records.items():
         if qualification_id not in bound_records:
             fail(f"Qualification record {rel(record_path)} is bound by no capability binding.", errors)
-    bound_packs |= check_embedding_profiles(tracked, manifests, errors)
+    bound_packs |= check_embedding_profiles(tracked, manifests, errors, root)
     for model_pack_id, (manifest_path, _manifest, _hash) in manifests.items():
         if model_pack_id not in bound_packs:
             fail(f"Model manifest {rel(manifest_path)} is bound by no capability binding.", errors)
