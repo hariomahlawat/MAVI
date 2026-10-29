@@ -142,6 +142,9 @@ public sealed class FaceContractTests
         Assert.False(stale.CanClaim(now.AddMinutes(15)));
 
         Assert.Throws<DomainValidationException>(() => FaceQuery.Create(new string('a', 64), [1], "image/gif", now));
+        Assert.Throws<DomainValidationException>(() => FaceQuery.Create(new string('a', 64), [0xFF, 0xD8, 0xFF, 1], "image/jpeg", now, Guid.Empty));
+        var fixedId = Guid.CreateVersion7();
+        Assert.Equal(fixedId, FaceQuery.Create(new string('a', 64), [0xFF, 0xD8, 0xFF, 1], "image/jpeg", now, fixedId).Id);
         Assert.Throws<DomainValidationException>(() => FaceQuery.Create(new string('a', 64), new byte[FaceQuery.MaximumImageBytes + 1], "image/png", now));
     }
 
@@ -150,6 +153,7 @@ public sealed class FaceContractTests
     {
         var now = new DateTimeOffset(2026, 10, 29, 12, 0, 0, TimeSpan.Zero);
         Assert.Throws<DomainValidationException>(() => EnrolledPerson.Create("  ", null, now));
+        Assert.Throws<DomainValidationException>(() => EnrolledPerson.Create("Visitor A", null, now, Guid.Empty));
         Assert.Throws<DomainValidationException>(() => EnrolledPerson.Create(new string('x', 101), null, now));
         var person = EnrolledPerson.Create(" Visitor A ", " note ", now);
         Assert.Equal("Visitor A", person.Label);

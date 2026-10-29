@@ -521,6 +521,7 @@ public sealed class FaceApiTests(PostgresFixture fixture)
         var enrolled = await host.PostOkAsync("/api/faces/gallery", new { label = Label, note = "front desk", source = new { faceId } }, HttpStatusCode.Created);
         var personId = enrolled.GetProperty("enrolledPersonId").GetGuid();
         Assert.Equal(audits + 1, await host.AuditCountAsync());
+        Assert.Contains($"\"action\":\"faces.gallery-enrolled\",\"subject_type\":\"face-gallery-entry\",\"subject_id\":\"{personId:D}\"", await host.AuditTextAsync(), StringComparison.Ordinal);
 
         using (var patch = await host.Client.PatchAsJsonAsync($"/api/faces/gallery/{personId}", new { note = (string?)null }))
             Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
@@ -585,6 +586,7 @@ public sealed class FaceApiTests(PostgresFixture fixture)
             HttpStatusCode.Accepted);
         var queryId = uploaded.GetProperty("queryId").GetGuid();
         Assert.Equal(audits + 1, await host.AuditCountAsync());
+        Assert.Contains($"\"action\":\"faces.query-uploaded\",\"subject_type\":\"face-query\",\"subject_id\":\"{queryId:D}\"", await host.AuditTextAsync(), StringComparison.Ordinal);
 
         // The worker leases the query, reads the image lease-scoped, and completes it.
         using var lease = await host.Client.PostAsJsonAsync($"{FaceContractRules.QueryWorkerRoutePrefix}/lease", new

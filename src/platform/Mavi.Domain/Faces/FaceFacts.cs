@@ -29,15 +29,16 @@ public sealed class FaceQuery
 
     private FaceQuery() { }
 
-    public static FaceQuery Create(string identityFingerprint, byte[] image, string mimeType, DateTimeOffset nowUtc)
+    /// <param name="id">The query id, when the caller fixed it beforehand (its audit row names it); otherwise a new one.</param>
+    public static FaceQuery Create(string identityFingerprint, byte[] image, string mimeType, DateTimeOffset nowUtc, Guid? id = null)
     {
         ArgumentNullException.ThrowIfNull(image);
-        if (!CanonicalSha256.IsCanonical(identityFingerprint) || image.Length is < 1 or > MaximumImageBytes || !MimeTypes.Contains(mimeType))
+        if (id == Guid.Empty || !CanonicalSha256.IsCanonical(identityFingerprint) || image.Length is < 1 or > MaximumImageBytes || !MimeTypes.Contains(mimeType))
             throw Invalid();
         var now = nowUtc.ToUniversalTime();
         return new FaceQuery
         {
-            Id = Guid.CreateVersion7(),
+            Id = id ?? Guid.CreateVersion7(),
             IdentityFingerprint = identityFingerprint,
             Image = [.. image],
             ImageSha256 = CanonicalSha256.ToHex(System.Security.Cryptography.SHA256.HashData(image)),
@@ -186,12 +187,14 @@ public sealed class EnrolledPerson
 
     private EnrolledPerson() { }
 
-    public static EnrolledPerson Create(string? label, string? note, DateTimeOffset nowUtc)
+    /// <param name="id">The entry id, when the caller fixed it beforehand (its audit row names it); otherwise a new one.</param>
+    public static EnrolledPerson Create(string? label, string? note, DateTimeOffset nowUtc, Guid? id = null)
     {
+        if (id == Guid.Empty) throw new DomainValidationException(InvalidCode, "A gallery entry id must not be empty.");
         var now = nowUtc.ToUniversalTime();
         return new EnrolledPerson
         {
-            Id = Guid.CreateVersion7(),
+            Id = id ?? Guid.CreateVersion7(),
             Label = ValidLabel(label),
             Note = ValidNote(note),
             CreatedAtUtc = now,

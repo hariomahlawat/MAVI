@@ -69,12 +69,12 @@ public sealed class FaceRepository(MaviDbContext db, TimeProvider timeProvider) 
     }
 
     public async Task<FaceQuery> CreateQueryAsync(
-        string identityFingerprint, byte[] image, string mimeType, int maximumPending, CancellationToken cancellationToken)
+        Guid queryId, string identityFingerprint, byte[] image, string mimeType, int maximumPending, CancellationToken cancellationToken)
     {
         var waiting = await db.FaceQueries.AsNoTracking()
             .CountAsync(x => x.Image != null && (x.Status == FaceQueryStatus.Pending || x.Status == FaceQueryStatus.Running), cancellationToken);
         if (waiting >= maximumPending) throw new FaceQueryQueueFullException();
-        var query = FaceQuery.Create(identityFingerprint, image, mimeType, timeProvider.GetUtcNow());
+        var query = FaceQuery.Create(identityFingerprint, image, mimeType, timeProvider.GetUtcNow(), queryId);
         db.FaceQueries.Add(query);
         await db.SaveChangesAsync(cancellationToken);
         return query;
@@ -253,11 +253,11 @@ public sealed class FaceRepository(MaviDbContext db, TimeProvider timeProvider) 
         return View(person, templates[person.Id]);
     }
 
-    public async Task<Guid> EnrolAsync(string? label, string? note, ResolvedFace face, string identityFingerprint, CancellationToken cancellationToken)
+    public async Task<Guid> EnrolAsync(Guid enrolledPersonId, string? label, string? note, ResolvedFace face, string identityFingerprint, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(face);
         var now = timeProvider.GetUtcNow();
-        var person = EnrolledPerson.Create(label, note, now);
+        var person = EnrolledPerson.Create(label, note, now, enrolledPersonId);
         db.EnrolledPersons.Add(person);
         db.EnrolledPersonFaces.Add(Template(person.Id, face, identityFingerprint, now));
         await db.SaveChangesAsync(cancellationToken);

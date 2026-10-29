@@ -90,7 +90,7 @@ public interface IFaceRepository
     /// <summary>Null when the Track is unknown.</summary>
     Task<TrackFacesView?> GetTrackFacesAsync(Guid trackId, string identityFingerprint, CancellationToken cancellationToken);
 
-    Task<FaceQuery> CreateQueryAsync(string identityFingerprint, byte[] image, string mimeType, int maximumPending, CancellationToken cancellationToken);
+    Task<FaceQuery> CreateQueryAsync(Guid queryId, string identityFingerprint, byte[] image, string mimeType, int maximumPending, CancellationToken cancellationToken);
 
     Task<FaceQueryView?> GetQueryAsync(Guid queryId, CancellationToken cancellationToken);
 
@@ -111,7 +111,7 @@ public interface IFaceRepository
 
     Task<GalleryEntryView?> GetGalleryEntryAsync(Guid enrolledPersonId, CancellationToken cancellationToken);
 
-    Task<Guid> EnrolAsync(string? label, string? note, ResolvedFace face, string identityFingerprint, CancellationToken cancellationToken);
+    Task<Guid> EnrolAsync(Guid enrolledPersonId, string? label, string? note, ResolvedFace face, string identityFingerprint, CancellationToken cancellationToken);
 
     /// <summary>False when the entry is unknown.</summary>
     Task<bool> UpdateGalleryEntryAsync(Guid enrolledPersonId, string? label, string? note, bool noteGiven, CancellationToken cancellationToken);

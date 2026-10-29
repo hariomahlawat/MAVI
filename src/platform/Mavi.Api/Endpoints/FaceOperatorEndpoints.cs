@@ -161,9 +161,11 @@ public static class FaceOperatorEndpoints
 
         try
         {
-            var (query, _) = await audit.RecordAsync(new AuditRecord("faces.query-uploaded", SubjectQuery, "new",
+            // The id is fixed before the mutation so the audit row names the query it created (ADR-022 §6).
+            var queryId = Guid.CreateVersion7();
+            var (query, _) = await audit.RecordAsync(new AuditRecord("faces.query-uploaded", SubjectQuery, queryId.ToString("D"),
                     new { sizeBytes = image.Length, mimeType = mime }),
-                token => repository.CreateQueryAsync(definition.Identity.Fingerprint, image, mime, options.Value.MaximumPendingQueries, token),
+                token => repository.CreateQueryAsync(queryId, definition.Identity.Fingerprint, image, mime, options.Value.MaximumPendingQueries, token),
                 cancellationToken);
             return Results.Accepted($"/api/faces/queries/{query.Id}", new { queryId = query.Id, status = "pending", purgeAfterUtc = query.PurgeAfterUtc });
         }
@@ -257,9 +259,11 @@ public static class FaceOperatorEndpoints
         var source = sourceRequest.ToSource();
         try
         {
-            var (id, _) = await audit.RecordAsync(new AuditRecord("faces.gallery-enrolled", SubjectGallery, source.Canonical,
+            // The id is fixed before the mutation so the audit row names the entry it created (ADR-022 §6).
+            var enrolledPersonId = Guid.CreateVersion7();
+            var (id, _) = await audit.RecordAsync(new AuditRecord("faces.gallery-enrolled", SubjectGallery, enrolledPersonId.ToString("D"),
                     new { source = source.Canonical }),
-                async token => await repository.EnrolAsync(request.Label, request.Note,
+                async token => await repository.EnrolAsync(enrolledPersonId, request.Label, request.Note,
                     await ResolveOrRefuseAsync(repository, source, definition, token), definition.Identity.Fingerprint, token),
                 cancellationToken);
             return Results.Created($"/api/faces/gallery/{id}", new { enrolledPersonId = id });
