@@ -161,3 +161,5 @@ If pass 4 (A1–A3) still yields no CC0 or model-released lobby/close-range clip
 - **Commons s2-08.** The Damascus Gate original stays in the source store with its receipt and admissibility record. It leaves the demo definition and the kit.
 
 **Fallback.** If G331 is not a fixed, populated view, it is not substituted silently. The finding goes back to the owner.
+
+**Note on A5 (2026-10-29, added after the cold review; A5 itself is left as pre-registered).** A5 says decisions 2(a) and 3(a) cover G331. Those decisions named the A4 clips: decision 3(a) named s2-10, s2-11 and s2-12. Extending them to G331 is the operator's inference, and it is open as owner decision 13 (admissibility §12).
