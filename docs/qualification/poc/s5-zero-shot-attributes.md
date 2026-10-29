@@ -1,13 +1,11 @@
 # PoC S5: zero-shot attributes, calibration note
 
-**Status:** Calibrated under **protocol v3** (owner decision S5-1, 2026-10-29, option C+D: "Go UPAR route for now").
+**Status:** **Uncalibrated by owner decision S5-1, option D (2026-10-30).** Every attribute ships with the predeclared threshold 0.5 and the disclosure "zero-shot, uncalibrated, Development" (release identity aa9a83bc…d82a).
 
-- **Person attributes:** tuned on UPAR/PA-100K. This is Development scope; the data is a different domain from the demo cameras.
-- **Vehicle colour:** a predeclared, **uncalibrated** rule.
-- **Owner labels:** none were made, and no AI-made label counts as calibration.
-- **Protocols v1 and v2** were never run with labels. They are kept below as the record of how the method changed.
-**Evidence class:** Development (ADR-020). Zero-shot, Development; not qualified, not a Stage-2 S2c learned Model Pack, and closing no Stage-2 F/G row.
-**Governing:** plan slice S5; ADR-021 and its 2026-10-29 amendment; register rows C2.1 and C2.2.
+- **The trial is feasibility evidence only.** The protocol v3 tuning on UPAR over PA-100K (§5) was run and is kept as evidence that calibration is feasible. Its thresholds are **not** shipped.
+- **What it showed.** Lower clothing colour stayed at 0.38–0.45 precision at every threshold, and headwear could not be measured. The owner chose to disclose the limitation rather than tune it.
+- **Scope extension.** The owner's evaluate-to-tuning extension record is marked unused.
+- **Labels.** No owner labels were made, and no AI-made label counts as calibration.
 
 ## 1. What is calibrated
 
@@ -65,7 +63,7 @@ For orientation only, the withdrawn v1 run gave these unlabelled distributions o
 | `person-headwear` | p(present) 0.01 / 0.10 / 0.41 | `present` > 0.5 on 5 of 100 |
 | `vehicle-colour` | 0.38 / 0.71 / 0.96 | black 40, grey 17, white 15, silver 13 |
 
-## 5. Calibration result (protocol v3, `docs/qualification/poc/s5-zero-shot-protocol-v3.json`)
+## 5. Trial calibration (protocol v3, `docs/qualification/poc/s5-zero-shot-protocol-v3.json`): feasibility evidence, not shipped
 
 The protocol was frozen in `dc83dd51` before the tuning run. The owner's scope extension from "evaluate" to "tuning" for the UPAR and PA-100K releases is recorded in `E:\MAVI-Controlled\Evidence\S5\2026-10-29-owner-tuning-scope-extension.json` (SHA-256 `118622df…`). It is the owner's decision, not an R-5 licence ruling. Whether ShareAlike attaches to the tuned thresholds is still undecided.
 
@@ -88,7 +86,7 @@ The protocol was frozen in `dc83dd51` before the tuning run. The owner's scope e
 
 **Why lower colour fails** (hypothesis, not tested). UPAR's lower-body colour is often grey or black trousers on small, low-contrast crops, and the "trousers / pants / skirt" prompts do not separate them well. Changing the prompts would need a new protocol and is not done here.
 
-**Release.** The thresholds are written by `tools/poc/attributes_zero_shot_profile.py --thresholds`. The new analysis identity is `11f06733…10e4`; the earlier `d51e7347…` analyses read as Stale.
+**Release.** The trial thresholds were applied briefly as identity `11f06733…10e4`, which was used for the `e2e-v3` run. Owner decision S5-1 option D (2026-10-30) replaced them with the predeclared 0.5 for every attribute and the uncalibrated disclosure. The shipped identity is `aa9a83bc…d82a`.
 
 ## 6. Honest limits
 

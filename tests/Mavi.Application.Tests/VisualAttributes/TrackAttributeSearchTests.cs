@@ -17,7 +17,7 @@ public sealed class TrackAttributeSearchTests
     private static readonly TrackCursorSigningKey OtherKey =
         TrackCursorSigningKey.FromBytes(Enumerable.Range(50, 32).Select(x => (byte)x).ToArray());
     private static readonly DateTimeOffset At = new(2026, 10, 29, 12, 0, 0, TimeSpan.Zero);
-    private const string Fingerprint = "11f06733af390526b0c3731de15d54731789f652792957bc84ff0374bd8110e4";
+    private const string Fingerprint = "aa9a83bc423dd2b0a0214cd51f5e469c80566fbf253087b79af5e46c7d92d82a";
     private static readonly Guid Camera = Guid.Parse("0199a1f0-0000-7000-8000-00000000c001");
     private static readonly Guid Revision = Guid.Parse("0199a1f0-0000-7000-8000-00000000b001");
     private static readonly Guid Zone = Guid.Parse("0199a1f0-0000-7000-8000-00000000d001");
@@ -232,7 +232,7 @@ public sealed class TrackAttributeSearchTests
         Assert.Equal(vector.RootElement.GetProperty("fingerprint").GetString(), definition.Identity.Fingerprint);
         Assert.Equal(Fingerprint, definition.Identity.Fingerprint);
         Assert.True(definition.DevelopmentOnly);
-        Assert.Equal("zero-shot, Development", definition.Disclosure);
+        Assert.Equal("zero-shot, uncalibrated, Development", definition.Disclosure);
         Assert.Equal(
             ["person-carried-bag", "person-headwear", "person-lower-colour", "person-upper-colour", "vehicle-colour"],
             definition.Schema.Attributes.Select(item => item.AttributeType));

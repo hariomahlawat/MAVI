@@ -98,7 +98,11 @@ def test_the_committed_release_documents_are_what_the_generator_writes() -> None
 def test_the_profile_is_development_only_zero_shot_and_states_its_disclosure() -> None:
     profile, parameters = _profile()
     assert profile.development_only
-    assert profile.parameters["disclosure"] == "zero-shot, Development"
+    assert profile.parameters["disclosure"] == "zero-shot, uncalibrated, Development"
+    # Owner decision S5-1 (option D): every threshold is the predeclared, uncalibrated 0.5.
+    assert {name: item.threshold for name, item in _profile()[1].attributes.items()} == {
+        "person-carried-bag": 0.5, "person-headwear": 0.5, "person-lower-colour": 0.5, "person-upper-colour": 0.5,
+        "vehicle-colour": 0.5}
     assert parameters.minimum_crop_side == 80
     assert profile.aggregation.minimum_confidence == 0.5
     # Presence attributes emit only "present": no negative claim is ever made.

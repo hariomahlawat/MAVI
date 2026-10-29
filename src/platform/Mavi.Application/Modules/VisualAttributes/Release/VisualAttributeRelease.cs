@@ -273,7 +273,7 @@ public static class VisualAttributeReleaseParser
             if (ReadString(element, "schemaVersion", "attribute_parameters_invalid") != ParametersSchema ||
                 element.GetProperty("parameters").ValueKind != JsonValueKind.Object)
                 throw new VisualAttributeReleaseException("attribute_parameters_invalid");
-            // The operator-facing disclosure a Development pipeline states (PoC S5: "zero-shot, Development"). It is
+            // The operator-facing disclosure a Development pipeline states (PoC S5: "zero-shot, uncalibrated, Development"). It is
             // optional; when present it must be short printable ASCII, and every search and detail surface shows it.
             if (element.GetProperty("parameters").TryGetProperty("disclosure", out var stated))
             {

@@ -136,7 +136,7 @@ The role follows ADR-013 §8–§12 and the plate role's control plane (`mavi-em
 
 ## Amendment 2026-10-29 (PoC S5): zero-shot attributes on the same Model Pack
 
-**Status:** **Proposed**, for owner ratification (register C2.1; S5 owner decision S5-ADR). Nothing below changes §1–§5 or the decision ratified above.
+**Status:** **Accepted**: the owner ratified this amendment as written on 2026-10-30 (register owner decisions, S5-ADR). Nothing below changes §1–§5 or the decision ratified above.
 
 **Context.** Plan slice S5 replaces the S2b fixture inferencer of the existing `attributes` role with SigLIP 2 zero-shot scoring and adds attribute search (Stage-2 plan §16) and its UI. D5 says one Model Pack serves Stages 2, 5 and 6. Stage-2's frozen register rows (E5–E8, F, G) and the S2c learned-pack work are not touched. This amendment states how the role is composed, what a row means and how search is paged.
 
@@ -166,3 +166,5 @@ The role follows ADR-013 §8–§12 and the plate role's control plane (`mavi-em
 - The resolver's Runtime Pack, qualification and gate-set checks do not apply to this role, exactly as for `embeddings`. Moving both roles into the binding machinery is the promotion path.
 - Calibration is only as good as its held set. The method and numbers are in `docs/qualification/poc/s5-zero-shot-attributes.md`, and the result is a Development scope, not qualification.
 - Stage-2 E5–E8 behaviour is implemented here for the PoC, but rows E5–E8 stay OPEN. E8 (measured plans at realistic and worst-supported volume) in particular is not attempted.
+
+**Note 2026-10-30 (owner decision S5-1, option D; this note is outside the ratified text).** The abstention is predeclared and uncalibrated. Every attribute uses threshold 0.5, and the disclosure value is now `"zero-shot, uncalibrated, Development"` (release identity `aa9a83bc…d82a`). The trial calibration against UPAR over PA-100K is kept only as feasibility evidence (`docs/qualification/poc/s5-zero-shot-attributes.md` §5).

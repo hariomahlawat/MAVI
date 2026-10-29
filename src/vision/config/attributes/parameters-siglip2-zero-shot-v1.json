@@ -2,7 +2,7 @@
   "schemaVersion": "mavi-visual-attribute-parameters-v1",
   "parameters": {
     "inferencer": "siglip2-zero-shot-v1",
-    "disclosure": "zero-shot, Development",
+    "disclosure": "zero-shot, uncalibrated, Development",
     "modelManifest": {
       "file": "embeddings-siglip2-base-p16-224-dev-v1.json",
       "sha256": "d5adcb08f226eed955ccd9b2b05a2a53975cd84f8a0942e765fe9a675a191f08"
@@ -12,7 +12,7 @@
     "attributes": {
       "person-carried-bag": {
         "kind": "presence",
-        "threshold": 0.55,
+        "threshold": 0.5,
         "prompts": {
           "present": [
             "a photo of a person carrying a bag",
@@ -27,7 +27,7 @@
       },
       "person-headwear": {
         "kind": "presence",
-        "threshold": 0.99,
+        "threshold": 0.5,
         "prompts": {
           "present": [
             "a photo of a person wearing a hat",
@@ -42,7 +42,7 @@
       },
       "person-lower-colour": {
         "kind": "categorical",
-        "threshold": 0.99,
+        "threshold": 0.5,
         "prompts": {
           "black": [
             "a photo of a person wearing black trousers",
@@ -103,7 +103,7 @@
       },
       "person-upper-colour": {
         "kind": "categorical",
-        "threshold": 0.8,
+        "threshold": 0.5,
         "prompts": {
           "black": [
             "a photo of a person wearing a black top",

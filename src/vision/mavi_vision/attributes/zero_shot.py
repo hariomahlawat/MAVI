@@ -36,6 +36,9 @@ from mavi_vision.attributes.pipeline import AttributeDefinition, AttributeSchema
 from mavi_vision.embeddings.model import EmbeddingModel, inspect_crop, l2_normalise_rows
 
 INFERENCER_ID = "siglip2-zero-shot-v1"
+# Owner decision S5-1 (2026-10-30, option D): the abstention thresholds are predeclared and uncalibrated, and every
+# surface says so through this disclosure.
+DISCLOSURE = "zero-shot, uncalibrated, Development"
 KIND_CATEGORICAL = "categorical"
 KIND_PRESENCE = "presence"
 PRESENT = "present"
@@ -97,7 +100,7 @@ def parse_zero_shot_parameters(parameters: Mapping[str, object], schema: Attribu
     expected = {"inferencer", "disclosure", "modelManifest", "logitScale", "minimumCropSide", "attributes"}
     if set(parameters) != expected or parameters["inferencer"] != INFERENCER_ID:
         raise _fail("keys")
-    if parameters["disclosure"] != "zero-shot, Development":
+    if parameters["disclosure"] != DISCLOSURE:
         raise _fail("disclosure")
     manifest = parameters["modelManifest"]
     if not isinstance(manifest, Mapping) or set(manifest) != {"file", "sha256"}:

@@ -99,7 +99,7 @@ def documents(thresholds: dict[str, float]) -> dict[str, bytes]:
         "schemaVersion": "mavi-visual-attribute-parameters-v1",
         "parameters": {
             "inferencer": "siglip2-zero-shot-v1",
-            "disclosure": "zero-shot, Development",
+            "disclosure": "zero-shot, uncalibrated, Development",
             "modelManifest": {"file": MANIFEST.name, "sha256": sha256(manifest_bytes)},
             "logitScale": LOGIT_SCALE,
             "minimumCropSide": MINIMUM_CROP_SIDE,
