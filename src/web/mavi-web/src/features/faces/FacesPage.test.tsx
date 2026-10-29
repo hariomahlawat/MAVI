@@ -130,6 +130,15 @@ describe('PoC S6 Faces page', () => {
     await waitFor(() => expect(deleteGalleryEntry).toHaveBeenCalledWith('e1'));
   });
 
+  it('shows the flag the camera list reports and offers only the opposite switch', async () => {
+    vi.mocked(listCameras).mockResolvedValue([{ ...camera, faceAnalysisEnabled: true }]);
+    renderWithApp(<FacesPage />);
+    const cameras = await screen.findByRole('list', { name: 'Cameras' });
+    expect(await within(cameras).findByText('On')).toBeInTheDocument();
+    expect(within(cameras).queryByRole('button', { name: 'Switch on' })).toBeNull();
+    expect(within(cameras).getByRole('button', { name: 'Switch off' })).toBeInTheDocument();
+  });
+
   it('switches face analysis on and off per camera, each through the dialog', async () => {
     const user = userEvent.setup();
     vi.mocked(setCameraFaceAnalysis)

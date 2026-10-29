@@ -10,6 +10,8 @@ export type Camera = {
   isActive: boolean;
   createdAtUtc: string;
   updatedAtUtc: string;
+  /** ADR-022 §3: face analysis is opt-in per camera, off by default. */
+  faceAnalysisEnabled?: boolean;
 };
 
 export type CreateCameraInput = {

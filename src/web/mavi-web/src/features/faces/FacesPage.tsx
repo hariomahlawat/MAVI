@@ -277,7 +277,6 @@ function GalleryPanel() {
 
 function CameraSwitches() {
   const cameras = useQuery({ queryKey: queryKeys.cameras, queryFn: ({ signal }) => listCameras(signal) });
-  // The camera list does not report the flag; what this page set is what it shows.
   const [known, setKnown] = useState<Record<string, boolean>>({});
   const [pending, setPending] = useState<{ camera: Camera; enabled: boolean } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -285,6 +284,7 @@ function CameraSwitches() {
     mutationFn: (target: { camera: Camera; enabled: boolean }) => setCameraFaceAnalysis(target.camera.id, target.enabled),
     onSuccess: (response, target) => {
       setKnown((current) => ({ ...current, [target.camera.id]: response.faceAnalysisEnabled }));
+      void cameras.refetch();
       setMessage(response.faceAnalysisEnabled
         ? `Face analysis switched on for ${target.camera.code}.`
         : `Face analysis switched off for ${target.camera.code}; ${response.faceAnalysesDeleted} face analys${response.faceAnalysesDeleted === 1 ? 'is' : 'es'} deleted.`);
@@ -312,7 +312,7 @@ function CameraSwitches() {
         {(data) => (
           <ul className="stack" aria-label="Cameras">
             {data.map((camera) => {
-              const state = known[camera.id];
+              const state = known[camera.id] ?? camera.faceAnalysisEnabled;
               return (
                 <li key={camera.id} className="row">
                   <span>{camera.code} · {camera.name}</span>

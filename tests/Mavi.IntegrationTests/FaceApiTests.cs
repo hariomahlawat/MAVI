@@ -497,6 +497,11 @@ public sealed class FaceApiTests(PostgresFixture fixture)
 
         Assert.Equal("notEnabled", (await host.TrackFacesAsync(run.Track(0).TrackId)).GetProperty("state").GetString());
         Assert.Equal(0, (await host.RunCycleAsync()).Queued);
+        var cameras = await host.Client.GetFromJsonAsync<JsonElement>("/api/cameras");
+        Assert.False(cameras.EnumerateArray().Single(c => c.GetProperty("id").GetGuid() == host.World.CameraId).GetProperty("faceAnalysisEnabled").GetBoolean());
+        using (var optIn = await host.OptInAsync()) Assert.Equal(HttpStatusCode.OK, optIn.StatusCode);
+        cameras = await host.Client.GetFromJsonAsync<JsonElement>("/api/cameras");
+        Assert.True(cameras.EnumerateArray().Single(c => c.GetProperty("id").GetGuid() == host.World.CameraId).GetProperty("faceAnalysisEnabled").GetBoolean());
     }
 
     [Fact]
