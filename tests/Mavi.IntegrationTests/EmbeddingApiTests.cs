@@ -94,7 +94,11 @@ internal sealed class EmbeddingApiHost : IAsyncDisposable
     {
         using var response = await PostLeaseAsync(workerId);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var lease = await response.Content.ReadFromJsonAsync<EmbeddingLeaseContract>();
+        // The wire format the worker's contract requires (embedding-lease-v1 "utc"): UTC instants end in Z.
+        var raw = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        Assert.EndsWith("Z", raw.GetProperty("leaseExpiresAtUtc").GetString(), StringComparison.Ordinal);
+        Assert.EndsWith("Z", raw.GetProperty("deadlineAtUtc").GetString(), StringComparison.Ordinal);
+        var lease = raw.Deserialize<EmbeddingLeaseContract>(JsonSerializerOptions.Web);
         return new LeasedEmbeddingUnit(lease!, Assert.Single(response.Headers.GetValues(EmbeddingContractRules.CapabilityHeader)), workerId);
     }
 
@@ -482,7 +486,9 @@ public sealed class EmbeddingApiTests(PostgresFixture fixture)
             identityFingerprint = host.Fingerprint,
         });
         Assert.Equal(HttpStatusCode.OK, lease.StatusCode);
-        var text = await lease.Content.ReadFromJsonAsync<EmbeddingTextQueryLeaseContract>();
+        var textJson = JsonDocument.Parse(await lease.Content.ReadAsStringAsync()).RootElement;
+        Assert.EndsWith("Z", textJson.GetProperty("leaseExpiresAtUtc").GetString(), StringComparison.Ordinal);
+        var text = textJson.Deserialize<EmbeddingTextQueryLeaseContract>(JsonSerializerOptions.Web);
         Assert.Equal("red jacket", text!.Text);
         var capability = Assert.Single(lease.Headers.GetValues(EmbeddingContractRules.CapabilityHeader));
         using (var completed = await host.SendRawAsync($"{EmbeddingContractRules.TextQueryRoutePrefix}/{text.QueryId}/complete", capability,

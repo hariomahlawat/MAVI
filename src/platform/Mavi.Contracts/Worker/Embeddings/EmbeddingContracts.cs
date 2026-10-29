@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Mavi.Contracts.Worker.Embeddings;
 
 // The embedding control plane mavi-embedding-control-v1 (PoC S4; ADR-021 §3). Capability-specific: no
@@ -34,14 +36,16 @@ public sealed record EmbeddingLeaseContract(
     Guid ProcessingRunId,
     string WorkerId,
     int AttemptCount,
-    DateTimeOffset LeaseExpiresAtUtc,
-    DateTimeOffset DeadlineAtUtc,
+    [property: JsonConverter(typeof(UtcDateTimeOffsetJsonConverter))] DateTimeOffset LeaseExpiresAtUtc,
+    [property: JsonConverter(typeof(UtcDateTimeOffsetJsonConverter))] DateTimeOffset DeadlineAtUtc,
     EmbeddingIdentityContract Identity,
     IReadOnlyList<EmbeddingLeaseTrackContract> Tracks);
 
 public sealed record EmbeddingHeartbeatRequest(string? SchemaVersion, Guid AnalysisId, string? WorkerId, int? AttemptCount);
 
-public sealed record EmbeddingHeartbeatResponse(string SchemaVersion, DateTimeOffset LeaseExpiresAtUtc);
+public sealed record EmbeddingHeartbeatResponse(
+    string SchemaVersion,
+    [property: JsonConverter(typeof(UtcDateTimeOffsetJsonConverter))] DateTimeOffset LeaseExpiresAtUtc);
 
 public sealed record EmbeddingFailRequest(
     string? SchemaVersion,
@@ -85,7 +89,7 @@ public sealed record EmbeddingCompleteResponse(
     Guid AnalysisId,
     Guid ProcessingRunId,
     string Status,
-    DateTimeOffset CompletedAtUtc,
+    [property: JsonConverter(typeof(UtcDateTimeOffsetJsonConverter))] DateTimeOffset CompletedAtUtc,
     int TracksEmbedded,
     int TracksUnavailable);
 
@@ -96,7 +100,7 @@ public sealed record EmbeddingTextQueryLeaseContract(
     Guid QueryId,
     string WorkerId,
     int AttemptCount,
-    DateTimeOffset LeaseExpiresAtUtc,
+    [property: JsonConverter(typeof(UtcDateTimeOffsetJsonConverter))] DateTimeOffset LeaseExpiresAtUtc,
     string IdentityFingerprint,
     string Text);
 
