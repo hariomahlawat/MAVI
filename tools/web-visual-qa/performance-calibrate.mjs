@@ -42,12 +42,18 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HarnessError } from './engine.mjs';
 import { surfaceOf } from './manifest.mjs';
+import { longTaskLimit } from './performance.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..');
 const TIERS = ['A', 'B', 'C'];
 const U = (v) => Math.round(v * 10000);
 const F = (u) => u / 10000;
+
+// The interactions of the cold-first-interaction long-task class (states.mjs).
+const IMPORT = 'fill the import form with long identities';
+const SUBMIT = 'submit an inverted time range with the rail scrolled to its foot';
+const RAIL = 'collapse the navigation rail';
 
 /** The owner's decisions on the 5363c673 / db619129 calibration review (2026-10-12). */
 export const DECISIONS = Object.freeze({
@@ -135,13 +141,32 @@ export const DECISIONS = Object.freeze({
       name: 'Search result selection', interactions: ['select a result to inspect it'], count: 1, maxMs: 65,
       why: 'P1: one sporadic task in the 50-65ms band. Kept at the P1 envelope (not tightened to the latest 50-58ms): it has historical support.',
     }, {
-      // The long-task recalibration of 2026-10-29 (owner decision to
-      // recalibrate rather than re-run; evidence in
-      // docs/qualification/stage3-5/x3-long-task-recalibration-evidence.json).
+      // The long-task recalibration of 2026-10-29: the owner (hariomahlawat)
+      // chose to recalibrate rather than re-run, and approved this class's
+      // scope and limit. Evidence, each run's results.json by SHA-256:
+      // docs/qualification/stage3-5/x3-long-task-recalibration-evidence.json.
       name: 'Cold first interaction (form entry and rail)',
-      interactions: ['fill the import form with long identities', 'submit an inverted time range with the rail scrolled to its foot', 'collapse the navigation rail'],
+      interactions: [IMPORT, SUBMIT, RAIL],
+      viewports: ['1366x768'],
       count: 1, maxMs: 147,
-      why: 'Linux CI, 50 retained single-lane runs (2026-10-15 to 10-28): 9 raised a long task (13 tasks in all, never more than one per case), every one at 1366x768 — the first case the lane measures for its state — and on one of these three interactions only (import fill 50-100ms, inverted-range submit 55-147ms, rail collapse 60ms). Not a product regression: four heads that raised one measured none on a same-head re-run, and identical web code passed (c1ff6b70) and failed (179fe32d). Kept at the evidence envelope (147ms, ff52d5a2), as Search selection is kept at its P1 envelope; every other interaction stays at "no long task".',
+      why: 'Linux CI, every retained single-lane run of other heads (51, 2026-10-15 to 10-29): 10 raised a long task, 14 tasks in all, never more than one per case, every one at 1366x768 (the first case the lane measures for its state) and on one of these three interactions only (import fill 50-100ms, inverted-range submit 55-147ms, rail collapse 60ms). One more (PR #238, 65ms) is known only from its job logs. Not a product regression: four heads that raised one measured none on a same-head re-run, and identical web code passed (c1ff6b70) and failed (179fe32d, four of four). Scoped to those interactions at 1366x768, where every observation lies; at every other viewport they stay at "no long task", as does every other interaction. Kept at the evidence envelope (147ms, ff52d5a2), as Search selection is kept at its P1 envelope.',
+      evidence: [
+        { run: 38802094423, attempt: 1, head: 'b6bd0d03', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 61 },
+        { run: 38802094423, attempt: 1, head: 'b6bd0d03', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 83 },
+        { run: 38849887470, attempt: 1, head: '4c2db72b', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 55 },
+        { run: 38853255287, attempt: 1, head: 'b1148987', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 100 },
+        { run: 38869918046, attempt: 1, head: '155e90ee', case: 'shell-rail-collapsed@1366x768', interaction: RAIL, ms: 60 },
+        { run: 38869918046, attempt: 1, head: '155e90ee', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 65 },
+        { run: 39061458532, attempt: 1, head: 'ff52d5a2', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 51 },
+        { run: 39061458532, attempt: 1, head: 'ff52d5a2', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 147 },
+        { run: 39105998776, attempt: 1, head: 'c3649b8b', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 51 },
+        { run: 40721307386, attempt: 1, head: 'f680ef05', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 65, source: 'job logs 122947730967 and 122948729384 only: a re-run overwrote the artefact' },
+        { run: 40757411123, attempt: 1, head: '179fe32d', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 50 },
+        { run: 40757411123, attempt: 1, head: '179fe32d', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 74 },
+        { run: 40757411123, attempt: 2, head: '179fe32d', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 69 },
+        { run: 40757411123, attempt: 3, head: '179fe32d', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 50 },
+        { run: 40757411123, attempt: 4, head: '179fe32d', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 62 },
+      ],
     }],
   },
   fonts: { documentFaces: 0, why: '§38 "fonts do not swap": the document holds no font face (no @font-face, no FontFace), so the platform stack resolves at layout and nothing can arrive late.' },
@@ -291,8 +316,8 @@ export function deriveLongTasks({ linuxLongTasks = [], windowsLongTasks = [], de
     if (r.workers !== 1 || r.longTaskLane !== true) problems.push(`a ${env} long-task run is not the single-lane run`);
     const tasks = ord(r).filter((c) => c.perf?.longTasks?.status === 'measured' && c.perf.longTasks.count > 0);
     for (const c of tasks) {
-      const own = decisions.longTasks.classes.find((k) => k.interactions.includes(c.perf.longTasks.interaction)) ?? decisions.longTasks.default;
-      if (c.perf.longTasks.count > own.count || c.perf.longTasks.maxMs > own.maxMs) problems.push(`${env} ${where(c)}: "${c.perf.longTasks.interaction}" raised ${c.perf.longTasks.count} x ${c.perf.longTasks.maxMs}ms, over "${own.name}" — a finding to investigate, not a budget input`);
+      const own = longTaskLimit(c.perf.longTasks.interaction, { longTasks: decisions.longTasks }, c.viewport);
+      if (c.perf.longTasks.count > own.count || c.perf.longTasks.maxMs > own.maxMs) problems.push(`${env} ${where(c)}: "${c.perf.longTasks.interaction}" raised ${c.perf.longTasks.count} x ${c.perf.longTasks.maxMs}ms, over "${own.class}" — a finding to investigate, not a budget input`);
     }
     return { head: r.head, measured: ord(r).filter((c) => c.perf?.longTasks?.status === 'measured').length, tasks: tasks.map((c) => ({ at: where(c), interaction: c.perf.longTasks.interaction, count: c.perf.longTasks.count, maxMs: c.perf.longTasks.maxMs })) };
   });
@@ -335,7 +360,7 @@ export function longTaskModule(current, derived, { decisions = DECISIONS, calibr
 /** The long-task review table: per run, what it measured and raised, against each class's limit. */
 export function longTaskTable(derived, decisions = DECISIONS) {
   const out = ['| Class | Interactions | Permitted |', '|---|---|---|'];
-  for (const k of [...decisions.longTasks.classes, decisions.longTasks.default]) out.push(`| ${k.name} | ${k.interactions ? k.interactions.join('; ') : 'every other declared interaction'} | ${k.count} x <= ${k.maxMs}ms |`);
+  for (const k of [...decisions.longTasks.classes, decisions.longTasks.default]) out.push(`| ${k.name} | ${k.interactions ? k.interactions.join('; ') : 'every other declared interaction'}${k.viewports ? ` (at ${k.viewports.join(', ')} only)` : ''} | ${k.count} x <= ${k.maxMs}ms |`);
   out.push('', '| Run | Head | Interaction cases measured | Long tasks (case, interaction, count x longest) |', '|---|---|---|---|');
   for (const [env, runs] of [['Linux', derived.longTasks.linux], ['Windows', derived.longTasks.windows]]) {
     runs.forEach((r, i) => out.push(`| ${env} ${i + 1} | ${r.head.slice(0, 8)} | ${r.measured} | ${r.tasks.length ? r.tasks.map((t) => `${t.at} "${t.interaction}" ${t.count} x ${t.maxMs}ms`).join('<br>') : 'none'} |`));

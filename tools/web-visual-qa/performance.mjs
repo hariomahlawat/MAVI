@@ -94,6 +94,7 @@ export function validateBudgets(budgets = PERFORMANCE_BUDGETS) {
   for (const cls of lt?.classes ?? []) {
     if (!cls.name || !Array.isArray(cls.interactions) || !cls.interactions.length) problems.push(`longTasks: class "${cls.name}" names no interaction`);
     number(cls.count, `longTasks."${cls.name}".count`); number(cls.maxMs, `longTasks."${cls.name}".maxMs`);
+    if (cls.viewports !== undefined && (!Array.isArray(cls.viewports) || !cls.viewports.length || cls.viewports.some((v) => typeof v !== 'string' || !v))) problems.push(`longTasks: class "${cls.name}" names its viewports as a non-empty list`);
     for (const i of cls.interactions ?? []) {
       if (interactions.has(i)) problems.push(`longTasks: interaction "${i}" belongs to "${interactions.get(i)}" and "${cls.name}"`);
       interactions.set(i, cls.name);
@@ -137,9 +138,12 @@ export function preparationLimit(c, budgets = PERFORMANCE_BUDGETS) {
   return limitOf('preparation', cls, cls.tolerance ?? budgets.cls.tolerance.preparation);
 }
 
-/** An interaction's long-task class: its own when it has one, else the zero class. */
-export function longTaskLimit(interaction, budgets = PERFORMANCE_BUDGETS) {
-  const cls = budgets.longTasks.classes.find((k) => k.interactions.includes(interaction)) ?? budgets.longTasks.default;
+/**
+ * A case's long-task class: its interaction's own when it has one and, if
+ * that class names viewports, the case is at one of them; else the zero class.
+ */
+export function longTaskLimit(interaction, budgets = PERFORMANCE_BUDGETS, viewport = null) {
+  const cls = budgets.longTasks.classes.find((k) => k.interactions.includes(interaction) && (!k.viewports || k.viewports.includes(viewport))) ?? budgets.longTasks.default;
   return { class: cls.name, count: cls.count, maxMs: cls.maxMs };
 }
 
@@ -176,7 +180,7 @@ export function registerBlock(budgets = PERFORMANCE_BUDGETS) {
     lines.push(`preparation | ${cls.name} | ${f(cls.reference)} + ${f(tol)} = ${f(fromUnits(limitUnits(cls.reference, tol)))}`);
   }
   lines.push(`long tasks | ${budgets.longTasks.default.name} | ${budgets.longTasks.default.count} x <= ${budgets.longTasks.default.maxMs}ms`);
-  for (const cls of budgets.longTasks.classes) lines.push(`long tasks | ${cls.name} | ${cls.count} x <= ${cls.maxMs}ms`);
+  for (const cls of budgets.longTasks.classes) lines.push(`long tasks | ${cls.name} | ${cls.count} x <= ${cls.maxMs}ms${cls.viewports ? ` at ${cls.viewports.join(', ')}` : ''}`);
   lines.push(`fonts | document font faces <= ${budgets.fonts.documentFaces}`);
   return lines.join('\n');
 }
@@ -323,7 +327,7 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
         continue;
       }
       if (!m || m.status !== 'measured') { faults.push(measurementFault(key, 'long tasks', m)); continue; }
-      const limit = longTaskLimit(m.interaction, budgets);
+      const limit = longTaskLimit(m.interaction, budgets, c.viewport);
       const pass = m.count <= limit.count && m.maxMs <= limit.maxMs;
       // The measurement and what its class permits, apart: a permitted value
       // never stands in for a measured one in the evidence.

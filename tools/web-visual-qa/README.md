@@ -585,7 +585,8 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   probes). A default class for every interaction, one for Search result
   selection (P1's only interaction with a long task) and, since the
   2026-10-29 long-task recalibration, one for the cold first interaction of
-  three form-entry and rail interactions; their counts and
+  three form-entry and rail interactions at 1366x768 (a class may name
+  viewports; elsewhere its interactions are the zero class); their counts and
   durations are the budget source's, never restated here. A run on more
   lanes, or not the lane, is a fault.
 - **Fonts**: the text renders in a platform font and the document holds no

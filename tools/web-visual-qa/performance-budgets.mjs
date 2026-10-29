@@ -1676,9 +1676,135 @@ export const PERFORMANCE_BUDGETS = Object.freeze({
           "submit an inverted time range with the rail scrolled to its foot",
           "collapse the navigation rail"
         ],
+        "viewports": [
+          "1366x768"
+        ],
         "count": 1,
         "maxMs": 147,
-        "why": "Linux CI, 50 retained single-lane runs (2026-10-15 to 10-28): 9 raised a long task (13 tasks in all, never more than one per case), every one at 1366x768 — the first case the lane measures for its state — and on one of these three interactions only (import fill 50-100ms, inverted-range submit 55-147ms, rail collapse 60ms). Not a product regression: four heads that raised one measured none on a same-head re-run, and identical web code passed (c1ff6b70) and failed (179fe32d). Kept at the evidence envelope (147ms, ff52d5a2), as Search selection is kept at its P1 envelope; every other interaction stays at \"no long task\"."
+        "why": "Linux CI, every retained single-lane run of other heads (51, 2026-10-15 to 10-29): 10 raised a long task, 14 tasks in all, never more than one per case, every one at 1366x768 (the first case the lane measures for its state) and on one of these three interactions only (import fill 50-100ms, inverted-range submit 55-147ms, rail collapse 60ms). One more (PR #238, 65ms) is known only from its job logs. Not a product regression: four heads that raised one measured none on a same-head re-run, and identical web code passed (c1ff6b70) and failed (179fe32d, four of four). Scoped to those interactions at 1366x768, where every observation lies; at every other viewport they stay at \"no long task\", as does every other interaction. Kept at the evidence envelope (147ms, ff52d5a2), as Search selection is kept at its P1 envelope.",
+        "evidence": [
+          {
+            "run": 38802094423,
+            "attempt": 1,
+            "head": "b6bd0d03",
+            "case": "import-long-identity@1366x768",
+            "interaction": "fill the import form with long identities",
+            "ms": 61
+          },
+          {
+            "run": 38802094423,
+            "attempt": 1,
+            "head": "b6bd0d03",
+            "case": "search-field-errors-above@1366x768",
+            "interaction": "submit an inverted time range with the rail scrolled to its foot",
+            "ms": 83
+          },
+          {
+            "run": 38849887470,
+            "attempt": 1,
+            "head": "4c2db72b",
+            "case": "search-field-errors-above@1366x768",
+            "interaction": "submit an inverted time range with the rail scrolled to its foot",
+            "ms": 55
+          },
+          {
+            "run": 38853255287,
+            "attempt": 1,
+            "head": "b1148987",
+            "case": "import-long-identity@1366x768",
+            "interaction": "fill the import form with long identities",
+            "ms": 100
+          },
+          {
+            "run": 38869918046,
+            "attempt": 1,
+            "head": "155e90ee",
+            "case": "shell-rail-collapsed@1366x768",
+            "interaction": "collapse the navigation rail",
+            "ms": 60
+          },
+          {
+            "run": 38869918046,
+            "attempt": 1,
+            "head": "155e90ee",
+            "case": "search-field-errors-above@1366x768",
+            "interaction": "submit an inverted time range with the rail scrolled to its foot",
+            "ms": 65
+          },
+          {
+            "run": 39061458532,
+            "attempt": 1,
+            "head": "ff52d5a2",
+            "case": "import-long-identity@1366x768",
+            "interaction": "fill the import form with long identities",
+            "ms": 51
+          },
+          {
+            "run": 39061458532,
+            "attempt": 1,
+            "head": "ff52d5a2",
+            "case": "search-field-errors-above@1366x768",
+            "interaction": "submit an inverted time range with the rail scrolled to its foot",
+            "ms": 147
+          },
+          {
+            "run": 39105998776,
+            "attempt": 1,
+            "head": "c3649b8b",
+            "case": "import-long-identity@1366x768",
+            "interaction": "fill the import form with long identities",
+            "ms": 51
+          },
+          {
+            "run": 40721307386,
+            "attempt": 1,
+            "head": "f680ef05",
+            "case": "search-field-errors-above@1366x768",
+            "interaction": "submit an inverted time range with the rail scrolled to its foot",
+            "ms": 65,
+            "source": "job logs 122947730967 and 122948729384 only: a re-run overwrote the artefact"
+          },
+          {
+            "run": 40757411123,
+            "attempt": 1,
+            "head": "179fe32d",
+            "case": "import-long-identity@1366x768",
+            "interaction": "fill the import form with long identities",
+            "ms": 50
+          },
+          {
+            "run": 40757411123,
+            "attempt": 1,
+            "head": "179fe32d",
+            "case": "search-field-errors-above@1366x768",
+            "interaction": "submit an inverted time range with the rail scrolled to its foot",
+            "ms": 74
+          },
+          {
+            "run": 40757411123,
+            "attempt": 2,
+            "head": "179fe32d",
+            "case": "search-field-errors-above@1366x768",
+            "interaction": "submit an inverted time range with the rail scrolled to its foot",
+            "ms": 69
+          },
+          {
+            "run": 40757411123,
+            "attempt": 3,
+            "head": "179fe32d",
+            "case": "import-long-identity@1366x768",
+            "interaction": "fill the import form with long identities",
+            "ms": 50
+          },
+          {
+            "run": 40757411123,
+            "attempt": 4,
+            "head": "179fe32d",
+            "case": "import-long-identity@1366x768",
+            "interaction": "fill the import form with long identities",
+            "ms": 62
+          }
+        ]
       }
     ],
     "evidence": {

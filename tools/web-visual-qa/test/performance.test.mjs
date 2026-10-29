@@ -139,6 +139,18 @@ describe('the performance gate (X3)', () => {
     assert.match(v.findings[0].message, /its class "no long task" permits 0, each at most 0ms/);
   });
 
+  it('scopes a long-task class that names viewports to those viewports: the same interaction elsewhere is the zero class', () => {
+    const budgets = { ...BUDGETS, longTasks: { ...BUDGETS.longTasks, classes: [...BUDGETS.longTasks.classes, { name: 'cold', interactions: ['type it'], viewports: ['1366x768'], count: 1, maxMs: 147 }] } };
+    const typing = (viewport, maxMs) => ltCase({ state: 'import', interaction: 'type it', viewport, count: 1, maxMs });
+    assert.deepEqual(rules(judge({ lt: [typing('1366x768', 147)], budgets })), []);
+    assert.deepEqual(rules(judge({ lt: [typing('1366x768', 148)], budgets })), ['perf.long-tasks']);
+    const elsewhere = judge({ lt: [typing('1440x900', 51)], budgets });
+    assert.deepEqual(rules(elsewhere), ['perf.long-tasks']);
+    assert.match(elsewhere.findings[0].message, /its class "no long task" permits 0/);
+    assert.match(registerBlock(budgets), /long tasks \| cold \| 1 x <= 147ms at 1366x768/);
+    assert.ok(validateBudgets({ ...budgets, longTasks: { ...budgets.longTasks, classes: [{ name: 'bad', interactions: ['x'], viewports: [], count: 1, maxMs: 1 }] } }).some((p) => /names its viewports/.test(p)));
+  });
+
   it('5. fails Search selection over its permitted count or duration', () => {
     assert.deepEqual(rules(judge({ lt: [ltCase({ count: 2, maxMs: 52 })] })), ['perf.long-tasks']);
     assert.deepEqual(rules(judge({ lt: [ltCase({ count: 1, maxMs: 80 })] })), ['perf.long-tasks']);
@@ -316,6 +328,14 @@ describe('the long-task recalibration (performance-calibrate.mjs --long-tasks-on
     assert.equal(over.problems.filter((p) => /a finding to investigate/.test(p)).length, 2);
   });
 
+  it('checks a viewport-scoped class only at its viewports, as the gate does', () => {
+    const scoped = { ...decisions, longTasks: { ...decisions.longTasks, classes: [{ ...decisions.longTasks.classes[0], viewports: ['1366x768'] }] } };
+    const at = (viewport) => ({ ...ltCase('s2', 'type it', 1, 60), viewport });
+    assert.deepEqual(recalibrateLongTasks(current, { linuxLongTasks: [run('h', [ltCase('s1', 'press it'), at('1366x768')]), run('h')], decisions: scoped }).problems, []);
+    const elsewhere = recalibrateLongTasks(current, { linuxLongTasks: [run('h', [ltCase('s1', 'press it'), ltCase('s2', 'type it'), at('1440x900')]), run('h')], decisions: scoped });
+    assert.ok(elsewhere.problems.some((p) => /s2@1440x900: "type it" raised 1 x 60ms, over "no long task"/.test(p)));
+  });
+
   it('refuses a recalibration in which an interaction case the table measured is no longer measured', () => {
     const r = recalibrateLongTasks(current, { linuxLongTasks: [run('h', [ltCase('s1', 'press it')]), run('h', [ltCase('s1', 'press it')])], decisions });
     assert.ok(r.problems.some((p) => /s2\|1366x768\|anchor: measured at calibration and not by these runs/.test(p)));
@@ -405,6 +425,23 @@ describe('the frozen budget table (performance-budgets.mjs)', () => {
     // A preparation class keyed by a shared label is P1-measured; anything new
     // is keyed by its state.
     for (const c of b.cls.preparation.filter((k) => k.by)) assert.equal(c.kind, 'mapped', c.name);
+  });
+
+  it('holds each evidence-set long-task class to its retained evidence: every observation listed, inside the scope, the limit its envelope', () => {
+    const retained = JSON.parse(readFileSync(new URL('../../../docs/qualification/stage3-5/x3-long-task-recalibration-evidence.json', import.meta.url), 'utf8'));
+    for (const cls of DECISIONS.longTasks.classes.filter((k) => k.evidence)) {
+      const listed = cls.evidence.filter((e) => !e.source).map((e) => `${e.run}/${e.attempt}|${e.case}|${e.interaction}|${e.ms}`).sort();
+      const observed = retained.runs.filter((r) => r.role === 'history').flatMap((r) => r.tasks.filter((t) => cls.interactions.includes(t.interaction)).map((t) => `${r.run}/${r.attempt}|${t.at}|${t.interaction}|${t.maxMs}`)).sort();
+      assert.deepEqual(listed, observed, cls.name);
+      const logOnly = cls.evidence.filter((e) => e.source).map((e) => `${e.run}/${e.attempt}|${e.case}|${e.ms}`);
+      assert.deepEqual(logOnly, retained.logOnlyObservations.flatMap((o) => o.tasks.map((t) => `${o.run}/${o.attempt}|${t.at}|${t.maxMs}`)), cls.name);
+      for (const e of cls.evidence) {
+        assert.ok(cls.interactions.includes(e.interaction), `${cls.name}: ${e.interaction}`);
+        if (cls.viewports) assert.ok(cls.viewports.includes(e.case.split('@')[1]), `${cls.name}: ${e.case} is outside its viewports`);
+      }
+      assert.equal(cls.maxMs, Math.max(...cls.evidence.map((e) => e.ms)), `${cls.name}: the limit is the evidence envelope`);
+      assert.equal(cls.count, 1);
+    }
   });
 
   it('agrees with the register', () => {
