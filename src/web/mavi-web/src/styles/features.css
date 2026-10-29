@@ -1343,31 +1343,31 @@
 .system-page__limits ul { margin: 0; padding-left: var(--s-4); display: grid; gap: var(--s-1); }
 
 /* --- Events timeline (PoC S8, ADR-025) --------------------------------- */
-.events-page { display: grid; gap: 16px; padding: 16px; max-width: var(--content-max); }
-.events-page__header h1 { margin: 0 0 4px; font-size: var(--fs-4); }
+.events-page { display: grid; gap: var(--s-4); padding: var(--s-4); max-width: var(--content-max); }
+.events-page__header h1 { margin: 0 0 var(--s-1); font-size: var(--fs-4); }
 .events-page__disclosure { margin: 0; color: var(--text-secondary); max-width: var(--measure); }
-.events-page__links { display: flex; gap: 12px; margin-top: 4px; }
-.events-page__controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
-.events-page__controls label { display: grid; gap: 4px; color: var(--text-secondary); }
+.events-page__links { display: flex; gap: var(--s-3); margin-top: var(--s-1); }
+.events-page__controls { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-end; }
+.events-page__controls label { display: grid; gap: var(--s-1); color: var(--text-secondary); }
 .events-page__controls input { min-width: 16rem; font-family: var(--font-mono); }
-.events-page__rules { display: grid; gap: 4px; margin-top: 12px; border: 0; padding: 0; }
-.events-page__rules legend { color: var(--text-secondary); margin-bottom: 4px; }
+.events-page__rules { display: grid; gap: var(--s-1); margin-top: var(--s-3); border: 0; padding: 0; }
+.events-page__rules legend { color: var(--text-secondary); margin-bottom: var(--s-1); }
 .events-page__rule--disabled { color: var(--text-muted); }
-.events-page__reason { display: block; margin-left: 24px; color: var(--status-stale); }
+.events-page__reason { display: block; margin-left: var(--s-6); color: var(--status-stale); }
 .events-page__muted { color: var(--text-muted); }
-.events-page__coverage { padding: 8px 12px; border: 1px solid var(--status-ok-border); background: var(--status-ok-soft); }
+.events-page__coverage { padding: var(--s-2) var(--s-3); border: 1px solid var(--status-ok-border); background: var(--status-ok-soft); }
 .events-page__coverage--incomplete { border-color: var(--status-warn-border); background: var(--status-warn-soft); }
-.events-page__counts { display: flex; flex-wrap: wrap; gap: 16px; list-style: none; padding: 0; margin: 0 0 8px; }
-.events-page__lanes { width: 100%; height: auto; display: block; margin-bottom: 12px; }
+.events-page__counts { display: flex; flex-wrap: wrap; gap: var(--s-4); list-style: none; padding: 0; margin: 0 0 var(--s-2); }
+.events-page__lanes { width: 100%; height: auto; display: block; margin-bottom: var(--s-3); }
 .events-page__lane { stroke: var(--border-subtle); }
 .events-page__mark { fill: var(--accent); cursor: pointer; }
 .events-page__mark--selected { fill: var(--accent-strong); stroke: var(--text-primary); }
-.events-page__table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-.events-page__table th, .events-page__table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border-subtle); }
+.events-page__table { width: 100%; border-collapse: collapse; margin-bottom: var(--s-3); }
+.events-page__table th, .events-page__table td { text-align: left; padding: var(--s-1) var(--s-2); border-bottom: 1px solid var(--border-subtle); }
 .events-page__table tr[aria-selected='true'] { background: var(--accent-soft); }
-.events-page__facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; }
+.events-page__facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); }
 .events-page__facts dt { color: var(--text-secondary); }
 .events-page__facts dd { margin: 0; }
-.events-page__participants { list-style: none; padding: 0; display: grid; gap: 8px; }
-.events-page__participants li { display: flex; gap: 12px; align-items: center; }
-.events-page__sentence { font-size: var(--fs-2); margin: 0 0 8px; }
+.events-page__participants { list-style: none; padding: 0; display: grid; gap: var(--s-2); }
+.events-page__participants li { display: flex; gap: var(--s-3); align-items: center; }
+.events-page__sentence { font-size: var(--fs-2); margin: 0 0 var(--s-2); }

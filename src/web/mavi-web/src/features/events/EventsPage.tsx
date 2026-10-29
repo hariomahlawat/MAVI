@@ -288,11 +288,7 @@ export default function EventsPage() {
               <ul className="events-page__participants">
                 {detail.data.participants.map((participant) => (
                   <li key={participant.trackId}>
-                    {participant.thumbnailContentUrl ? (
-                      <img src={participant.thumbnailContentUrl} alt={`${participant.objectClass} Track crop`} width={64} height={64} />
-                    ) : (
-                      <span className="events-page__muted">No crop</span>
-                    )}
+                    <ParticipantCrop url={participant.thumbnailContentUrl} objectClass={participant.objectClass} />
                     <span>{participant.objectClass} · {participant.role} · {formatOffset(participant.startOffsetMs)}–{formatOffset(participant.endOffsetMs)}</span>
                     <ButtonLink to={eventReviewPath(detail.data, participant)} size="sm">
                       Review at event
@@ -309,6 +305,15 @@ export default function EventsPage() {
         </Panel>
       ) : null}
     </div>
+  );
+}
+
+/** A participant's representative crop; a failed load says so instead of showing a broken image. */
+function ParticipantCrop({ url, objectClass }: { url: string | null; objectClass: string }) {
+  const [failed, setFailed] = useState(false);
+  if (url === null || failed) return <span className="events-page__muted">Crop unavailable</span>;
+  return (
+    <img src={url} alt={`${objectClass} Track crop`} width={64} height={64} onError={() => setFailed(true)} />
   );
 }
 
