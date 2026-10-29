@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { getDeploymentDisclosure, type DeploymentDisclosure } from '../../api/deployment';
+import { getDeploymentDisclosure, type DeploymentDevice, type DeploymentDisclosure, type DeploymentRoleDevice } from '../../api/deployment';
 import { queryKeys } from '../../app/queryClient';
 import { deviceClause } from '../../app/DeploymentBanner';
 import { fromQuery } from '../../shared/async/fromQuery';
@@ -8,6 +8,7 @@ import Alert from '../../shared/components/Alert';
 import KeyValue from '../../shared/components/KeyValue';
 import Panel from '../../shared/components/Panel';
 import { ContextBar } from '../../shared/workspace';
+import PlateKnownLimits from './PlateKnownLimits';
 
 const metadataText: Record<DeploymentDisclosure['metadataStatus'], string> = {
   verified: 'Verified at platform start',
@@ -18,7 +19,9 @@ const metadataText: Record<DeploymentDisclosure['metadataStatus'], string> = {
 /**
  * System / About (ADR-020 §3): the installation's profile, its qualification
  * status and evidence class, the device the Vision launcher resolved and why,
- * and every bound pack's identity and verification status. Read-only.
+ * each role runtime's own device and reason (PoC S3: plates), every bound
+ * pack's identity, verification status and licence, and the capabilities'
+ * known limits. Read-only.
  */
 export default function SystemPage() {
   const deployment = useQuery({
@@ -36,8 +39,30 @@ export default function SystemPage() {
   );
 }
 
+const roleDeviceText: Record<DeploymentRoleDevice['deviceStatus'], string> = {
+  reported: '',
+  'not-reported': 'Device not yet resolved (the worker has not been started)',
+  unavailable: 'Device record unreadable',
+};
+
+function DeviceDetails({ device }: { device: DeploymentDevice }) {
+  return (
+    <KeyValue
+      items={[
+        { label: 'Requested policy', value: device.requestedPolicy, mono: true },
+        { label: 'Resolved device', value: device.resolvedPolicy.toUpperCase() },
+        { label: 'Reason', value: device.reason, mono: true },
+        { label: 'Runtime Pack', value: device.runtimePackId ?? 'Not recorded', mono: Boolean(device.runtimePackId) },
+        { label: 'Runtime variant', value: device.runtimeVariant ?? 'Not recorded', mono: Boolean(device.runtimeVariant) },
+        { label: 'Resolved', value: `${device.resolvedAtUtc ?? 'time not recorded'} · ${device.verifyOnly ? 'readiness check' : 'worker launch'}` },
+      ]}
+    />
+  );
+}
+
 function SystemDetails({ disclosure }: { disclosure: DeploymentDisclosure }) {
   const device = disclosure.device;
+  const roleDevices = disclosure.roleDevices ?? [];
   return (
     <div className="system-page">
       {disclosure.statement ? <Alert tone="warning" announce={false}>{disclosure.statement}</Alert> : null}
@@ -54,21 +79,13 @@ function SystemDetails({ disclosure }: { disclosure: DeploymentDisclosure }) {
         />
       </Panel>
       <Panel title="Vision device" headingId="system-device">
-        {device ? (
-          <KeyValue
-            items={[
-              { label: 'Requested policy', value: device.requestedPolicy, mono: true },
-              { label: 'Resolved device', value: device.resolvedPolicy.toUpperCase() },
-              { label: 'Reason', value: device.reason, mono: true },
-              { label: 'Runtime Pack', value: device.runtimePackId ?? 'Not recorded', mono: Boolean(device.runtimePackId) },
-              { label: 'Runtime variant', value: device.runtimeVariant ?? 'Not recorded', mono: Boolean(device.runtimeVariant) },
-              { label: 'Resolved', value: `${device.resolvedAtUtc ?? 'time not recorded'} · ${device.verifyOnly ? 'readiness check' : 'worker launch'}` },
-            ]}
-          />
-        ) : (
-          <p>{deviceClause(disclosure)}.</p>
-        )}
+        {device ? <DeviceDetails device={device} /> : <p>{deviceClause(disclosure)}.</p>}
       </Panel>
+      {roleDevices.map((role) => (
+        <Panel key={role.role} title={`${role.role.charAt(0).toUpperCase()}${role.role.slice(1)} device`} headingId={`system-device-${role.role}`}>
+          {role.device ? <DeviceDetails device={role.device} /> : <p>{roleDeviceText[role.deviceStatus]}.</p>}
+        </Panel>
+      ))}
       <Panel title="Packs" headingId="system-packs" body="flush">
         {disclosure.packs.length === 0 ? (
           <p className="system-page__none">No pack is recorded for this installation.</p>
@@ -82,6 +99,7 @@ function SystemDetails({ disclosure }: { disclosure: DeploymentDisclosure }) {
                 <th scope="col">Pack identity</th>
                 <th scope="col">Variant</th>
                 <th scope="col">Verification</th>
+                <th scope="col">Licence</th>
               </tr>
             </thead>
             <tbody>
@@ -93,12 +111,14 @@ function SystemDetails({ disclosure }: { disclosure: DeploymentDisclosure }) {
                   <td><code title={pack.packId}>{pack.packId}</code>{pack.note ? <span className="system-page__note"> · {pack.note}</span> : null}</td>
                   <td>{pack.variant ?? '—'}</td>
                   <td>{pack.verificationStatus}</td>
+                  <td>{pack.licence ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </Panel>
+      <PlateKnownLimits profile={disclosure.profile} />
     </div>
   );
 }

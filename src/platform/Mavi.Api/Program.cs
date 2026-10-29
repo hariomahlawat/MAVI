@@ -47,7 +47,8 @@ builder.Services.AddSingleton<VisualAttributeHostedService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<VisualAttributeHostedService>());
 builder.Services.AddSingleton<VisualAttributeAudit>();
 // The plate authority loop (Stage 4 PR-3): activation, queueing, the deadline/exhaustion sweep and
-// plate staging reclamation. Plates:Enabled gates it; with nothing configured it idles (NotConfigured).
+// plate staging reclamation. It always runs; Plates:Enabled gates only activation and queueing, and with nothing
+// configured it only sweeps and reclaims (NotConfigured).
 builder.Services.AddSingleton<PlateHostedService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<PlateHostedService>());
 builder.Services.AddSingleton<PlateAudit>();
@@ -76,9 +77,9 @@ var app = builder.Build();
 await app.VerifyNativeMediaToolsAsync();
 app.VerifyTrackCursorSigning();
 app.VerifyVisualAttributeRelease();
+app.VerifyDeploymentDisclosure();
 app.VerifyPlateRelease();
 Mavi.Api.Embeddings.EmbeddingReleaseStartup.VerifyEmbeddingRelease(app);
-app.VerifyDeploymentDisclosure();
 await app.ApplyDatabaseMigrationsAsync();
 // Sanitised request start/finish telemetry in place of the framework's raw-URL lines (Stage 4 §5.5).
 app.UseSafeRequestTelemetry();

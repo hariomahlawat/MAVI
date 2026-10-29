@@ -22,6 +22,15 @@ export type DeploymentPack = {
   variant: string | null;
   verificationStatus: string;
   note: string | null;
+  /** The licence the installer read from the pack's own notice file (PoC S3); absent for packs that record none. */
+  licence?: string | null;
+};
+
+/** A role runtime's own device record (PoC S3: the plates role), disclosed beside the Vision worker's. */
+export type DeploymentRoleDevice = {
+  role: string;
+  deviceStatus: 'reported' | 'not-reported' | 'unavailable';
+  device: DeploymentDevice | null;
 };
 
 /** `GET /api/system/deployment` (`mavi-deployment-disclosure-v1`). */
@@ -37,6 +46,7 @@ export type DeploymentDisclosure = {
   deviceStatus: 'reported' | 'not-reported' | 'unavailable';
   device: DeploymentDevice | null;
   packs: DeploymentPack[];
+  roleDevices?: DeploymentRoleDevice[] | null;
 };
 
 export function getDeploymentDisclosure(signal?: AbortSignal): Promise<DeploymentDisclosure> {

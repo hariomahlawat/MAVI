@@ -290,9 +290,11 @@ public static class PlateEndpoints
     /// <summary>
     /// <c>POST /api/plates/reanalysis</c>. Every request that reaches this handler is audited: accepted as event 2125
     /// with the exact selected run ids, refused as event 2126 with its scope and refusal code. A body that fails JSON
-    /// binding is rejected by the framework before this handler runs and is not audited.
+    /// binding is rejected by the framework before this handler runs and is not audited. The request is authorised
+    /// first, by <see cref="PlateReanalysisAuthorisation"/>, and is refused before anything else when it is not.
     /// </summary>
     private static async Task<IResult> ReanalysisAsync(
+        HttpContext context,
         PlateReanalysisRequestContract request,
         IPlateRelease release,
         IPlateLifecycle lifecycle,
@@ -301,6 +303,19 @@ public static class PlateEndpoints
         CancellationToken cancellationToken)
     {
         var scope = request.ProcessingRunIds is not null ? "runs" : request.CameraId is not null ? "camera-window" : "unspecified";
+        if (PlateReanalysisAuthorisation.Refusal(context.Request.Headers, options.Value) is { } refusal)
+        {
+            audit.ReanalysisRefused(scope, refusal.Code);
+            return Problem(refusal.Status, refusal.Code, refusal.Detail);
+        }
+
+        if (!options.Value.Enabled)
+        {
+            // Plates:Enabled=false: nothing new is queued, explicitly or automatically.
+            audit.ReanalysisRefused(scope, "plate_analysis_disabled");
+            return Problem(409, "plate_analysis_disabled", "Plate analysis is disabled on this installation.");
+        }
+
         if (release.Resolution.Definition is not { } definition)
         {
             audit.ReanalysisRefused(scope, "plate_not_configured");

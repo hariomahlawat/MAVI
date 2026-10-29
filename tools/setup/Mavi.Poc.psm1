@@ -40,6 +40,9 @@ function Get-MaviPocLayout {
         VisionModelRoot = Join-Path $install "vision\models"
         PlatesEnvironmentRoot = Join-Path $install "plates\venv"
         PlatesModelRoot = Join-Path $install "plates\models"
+        # The plates role's release (PoC S3, plan D4): PD5 + OC1-S on the plates-onnx-v1 family, read from the overlay.
+        PlatesComponentBindingPath = Join-Path $install "overlay\src\vision\config\components\development-plates-onnx-pilot-v1.json"
+        PlatesPipelineProfilePath = Join-Path $install "overlay\src\vision\config\plates\development-plates-onnx-pilot-v1.json"
         EmbeddingsEnvironmentRoot = Join-Path $install "embeddings\venv"
         EmbeddingsModelRoot = Join-Path $install "embeddings\models"
         PostgreSqlDataRoot = Join-Path $data "PostgreSQL\18\data"
@@ -52,6 +55,8 @@ function Get-MaviPocLayout {
         # Operator-writable (the launcher rewrites it on every start), so it lives under run\,
         # not beside the administrator-only release metadata.
         DeviceResolutionPath = Join-Path $data "run\device-resolution.json"
+        # The plates role resolves its own device (ADR-008 per runtime); its record sits beside the Vision worker's.
+        PlatesDeviceResolutionPath = Join-Path $data "run\plates-device-resolution.json"
         SetupRoot = Join-Path $data "setup"
         LogRoot = Join-Path $data "logs"
         RunRoot = Join-Path $data "run"
@@ -175,6 +180,14 @@ function New-MaviPocMachineConfig {
             Profile = $script:PocProfile
             ReleaseMetadataPath = $Layout.ReleaseMetadataPath
             DeviceResolutionPath = $Layout.DeviceResolutionPath
+            RoleDeviceResolutionPaths = [ordered]@{ plates = $Layout.PlatesDeviceResolutionPath }
+        }
+        # The plates role bound (PoC S3, C4.1). Re-analysis stays refused (no operator key is configured) until an
+        # owner configures one (runbook "poc-single-host"); S11-min replaces that gate with ADR-010 identity.
+        Plates = [ordered]@{
+            Enabled = $true
+            ComponentBindingPath = $Layout.PlatesComponentBindingPath
+            PipelineProfilePath = $Layout.PlatesPipelineProfilePath
         }
         # PoC S4 (ADR-021): the embeddings role is bound; the platform's loop queues runs for the SigLIP 2 identity.
         Embeddings = [ordered]@{
@@ -183,6 +196,70 @@ function New-MaviPocMachineConfig {
             PipelineProfilePath = Join-Path $Layout.OverlayRoot "src\vision\config\embeddings\development-embeddings-siglip2-v1.json"
         }
     }
+}
+
+# The licence a Model Pack's own notice states, read from the notice file itself (PoC S3: "licence read from its own
+# LICENSE file"): it must be the notice the manifest pins (SHA-256) and must state the licence the manifest declares,
+# or the pack is not installed under this profile.
+function Get-MaviPocNoticeLicence {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256,
+        [Parameter(Mandatory = $true)][string]$DeclaredSpdxId
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "The licence notice '$Path' is missing." }
+    $sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($sha256 -ne $ExpectedSha256) { throw "The licence notice '$Path' is not the one its manifest pins ($sha256)." }
+    $text = [IO.File]::ReadAllText($Path)
+    $stated = if ($text -match '(?m)^\s*Apache License\s*$' -and $text -match 'Version 2\.0') { "Apache-2.0" }
+        elseif ($text -match '(?m)^\s*MIT License\s*$' -and $text -match 'Permission is hereby granted, free of charge') { "MIT" }
+        else { $null }
+    if (-not $stated) { throw "The licence notice '$Path' states no licence this installer recognises." }
+    if ($stated -ne $DeclaredSpdxId) { throw "The licence notice '$Path' states $stated, but its manifest declares $DeclaredSpdxId." }
+    [pscustomobject]@{ SpdxId = $stated; Sha256 = $sha256 }
+}
+
+# The plates role's packs as release metadata entries (PoC S3, C4.1): the Runtime Pack and both Model Packs the
+# plates binding names, each Model Pack with the licence read from its installed notice. The committed manifest of a
+# capability is the one named by its binding's qualificationId.
+function Get-MaviPocPlatesPacks {
+    param(
+        [Parameter(Mandatory = $true)][string]$ComponentBindingPath,
+        [Parameter(Mandatory = $true)][string]$ManifestDirectory,
+        [Parameter(Mandatory = $true)][string]$ModelRoot,
+        [Parameter(Mandatory = $true)][string]$RuntimeProfilePath
+    )
+    $binding = Get-Content -LiteralPath $ComponentBindingPath -Raw | ConvertFrom-Json
+    $role = @(@($binding.roles) | Where-Object { [string]$_.roleId -eq "plates" })
+    if ($role.Count -ne 1) { throw "'$ComponentBindingPath' binds no single plates role." }
+    $family = @(@($binding.runtimePacks) | Where-Object { [string]$_.runtimePackFamilyId -eq [string]$role[0].runtimePackFamilyId })
+    if ($family.Count -ne 1) { throw "'$ComponentBindingPath' declares no single runtime family for the plates role." }
+    $cpu = $family[0].variants."windows-x86_64-cpu"
+    $runtimeProfile = Get-Content -LiteralPath $RuntimeProfilePath -Raw | ConvertFrom-Json
+    $packs = @([ordered]@{
+        kind = "runtime"; role = "plates"; capabilityId = $null
+        packId = [string]$cpu.runtimePackId; variant = "windows-x86_64-cpu"
+        verificationStatus = (Get-MaviPocRuntimeVerificationStatus -RuntimeProfile $runtimeProfile -Variant "windows-x86_64-cpu")
+        note = "$($family[0].runtimePackFamilyId) Development environment, CPU only (lock $([string]$cpu.thirdPartyLockSha256))"
+        licence = $null
+    })
+    foreach ($capability in @(@($binding.capabilityBindings) | Where-Object { [string]$_.roleId -eq "plates" -and [bool]$_.enabled } | Sort-Object { [string]$_.capabilityId })) {
+        $manifestPath = Join-Path $ManifestDirectory ("{0}.json" -f [string]$capability.qualificationId)
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "No committed manifest for plates capability '$($capability.capabilityId)' ($manifestPath)." }
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        if (@($manifest.capabilityIds) -notcontains [string]$capability.capabilityId) { throw "'$manifestPath' does not serve capability '$($capability.capabilityId)'." }
+        $notice = @(@($manifest.artifacts) | Where-Object { [string]$_.artifactRole -eq [string]$manifest.licence.noticeArtifactRole })
+        if ($notice.Count -ne 1) { throw "'$manifestPath' names no single licence notice." }
+        $licence = Get-MaviPocNoticeLicence -Path (Join-Path $ModelRoot ([string]$notice[0].relativePath)) -ExpectedSha256 ([string]$notice[0].sha256) -DeclaredSpdxId ([string]$manifest.licence.spdxId)
+        $packs += [ordered]@{
+            kind = "model"; role = "plates"; capabilityId = [string]$capability.capabilityId
+            packId = [string]$capability.modelPackId; variant = $null
+            verificationStatus = [string]$manifest.verificationStatus
+            note = "$($manifest.modelId) $($manifest.modelVersion)"
+            licence = "$($licence.SpdxId), read from its LICENSE (SHA-256 $($licence.Sha256)); licence review $($manifest.licence.reviewStatus)"
+        }
+    }
+    return ,$packs
 }
 
 # The demo cameras: the S2 demo-corpus manifest, seeded as names and time zones only
@@ -397,4 +474,4 @@ function Get-MaviPocRecordedProcess {
     return $process
 }
 
-Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras
+Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks

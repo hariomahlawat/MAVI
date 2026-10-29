@@ -659,6 +659,117 @@ public sealed class PlateApiTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task ReanalysisIsRefusedWithoutTheConfiguredOperatorKeyAndAuditedWithoutIt()
+    {
+        // PoC S3, C4.2: the interim authorisation (until ADR-010 identity in S11-min). A request without the key, or
+        // with another, is refused before anything is selected or queued; the key never reaches a log.
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        var run = await host.World.SeedRunAsync(0, 1, 1, completedAtUtc: T0.AddMinutes(-10));
+        host.World.Clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(0, (await host.RunCycleAsync()).Queued);
+
+        using (var missing = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }, operatorKey: null))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, missing.StatusCode);
+            Assert.Equal(PlateReanalysisAuthorisation.UnauthorisedCode, await CodeAsync(missing));
+        }
+
+        const string wrongKey = "not-the-operator-key-0123456789";
+        using (var wrong = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }, wrongKey))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
+            Assert.Equal(PlateReanalysisAuthorisation.UnauthorisedCode, await CodeAsync(wrong));
+        }
+
+        await using (var db = host.World.Read())
+            Assert.Equal(0, await db.PlateAnalyses.CountAsync());
+        Assert.Equal(2, host.Logs.Entries.Count(entry =>
+            entry.EventId.Id == 2126 && entry.Message.Contains(PlateReanalysisAuthorisation.UnauthorisedCode, StringComparison.Ordinal)));
+        Assert.DoesNotContain(host.Logs.Entries, entry => entry.Message.Contains(wrongKey, StringComparison.Ordinal) ||
+            entry.Message.Contains(ApiTestFactory.TestReanalysisOperatorKey, StringComparison.Ordinal));
+
+        using (var authorised = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, authorised.StatusCode);
+            Assert.Equal(1, (await authorised.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("queued").GetInt32());
+        }
+    }
+
+    [Fact]
+    public async Task ReanalysisFailsClosedWhenNoOperatorKeyIsConfigured()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0,
+            configuration: new Dictionary<string, string?> { ["Plates:ReanalysisOperatorKeySha256"] = string.Empty });
+        var run = await host.World.SeedRunAsync(0, 1, 1, completedAtUtc: T0.AddMinutes(-10));
+
+        using var refused = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } });
+
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Equal(PlateReanalysisAuthorisation.NotConfiguredCode, await CodeAsync(refused));
+        await using var db = host.World.Read();
+        Assert.Equal(0, await db.PlateAnalyses.CountAsync());
+    }
+
+    [Fact]
+    public async Task WithPlatesDisabledTheAuthorityLoopKeepsRunningAndGovernsWhatExists()
+    {
+        // PoC S3, C4.2: Plates:Enabled=false no longer halts the authority loop. Nothing new is activated or queued
+        // (automatically or on request), but the hosted loop itself, not a test-driven cycle, keeps iterating: it fails
+        // a unit past its deadline and, on a later iteration, reclaims its staging, so disabling plates never strands
+        // a lease or its bytes.
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        await ActivateAndSeedAsync(host, persons: 0, vehicles: 1, crops: 1);
+        Assert.Equal(1, (await host.RunCycleAsync()).Queued);
+        var unit = await host.LeaseAsync();
+        using (var staged = await host.UploadAsync(unit, PlateCompletionBuilder.Build(unit.Lease).Predictions))
+            Assert.Equal(HttpStatusCode.OK, staged.StatusCode);
+
+        await host.RestartWithAsync(identityB: false, configuration: new Dictionary<string, string?>
+        {
+            ["Plates:Enabled"] = "false",
+            // The loop's timer is real time (the test clock only moves the platform's notion of "now").
+            ["Plates:ReconcileIntervalSeconds"] = "1",
+        });
+        // Disabled analysis queues nothing on request either.
+        using (var disabled = await host.ReanalysisAsync(new { processingRunIds = new[] { unit.Lease.ProcessingRunId } }))
+            Assert.Equal((HttpStatusCode.Conflict, "plate_analysis_disabled"), (disabled.StatusCode, await CodeAsync(disabled)));
+        // A run that would be queued automatically if analysis were enabled.
+        var eligible = await host.World.SeedRunAsync(0, 1, 1, completedAtUtc: host.World.Clock.GetUtcNow().AddSeconds(1));
+        host.World.Clock.Advance(TimeSpan.FromHours(6) + TimeSpan.FromMinutes(5));
+
+        var staging = Path.Combine(host.World.MediaRoot, PlateStagingLayout.RootDirectoryName, unit.AnalysisId.ToString("D"));
+        Assert.True(Directory.Exists(staging));
+
+        // Only the hosted loop runs from here on: no cycle is driven by the test.
+        var loop = host.Factory.Services.GetRequiredService<PlateHostedService>();
+        await loop.StartAsync(CancellationToken.None);
+        try
+        {
+            var giveUpAtUtc = DateTime.UtcNow.AddSeconds(30);
+            while ((await host.UnitAsync(unit.AnalysisId)).Status != PlateAnalysisStatus.Failed && DateTime.UtcNow < giveUpAtUtc)
+                await Task.Delay(100);
+            var failed = await host.UnitAsync(unit.AnalysisId);
+            Assert.Equal((PlateAnalysisStatus.Failed, PlateAnalysis.DeadlineExceededCode), (failed.Status, failed.FailureCode));
+
+            // A later iteration of the same loop, once the staging grace has passed, reclaims the unit's staging.
+            host.World.Clock.Advance(TimeSpan.FromMinutes(16));
+            giveUpAtUtc = DateTime.UtcNow.AddSeconds(30);
+            while (Directory.Exists(staging) && DateTime.UtcNow < giveUpAtUtc)
+                await Task.Delay(100);
+            Assert.False(Directory.Exists(staging), "the hosted loop kept running and reclaimed the staging");
+        }
+        finally
+        {
+            await loop.StopAsync(CancellationToken.None);
+        }
+
+        Assert.Contains(host.Logs.Entries, entry => entry.EventId.Id == 2133);
+        Assert.DoesNotContain(host.Logs.Entries, entry => entry.EventId.Id == 2132);
+        await using var db = host.World.Read();
+        Assert.Equal(0, await db.PlateAnalyses.CountAsync(item => item.ProcessingRunId == eligible.RunId));
+    }
+
+    [Fact]
     public async Task ACropAbstainedForAnOcrOutputFaultKeepsItsProposalsAndTheRestOfTheRunPublishes()
     {
         // The worker abstains a crop whose recogniser emitted two equal readings (no strict rank order):
@@ -807,11 +918,13 @@ public sealed class PlateApiTests(PostgresFixture fixture)
     }
 
     [Theory]
-    [InlineData("Development", false)]
-    [InlineData("Testing", false)]
-    [InlineData("Production", true)]
-    [InlineData("Staging", true)]
-    public void TheDevelopmentOnlyFixtureIsRefusedOutsideDevelopmentAndTesting(string environment, bool refused)
+    [InlineData("Development", null, false)]
+    [InlineData("Testing", null, false)]
+    [InlineData("Production", null, true)]
+    [InlineData("Staging", null, true)]
+    // A platform built for poc-single-host runs only the plan-D4 release, never the fixture.
+    [InlineData("PoC", "poc-single-host", true)]
+    public void TheDevelopmentOnlyFixtureIsRefusedOutsideDevelopmentAndTesting(string environment, string? profile, bool refused)
     {
         var definition = Mavi.Application.Modules.Plates.Release.PlateReleaseParser.Parse(
             PlateReleaseFixture.BindingBytes(identityB: false),
@@ -820,17 +933,21 @@ public sealed class PlateApiTests(PostgresFixture fixture)
         var host = new FixedEnvironment(environment);
         if (refused)
             Assert.Equal(PlateReleaseStartup.FixtureForbiddenCode,
-                Assert.Throws<InvalidOperationException>(() => PlateReleaseStartup.RequireAllowed(definition, host)).Message);
+                Assert.Throws<InvalidOperationException>(() => PlateReleaseStartup.RequireAllowed(definition, host, profile)).Message);
         else
-            PlateReleaseStartup.RequireAllowed(definition, host);
+            PlateReleaseStartup.RequireAllowed(definition, host, profile);
     }
 
     [Theory]
-    [InlineData("Development", false)]
-    [InlineData("Testing", false)]
-    [InlineData("Production", true)]
-    [InlineData("Staging", true)]
-    public void TheCommittedDevelopmentPilotReleaseIsRefusedOutsideDevelopmentAndTesting(string environment, bool refused)
+    [InlineData("Development", null, false)]
+    [InlineData("Testing", null, false)]
+    [InlineData("Production", null, true)]
+    [InlineData("Staging", null, true)]
+    // The profile is the build's (MaviDeploymentProfile), never configuration: an ordinary build is refused.
+    [InlineData("PoC", null, true)]
+    // PoC S3 (C4.1): a platform built for poc-single-host (ADR-020, Development evidence class) binds the pilot pair.
+    [InlineData("PoC", "poc-single-host", false)]
+    public void TheCommittedDevelopmentPilotReleaseIsRefusedOutsideDevelopmentTestingAndThePocProfile(string environment, string? profile, bool refused)
     {
         // Issue #225: the real-model pilot profile is developmentOnly, so Production refuses it exactly as the fixture.
         var root = VisualAttributeReleaseFixture.Root;
@@ -839,12 +956,14 @@ public sealed class PlateApiTests(PostgresFixture fixture)
             File.ReadAllBytes(Path.Combine(root, "src", "vision", "config", "components", "development-plates-onnx-pilot-v1.json")),
             () => File.ReadAllBytes(Path.Combine(profileDirectory, "development-plates-onnx-pilot-v1.json")),
             name => File.ReadAllBytes(Path.Combine(profileDirectory, name))).Definition!;
+        // The PoC allowance names exactly this identity; re-deriving it here keeps the constant honest.
+        Assert.Equal(PlateReleaseStartup.PocPlateIdentityFingerprint, definition.Identity.Fingerprint);
         var host = new FixedEnvironment(environment);
         if (refused)
             Assert.Equal(PlateReleaseStartup.FixtureForbiddenCode,
-                Assert.Throws<InvalidOperationException>(() => PlateReleaseStartup.RequireAllowed(definition, host)).Message);
+                Assert.Throws<InvalidOperationException>(() => PlateReleaseStartup.RequireAllowed(definition, host, profile)).Message);
         else
-            PlateReleaseStartup.RequireAllowed(definition, host);
+            PlateReleaseStartup.RequireAllowed(definition, host, profile);
     }
 
     private sealed class FixedEnvironment(string name) : Microsoft.Extensions.Hosting.IHostEnvironment
