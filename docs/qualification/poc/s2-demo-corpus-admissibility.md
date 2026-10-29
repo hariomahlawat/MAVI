@@ -315,20 +315,22 @@ An event is *demonstrable* only when both sets are non-empty. The numbers are pi
 - **No usable event** on s2-08 (overhead, 0 Tracks) or s2-11 (hallway). On s2-11 the 20 person Tracks stay far down the corridor, and the near zone and line are never reached. The geometry was **not** moved after reading the output; see decision 6.
 - **No demonstrable crossing** on s2-05, s2-06, s2-09 or s2-10: Tracks are few, or none crosses in both directions.
 
-## 9. Owner decisions required (none is taken by the operator)
+## 9. Owner decisions (all decided 2026-10-29)
 
-| # | Decision | Row | Operator recommendation |
-|---|---|---|---|
-| 1 | **Ratify** the operator-signed Commons determinations `poc-s2-commons-cc0-2026-10` and `poc-s2-commons-cc-by-2026-10`. This is separate from accepting the attribution file. The hash-bound approval JSONs stay unchanged. | B1 | Ratify |
-| 2 | **MEVA acquisition path.** It uses a release-level ADR-017 record and an HTTPS transfer with SHA-256, not `tools/qualification/source_acquisition`, against B1's wording. Options:<br>(a) accept it;<br>(b) the non-relaxing alternative: extend the helper with a MEVA provider and re-acquire through it. | B1 | (a), or (b) if the literal wording is to hold |
-| 3 | **MEVA consent and B3.** Options:<br>(a) accept MEVA's IRB-overseen informed consent, with its CC BY 4.0 release, as satisfying B3's "model-released" for the face-bearing clips s2-10, s2-11 and s2-12;<br>(b) the non-relaxing alternative: keep those three clips **owner-machine-only**, out of the kit, so the kit has no face-bearing clip. | B3 | (a) |
-| 4 | **Accept `demo-corpus-attribution.md`** (12 clips; MEVA notice). | B2 | Accept |
-| 5 | **Person loitering** is demonstrated once, weakly (s2-09, 1 / 1). Options:<br>(a) accept that;<br>(b) replace s2-08 (0 Tracks) with MEVA G331, the bus-stop interior in the same slot, where actors wait. That keeps the cap of 12 and needs a recorded amendment;<br>(c) set a disclosed post-hoc threshold of 15 s on s2-01's corner. The retained profile shows 2 persons ≥ 15 s. | B1 | (b) |
-| 6 | **s2-11 (hallway) has no usable event.** Options:<br>(a) allow one disclosed geometry redraw over the far corridor;<br>(b) keep it as a face and cross-camera view only. | B1 | (b) for S2, revisit in S6 |
-| 7 | **The car-park class is met by s2-09** (MEVA G424), which has little through-traffic. Accept it, or ask for a busier lot slot. | B1 | Accept |
-| 8 | **B4 closes only after the S2 import runs on a kit install** (`Install-MAVI-PoC`, S1). S1 must also seed `config/poc/demo-cameras-v1.json` equal to `tools/poc/demo-corpus/demo-cameras-v1.json`. The hand-over has been sent, and a test enforces it once both files are on one branch. | B4 | — |
-| 9 | **MEVID label reuse**, recorded after the files were read (§7). Keep the read-only cross-camera statistics, or drop them and cite only the paper's design statement. B5 is unaffected either way, because reuse creates no label. | B1 | Keep |
-| 10 | **Accept the post-hoc 30 s value** for the stationary-vehicle demonstration (§8), or choose another value before any further reading. | B1 | Accept, disclosed |
+The owner decided all ten on 2026-10-29 ("Accept all"), each as the operator recommended. The options are kept as they were put to the owner.
+
+| # | Decision | Row | Operator recommendation | Owner decision |
+|---|---|---|---|---|
+| 1 | **Ratify** the operator-signed Commons determinations `poc-s2-commons-cc0-2026-10` and `poc-s2-commons-cc-by-2026-10`. This is separate from accepting the attribution file. The hash-bound approval JSONs stay unchanged. | B1 | Ratify | **Ratified** (2026-10-29). |
+| 2 | **MEVA acquisition path.** It uses a release-level ADR-017 record and an HTTPS transfer with SHA-256, not `tools/qualification/source_acquisition`, against B1's wording. Options:<br>(a) accept it;<br>(b) the non-relaxing alternative: extend the helper with a MEVA provider and re-acquire through it. | B1 | (a), or (b) if the literal wording is to hold | **(a) accepted** (2026-10-29). Also applied to G331 under A5. |
+| 3 | **MEVA consent and B3.** Options:<br>(a) accept MEVA's IRB-overseen informed consent, with its CC BY 4.0 release, as satisfying B3's "model-released" for the face-bearing clips s2-10, s2-11 and s2-12;<br>(b) the non-relaxing alternative: keep those three clips **owner-machine-only**, out of the kit, so the kit has no face-bearing clip. | B3 | (a) | **(a) accepted** (2026-10-29). MEVA consent satisfies B3; s2-10, s2-11 and s2-12 (and s2-08 under A5) ship in the kit. |
+| 4 | **Accept `demo-corpus-attribution.md`** (12 clips; MEVA notice). | B2 | Accept | **Accepted** (2026-10-29). Clip 8's row was then updated for A5, under the accepted MEVA notice. |
+| 5 | **Person loitering** is demonstrated once, weakly (s2-09, 1 / 1). Options:<br>(a) accept that;<br>(b) replace s2-08 (0 Tracks) with MEVA G331, the bus-stop interior in the same slot, where actors wait. That keeps the cap of 12 and needs a recorded amendment;<br>(c) set a disclosed post-hoc threshold of 15 s on s2-01's corner. The retained profile shows 2 persons ≥ 15 s. | B1 | (b) | **(b)** (2026-10-29). s2-08 replaced by MEVA G331 under amendment A5; the cap stays 12. Result in §11. |
+| 6 | **s2-11 (hallway) has no usable event.** Options:<br>(a) allow one disclosed geometry redraw over the far corridor;<br>(b) keep it as a face and cross-camera view only. | B1 | (b) for S2, revisit in S6 | **(b)** (2026-10-29). s2-11 stays a face and cross-camera view; geometry unchanged. |
+| 7 | **The car-park class is met by s2-09** (MEVA G424), which has little through-traffic. Accept it, or ask for a busier lot slot. | B1 | Accept | **Accepted** (2026-10-29). |
+| 8 | **B4 closes only after the S2 import runs on a kit install** (`Install-MAVI-PoC`, S1). S1 must also seed `config/poc/demo-cameras-v1.json` equal to `tools/poc/demo-corpus/demo-cameras-v1.json`. The hand-over has been sent, and a test enforces it once both files are on one branch. | B4 | — | **Noted** (2026-10-29). B4 waits for the kit install. |
+| 9 | **MEVID label reuse**, recorded after the files were read (§7). Keep the read-only cross-camera statistics, or drop them and cite only the paper's design statement. B5 is unaffected either way, because reuse creates no label. | B1 | Keep | **Keep** (2026-10-29). |
+| 10 | **Accept the post-hoc 30 s value** for the stationary-vehicle demonstration (§8), or choose another value before any further reading. | B1 | Accept, disclosed | **Accepted, disclosed** (2026-10-29). |
 
 ## 10. Evidence for the MEVA addition and the audit (retained outside Git)
 

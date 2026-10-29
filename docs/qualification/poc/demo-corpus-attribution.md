@@ -1,10 +1,10 @@
 # MAVI PoC demo corpus — attribution and licences
 
-**Status:** DRAFT, **pending owner acceptance** (register row B2). When the owner accepts this file, it ships in the PoC kit next to the demo clips, unchanged.
+**Status:** **ACCEPTED** by the owner on 2026-10-29 (register row B2, owner decision 4). It ships in the PoC kit next to the demo clips, unchanged. The same day, owner decision 5(b) replaced clip 8 (Commons "Three Minutes of Damascus Gate") with the MEVA bus-stop clip (amendment A5). Clip 8's row was updated to match, under the MEVA notice the owner accepted. No other row changed.
 
 The MAVI PoC kit contains twelve short video clips, licensed under **CC0 1.0** or a **Creative Commons Attribution (CC BY)** licence. No ShareAlike, NonCommercial or NoDerivatives material is included.
-- **Clips 1–8** are derived from videos published on Wikimedia Commons. Each licence was read from the file's own Commons description page, at the exact page revision recorded in `tools/poc/demo-corpus/demo-corpus-v1.json`.
-- **Clips 9–12** are derived from the MEVA dataset release, which is licensed as a whole under CC BY 4.0. See the MEVA notice below.
+- **Clips 1–7** are derived from videos published on Wikimedia Commons. Each licence was read from the file's own Commons description page, at the exact page revision recorded in `tools/poc/demo-corpus/demo-corpus-v1.json`.
+- **Clips 8–12** are derived from the MEVA dataset release, which is licensed as a whole under CC BY 4.0. See the MEVA notice below.
 
 **Changes made to every clip (applies to all twelve).** Each clip was:
 - trimmed to the time window stated below;
@@ -16,7 +16,7 @@ No other edit was made: no overlay, no crop and no colour change. The clips are 
 
 **Disclaimer of warranties.** The licensors provide the works "as is". See each licence for its full terms.
 
-| # | Demo clip (kit file) | Source work (Wikimedia Commons) | Author / credit | Licence | Window used |
+| # | Demo clip (kit file) | Source work (Wikimedia Commons or MEVA) | Author / credit | Licence | Window used |
 |---|---|---|---|---|---|
 | 1 | `s2-01-dusseldorf-junction.mp4` | [Straßenverkehr in Düsseldorf.ogv](https://commons.wikimedia.org/wiki/File:Stra%C3%9Fenverkehr_in_D%C3%BCsseldorf.ogv) (Worringer Platz, 2014-03-08) | Slick (own work) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | 0–180 s |
 | 2 | `s2-02-sofia-junction.mp4` | [Trams and road cars at Macedonia square in Sofia.webm](https://commons.wikimedia.org/wiki/File:Trams_and_road_cars_at_Macedonia_square_in_Sofia.webm) (2012-10) | hctv (originally published on YouTube) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) | 2–90 s |
@@ -25,7 +25,7 @@ No other edit was made: no overlay, no crop and no colour change. The clips are 
 | 5 | `s2-05-vrhnika-arch-gate.mp4` | [Road traffic – cobblestone road.webm](https://commons.wikimedia.org/wiki/File:Road_traffic_%E2%80%93_cobblestone_road.webm) (2010s) | Sounds of Changes; video recording: Barbara Rezar Grilc; sound recording: Boštjan Troha; photo: Dušan Oblak (uploaded by barbara.grilc) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) | 0–104 s |
 | 6 | `s2-06-beynost-level-crossing.mp4` | [Passage à niveaux Beynost 2016.webm](https://commons.wikimedia.org/wiki/File:Passage_%C3%A0_niveaux_Beynost_2016.webm) (2016) | Benoît Prieur (own work) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | 0–70 s |
 | 7 | `s2-07-shibuya-crossing.mp4` | [Shibuya Crossing.ogv](https://commons.wikimedia.org/wiki/File:Shibuya_Crossing.ogv) (2008-10-08) | Emran Kassim from Nagoya, Aichi, Japan (via Flickr, "Shibuya crossroad - Video") | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/) | 0–88 s |
-| 8 | `s2-08-damascus-gate-overhead.mp4` | [Three Minutes of Damascus Gate.webm](https://commons.wikimedia.org/wiki/File:Three_Minutes_of_Damascus_Gate.webm) (2018-07-22) | Marsupium (own work) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | 2–172 s |
+| 8 | `s2-08-meva-bus-stop.mp4` | MEVA camera G331 (bus-stop waiting room), clip `2018-03-11.16-20-00.16-25-00.bus.G331.r13.avi` | MEVA dataset by Kitware Inc. and IARPA (full credit in the MEVA notice) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 0–180 s |
 | 9 | `s2-09-meva-parking-lot.mp4` | MEVA camera G424 (school parking lot), clip `2018-03-11.16-20-02.16-25-02.school.G424.r13.avi` | "Multiview Extended Video with Activities" (MEVA) dataset by Kitware Inc. and the Intelligence Advanced Research Projects Activity (IARPA) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 0–180 s |
 | 10 | `s2-10-meva-cafe-lobby.mp4` | MEVA camera G421 (school cafe), clip `2018-03-11.16-20-00.16-25-00.school.G421.r13.avi` | as clip 9 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 0–180 s |
 | 11 | `s2-11-meva-school-hall.mp4` | MEVA camera G423 (school hallway), clip `2018-03-11.16-20-00.16-25-01.school.G423.r13.avi` | as clip 9 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 0–180 s |
@@ -33,7 +33,7 @@ No other edit was made: no overlay, no crop and no colour change. The clips are 
 
 The CC0 works need no attribution. They are credited anyway.
 
-**MEVA notice (clips 9–12).**
+**MEVA notice (clips 8–12).**
 - **Attribution and licence.** "Multiview Extended Video with Activities" (MEVA) dataset by Kitware Inc. and the Intelligence Advanced Research Projects Activity (IARPA), licensed under a Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/). Source: https://mevadata.org (public release `mevadata-public-01`, drops-123-r13).
 - **Changes.** The changes listed above apply: trimmed to the first 180 s, scaled to at most 1920 px wide, re-encoded and audio removed.
 - **The people shown.** The people in these clips are volunteer actors recorded at a training facility under an IRB-approved informed-consent process that covered release of the data under CC BY 4.0. Use these clips only as test input. Do not attempt to identify the actors.
@@ -42,8 +42,8 @@ The CC0 works need no attribution. They are credited anyway.
 
 - **Recording times are not real.** The camera names, camera time zone (Asia/Kolkata) and "recording start" times that the demo shows are demo settings, not the real capture time or place. The real dates are in the table above.
 - **Zones and lines are demo configuration.** The demo cameras' zones, lines and restricted areas are MAVI configuration drawn for the demonstration. They are not annotations of the works.
-- **Recording times are demo settings, but MEVA's simultaneity is real.** Clips 9–12 come from one real 5-minute slot. Their demo start times keep the real offsets between the four cameras, so a person seen in more than one of them was really there at those relative times.
-- **No biometric data ships.** In clips 1–8, persons and vehicles appear incidentally in public places. Clips 9–12 show volunteer actors who consented to the recording and its CC BY release. Access control at the facility minimised non-participants in view (MEVA notice). The kit contains no face crop, embedding, gallery, label or annotation derived from these clips. Biometric derivatives produced by a running demo stay on the demo host, and the uninstall path deletes them (plan D3).
+- **Recording times are demo settings, but MEVA's simultaneity is real.** Clips 8–12 come from one real 5-minute slot. Their demo start times keep the real offsets between the five cameras, so a person seen in more than one of them was really there at those relative times.
+- **No biometric data ships.** In clips 1–7, persons and vehicles appear incidentally in public places. Clips 8–12 show volunteer actors who consented to the recording and its CC BY release. Access control at the facility minimised non-participants in view (MEVA notice). The kit contains no face crop, embedding, gallery, label or annotation derived from these clips. Biometric derivatives produced by a running demo stay on the demo host, and the uninstall path deletes them (plan D3).
 - **Platform-licensed footage is not here.** Pexels/Pixabay-licensed footage and research-licensed datasets (for example BDD100K) are **not** part of this corpus. They may be used only on owner machines for live demos (D3).
 
 ## Provenance
