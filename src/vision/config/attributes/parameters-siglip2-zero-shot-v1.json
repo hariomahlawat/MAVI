@@ -1,0 +1,228 @@
+{
+  "schemaVersion": "mavi-visual-attribute-parameters-v1",
+  "parameters": {
+    "inferencer": "siglip2-zero-shot-v1",
+    "disclosure": "zero-shot, Development",
+    "modelManifest": {
+      "file": "embeddings-siglip2-base-p16-224-dev-v1.json",
+      "sha256": "d5adcb08f226eed955ccd9b2b05a2a53975cd84f8a0942e765fe9a675a191f08"
+    },
+    "logitScale": 112.66889953613281,
+    "minimumCropSide": 80,
+    "attributes": {
+      "person-carried-bag": {
+        "kind": "presence",
+        "threshold": 0.5,
+        "prompts": {
+          "present": [
+            "a photo of a person carrying a bag",
+            "a photo of a person wearing a backpack",
+            "a photo of a person carrying a handbag"
+          ],
+          "absent": [
+            "a photo of a person without a bag",
+            "a photo of a person with empty hands"
+          ]
+        }
+      },
+      "person-headwear": {
+        "kind": "presence",
+        "threshold": 0.5,
+        "prompts": {
+          "present": [
+            "a photo of a person wearing a hat",
+            "a photo of a person wearing a cap",
+            "a photo of a person wearing a helmet"
+          ],
+          "absent": [
+            "a photo of a person with a bare head",
+            "a photo of a person not wearing a hat"
+          ]
+        }
+      },
+      "person-lower-colour": {
+        "kind": "categorical",
+        "threshold": 0.5,
+        "prompts": {
+          "black": [
+            "a photo of a person wearing black trousers",
+            "a photo of a person wearing black pants",
+            "a photo of a person wearing a black skirt"
+          ],
+          "blue": [
+            "a photo of a person wearing blue trousers",
+            "a photo of a person wearing blue pants",
+            "a photo of a person wearing a blue skirt"
+          ],
+          "brown": [
+            "a photo of a person wearing brown trousers",
+            "a photo of a person wearing brown pants",
+            "a photo of a person wearing a brown skirt"
+          ],
+          "green": [
+            "a photo of a person wearing green trousers",
+            "a photo of a person wearing green pants",
+            "a photo of a person wearing a green skirt"
+          ],
+          "grey": [
+            "a photo of a person wearing grey trousers",
+            "a photo of a person wearing grey pants",
+            "a photo of a person wearing a grey skirt"
+          ],
+          "orange": [
+            "a photo of a person wearing orange trousers",
+            "a photo of a person wearing orange pants",
+            "a photo of a person wearing a orange skirt"
+          ],
+          "pink": [
+            "a photo of a person wearing pink trousers",
+            "a photo of a person wearing pink pants",
+            "a photo of a person wearing a pink skirt"
+          ],
+          "purple": [
+            "a photo of a person wearing purple trousers",
+            "a photo of a person wearing purple pants",
+            "a photo of a person wearing a purple skirt"
+          ],
+          "red": [
+            "a photo of a person wearing red trousers",
+            "a photo of a person wearing red pants",
+            "a photo of a person wearing a red skirt"
+          ],
+          "white": [
+            "a photo of a person wearing white trousers",
+            "a photo of a person wearing white pants",
+            "a photo of a person wearing a white skirt"
+          ],
+          "yellow": [
+            "a photo of a person wearing yellow trousers",
+            "a photo of a person wearing yellow pants",
+            "a photo of a person wearing a yellow skirt"
+          ]
+        }
+      },
+      "person-upper-colour": {
+        "kind": "categorical",
+        "threshold": 0.5,
+        "prompts": {
+          "black": [
+            "a photo of a person wearing a black top",
+            "a photo of a person wearing a black shirt",
+            "a photo of a person wearing a black jacket"
+          ],
+          "blue": [
+            "a photo of a person wearing a blue top",
+            "a photo of a person wearing a blue shirt",
+            "a photo of a person wearing a blue jacket"
+          ],
+          "brown": [
+            "a photo of a person wearing a brown top",
+            "a photo of a person wearing a brown shirt",
+            "a photo of a person wearing a brown jacket"
+          ],
+          "green": [
+            "a photo of a person wearing a green top",
+            "a photo of a person wearing a green shirt",
+            "a photo of a person wearing a green jacket"
+          ],
+          "grey": [
+            "a photo of a person wearing a grey top",
+            "a photo of a person wearing a grey shirt",
+            "a photo of a person wearing a grey jacket"
+          ],
+          "orange": [
+            "a photo of a person wearing a orange top",
+            "a photo of a person wearing a orange shirt",
+            "a photo of a person wearing a orange jacket"
+          ],
+          "pink": [
+            "a photo of a person wearing a pink top",
+            "a photo of a person wearing a pink shirt",
+            "a photo of a person wearing a pink jacket"
+          ],
+          "purple": [
+            "a photo of a person wearing a purple top",
+            "a photo of a person wearing a purple shirt",
+            "a photo of a person wearing a purple jacket"
+          ],
+          "red": [
+            "a photo of a person wearing a red top",
+            "a photo of a person wearing a red shirt",
+            "a photo of a person wearing a red jacket"
+          ],
+          "white": [
+            "a photo of a person wearing a white top",
+            "a photo of a person wearing a white shirt",
+            "a photo of a person wearing a white jacket"
+          ],
+          "yellow": [
+            "a photo of a person wearing a yellow top",
+            "a photo of a person wearing a yellow shirt",
+            "a photo of a person wearing a yellow jacket"
+          ]
+        }
+      },
+      "vehicle-colour": {
+        "kind": "categorical",
+        "threshold": 0.5,
+        "prompts": {
+          "beige": [
+            "a photo of a beige car",
+            "a photo of a beige vehicle",
+            "a photo of a beige truck"
+          ],
+          "black": [
+            "a photo of a black car",
+            "a photo of a black vehicle",
+            "a photo of a black truck"
+          ],
+          "blue": [
+            "a photo of a blue car",
+            "a photo of a blue vehicle",
+            "a photo of a blue truck"
+          ],
+          "brown": [
+            "a photo of a brown car",
+            "a photo of a brown vehicle",
+            "a photo of a brown truck"
+          ],
+          "green": [
+            "a photo of a green car",
+            "a photo of a green vehicle",
+            "a photo of a green truck"
+          ],
+          "grey": [
+            "a photo of a grey car",
+            "a photo of a grey vehicle",
+            "a photo of a grey truck"
+          ],
+          "orange": [
+            "a photo of a orange car",
+            "a photo of a orange vehicle",
+            "a photo of a orange truck"
+          ],
+          "red": [
+            "a photo of a red car",
+            "a photo of a red vehicle",
+            "a photo of a red truck"
+          ],
+          "silver": [
+            "a photo of a silver car",
+            "a photo of a silver vehicle",
+            "a photo of a silver truck"
+          ],
+          "white": [
+            "a photo of a white car",
+            "a photo of a white vehicle",
+            "a photo of a white truck"
+          ],
+          "yellow": [
+            "a photo of a yellow car",
+            "a photo of a yellow vehicle",
+            "a photo of a yellow truck"
+          ]
+        }
+      }
+    }
+  }
+}

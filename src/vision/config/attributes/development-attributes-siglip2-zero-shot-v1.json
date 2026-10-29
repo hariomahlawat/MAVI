@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "mavi-visual-attribute-pipeline-v1",
+  "pipelineId": "attributes-siglip2-zero-shot",
+  "pipelineVersion": "1.0.0",
+  "developmentOnly": true,
+  "attributeSchema": {
+    "file": "attribute-schema-poc-zero-shot-v1.json",
+    "sha256": "bcf316a824305cb158e06b9a612babcf8e33ff515152e7cc2289b2dc7c1621e4"
+  },
+  "aggregationPolicy": {
+    "file": "aggregation-mean-score-argmax-v1.json",
+    "sha256": "dbe2244c8dd1252f0ed28b3f9e49eb6df47169c146d43a3f8a1050fb6c0030a3"
+  },
+  "parameters": {
+    "file": "parameters-siglip2-zero-shot-v1.json",
+    "sha256": "db6e82145ad787812ae2341a641e0e6bc8db12a4a4ce331077e7a0dcec7145f6"
+  }
+}

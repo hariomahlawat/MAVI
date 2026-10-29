@@ -50,6 +50,11 @@ class AttributeWorkerSettings(BaseSettings):
     device_policy: Literal["cpu", "cuda", "auto"] = "cpu"
     device_index: int = Field(default=0, ge=0, le=255)
     production_mode: bool = False
+    # PoC S5 zero-shot composition (Development only; zero_shot_runtime): the SigLIP 2 Model Pack manifest, the
+    # embeddings-onnx-v1 runtime profile it runs from and, on Windows CUDA, the directory of CUDA/cuDNN DLLs.
+    attribute_model_manifest_path: Path | None = None
+    runtime_profile_path: Path = Path("src/vision/runtime/embeddings-onnx-v1/runtime.json")
+    cuda_dll_directory: Path | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -65,6 +70,8 @@ class AttributeWorkerSettings(BaseSettings):
             raise ValueError("attribute_heartbeat_margin_invalid")
         if self.production_mode and self.device_policy == "auto":
             raise ValueError("MAVI_DEVICE_POLICY=auto is development-only")
+        if self.production_mode and self.attribute_model_manifest_path is not None:
+            raise ValueError("attribute_zero_shot_development_only")
         if self.production_mode and self.deployment_profile is None:
             raise ValueError("MAVI_DEPLOYMENT_PROFILE is required in production mode")
         return self
