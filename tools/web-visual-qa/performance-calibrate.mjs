@@ -27,18 +27,33 @@
  *     --linux a/results.json,b/results.json --windows w/results.json \
  *     --linux-long-tasks x.json,y.json --windows-long-tasks p.json,q.json \
  *     [--write] [--table out.md]
+ *
+ * A long-task recalibration re-decides only the long-task classes (an owner
+ * decision in DECISIONS.longTasks, checked against two single-lane Linux runs
+ * of one head) and carries every CLS class, its calibration and its measured
+ * sets from the current table unchanged; it never re-derives CLS:
+ *
+ *   node tools/web-visual-qa/performance-calibrate.mjs --long-tasks-only \
+ *     --linux-long-tasks x.json,y.json [--windows-long-tasks p.json] \
+ *     [--linux-runs "<provenance>"] [--write] [--table out.md]
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HarnessError } from './engine.mjs';
 import { surfaceOf } from './manifest.mjs';
+import { longTaskLimit } from './performance.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..');
 const TIERS = ['A', 'B', 'C'];
 const U = (v) => Math.round(v * 10000);
 const F = (u) => u / 10000;
+
+// The interactions of the cold-first-interaction long-task class (states.mjs).
+const IMPORT = 'fill the import form with long identities';
+const SUBMIT = 'submit an inverted time range with the rail scrolled to its foot';
+const RAIL = 'collapse the navigation rail';
 
 /** The owner's decisions on the 5363c673 / db619129 calibration review (2026-10-12). */
 export const DECISIONS = Object.freeze({
@@ -125,6 +140,33 @@ export const DECISIONS = Object.freeze({
     classes: [{
       name: 'Search result selection', interactions: ['select a result to inspect it'], count: 1, maxMs: 65,
       why: 'P1: one sporadic task in the 50-65ms band. Kept at the P1 envelope (not tightened to the latest 50-58ms): it has historical support.',
+    }, {
+      // The long-task recalibration of 2026-10-29: the owner (hariomahlawat)
+      // chose to recalibrate rather than re-run, and approved this class's
+      // scope and limit. Evidence, each run's results.json by SHA-256:
+      // docs/qualification/stage3-5/x3-long-task-recalibration-evidence.json.
+      name: 'Cold first interaction (form entry and rail)',
+      interactions: [IMPORT, SUBMIT, RAIL],
+      viewports: ['1366x768'],
+      count: 1, maxMs: 147,
+      why: 'Linux CI, every retained single-lane run of other heads (51, 2026-10-15 to 10-29): 10 raised a long task, 14 tasks in all, never more than one per case, every one at 1366x768 (the first case the lane measures for its state) and on one of these three interactions only (import fill 50-100ms, inverted-range submit 55-147ms, rail collapse 60ms). One more (PR #238, 65ms) is known only from its job logs. Not a product regression: four heads that raised one measured none on a same-head re-run, and identical web code passed (c1ff6b70) and failed (179fe32d, four of four). Scoped to those interactions at 1366x768, where every observation lies; at every other viewport they stay at "no long task", as does every other interaction. Kept at the evidence envelope (147ms, ff52d5a2), as Search selection is kept at its P1 envelope.',
+      evidence: [
+        { run: 38802094423, attempt: 1, head: 'b6bd0d03', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 61 },
+        { run: 38802094423, attempt: 1, head: 'b6bd0d03', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 83 },
+        { run: 38849887470, attempt: 1, head: '4c2db72b', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 55 },
+        { run: 38853255287, attempt: 1, head: 'b1148987', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 100 },
+        { run: 38869918046, attempt: 1, head: '155e90ee', case: 'shell-rail-collapsed@1366x768', interaction: RAIL, ms: 60 },
+        { run: 38869918046, attempt: 1, head: '155e90ee', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 65 },
+        { run: 39061458532, attempt: 1, head: 'ff52d5a2', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 51 },
+        { run: 39061458532, attempt: 1, head: 'ff52d5a2', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 147 },
+        { run: 39105998776, attempt: 1, head: 'c3649b8b', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 51 },
+        { run: 40721307386, attempt: 1, head: 'f680ef05', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 65, source: 'job logs 122947730967 and 122948729384 only: a re-run overwrote the artefact' },
+        { run: 40757411123, attempt: 1, head: '179fe32d', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 50 },
+        { run: 40757411123, attempt: 1, head: '179fe32d', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 74 },
+        { run: 40757411123, attempt: 2, head: '179fe32d', case: 'search-field-errors-above@1366x768', interaction: SUBMIT, ms: 69 },
+        { run: 40757411123, attempt: 3, head: '179fe32d', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 50 },
+        { run: 40757411123, attempt: 4, head: '179fe32d', case: 'import-long-identity@1366x768', interaction: IMPORT, ms: 62 },
+      ],
     }],
   },
   fonts: { documentFaces: 0, why: '§38 "fonts do not swap": the document holds no font face (no @font-face, no FontFace), so the platform stack resolves at layout and nothing can arrive late.' },
@@ -241,35 +283,89 @@ export function deriveBudgets({ linux, windows, p1, stateSurface, linuxLongTasks
     if (cls) preparation.push(cls);
   }
 
-  // Long tasks: what the runs raised, against the decided classes.
+  const lt = deriveLongTasks({ linuxLongTasks, windowsLongTasks, decisions });
+  problems.push(...lt.problems);
+  const measured = {
+    navigation: bothMeasured(L1, L2, nav, problems),
+    preparation: bothMeasured(L1, L2, prep, problems),
+    longTasks: lt.measured,
+  };
+  return { head: linux[0].head, navigation, preparation, longTasks: lt.longTasks, measured, problems };
+}
+
+// What the calibration measured, in both Linux samples: a case that stops
+// being measured (a loading presentation renamed or removed, an interaction
+// that no longer applies) is a fault at the gate, never a silent pass. Both
+// samples agree on this set exactly (and six samples across three heads did).
+function bothMeasured(rows1, rows2, f, problems) {
+  const second = new Set(rows2.filter((c) => f(c) !== null).map(key));
+  const firstSet = new Set(rows1.filter((c) => f(c) !== null).map(key));
+  for (const k of second) if (!firstSet.has(k)) problems.push(`${k}: measured in one Linux sample and not the other`);
+  return [...firstSet].filter((k) => second.has(k)).sort();
+}
+
+/**
+ * Long tasks: what the single-lane runs raised, against the decided classes
+ * (DECISIONS.longTasks), and the interaction cases both Linux runs measured.
+ * A task over its class is a finding to investigate, never a budget input:
+ * the classes are the owner's, set on evidence, and the runs only check them.
+ */
+export function deriveLongTasks({ linuxLongTasks = [], windowsLongTasks = [], decisions = DECISIONS }) {
+  const problems = [];
   const lt = (runs, env) => runs.map((r) => {
     if (r.workers !== 1 || r.longTaskLane !== true) problems.push(`a ${env} long-task run is not the single-lane run`);
     const tasks = ord(r).filter((c) => c.perf?.longTasks?.status === 'measured' && c.perf.longTasks.count > 0);
     for (const c of tasks) {
-      const own = decisions.longTasks.classes.find((k) => k.interactions.includes(c.perf.longTasks.interaction)) ?? decisions.longTasks.default;
-      if (c.perf.longTasks.count > own.count || c.perf.longTasks.maxMs > own.maxMs) problems.push(`${env} ${where(c)}: "${c.perf.longTasks.interaction}" raised ${c.perf.longTasks.count} x ${c.perf.longTasks.maxMs}ms, over "${own.name}" — a finding to investigate, not a budget input`);
+      const own = longTaskLimit(c.perf.longTasks.interaction, { longTasks: decisions.longTasks }, c.viewport);
+      if (c.perf.longTasks.count > own.count || c.perf.longTasks.maxMs > own.maxMs) problems.push(`${env} ${where(c)}: "${c.perf.longTasks.interaction}" raised ${c.perf.longTasks.count} x ${c.perf.longTasks.maxMs}ms, over "${own.class}" — a finding to investigate, not a budget input`);
     }
     return { head: r.head, measured: ord(r).filter((c) => c.perf?.longTasks?.status === 'measured').length, tasks: tasks.map((c) => ({ at: where(c), interaction: c.perf.longTasks.interaction, count: c.perf.longTasks.count, maxMs: c.perf.longTasks.maxMs })) };
   });
   const longTasks = { linux: lt(linuxLongTasks, 'Linux'), windows: lt(windowsLongTasks, 'Windows') };
-  // What the calibration measured, in both Linux samples: a case that stops
-  // being measured (a loading presentation renamed or removed, an interaction
-  // that no longer applies) is a fault at the gate, never a silent pass. Both
-  // samples agree on this set exactly (and six samples across three heads did).
-  const both = (rows1, rows2, f) => {
-    const second = new Set(rows2.filter((c) => f(c) !== null).map(key));
-    const firstSet = new Set(rows1.filter((c) => f(c) !== null).map(key));
-    for (const k of second) if (!firstSet.has(k)) problems.push(`${k}: measured in one Linux sample and not the other`);
-    return [...firstSet].filter((k) => second.has(k)).sort();
-  };
   const ltMeasured = (c) => (c?.perf?.longTasks?.status === 'measured' ? c.perf.longTasks.count : null);
-  const measured = {
-    navigation: both(L1, L2, nav),
-    preparation: both(L1, L2, prep),
-    longTasks: linuxLongTasks.length === 2 ? both(ord(linuxLongTasks[0]), ord(linuxLongTasks[1]), ltMeasured) : [],
-  };
-  if (!measured.longTasks.length) problems.push('the calibration has no two single-lane Linux long-task runs');
-  return { head: linux[0].head, navigation, preparation, longTasks, measured, problems };
+  const measured = linuxLongTasks.length === 2 ? bothMeasured(ord(linuxLongTasks[0]), ord(linuxLongTasks[1]), ltMeasured, problems) : [];
+  if (!measured.length) problems.push('the calibration has no two single-lane Linux long-task runs');
+  return { longTasks, measured, problems };
+}
+
+/**
+ * A long-task recalibration (--long-tasks-only): the long-task classes
+ * re-decided on new evidence while every CLS class stays exactly as its own
+ * calibration derived it. Its inputs are two single-lane Linux runs of one
+ * head (and any Windows long-task runs of that head); the current table
+ * supplies everything else, unchanged. An interaction case the table measured
+ * that these runs no longer measure is a requalification, not this.
+ */
+export function recalibrateLongTasks(current, { linuxLongTasks, windowsLongTasks = [], decisions = DECISIONS }) {
+  if (linuxLongTasks?.length !== 2) throw new HarnessError('a long-task recalibration is two single-lane Linux runs of one head');
+  const inputs = [...linuxLongTasks.map((r, i) => [`Linux long-task run ${i + 1}`, r]), ...windowsLongTasks.map((r, i) => [`Windows long-task run ${i + 1}`, r])];
+  for (const [what, r] of inputs) if (!r?.head) throw new HarnessError(`${what} names no head`);
+  if (new Set(inputs.map(([, r]) => r.head)).size !== 1) throw new HarnessError(`the recalibration mixes heads: ${inputs.map(([what, r]) => `${what} ${r.head.slice(0, 8)}`).join(', ')}`);
+  const derived = deriveLongTasks({ linuxLongTasks, windowsLongTasks, decisions });
+  const now = new Set(derived.measured);
+  for (const k of current.measured.longTasks) if (!now.has(k)) derived.problems.push(`${k}: measured at calibration and not by these runs — a requalification, not a long-task recalibration`);
+  return { head: linuxLongTasks[0].head, ...derived };
+}
+
+/** The module source for a recalibrated long-task table: the CLS classes, their calibration and measured sets carried byte for byte. */
+export function longTaskModule(current, derived, { decisions = DECISIONS, calibration }) {
+  return moduleSource({
+    ...current,
+    calibration: { ...current.calibration, longTasks: calibration },
+    longTasks: { default: decisions.longTasks.default, classes: decisions.longTasks.classes, evidence: derived.longTasks },
+    measured: { ...current.measured, longTasks: derived.measured },
+  });
+}
+
+/** The long-task review table: per run, what it measured and raised, against each class's limit. */
+export function longTaskTable(derived, decisions = DECISIONS) {
+  const out = ['| Class | Interactions | Permitted |', '|---|---|---|'];
+  for (const k of [...decisions.longTasks.classes, decisions.longTasks.default]) out.push(`| ${k.name} | ${k.interactions ? k.interactions.join('; ') : 'every other declared interaction'}${k.viewports ? ` (at ${k.viewports.join(', ')} only)` : ''} | ${k.count} x <= ${k.maxMs}ms |`);
+  out.push('', '| Run | Head | Interaction cases measured | Long tasks (case, interaction, count x longest) |', '|---|---|---|---|');
+  for (const [env, runs] of [['Linux', derived.longTasks.linux], ['Windows', derived.longTasks.windows]]) {
+    runs.forEach((r, i) => out.push(`| ${env} ${i + 1} | ${r.head.slice(0, 8)} | ${r.measured} | ${r.tasks.length ? r.tasks.map((t) => `${t.at} "${t.interaction}" ${t.count} x ${t.maxMs}ms`).join('<br>') : 'none'} |`));
+  }
+  return out.join('\n');
 }
 
 /** The budget module's source: the one canonical table. */
@@ -294,6 +390,10 @@ export function budgetModule(derived, { decisions = DECISIONS, calibration }) {
     fonts: decisions.fonts,
     measured: derived.measured,
   };
+  return moduleSource(table);
+}
+
+function moduleSource(table) {
   return `/**
  * Stage 3.5 S6/X3 (§38): the performance budgets — the one canonical source.
  *
@@ -329,6 +429,7 @@ function arg(name, fallback = null) {
 const list = (name) => (arg(name) ?? '').split(',').filter(Boolean).map((f) => JSON.parse(readFileSync(resolve(f), 'utf8')));
 
 async function main() {
+  if (process.argv.includes('--long-tasks-only')) return mainLongTasks();
   const { STATES } = await import('./states.mjs');
   const stateSurface = Object.fromEntries(STATES.map((s) => [s.name, surfaceOf(s.path)]));
   const p1 = JSON.parse(readFileSync(join(REPO, DECISIONS.baseline.file), 'utf8'));
@@ -345,6 +446,27 @@ async function main() {
     const calibration = { head: derived.head, linux: arg('linux-runs') ?? 'two CI samples of the head', windows: 'one uncontended sweep and two single-lane long-task runs of the head' };
     writeFileSync(join(HERE, 'performance-budgets.mjs'), budgetModule(derived, { calibration }));
     process.stdout.write(`wrote performance-budgets.mjs (${derived.navigation.length} navigation and ${derived.preparation.length} preparation classes, calibrated on ${derived.head})\n`);
+  }
+  process.exitCode = derived.problems.length ? 1 : 0;
+}
+
+async function mainLongTasks() {
+  const { PERFORMANCE_BUDGETS } = await import('./performance-budgets.mjs');
+  const derived = recalibrateLongTasks(PERFORMANCE_BUDGETS, { linuxLongTasks: list('linux-long-tasks'), windowsLongTasks: list('windows-long-tasks') });
+  const table = longTaskTable(derived);
+  if (arg('table')) writeFileSync(resolve(arg('table')), table + '\n');
+  else process.stdout.write(table + '\n');
+  for (const p of derived.problems) process.stdout.write(`PROBLEM: ${p}\n`);
+  if (process.argv.includes('--write')) {
+    if (derived.problems.length) throw new HarnessError('the long-task recalibration has problems; nothing written');
+    const calibration = {
+      head: derived.head,
+      linux: arg('linux-runs') ?? 'two single-lane CI runs of the head',
+      windows: derived.longTasks.windows.length ? `${derived.longTasks.windows.length} single-lane long-task run(s) of the head` : 'none: the recalibration answers the enforcement environment',
+      scope: `long tasks only: every CLS class and measured CLS set is carried unchanged from the calibration of ${PERFORMANCE_BUDGETS.calibration.head}`,
+    };
+    writeFileSync(join(HERE, 'performance-budgets.mjs'), longTaskModule(PERFORMANCE_BUDGETS, derived, { calibration }));
+    process.stdout.write(`wrote performance-budgets.mjs (long tasks recalibrated on ${derived.head}; CLS classes unchanged)\n`);
   }
   process.exitCode = derived.problems.length ? 1 : 0;
 }
