@@ -430,7 +430,7 @@ No qualification-record schema field changes; the gate-set configuration gains c
 
 ## Amendment 2026-10-29 (PoC S1b): Development builds of a variant, selected by compute capability
 
-**Status: proposed in the PoC S1b PR (hariomahlawat/MAVI#243). An owner decision to ratify; not accepted until the owner merges that PR.**
+**Status: Accepted (2026-10-29).** Ratified by the owner as written (decision D-S1b-1, register `docs/reviews/2026-10-28-poc-acceptance.md`); introduced in the PoC S1b PR (hariomahlawat/MAVI#243).
 
 **Context.** PoC decision D9 and ADR-020 §1 let the `poc-single-host` profile use a second Windows CUDA Runtime Pack built for the RTX 4090 demonstration host: the same `windows-x86_64-cuda` platform variant, MMCV native ops compiled for `sm_75;sm_89` under build contract v2. The binding pins one Runtime Pack per variant (§4a, P-17), and three layers enforce that pin: the PoC bundle builder, the launcher's Development Auto decision (`cuda_pack_id_mismatch`) and the Python resolver (`runtime_pack_manifest_mismatch:binding`). A pack that every layer refuses does not satisfy the accepted plan.
 
