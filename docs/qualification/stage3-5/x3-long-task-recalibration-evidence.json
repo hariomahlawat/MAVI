@@ -1,0 +1,885 @@
+{
+  "schema": "mavi.stage3-5.x3-long-task-recalibration-evidence.v1",
+  "question": "Does the \"no long task\" default still hold in the enforcement environment (GitHub ubuntu-latest, single-lane long-task run), and is the excess runner variance or a web regression?",
+  "source": "Every performance-long-tasks artefact the repository still retained on 2026-10-29 (MAVI Quality Gate, job \"performance long tasks\": run.mjs --long-tasks, one worker, forward response order), plus the two calibration samples of the recalibration head. Artefacts expire after 14 days; each results.json is identified here by its SHA-256 and its long tasks are copied out.",
+  "generatedBy": "a tabulation of each results.json: ordinary (anchor/probe) cases whose perf.longTasks is measured; the cases with count > 0 are listed",
+  "summary": {
+    "runs": 52,
+    "runsWithALongTask": 9,
+    "interactionCasesPerRun": [
+      413
+    ],
+    "maxCountPerCase": 1,
+    "byInteraction": {
+      "fill the import form with long identities": {
+        "cases": [
+          "import-long-identity@1366x768"
+        ],
+        "occurrences": 6,
+        "maxMs": [
+          50,
+          50,
+          51,
+          51,
+          61,
+          100
+        ],
+        "envelopeMs": 100
+      },
+      "submit an inverted time range with the rail scrolled to its foot": {
+        "cases": [
+          "search-field-errors-above@1366x768"
+        ],
+        "occurrences": 6,
+        "maxMs": [
+          55,
+          65,
+          69,
+          74,
+          83,
+          147
+        ],
+        "envelopeMs": 147
+      },
+      "collapse the navigation rail": {
+        "cases": [
+          "shell-rail-collapsed@1366x768"
+        ],
+        "occurrences": 1,
+        "maxMs": [
+          60
+        ],
+        "envelopeMs": 60
+      }
+    },
+    "sameHeadReruns": [
+      {
+        "head": "b6bd0d039f1d97b1d8fc032c6c773119e7ee3c3a",
+        "run": 38802094423,
+        "maxMsPerSample": [
+          83,
+          0
+        ]
+      },
+      {
+        "head": "b1148987fefba2ec4fdc4a51d5597d49ca4c54f9",
+        "run": 38853255287,
+        "maxMsPerSample": [
+          100,
+          0
+        ]
+      },
+      {
+        "head": "155e90ee7982ce5706732365fcd895460407ff30",
+        "run": 38869918046,
+        "maxMsPerSample": [
+          65,
+          0
+        ]
+      },
+      {
+        "head": "ff52d5a2db9b829bd78aa5a4e5fc3e385efb01c9",
+        "run": 39061458532,
+        "maxMsPerSample": [
+          147,
+          0
+        ]
+      },
+      {
+        "head": "179fe32d80c7cfcf47d8744c1b7558892e4fd404",
+        "run": 40757411123,
+        "maxMsPerSample": [
+          74,
+          69,
+          50
+        ]
+      },
+      {
+        "head": "5ca00b70ea5a23502806dc3ac85f0462b8dd9023",
+        "run": 40799192254,
+        "maxMsPerSample": [
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "runs": [
+    {
+      "artifact": 11940577259,
+      "run": 38663205490,
+      "head": "549bacfb11545be0a81bfc0fd022aa9b21b1fb37",
+      "branch": "stage4/pr4-plate-search",
+      "createdAt": "2026-10-15T01:17:34Z",
+      "resultsSha256": "42e3dc9359a6db8d4cf8dcbaf92be28959ad2801540b8108497a7958be33e4a3",
+      "workers": 1,
+      "longTaskLane": true,
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 11943650281,
+      "run": 38668200176,
+      "head": "2bb5011ae84b3005fbb0a420935f412af27ab342",
+      "branch": "fix/web-performance-gate-determinism",
+      "createdAt": "2026-10-15T02:12:33Z",
+      "resultsSha256": "8f342c479875dc313eda665eca15d8a7b2b025b9c1a2ff687e82369a2b380ff5",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 11956102712,
+      "run": 38699309268,
+      "head": "4394de9c953651c4aaeb8720ae592f2687baff42",
+      "branch": "main",
+      "createdAt": "2026-10-15T07:46:48Z",
+      "resultsSha256": "f0fabe3c16abec80b3e8f72edba323974c0cea9a2737045efe89768557be5bb5",
+      "workers": 1,
+      "longTaskLane": true,
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 11978505540,
+      "run": 38742344201,
+      "head": "8cac86e88bc1b4119319adb1fc95c15c2e2d4bd0",
+      "branch": "fix/web-performance-gate-determinism",
+      "createdAt": "2026-10-15T13:42:57Z",
+      "resultsSha256": "8ac8cee24988c7494c1bb3eb8040e820e2f830cf490d5bb04a33fb23b28ee394",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 11993750971,
+      "run": 38772797799,
+      "head": "6143d368e70acf546bfcfdbd23d2bc0fc5b63e6a",
+      "branch": "fix/web-performance-gate-determinism",
+      "createdAt": "2026-10-15T17:12:04Z",
+      "resultsSha256": "ed833dd9971666c9f05c3fa3620f2f3fcb192df19fc88ba3bfdc3786bb21fdb7",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 11994946438,
+      "run": 38776028248,
+      "head": "020624e1c5ac1c4026c0cd99a446451ca8cd59ba",
+      "branch": "main",
+      "createdAt": "2026-10-15T17:35:08Z",
+      "resultsSha256": "71f9dd653dccf1eb198f1cd309fcca3c861bcabf171f187f8562af11239d5305",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12005633314,
+      "run": 38802094423,
+      "head": "b6bd0d039f1d97b1d8fc032c6c773119e7ee3c3a",
+      "branch": "stage4/pr4-plate-search",
+      "createdAt": "2026-10-15T20:50:44Z",
+      "resultsSha256": "962333781d787e97e87d34955e8ca43e1af5d0ca49db61f37a5bb4b422488636",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": [
+        {
+          "at": "import-long-identity@1366x768",
+          "interaction": "fill the import form with long identities",
+          "count": 1,
+          "maxMs": 61,
+          "totalMs": 61
+        },
+        {
+          "at": "search-field-errors-above@1366x768",
+          "interaction": "submit an inverted time range with the rail scrolled to its foot",
+          "count": 1,
+          "maxMs": 83,
+          "totalMs": 83
+        }
+      ]
+    },
+    {
+      "artifact": 12007163244,
+      "run": 38802094423,
+      "head": "b6bd0d039f1d97b1d8fc032c6c773119e7ee3c3a",
+      "branch": "stage4/pr4-plate-search",
+      "createdAt": "2026-10-15T21:20:16Z",
+      "resultsSha256": "6adbe891d06ec9841a1624131b7532eceeedc52ee59ac66178b09e12728ef1a5",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12008892461,
+      "run": 38809683419,
+      "head": "a5d55b3f4f395dd4603b8a99084dbf77add7092a",
+      "branch": "main",
+      "createdAt": "2026-10-15T21:46:32Z",
+      "resultsSha256": "85ecca230ee6b887bb95c1b78f1a94558078e6d83ab14826aa32377d273f24ef",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12026015360,
+      "run": 38849887470,
+      "head": "4c2db72b720996056f727b17ffb2bbbb44743203",
+      "branch": "msr/m1-plate-domain-and-baseline-role",
+      "createdAt": "2026-10-16T04:36:04Z",
+      "resultsSha256": "db09dcd19f14f36bc2325215f0f2baab898d980434354c94ac6152654d1bd461",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": [
+        {
+          "at": "search-field-errors-above@1366x768",
+          "interaction": "submit an inverted time range with the rail scrolled to its foot",
+          "count": 1,
+          "maxMs": 55,
+          "totalMs": 55
+        }
+      ]
+    },
+    {
+      "artifact": 12026762492,
+      "run": 38853255287,
+      "head": "b1148987fefba2ec4fdc4a51d5597d49ca4c54f9",
+      "branch": "msr/m1-plate-domain-and-baseline-role",
+      "createdAt": "2026-10-16T05:18:10Z",
+      "resultsSha256": "6201b2274d5752ede3f29a5c5c4c7e2f71e5267e5d3922b700c4c83777492c47",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": [
+        {
+          "at": "import-long-identity@1366x768",
+          "interaction": "fill the import form with long identities",
+          "count": 1,
+          "maxMs": 100,
+          "totalMs": 100
+        }
+      ]
+    },
+    {
+      "artifact": 12027930716,
+      "run": 38853255287,
+      "head": "b1148987fefba2ec4fdc4a51d5597d49ca4c54f9",
+      "branch": "msr/m1-plate-domain-and-baseline-role",
+      "createdAt": "2026-10-16T05:41:41Z",
+      "resultsSha256": "31d2075ffba05af61cf8e16e7476d3e6898dd848d3fbd4234b8026aa3bdb6441",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12032944836,
+      "run": 38869918046,
+      "head": "155e90ee7982ce5706732365fcd895460407ff30",
+      "branch": "msr/m1-plate-domain-and-baseline-role",
+      "createdAt": "2026-10-16T08:10:51Z",
+      "resultsSha256": "8ca1907dfa33db7273ef78c42ffd3ac60b8ffb78e8c0871839562b62c5b18e7b",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": [
+        {
+          "at": "shell-rail-collapsed@1366x768",
+          "interaction": "collapse the navigation rail",
+          "count": 1,
+          "maxMs": 60,
+          "totalMs": 60
+        },
+        {
+          "at": "search-field-errors-above@1366x768",
+          "interaction": "submit an inverted time range with the rail scrolled to its foot",
+          "count": 1,
+          "maxMs": 65,
+          "totalMs": 65
+        }
+      ]
+    },
+    {
+      "artifact": 12034442802,
+      "run": 38869918046,
+      "head": "155e90ee7982ce5706732365fcd895460407ff30",
+      "branch": "msr/m1-plate-domain-and-baseline-role",
+      "createdAt": "2026-10-16T08:34:17Z",
+      "resultsSha256": "24e6b55f564e1e8a2b53532b9430d397e2976bfa31aead6b790bcd878a14c1dd",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12037316773,
+      "run": 38878409805,
+      "head": "0f039c6bb3c5c98ae51cd74f7b9356a80ef6769d",
+      "branch": "main",
+      "createdAt": "2026-10-16T09:28:47Z",
+      "resultsSha256": "4d1522d5abb27f055cbcd5a1f7a4f5b5c5a8428c0df83175f8d43ad46b103615",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12058791823,
+      "run": 38928265604,
+      "head": "22b10fdf879107377485efd6f031dcccefb77d17",
+      "branch": "main",
+      "createdAt": "2026-10-16T16:18:23Z",
+      "resultsSha256": "3710491a4508596b598a9abb4f0f5deff9cd81277051b6ee4af4a64a6d9ae4f9",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12075077573,
+      "run": 38964612407,
+      "head": "7ec106f91281256f0777241d86f3daaa8d48f870",
+      "branch": "stage4/ip5-m3-hardening",
+      "createdAt": "2026-10-16T21:06:12Z",
+      "resultsSha256": "7f8a6566ff42d8ca35477b30b4b1c976a446cf6b171235ae85c8f49c5ce5b5ed",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12088848223,
+      "run": 38999547383,
+      "head": "d52bbd5789fa07679765ab49716c57b3bc2610f1",
+      "branch": "stage4/ip5-m3-hardening",
+      "createdAt": "2026-10-17T03:58:30Z",
+      "resultsSha256": "08aead1e1c4ad5c7dd817689a65e461e0ca79df98e1aace1fd293b2827a3b0b0",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12090774013,
+      "run": 39005385697,
+      "head": "c6d267c5ddfd85d317469e9f944b2608833f67e5",
+      "branch": "main",
+      "createdAt": "2026-10-17T05:29:37Z",
+      "resultsSha256": "e413945ffdd7f2da0c0dac60730d02e49e0eedd6b28a5bbf40f8e3770846c6c5",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12093979741,
+      "run": 39013928384,
+      "head": "c140fc9ab8fab5a8c1bc721ae3e155e4b8b84dc8",
+      "branch": "main",
+      "createdAt": "2026-10-17T07:52:42Z",
+      "resultsSha256": "b6330faecd5c3fe920a7a8edb68c6f8ee45e173f91857b3d52ffb930e836a2d5",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12095984786,
+      "run": 39019316882,
+      "head": "e147a4c8bf952910cad75f99cd5da3813a1779a2",
+      "branch": "main",
+      "createdAt": "2026-10-17T09:17:13Z",
+      "resultsSha256": "fc8b78fee5aa6a072640875ed14fbfd5e798b10af07681d55825c7b70b31aba0",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12100932786,
+      "run": 39031535329,
+      "head": "a15daf60eaa63e103a23e351f6ad5a8c31771215",
+      "branch": "stage4/anpr-dev-pilot",
+      "createdAt": "2026-10-17T12:32:59Z",
+      "resultsSha256": "1d692cf43f53d40a167923561b4772cdcc0e7f3cc028ea59fefc50ce58f5b553",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12102251440,
+      "run": 39033050625,
+      "head": "29fdb57b2e858e753a4c5b72d33ea58d38c4db85",
+      "branch": "stage4/anpr-dev-pilot",
+      "createdAt": "2026-10-17T13:18:00Z",
+      "resultsSha256": "5e2cbc4405f37aaa5074f16a368ba6619972705a1c4d19fd9dab910e9904f889",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12104491307,
+      "run": 39040536853,
+      "head": "72dc986ee92158743de51938e3c8f92b90c8bce1",
+      "branch": "stage4/anpr-dev-pilot",
+      "createdAt": "2026-10-17T14:40:52Z",
+      "resultsSha256": "5a46b638509d8edf7e8def669e167226764910f401877075e3fe1ed933fcb05c",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12104638302,
+      "run": 39042669420,
+      "head": "b8dc539c6cb7cdebb22f0884efda4f9ea235d8a8",
+      "branch": "main",
+      "createdAt": "2026-10-17T15:14:25Z",
+      "resultsSha256": "e472f2affdfd05b9592bde0a8c8d6ae0030784e0ecd2c378308a011cd8654dc1",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12105877903,
+      "run": 39045089164,
+      "head": "8e76d037b4552c2d0d41009445d37c4bec0e79b7",
+      "branch": "stage4/pr5-operator-plate-ui",
+      "createdAt": "2026-10-17T15:46:38Z",
+      "resultsSha256": "a221ab8b4c8dfb77fcf7eef0eda67be23a553a589f07f4fb8ae9af4000f7e8d7",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12107100902,
+      "run": 39047332616,
+      "head": "cf3f878846fd52177546583e6709eba0a106cab0",
+      "branch": "stage4/pr5-operator-plate-ui",
+      "createdAt": "2026-10-17T16:15:27Z",
+      "resultsSha256": "32c3a35a5ddf858c42b5c78001614e9d2e9459b0199eeb9349a45f1424475550",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12110351974,
+      "run": 39056534450,
+      "head": "954600d4dbe3af9b09510e4a7254675d6f3314c6",
+      "branch": "stage4/pr5-operator-plate-ui",
+      "createdAt": "2026-10-17T18:23:11Z",
+      "resultsSha256": "efe17c48fac1d68202f1652da936561e64161b0f3408b0a77e7ebdcd5b18ac10",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12111574304,
+      "run": 39061458532,
+      "head": "ff52d5a2db9b829bd78aa5a4e5fc3e385efb01c9",
+      "branch": "stage4/pr5-operator-plate-ui",
+      "createdAt": "2026-10-17T19:29:44Z",
+      "resultsSha256": "a3cb4278db7d486cec8458a7acf58eea50f9c607c97f1f02ea33229fcb86e702",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": [
+        {
+          "at": "import-long-identity@1366x768",
+          "interaction": "fill the import form with long identities",
+          "count": 1,
+          "maxMs": 51,
+          "totalMs": 51
+        },
+        {
+          "at": "search-field-errors-above@1366x768",
+          "interaction": "submit an inverted time range with the rail scrolled to its foot",
+          "count": 1,
+          "maxMs": 147,
+          "totalMs": 147
+        }
+      ]
+    },
+    {
+      "artifact": 12112428779,
+      "run": 39061458532,
+      "head": "ff52d5a2db9b829bd78aa5a4e5fc3e385efb01c9",
+      "branch": "stage4/pr5-operator-plate-ui",
+      "createdAt": "2026-10-17T19:53:26Z",
+      "resultsSha256": "ab64efdf3aa1793b2b066760772d4259ba12c5ad2c5a626bb7637c1c44b2b6d5",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12122137520,
+      "run": 39089134141,
+      "head": "ce25ad1851c047fa015259e51d4a4ebff664aa61",
+      "branch": "main",
+      "createdAt": "2026-10-18T02:28:27Z",
+      "resultsSha256": "3b6134ffde14363e805584d084c44f3d1dc65cf19510b90472ed7d46b88db424",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12122467051,
+      "run": 39089828187,
+      "head": "d4a44eefccfdbf3a422ee71273aed7110107c515",
+      "branch": "stage4/p12-acceptance-record-230",
+      "createdAt": "2026-10-18T02:40:22Z",
+      "resultsSha256": "32b3aebb252b1d44d339b09658e62d816780ae8878b78d168b6e65670e0cd405",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12123415146,
+      "run": 39091059601,
+      "head": "fa3106c431689cfcd655e47f22b203121cd9886b",
+      "branch": "main",
+      "createdAt": "2026-10-18T02:59:38Z",
+      "resultsSha256": "14deabb3cf4c96bb4381dde2462040bbc74f0bc837039f42d5e417427ca0146c",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12128203833,
+      "run": 39105998776,
+      "head": "c3649b8be9a3175e4e31fcda0c38b91dba362224",
+      "branch": "main",
+      "createdAt": "2026-10-18T07:19:43Z",
+      "resultsSha256": "8f2faa2bdd04938e84a5fa8487168b6ec4d642d8c21929e002f53a1e0845d3cb",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": [
+        {
+          "at": "import-long-identity@1366x768",
+          "interaction": "fill the import form with long identities",
+          "count": 1,
+          "maxMs": 51,
+          "totalMs": 51
+        }
+      ]
+    },
+    {
+      "artifact": 12136967452,
+      "run": 39127991974,
+      "head": "652de1e5669aef36505526ee8406d2f15e1afe82",
+      "branch": "main",
+      "createdAt": "2026-10-18T12:54:52Z",
+      "resultsSha256": "3905bfc502e306b248f45bf92bb1360bf035bc5b4f9ef59044f960a0f67e0a27",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12145047585,
+      "run": 39150177152,
+      "head": "4fac0abb515e0e0330833c0600feb96ad3af77e1",
+      "branch": "main",
+      "createdAt": "2026-10-18T17:52:16Z",
+      "resultsSha256": "6b7a70aa08e8ca158458892c94e02132e86e9b715f70dccd98026a313ff18998",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12145838039,
+      "run": 39151828486,
+      "head": "5278844ee11d5fdb1918a7d9d8813c21e026db9b",
+      "branch": "main",
+      "createdAt": "2026-10-18T18:14:09Z",
+      "resultsSha256": "34d88c52f16b61f026c99c597b6c4d3c75ca677a19e95136bce62b90e6e3798a",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12145994863,
+      "run": 39153164812,
+      "head": "393a16ed74e617291aa6f0efe5ed27687851e457",
+      "branch": "main",
+      "createdAt": "2026-10-18T18:33:10Z",
+      "resultsSha256": "d604acf76fcde39a1413bea31efc60d0597e79a9ff234d9c6fe865d74b78994c",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12827490077,
+      "run": 40709035336,
+      "head": "9f4b09fcc249975c9fa6532f6db726a1bfa48023",
+      "branch": "poc/s1-installer",
+      "createdAt": "2026-10-28T15:04:49Z",
+      "resultsSha256": "c62c401d9ad0b0a05ae309374234cf0913ea269cc9e53932766b95b4308b7d54",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12828531911,
+      "run": 40713216466,
+      "head": "4751193670290d01188202f010544f87380ac2e4",
+      "branch": "poc/s1-installer",
+      "createdAt": "2026-10-28T15:29:09Z",
+      "resultsSha256": "94314b3adf9a8a16b39765c54e25841c184ecd51d47d6c9d323754e5497beec4",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12833132385,
+      "run": 40724046439,
+      "head": "61f1adb9cc807a38f755d0c6b0c6f6ba198aa39e",
+      "branch": "claude/poc-s2-corpus-e07bcb",
+      "createdAt": "2026-10-28T16:33:45Z",
+      "resultsSha256": "c3176b02fdd60299d172db502d8e107c6bf9657962256751c1ac33bae18adcac",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12834862071,
+      "run": 40721307386,
+      "head": "f680ef053c92088d2096d9a348d12ce6b82e8548",
+      "branch": "poc/s1-installer",
+      "createdAt": "2026-10-28T16:51:18Z",
+      "resultsSha256": "389a8e8e6b3b701b4c307c73162fb8e381d6cd5567959a9077cbb9db5817ed0c",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12835264434,
+      "run": 40731191390,
+      "head": "c1ff6b705775faf09c71b86fb820c11165ea29b0",
+      "branch": "claude/poc-s2-corpus-e07bcb",
+      "createdAt": "2026-10-28T17:16:15Z",
+      "resultsSha256": "d6b1bda70cb0c5c90607ffa79f38ec8bfacf143f75c3631eec3f7794bf90b503",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12835799965,
+      "run": 40732282296,
+      "head": "7c1171c4c35632d94cb364ca3edd1a042957d43a",
+      "branch": "poc/s1-installer",
+      "createdAt": "2026-10-28T17:27:42Z",
+      "resultsSha256": "7253e26ed178da516c4266569491c4a589d5129246b2a2cb0d949f7d35f094ad",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12837839997,
+      "run": 40736582855,
+      "head": "f0750bf483a2432a2c2857f64f81b108a4b75302",
+      "branch": "poc/s1-installer",
+      "createdAt": "2026-10-28T17:51:02Z",
+      "resultsSha256": "e77dc8e38d82b184e78f5f268fa31871a33d1b2250498bd35159855c2935d08c",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12841386522,
+      "run": 40741870449,
+      "head": "601296dd212b998ef75aa9692e737fb528965a5f",
+      "branch": "poc/s1-installer",
+      "createdAt": "2026-10-28T18:26:22Z",
+      "resultsSha256": "a2ecc3a7a73d5edca3f2c15e95278041caa8dd2d1ecddfb8dfabadec62bce1ef",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12847632880,
+      "run": 40757411123,
+      "head": "179fe32d80c7cfcf47d8744c1b7558892e4fd404",
+      "branch": "claude/poc-s2-corpus-e07bcb",
+      "createdAt": "2026-10-28T20:07:55Z",
+      "resultsSha256": "385cb49a04fd06dc68d68540653b28c3ba73ffd45dc9bf165b7d0d752519ae70",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": [
+        {
+          "at": "import-long-identity@1366x768",
+          "interaction": "fill the import form with long identities",
+          "count": 1,
+          "maxMs": 50,
+          "totalMs": 50
+        },
+        {
+          "at": "search-field-errors-above@1366x768",
+          "interaction": "submit an inverted time range with the rail scrolled to its foot",
+          "count": 1,
+          "maxMs": 74,
+          "totalMs": 74
+        }
+      ]
+    },
+    {
+      "artifact": 12846824071,
+      "run": 40757684600,
+      "head": "21044dc2c61e37ce0770567412ec5526fe65ce02",
+      "branch": "poc/s1-installer",
+      "createdAt": "2026-10-28T20:11:54Z",
+      "resultsSha256": "884790d3db9bb6de9f1cb5ae7134a7cd5d386214c821c074d27cf80d35bbfd80",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": []
+    },
+    {
+      "artifact": 12860267635,
+      "run": 40757411123,
+      "head": "179fe32d80c7cfcf47d8744c1b7558892e4fd404",
+      "branch": "claude/poc-s2-corpus-e07bcb",
+      "createdAt": "2026-10-28T23:39:36Z",
+      "resultsSha256": "0fa664ca15628f06ade433bd7109ff8d48f153e56ed1db90c5fe8ef183477685",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": [
+        {
+          "at": "search-field-errors-above@1366x768",
+          "interaction": "submit an inverted time range with the rail scrolled to its foot",
+          "count": 1,
+          "maxMs": 69,
+          "totalMs": 69
+        }
+      ]
+    },
+    {
+      "artifact": 12861736523,
+      "run": 40757411123,
+      "head": "179fe32d80c7cfcf47d8744c1b7558892e4fd404",
+      "branch": "claude/poc-s2-corpus-e07bcb",
+      "createdAt": "2026-10-28T23:59:19Z",
+      "resultsSha256": "3d9b0a1ebd40a619e70ead0bb8f48da24aaa5bd6c73f2756c4cf0a3ea2d80c2d",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "tasks": [
+        {
+          "at": "import-long-identity@1366x768",
+          "interaction": "fill the import form with long identities",
+          "count": 1,
+          "maxMs": 50,
+          "totalMs": 50
+        }
+      ]
+    },
+    {
+      "artifact": 12866535234,
+      "run": 40799192254,
+      "head": "5ca00b70ea5a23502806dc3ac85f0462b8dd9023",
+      "branch": "claude/perf-long-task-recalibration-dbff47",
+      "createdAt": "2026-10-29T01:31:16Z",
+      "resultsSha256": "e1916703980765d7d3915dd8bae84bd7e4024864c231d5ef8da41a021478f299",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "calibrationSample": true,
+      "tasks": []
+    },
+    {
+      "artifact": 12867290810,
+      "run": 40799192254,
+      "head": "5ca00b70ea5a23502806dc3ac85f0462b8dd9023",
+      "branch": "claude/perf-long-task-recalibration-dbff47",
+      "createdAt": "2026-10-29T01:54:19Z",
+      "resultsSha256": "84e1364ae0d70eb080d0c3de268b27c5a066a526ba5f9477417d55b8498b8195",
+      "workers": 1,
+      "longTaskLane": true,
+      "responseOrder": "forward",
+      "measured": 413,
+      "calibrationSample": true,
+      "tasks": []
+    }
+  ]
+}

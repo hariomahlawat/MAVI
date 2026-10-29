@@ -17,7 +17,13 @@ export const PERFORMANCE_BUDGETS = Object.freeze({
   "calibration": {
     "head": "9175214703d3e55e78d7c10904f66ef2065b7c7d",
     "linux": "GitHub Actions run 38177391297, attempts 1 and 2",
-    "windows": "one uncontended sweep and two single-lane long-task runs of the head"
+    "windows": "one uncontended sweep and two single-lane long-task runs of the head",
+    "longTasks": {
+      "head": "5ca00b70ea5a23502806dc3ac85f0462b8dd9023",
+      "linux": "GitHub Actions run 40799192254, attempts 1 and 2 (job performance long tasks; artefacts 12866535234, 12867290810)",
+      "windows": "none: the recalibration answers the enforcement environment",
+      "scope": "long tasks only: every CLS class and measured CLS set is carried unchanged from the calibration of 9175214703d3e55e78d7c10904f66ef2065b7c7d"
+    }
   },
   "comparison": "integer units: CLS in 1e-4, long tasks in whole milliseconds; a value at its limit passes",
   "cls": {
@@ -1662,65 +1668,33 @@ export const PERFORMANCE_BUDGETS = Object.freeze({
         "count": 1,
         "maxMs": 65,
         "why": "P1: one sporadic task in the 50-65ms band. Kept at the P1 envelope (not tightened to the latest 50-58ms): it has historical support."
+      },
+      {
+        "name": "Cold first interaction (form entry and rail)",
+        "interactions": [
+          "fill the import form with long identities",
+          "submit an inverted time range with the rail scrolled to its foot",
+          "collapse the navigation rail"
+        ],
+        "count": 1,
+        "maxMs": 147,
+        "why": "Linux CI, 50 retained single-lane runs (2026-10-15 to 10-28): 9 raised a long task, every one a single task at 1366x768 — the first case the lane measures for its state — on one of these three interactions only (import fill 50-100ms, inverted-range submit 55-147ms, rail collapse 60ms). Not a product regression: four heads that raised one measured none on a same-head re-run, and identical web code passed (c1ff6b70) and failed (179fe32d). Kept at the evidence envelope (147ms, ff52d5a2), as Search selection is kept at its P1 envelope; every other interaction stays at \"no long task\"."
       }
     ],
     "evidence": {
       "linux": [
         {
-          "head": "9175214703d3e55e78d7c10904f66ef2065b7c7d",
+          "head": "5ca00b70ea5a23502806dc3ac85f0462b8dd9023",
           "measured": 413,
           "tasks": []
         },
         {
-          "head": "9175214703d3e55e78d7c10904f66ef2065b7c7d",
+          "head": "5ca00b70ea5a23502806dc3ac85f0462b8dd9023",
           "measured": 413,
           "tasks": []
         }
       ],
-      "windows": [
-        {
-          "head": "9175214703d3e55e78d7c10904f66ef2065b7c7d",
-          "measured": 413,
-          "tasks": [
-            {
-              "at": "search-inspector-opened-narrow-band@760x900",
-              "interaction": "select a result to inspect it",
-              "count": 1,
-              "maxMs": 50
-            },
-            {
-              "at": "search-inspector-opened-narrow-band@761x900",
-              "interaction": "select a result to inspect it",
-              "count": 1,
-              "maxMs": 50
-            },
-            {
-              "at": "search-inspector-opened-narrow-band@767x900",
-              "interaction": "select a result to inspect it",
-              "count": 1,
-              "maxMs": 54
-            }
-          ]
-        },
-        {
-          "head": "9175214703d3e55e78d7c10904f66ef2065b7c7d",
-          "measured": 413,
-          "tasks": [
-            {
-              "at": "search-inspector-opened@430x932",
-              "interaction": "select a result to inspect it",
-              "count": 1,
-              "maxMs": 52
-            },
-            {
-              "at": "search-inspector-opened-narrow-band@600x900",
-              "interaction": "select a result to inspect it",
-              "count": 1,
-              "maxMs": 51
-            }
-          ]
-        }
-      ]
+      "windows": []
     }
   },
   "fonts": {

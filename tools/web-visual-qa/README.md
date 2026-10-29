@@ -673,6 +673,17 @@ the calibration contradicts a decision, or when a preparation transition P1
 never measured has no decision (each is qualified by state, with its reason). The register's P1 row carries the
 budget block, and `test/performance.test.mjs` fails if they disagree.
 
+The long-task classes are owner decisions (`DECISIONS.longTasks`), not
+derived values: the calibration's long-task runs only check them. To
+re-decide them on new evidence without re-deriving any CLS class,
+`--long-tasks-only --linux-long-tasks x.json,y.json [--windows-long-tasks …]`
+takes two single-lane Linux runs of one head and regenerates only the
+long-task table. Every CLS class, its calibration and its measured sets are
+carried byte for byte, and the write is refused if an interaction case that
+was measured before is no longer measured. The first such recalibration
+(2026-10-29) is recorded in the register with its evidence in
+`docs/qualification/stage3-5/x3-long-task-recalibration-evidence.json`.
+
 In CI, `performance-long-tasks` runs the lane in parallel with the sweep, and
 `performance` (*performance budgets*) judges the visual aggregate and that run
 of the same head; `quality` requires both. `performance-qualification.mjs`
