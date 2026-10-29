@@ -153,7 +153,7 @@ The role follows ADR-013 §8–§12 and the plate role's control plane (`mavi-em
    - **Bag and headwear.** These emit only `present`, so a Track is `present` or Unknown. No negative is claimed (Stage-2 plan §13).
    - **Abstention and confidence.** A monotone map puts each attribute's abstention threshold at the policy's 0.5. A row's confidence is therefore an abstention-normalised score, not a probability, and the UI calls it "score".
    - **Small crops.** A crop with shorter side under 80 px contributes zero scores (§1's scope). This can only move a Track towards Unknown.
-4. **Disclosure.** The parameters state `disclosure: "zero-shot, Development"`. The platform reads it into the release definition, and every search, coverage, row and detail surface shows it.
+4. **Disclosure.** The parameters state `disclosure: "zero-shot, Development"`. The platform reads it into the release definition, and the attribute rail, coverage line, every matched result row and the detail panels show it.
 5. **Search.**
    - **Grammar and cursor.** Repeated `attribute=type:value` predicates are ANDed and canonically ordered. They are paged by the v4 cursor with a new `attributes` derived pin: the identity fingerprint, plus coverage of in-scope / analysed / unavailable / not analysed and one Unknown count per predicate. This uses the capability-tagged pin list the v4 cursor was designed to extend, so there is no v5.
    - **Scope.** Attribute-only search spans cameras. A combination with analytic predicates keeps the analytic camera scope and pins both identities.
