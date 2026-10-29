@@ -18,6 +18,20 @@ one face large enough to embed?
 * **No ground truth:** detector output only. Coverage is "the detector found a face of usable size", not
   "a face is present"; false detections and missed faces are possible and are not labelled.
 
+**Protocol ``s6-face-coverage-v2``** (``--protocol v2``), frozen 2026-10-29 before any detection on its clips
+(owner decision D-S6-2(a); clips added by S2 amendment A6):
+
+* **Unit and primary:** identical to v1 (score >= 0.9, shorter side >= 32 px), over the Person Tracks of the
+  clips added by A6 only (``--clip``), so v1's numbers are not re-read.
+* **Threshold rule (decides the role's detector threshold, 0.9 or 0.8).** The *band* is every detection with
+  0.8 <= score < 0.9 and shorter side >= 32 px on those clips. Move to 0.8 only if all three hold:
+  (i) the band holds at least 5 detections; (ii) in one diagnostic look at every band detection (technical
+  rationale: decide whether the band is faces; recorded as counts only, no labels kept, the temporary sheet
+  deleted) at least 90 % are faces, passed back as ``--band-face-count``; (iii) the band adds at least one
+  Person Track with a usable face that 0.9 does not have. Otherwise keep 0.9.
+* The run without ``--band-face-count`` writes the band list for the look and reports the decision as
+  pending; the second run with the count computes it from the same detections.
+
 Usage::
 
     python -I tools/poc/faces_coverage.py --crops crops.tsv --evidence-root <root> \
@@ -53,6 +67,10 @@ PRIMARY_MIN_SIDE = 32
 SENSITIVITY_SIDES = (16, 24, 32, 48, 64)
 SENSITIVITY_SCORES = (0.6, 0.9)
 FLOOR_SCORE = min(SENSITIVITY_SCORES)
+BAND_LOW = 0.8
+BAND_MINIMUM_DETECTIONS = 5
+BAND_MINIMUM_FACE_SHARE = 0.9
+BAND_MINIMUM_ADDED_TRACKS = 1
 
 
 def sha256(path: Path) -> str:
@@ -65,12 +83,20 @@ def main() -> int:
     parser.add_argument("--evidence-root", type=Path, required=True)
     parser.add_argument("--detector", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--protocol", choices=("v1", "v2"), default="v1")
+    parser.add_argument("--clip", action="append", help="v2: limit to these clip files (repeatable)")
+    parser.add_argument("--band-face-count", type=int, help="v2: band detections judged faces in the diagnostic look")
     args = parser.parse_args()
+    protocol = PROTOCOL if args.protocol == "v1" else "s6-face-coverage-v2"
+    if args.protocol == "v2" and not args.clip:
+        raise SystemExit("v2 needs --clip")
 
     import onnxruntime as ort  # noqa: PLC0415
 
     session = ort.InferenceSession(str(args.detector), providers=["CPUExecutionProvider"])
     rows = [line.split("|") for line in args.crops.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if args.protocol == "v2":
+        rows = [row for row in rows if row[0] in set(args.clip)]
     per_crop: list[dict] = []
     mismatches = 0
     for clip, run_id, track_id, observation_id, rank, key, size, digest in rows:
@@ -129,7 +155,7 @@ def main() -> int:
     total = sum(c["personTracks"] for c in clips)
     usable_total = sum(c["tracksWithUsableFace"] for c in clips)
     summary = {
-        "protocol": PROTOCOL,
+        "protocol": protocol,
         "detector": {"file": args.detector.name, "sha256": sha256(args.detector), "scoreThreshold": SCORE_THRESHOLD,
                      "nmsThreshold": NMS_THRESHOLD, "topK": TOP_K, "onnxruntime": ort.__version__},
         "primaryMinSide": PRIMARY_MIN_SIDE,
@@ -138,10 +164,36 @@ def main() -> int:
         "usableShare": round(usable_total / total, 4) if total else None,
         "clips": clips,
     }
+    if args.protocol == "v2":
+        band = [
+            {"clip": c["clip"], "trackId": c["trackId"], "observationId": c["observationId"], **f}
+            for c in per_crop for f in c["faces"]
+            if BAND_LOW <= f["score"] < SCORE_THRESHOLD and min(f["width"], f["height"]) >= PRIMARY_MIN_SIDE
+        ]
+        added = sorted(
+            {b["trackId"] for b in band}
+            - {c["trackId"] for c in per_crop for f in c["faces"]
+               if f["score"] >= SCORE_THRESHOLD and min(f["width"], f["height"]) >= PRIMARY_MIN_SIDE}
+        )
+        if args.band_face_count is None:
+            decision = "pending_diagnostic_look"
+        else:
+            if not 0 <= args.band_face_count <= len(band):
+                raise SystemExit("--band-face-count out of range")
+            holds = (len(band) >= BAND_MINIMUM_DETECTIONS
+                     and args.band_face_count >= BAND_MINIMUM_FACE_SHARE * len(band)
+                     and len(added) >= BAND_MINIMUM_ADDED_TRACKS)
+            decision = "0.8" if holds else "0.9"
+        summary["thresholdRule"] = {
+            "bandDetections": len(band), "bandFaceCount": args.band_face_count,
+            "tracksAddedByBand": len(added), "decision": decision,
+        }
     args.out.mkdir(parents=True, exist_ok=True)
+    if args.protocol == "v2":
+        (args.out / "band-detections.json").write_text(json.dumps(band, indent=1) + "\n", encoding="utf-8")
     (args.out / "coverage-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     (args.out / "coverage-detections.json").write_text(json.dumps(per_crop, indent=1) + "\n", encoding="utf-8")
-    print(f"{PROTOCOL}: {usable_total}/{total} Person Tracks with a usable face; hash mismatches {mismatches}")
+    print(f"{protocol}: {usable_total}/{total} Person Tracks with a usable face; hash mismatches {mismatches}")
     for c in clips:
         print(f"  {c['clip']}: {c['tracksWithUsableFace']}/{c['personTracks']} usable, {c['tracksWithAnyFace']} any face, "
               f"crop side median {c['cropShorterSideMedian']}")
