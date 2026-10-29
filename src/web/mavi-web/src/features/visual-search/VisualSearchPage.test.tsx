@@ -238,6 +238,68 @@ describe('VisualSearchPage', () => {
     expect(crops[0]).not.toHaveAttribute('aria-current');
   });
 
+  it('finds a Track by partial plate text and reaches its plate crop and the source seek (PoC S3, C4.3)', async () => {
+    const user = userEvent.setup();
+    const row = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451', {
+      objectClass: 'Vehicle',
+      plate: {
+        matchedText: 'KA01AB1234', matchKind: 'contains', supportCount: 1,
+        plateObservationCount: 1, distinctTextCount: 1, maxConfidence: 0.88,
+        bestPlateObservationId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21465',
+      },
+    });
+    const record = detail(row, 7);
+    const source = record.observations[2];
+    record.plates = {
+      readiness: 'Ready', trackOutcome: 'Analysed', agreement: 'single',
+      texts: [{ normalisedText: 'KA01AB1234', supportCount: 1, maxConfidence: 0.88,
+        bestPlateObservationId: row.plate!.bestPlateObservationId }],
+      observations: [{
+        plateObservationId: row.plate!.bestPlateObservationId,
+        sourceObservationId: source.observationId,
+        role: source.evidenceRole,
+        offsetMs: source.videoOffsetMs,
+        sourceFrameNumber: source.sourceFrameNumber,
+        timestampUtc: source.timestampUtc,
+        box: { x: 4, y: 5, width: 16, height: 8, cropWidth: 100, cropHeight: 50 },
+        detectorConfidence: 0.9,
+        outcome: 'Read',
+        readings: [{ rank: 0, rawText: 'KA01AB1234', rawLineCount: 1,
+          normalisedText: 'KA01AB1234', normalisationOutcome: 'ok', confidence: 0.88 }],
+      }],
+    };
+    vi.mocked(searchTracks).mockResolvedValue({
+      items: [row], nextCursor: null,
+      plateCoverage: { identityFingerprint: 'a'.repeat(64), vehicleTracksInScope: 1,
+        ready: 1, pending: 0, failed: 0, stale: 0, notConfigured: 0 },
+    });
+    vi.mocked(getTrack).mockResolvedValue(record);
+
+    renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await searchDrawn();
+    // Partial text, no match mode chosen: "contains" is the default and is not sent.
+    await user.type(screen.getByLabelText('Plate text'), 'ab12');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledWith(
+      expect.objectContaining({ objectClass: 'Vehicle', plateText: 'AB12' }),
+      expect.any(AbortSignal),
+    ));
+    expect(vi.mocked(searchTracks).mock.calls.at(-1)![0].plateMatch ?? 'contains').toBe('contains');
+
+    const rows = within(await screen.findByRole('list', { name: 'Track results' })).getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('Read as KA01AB1234');
+    // The searched fragment is marked inside the reading.
+    expect(within(rows[0]).getByText('AB12').tagName).toBe('U');
+    await user.click(within(rows[0]).getByRole('button', { name: /^Select / }));
+    const inspector = await screen.findByRole('complementary', { name: 'Track inspector' });
+    const readings = await within(inspector).findByRole('region', { name: 'Plate readings' });
+    // The crop (plate region of the source Observation) and the source seek are both offered.
+    expect(within(readings).getByText(/Single reading/)).toBeInTheDocument();
+    await user.click(within(readings).getByRole('button', { name: /View source at/ }));
+    const crops = within(within(inspector).getByRole('region', { name: 'Evidence Set' })).getAllByRole('button');
+    expect(crops[2]).toHaveAttribute('aria-current', 'true');
+  });
+
   it('loads the default unfiltered first page', async () => {
     renderWithApp(<VisualSearchPage />, { route: '/search' });
     await searchDrawn();

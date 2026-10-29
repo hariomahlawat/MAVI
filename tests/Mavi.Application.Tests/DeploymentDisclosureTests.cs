@@ -100,7 +100,7 @@ public sealed class DeploymentDisclosureTests : IDisposable
         // The only configurable inputs are where the profile and its records are. Adding a
         // member here (an "enabled", "hide" or "qualified" switch) must fail this test.
         var members = typeof(DeploymentOptions).GetProperties().Select(property => property.Name).Order(StringComparer.Ordinal);
-        Assert.Equal(["DeviceResolutionPath", "Profile", "ReleaseMetadataPath"], members);
+        Assert.Equal(["DeviceResolutionPath", "Profile", "ReleaseMetadataPath", "RoleDeviceResolutionPaths"], members);
     }
 
     [Theory]
@@ -168,6 +168,60 @@ public sealed class DeploymentDisclosureTests : IDisposable
 
         Assert.Equal("unavailable", disclosure.DeviceStatus);
         Assert.Null(disclosure.Device);
+    }
+
+    [Fact]
+    public void ARoleRuntimeDisclosesItsOwnDeviceAndReasonBesideTheVisionWorker()
+    {
+        // PoC S3 (C4.1): the plates runtime resolves its device itself; its record is shown as its own, with its
+        // reason, and never replaces the Vision worker's.
+        var plates = Path.Combine(_root, "plates-device-resolution.json");
+        File.WriteAllText(plates, """
+            {
+              "schemaVersion": "mavi-device-resolution-v1",
+              "role": "plates",
+              "requestedDevicePolicy": "auto",
+              "resolvedDevicePolicy": "cpu",
+              "deviceResolutionReason": "plates_runtime_cpu_only",
+              "runtimePackId": "mavi-runtime-v2-plates",
+              "runtimeVariant": "windows-x86_64-cpu",
+              "verifyOnly": false
+            }
+            """);
+        var options = PocOptions(WriteMetadata(ValidMetadata()), WriteDevice());
+        options.RoleDeviceResolutionPaths["plates"] = plates;
+        options.RoleDeviceResolutionPaths["embeddings"] = Path.Combine(_root, "absent.json");
+
+        var disclosure = DeploymentDisclosureReader.Read(options);
+
+        Assert.Equal("cuda_pack_absent", disclosure.Device!.Reason);
+        Assert.NotNull(disclosure.RoleDevices);
+        Assert.Equal(["embeddings", "plates"], disclosure.RoleDevices!.Select(item => item.Role));
+        Assert.Equal("not-reported", disclosure.RoleDevices[0].DeviceStatus);
+        var role = disclosure.RoleDevices[1];
+        Assert.Equal("reported", role.DeviceStatus);
+        Assert.Equal("auto", role.Device!.RequestedPolicy);
+        Assert.Equal("cpu", role.Device.ResolvedPolicy);
+        Assert.Equal("plates_runtime_cpu_only", role.Device.Reason);
+        Assert.Equal("mavi-runtime-v2-plates", role.Device.RuntimePackId);
+    }
+
+    [Fact]
+    public void APackDisclosesTheLicenceItsInstallerReadFromTheLicenceFile()
+    {
+        var metadata = ValidMetadata();
+        metadata["packs"] = JsonDocument.Parse("""
+            [
+              { "kind": "model", "role": "plates", "capabilityId": "ocr", "packId": "mavi-model-v2-ocr",
+                "verificationStatus": "unverified", "licence": "MIT (LICENSE a953e626)" },
+              { "kind": "model", "role": "vision", "packId": "mavi-model-v2-x", "verificationStatus": "unverified" }
+            ]
+            """).RootElement.Clone();
+
+        var disclosure = DeploymentDisclosureReader.Read(PocOptions(WriteMetadata(metadata), null));
+
+        Assert.Equal("MIT (LICENSE a953e626)", disclosure.Packs[0].Licence);
+        Assert.Null(disclosure.Packs[1].Licence);
     }
 
     private static DeploymentOptions PocOptions(string metadataPath, string? devicePath) => new()

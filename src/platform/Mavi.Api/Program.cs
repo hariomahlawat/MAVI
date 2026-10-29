@@ -71,8 +71,8 @@ var app = builder.Build();
 await app.VerifyNativeMediaToolsAsync();
 app.VerifyTrackCursorSigning();
 app.VerifyVisualAttributeRelease();
-app.VerifyPlateRelease();
 app.VerifyDeploymentDisclosure();
+app.VerifyPlateRelease();
 await app.ApplyDatabaseMigrationsAsync();
 // Sanitised request start/finish telemetry in place of the framework's raw-URL lines (Stage 4 §5.5).
 app.UseSafeRequestTelemetry();

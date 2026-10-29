@@ -1,4 +1,5 @@
 using Mavi.Api.VisualAttributes;
+using Mavi.Application.Deployment;
 using Mavi.Application.Modules.Plates;
 using Mavi.Application.Modules.Plates.Release;
 using Mavi.Contracts.Worker.Plates;
@@ -78,8 +79,9 @@ public sealed partial class PlateAudit(ILogger<PlateAudit> logger, PlateIntegrit
 /// <summary>
 /// The platform's plate authority loop: records the preferred identity's activation, queues eligible
 /// runs completed after it, fails units past their deadline or out of attempts — none of which waits for
-/// a worker — and reclaims plate staging. With the release removed (and the host enabled) it only sweeps
-/// and reclaims. With <c>Plates:Enabled</c> off the loop does not run at all; see <see cref="PlateOptions.Enabled"/>.
+/// a worker — and reclaims plate staging. The loop always runs: with the release removed, or with
+/// <c>Plates:Enabled</c> off, it only sweeps and reclaims, so no lease or staging is ever stranded (see
+/// <see cref="PlateOptions.Enabled"/>).
 /// </summary>
 public sealed partial class PlateHostedService(
     IServiceScopeFactory scopeFactory,
@@ -92,10 +94,9 @@ public sealed partial class PlateHostedService(
     {
         var configured = options.Value;
         if (!configured.Enabled)
-        {
+            LogAnalysisDisabled(logger);
+        else if (release.Resolution.Definition is null)
             LogIdle(logger, release.Resolution.NotConfiguredReason ?? "configured");
-            return;
-        }
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(configured.ReconcileIntervalSeconds), timeProvider);
         do
@@ -121,8 +122,9 @@ public sealed partial class PlateHostedService(
     /// <summary>One cycle in its own scope; public so a test drives it without a timer.</summary>
     public async Task<PlateCycleResult> RunCycleAsync(CancellationToken cancellationToken)
     {
-        var definition = release.Resolution.Definition;
         var configured = options.Value;
+        // Disabled analysis queues nothing new; the sweep and the janitor below still govern what exists.
+        var definition = configured.Enabled ? release.Resolution.Definition : null;
         await using var scope = scopeFactory.CreateAsyncScope();
         var lifecycle = scope.ServiceProvider.GetRequiredService<IPlateLifecycle>();
         var queued = 0;
@@ -140,8 +142,12 @@ public sealed partial class PlateHostedService(
     }
 
     [LoggerMessage(EventId = 2130, EventName = "plate_host_idle", Level = LogLevel.Information,
-        Message = "Plate host is idle (release: {Reason}).")]
+        Message = "Plate host queues no analysis (release: {Reason}); the sweep and staging janitor run.")]
     private static partial void LogIdle(ILogger logger, string reason);
+
+    [LoggerMessage(EventId = 2133, EventName = "plate_analysis_disabled", Level = LogLevel.Information,
+        Message = "Plate analysis is disabled (Plates:Enabled false): nothing new is activated or queued; the sweep and staging janitor run.")]
+    private static partial void LogAnalysisDisabled(ILogger logger);
 
     [LoggerMessage(EventId = 2131, EventName = "plate_cycle", Level = LogLevel.Information,
         Message = "Plate cycle: queued {Queued}, deadline-failed {DeadlineFailed}, exhausted {Exhausted}, staging removed {StagingRemoved}.")]
@@ -153,6 +159,42 @@ public sealed partial class PlateHostedService(
 }
 
 public sealed record PlateCycleResult(int Queued, int DeadlineFailed, int ExhaustedFailed, int StagingRemoved);
+
+/// <summary>
+/// The interim authorisation of <c>POST /api/plates/reanalysis</c> (PoC S3, register row C4.2). MAVI has no operator
+/// identity before ADR-010 (S11-min replaces this gate with it), so the request must present an operator key whose
+/// SHA-256 the installation configured (<see cref="PlateOptions.ReanalysisOperatorKeySha256"/>). Fails closed: with no
+/// key configured every request is refused. The key is compared by digest in constant time and never logged.
+/// </summary>
+public static class PlateReanalysisAuthorisation
+{
+    public const string NotConfiguredCode = "plate_reanalysis_authorisation_not_configured";
+    public const string UnauthorisedCode = "plate_reanalysis_unauthorised";
+
+    public sealed record RefusalResult(int Status, string Code, string Detail);
+
+    /// <summary>The refusal for this request, or <see langword="null"/> when it is authorised.</summary>
+    public static RefusalResult? Refusal(IHeaderDictionary headers, PlateOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(headers);
+        ArgumentNullException.ThrowIfNull(options);
+        // Validate() refuses a malformed digest at start-up; one that still reaches here is treated as not configured.
+        if (!options.IsReanalysisAuthorisationConfigured || options.ReanalysisOperatorKeySha256.Length != 64 ||
+            !options.ReanalysisOperatorKeySha256.All(char.IsAsciiHexDigitLower))
+            return new RefusalResult(StatusCodes.Status403Forbidden, NotConfiguredCode,
+                "Plate re-analysis is not authorised on this installation (no operator key is configured).");
+
+        if (!headers.TryGetValue(PlateOptions.ReanalysisOperatorKeyHeader, out var values) || values.Count != 1 ||
+            string.IsNullOrEmpty(values[0]) || values[0]!.Length > 256)
+            return new RefusalResult(StatusCodes.Status401Unauthorized, UnauthorisedCode, "A valid operator key is required.");
+
+        var expected = Convert.FromHexString(options.ReanalysisOperatorKeySha256);
+        var presented = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(values[0]!));
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(presented, expected)
+            ? null
+            : new RefusalResult(StatusCodes.Status401Unauthorized, UnauthorisedCode, "A valid operator key is required.");
+    }
+}
 
 /// <summary>Every plate route's own intentional request-body limit; none inherits the video-import limit.</summary>
 public static class PlateRequestLimitMiddleware
@@ -200,8 +242,11 @@ public static class PlateRequestLimitMiddleware
 }
 
 /// <summary>
-/// Resolves the plate release at startup and refuses a Development-only definition — the fixture —
-/// outside Development and Testing: the fixture role is refused in Production.
+/// Resolves the plate release at startup and refuses a Development-only definition outside Development and
+/// Testing: the fixture role is refused in Production. The one other host that may run a Development-only
+/// definition is a <c>poc-single-host</c> installation (ADR-020 §1: Development-grade Model Packs, Development
+/// evidence class, never Production-qualified), and only a real one: a fixture definition (one with a
+/// <c>fixtureSeed</c>) is refused there too.
 /// </summary>
 public static class PlateReleaseStartup
 {
@@ -226,15 +271,21 @@ public static class PlateReleaseStartup
             return;
         }
 
-        RequireAllowed(definition, app.Environment);
+        var profile = DeploymentDisclosureReader.ResolveProfile(
+            app.Services.GetRequiredService<IOptions<DeploymentOptions>>().Value, Deployment.DeploymentEndpoints.BuildProfile);
+        RequireAllowed(definition, app.Environment, profile);
         LogConfigured(logger, definition.Identity.Fingerprint, null);
     }
 
-    public static void RequireAllowed(PlateReleaseDefinition definition, IHostEnvironment environment)
+    public static void RequireAllowed(PlateReleaseDefinition definition, IHostEnvironment environment,
+        string deploymentProfile = DeploymentProfiles.Unspecified)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(environment);
-        if (definition.DevelopmentOnly && !environment.IsDevelopment() && !environment.IsEnvironment("Testing"))
-            throw new InvalidOperationException(FixtureForbiddenCode);
+        if (!definition.DevelopmentOnly || environment.IsDevelopment() || environment.IsEnvironment("Testing"))
+            return;
+        if (deploymentProfile == DeploymentProfiles.PocSingleHost && definition.Parameters.FixtureSeed is null)
+            return;
+        throw new InvalidOperationException(FixtureForbiddenCode);
     }
 }

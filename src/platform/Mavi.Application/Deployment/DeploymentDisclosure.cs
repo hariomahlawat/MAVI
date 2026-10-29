@@ -20,6 +20,13 @@ public sealed class DeploymentOptions
 
     /// <summary>The launcher's device-resolution record (<c>mavi-device-resolution-v1</c>).</summary>
     public string? DeviceResolutionPath { get; set; }
+
+    /// <summary>
+    /// Each post-Track role's own device-resolution record, by role id (PoC S3: <c>plates</c>). A role runtime
+    /// resolves its device on its own (ADR-008 per runtime), so its device and reason are disclosed beside the
+    /// Vision worker's, never folded into it.
+    /// </summary>
+    public Dictionary<string, string> RoleDeviceResolutionPaths { get; set; } = new(StringComparer.Ordinal);
 }
 
 public static class DeploymentProfiles
@@ -62,7 +69,11 @@ public sealed record DeploymentPack(
     string PackId,
     string? Variant,
     string VerificationStatus,
-    string? Note);
+    string? Note,
+    string? Licence = null);
+
+/// <summary>One role runtime's resolved device (<see cref="DeploymentOptions.RoleDeviceResolutionPaths"/>).</summary>
+public sealed record DeploymentRoleDevice(string Role, string DeviceStatus, DeploymentDevice? Device);
 
 public sealed record DeploymentDisclosure(
     string SchemaVersion,
@@ -75,7 +86,8 @@ public sealed record DeploymentDisclosure(
     string? InstalledAtUtc,
     string DeviceStatus,
     DeploymentDevice? Device,
-    IReadOnlyList<DeploymentPack> Packs);
+    IReadOnlyList<DeploymentPack> Packs,
+    IReadOnlyList<DeploymentRoleDevice>? RoleDevices = null);
 
 public sealed class DeploymentDisclosureException(string message) : Exception(message);
 
@@ -114,10 +126,18 @@ public static class DeploymentDisclosureReader
         ArgumentNullException.ThrowIfNull(options);
         var profile = EffectiveProfile(options.Profile, buildProfile);
         var (deviceStatus, device) = ReadDevice(options.DeviceResolutionPath);
+        var roleDevices = options.RoleDeviceResolutionPaths
+            .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+            .Select(entry =>
+            {
+                var (status, roleDevice) = ReadDevice(entry.Value);
+                return new DeploymentRoleDevice(entry.Key, status, roleDevice);
+            })
+            .ToList();
         if (profile != DeploymentProfiles.PocSingleHost)
         {
             return new DeploymentDisclosure(SchemaVersion, profile, ProductionQualified: false, null, null,
-                "not-configured", null, null, deviceStatus, device, []);
+                "not-configured", null, null, deviceStatus, device, [], roleDevices);
         }
 
         string metadataStatus;
@@ -145,7 +165,19 @@ public static class DeploymentDisclosureReader
             metadata?.InstalledAtUtc,
             deviceStatus,
             device,
-            metadata?.Packs ?? []);
+            metadata?.Packs ?? [],
+            roleDevices);
+    }
+
+    /// <summary>
+    /// The profile this host runs under: the build's profile when it has one (configuration may only confirm it),
+    /// otherwise the configured one, otherwise <see cref="DeploymentProfiles.Unspecified"/>. Throws for a profile no
+    /// host can declare, as <see cref="Verify"/> does.
+    /// </summary>
+    public static string ResolveProfile(DeploymentOptions options, string? buildProfile = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return EffectiveProfile(options.Profile, buildProfile);
     }
 
     private static string EffectiveProfile(string? configured, string? buildProfile)
@@ -215,7 +247,7 @@ public static class DeploymentDisclosureReader
                             !string.IsNullOrWhiteSpace(packId) && !string.IsNullOrWhiteSpace(status),
                         path, "every pack needs kind, role, packId and verificationStatus");
                     packs.Add(new DeploymentPack(kind!, role!, Text(pack, "capabilityId"), packId!,
-                        Text(pack, "variant"), status!, Text(pack, "note")));
+                        Text(pack, "variant"), status!, Text(pack, "note"), Text(pack, "licence")));
                 }
             }
 
