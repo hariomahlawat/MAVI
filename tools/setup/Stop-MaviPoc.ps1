@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$DataRoot = (Join-Path $env:ProgramData "MAVI\PoC"),
-    # Stop only these (Start-MaviPoc's rollback stops only what it started). Default: both.
-    [ValidateSet("vision-worker", "api")][string[]]$Only = @("vision-worker", "api")
+    # Stop only these (Start-MaviPoc's rollback stops only what it started). Default: all four.
+    [ValidateSet("embeddings-worker", "plates-worker", "vision-worker", "api")][string[]]$Only = @("embeddings-worker", "plates-worker", "vision-worker", "api")
 )
 
 # Stops what Start-MaviPoc.ps1 started (the Vision worker, then the platform), each with
@@ -17,10 +17,10 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
 
 $runRoot = Join-Path ([IO.Path]::GetFullPath($DataRoot)) "run"
-$images = @{ "vision-worker" = "powershell"; "api" = "Mavi.Api" }
-$commands = @{ "vision-worker" = "Start-MaviVisionWorker.ps1"; "api" = "Mavi.Api.exe" }
+$images = @{ "embeddings-worker" = "powershell"; "plates-worker" = "powershell"; "vision-worker" = "powershell"; "api" = "Mavi.Api" }
+$commands = @{ "embeddings-worker" = "Start-MaviEmbeddingsWorker.ps1"; "plates-worker" = "Start-MaviPlatesPilotWorker.ps1"; "vision-worker" = "Start-MaviVisionWorker.ps1"; "api" = "Mavi.Api.exe" }
 $failures = @()
-foreach ($name in @("vision-worker", "api")) {
+foreach ($name in @("embeddings-worker", "plates-worker", "vision-worker", "api")) {
     if ($Only -notcontains $name) { continue }
     $recordPath = Join-Path $runRoot "$name.pid"
     $process = Get-MaviPocRecordedProcess -Path $recordPath -ExpectedImageName $images[$name] -ExpectedCommandFragment $commands[$name]
@@ -49,6 +49,9 @@ foreach ($name in @("vision-worker", "api")) {
 # No worker of ours is running now (none recorded, or it was just stopped): no device is.
 if ($Only -contains "vision-worker" -and @($failures | Where-Object { $_ -like "vision-worker*" }).Count -eq 0) {
     Remove-Item -LiteralPath (Join-Path $runRoot "device-resolution.json") -Force -ErrorAction SilentlyContinue
+}
+if ($Only -contains "plates-worker" -and @($failures | Where-Object { $_ -like "plates-worker*" }).Count -eq 0) {
+    Remove-Item -LiteralPath (Join-Path $runRoot "plates-device-resolution.json") -Force -ErrorAction SilentlyContinue
 }
 $global:LASTEXITCODE = 0
 if ($failures.Count -gt 0) { throw "Could not stop: $($failures -join '; '). Stop it from an elevated prompt." }

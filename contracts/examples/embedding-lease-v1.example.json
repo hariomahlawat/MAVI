@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "mavi-embedding-control-v1",
+  "analysisId": "01a1a000-0000-7000-8000-000000000001",
+  "processingRunId": "01a1a000-0000-7000-8000-0000000000a1",
+  "workerId": "mavi-embeddings-1",
+  "attemptCount": 1,
+  "leaseExpiresAtUtc": "2026-10-29T12:02:00Z",
+  "deadlineAtUtc": "2026-10-29T14:00:00Z",
+  "identity": {
+    "fingerprint": "13bac41fa80540fd901008853baf5b958e31e1321c948936038d7e2e91646f12",
+    "model": {
+      "dimension": 768,
+      "id": "siglip2-base-patch16-224",
+      "manifestSha256": "d5adcb08f226eed955ccd9b2b05a2a53975cd84f8a0942e765fe9a675a191f08",
+      "version": "75de2d55-dev.1"
+    },
+    "pipeline": {
+      "id": "embeddings-siglip2-dev",
+      "sha256": "1c8479e19fa52380b4e846da2ceb9bc49148523f6851368a3c7f7d093c24d7b0",
+      "version": "1.0.0"
+    },
+    "schemaVersion": "mavi-embedding-identity-v1"
+  },
+  "tracks": [
+    {
+      "trackId": "01a1a000-0000-7000-8000-0000000000b1",
+      "objectClass": "Vehicle",
+      "observations": [
+        {
+          "observationId": "01a1a000-0000-7000-8000-0000000000c1",
+          "role": "representative",
+          "evidenceRank": 0,
+          "sizeBytes": 18231,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "observationId": "01a1a000-0000-7000-8000-0000000000c2",
+          "role": "near-view",
+          "evidenceRank": 1,
+          "sizeBytes": 20112,
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ]
+    },
+    {
+      "trackId": "01a1a000-0000-7000-8000-0000000000b2",
+      "objectClass": "Person",
+      "observations": [
+        {
+          "observationId": "01a1a000-0000-7000-8000-0000000000c3",
+          "role": "representative",
+          "evidenceRank": 0,
+          "sizeBytes": 2210,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    },
+    {
+      "trackId": "01a1a000-0000-7000-8000-0000000000b3",
+      "objectClass": "Person",
+      "observations": []
+    }
+  ]
+}

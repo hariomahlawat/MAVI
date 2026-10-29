@@ -178,3 +178,18 @@ describe('API client', () => {
     expect(form.get('recordingStartLocal')).toBe('2026-09-14T08:30');
   });
 });
+
+describe('API client: Retry-After (PoC S4)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('carries a delta-seconds Retry-After on the error, and ignores any other form', async () => {
+    const problem = (retryAfter: string) => new Response(JSON.stringify({ status: 503, code: 'appearance_query_pending', detail: 'Preparing.' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/problem+json', 'Retry-After': retryAfter },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(problem('2')).mockResolvedValueOnce(problem('Wed, 21 Oct 2026 07:28:00 GMT')));
+
+    await expect(apiRequest('/api/tracks?appearanceQuery=van')).rejects.toMatchObject({ status: 503, code: 'appearance_query_pending', retryAfterSeconds: 2 });
+    await expect(apiRequest('/api/tracks?appearanceQuery=van')).rejects.toMatchObject({ retryAfterSeconds: undefined });
+  });
+});

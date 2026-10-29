@@ -17,6 +17,7 @@
         "Pgvector.EntityFrameworkCore": "0.3.0"
       },
       "src/platform/Mavi.Api/Mavi.Api.csproj": {
+        "Microsoft.AspNetCore.Authentication.Negotiate": "10.0.14",
         "Microsoft.AspNetCore.SpaProxy": "10.0.11",
         "Microsoft.EntityFrameworkCore.Design": "10.0.11",
         "Microsoft.EntityFrameworkCore.Relational": "10.0.11"
@@ -232,6 +233,74 @@
             "httpx/httpcore": "BSD-3-Clause",
             "anyio/idna/certifi/h11/annotated-types/typing-extensions/typing-inspection/python-dotenv/packaging": "MIT/BSD/MPL-2.0 (certifi) as in the vision lock"
           }
+        },
+        "embeddings-onnx-v1": {
+          "scope": "development-only",
+          "purpose": "PoC S4 (ADR-021): the embeddings role on CPU ONNX Runtime with the SigLIP 2 base Model Pack (two ONNX towers plus a SentencePiece tokenizer). Development-grade under the poc-single-host profile (ADR-020); never part of the vision lock or a qualified Runtime Pack; Production refuses it (developmentOnly embedding profile, unverified Model Pack). The CUDA variant uses S1b's single PoC GPU pin, onnxruntime-gpu 1.26.0 (the last CUDA 12 build; 1.27+ need CUDA 13), with the CUDA 12.4/cuDNN 9.1 DLLs of the vision CUDA Runtime Pack's torch/lib; it becomes a locked variant here when S1b's pin merges (PR #243).",
+          "runtimeProfile": "src/vision/runtime/embeddings-onnx-v1/runtime.json",
+          "variants": {
+            "windows-x86_64-cpu": {
+              "requirements": [
+                "httpx<0.29,>=0.28",
+                "numpy==2.5.3",
+                "onnxruntime==1.31.0",
+                "packaging<27,>=26",
+                "pillow==11.3.0",
+                "pydantic-settings<3,>=2.10",
+                "pydantic<3,>=2.11",
+                "sentencepiece==0.2.2"
+              ],
+              "lock": "src/vision/runtime/embeddings-onnx-v1/windows-x86_64-cpu.lock",
+              "lockSha256": "0ff5536d6754ff38de609bba706a5c095348457003f4a58a4193979f54dd949e"
+            }
+          },
+          "packagedBy": "tools/setup/Prepare-MaviDeveloperOfflineCache.ps1 (python-embeddings-wheelhouse: the lock's win_amd64 wheels, hash-checked; embeddings-payloads: tools/vision/embeddings_packs.py collect from the PoC controlled store, SHA-256 verified against models/manifests/embeddings-siglip2-base-p16-224-dev-v1.json); tools/setup/New-MaviPocSetupBundle.ps1 copies both into the bundle's embeddings\\",
+          "installedBy": "tools/setup/Install-MaviEmbeddingsRuntime.ps1 (pip --no-index --require-hashes from the lock into a new venv; Model Pack staged by tools/vision/embeddings_packs.py), called by tools/setup/Install-MAVI-PoC.ps1",
+          "verification": "the embeddings worker verifies every manifest artefact SHA-256 before loading and derives its identity from the manifest and profile bytes (contracts/test-vectors/embedding-identity-v1.json); the platform leases only its configured identity; tools/verify_repo.py holds this entry equal to the lock",
+          "licences": {
+            "onnxruntime": "MIT",
+            "numpy": "BSD-3-Clause",
+            "pillow": "MIT-CMU",
+            "sentencepiece": "Apache-2.0",
+            "protobuf": "BSD-3-Clause",
+            "flatbuffers": "Apache-2.0",
+            "pydantic/pydantic-core/pydantic-settings": "MIT",
+            "httpx/httpcore": "BSD-3-Clause",
+            "anyio/idna/certifi/h11/annotated-types/typing-extensions/typing-inspection/python-dotenv/packaging": "MIT/BSD/MPL-2.0 (certifi) as in the vision lock",
+            "siglip2-base-patch16-224 (Model Pack)": "Apache-2.0 (model card front matter; LICENSE text from google-research/big_vision @ 0127fb6b shipped as the pack's licence notice)"
+          }
+        }
+      },
+      "pocCudaRuntimeVariants": {
+        "windows-x86_64-cuda-sm75-sm89": {
+          "scope": "poc-single-host",
+          "purpose": "PoC S1b (plan D9, ADR-020): the mmdetection-phase1-v1 Windows CUDA Runtime Pack rebuilt with MMCV native ops for sm_75 and sm_89 so the RTX 4090 demonstration host runs native SASS; Development grade, never Production.",
+          "buildContract": "config/vision/windows-cuda-development-build-v2.json",
+          "lock": "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda-sm75-sm89.lock",
+          "lockSha256": "e208c79a1a3b09339022132bd597a99996518d6e09677cbd2915c50845ccb46a",
+          "differsFromV1": "only the mmcv==2.1.0 wheel hash (tools/verify_repo.py enforces it)",
+          "packagedBy": "tools/vision/build_runtime_pack.py --contract config/vision/windows-cuda-development-build-v2.json; carried by tools/setup/New-MaviOfflineBinaryKit.ps1 -VisionCudaRuntimePack and tools/setup/New-MaviPocSetupBundle.ps1 -VisionRuntimeCudaSm89Source",
+          "installedBy": "tools/setup/Install-MAVI-PoC.ps1 (-CudaRuntimePack Auto selects it on compute capability 8.9 only) via tools/setup/Install-MaviVisionRuntime.ps1 (pip --no-index --require-hashes)",
+          "verification": "verify_repo derives the Runtime Pack id from the lock and the contract's native ABI and holds contract, catalogue and lock consistent; laptop: offline install, pip check, mmcv CUDA op on sm_75; sm_89 execution waits for register row A7",
+          "licences": {
+            "mmcv": "Apache-2.0",
+            "torch/torchvision": "BSD-3-Clause (as in the v1 lock)",
+            "other wheels": "identical to the v1 Windows CUDA lock"
+          },
+          "runbook": "docs/runbooks/poc-windows-cuda-sm89-variant.md",
+          "boundBy": "src/vision/config/components/phase1-bindings-v2.json runtimePacks[mmdetection-phase1-v1].developmentBuilds.windows-x86_64-cuda[sm75-sm89] (ADR-014 amendment 2026-10-29); Development only, compute capability 7.5 or 8.9"
+        }
+      },
+      "pocOnnxRuntimeGpu": {
+        "scope": "poc-single-host",
+        "purpose": "Development-grade CUDA execution provider for the ONNX roles (plates, embeddings, faces) on GPU hosts (plan D9); pinned at S1b, bound by the consuming slices.",
+        "requirement": "onnxruntime-gpu==1.26.0",
+        "wheelSha256": "5f49c44689894650990e4c8a857d2edafc276fbd79bba57ceb224bd18d25d491",
+        "packagedBy": "tools/setup/New-MaviOfflineBinaryKit.ps1 -OnnxRuntimeGpuWheel (hash checked against the catalogue's onnxruntimeGpuDevelopmentCandidate)",
+        "installedBy": "not installed by S1b; a consuming runtime family adds it to its lock",
+        "verification": "laptop CUDA EP probe with the torch cu124 CUDA 12.4 / cuDNN 9.1 DLLs (E:\\MAVI-Controlled\\PoC\\S1b)",
+        "licences": {
+          "onnxruntime-gpu": "MIT"
         }
       }
     }

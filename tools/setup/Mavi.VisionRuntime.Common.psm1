@@ -672,6 +672,8 @@ function Get-MaviVisionBindingRole {
         RoleId = $RoleId
         RuntimePackFamilyId = $familyId
         Variants = $variants
+        # ADR-014 amendment 2026-10-29: Development builds per variant, or $null.
+        DevelopmentBuilds = (Get-MaviVisionPropertyValue -Value $families[0] -Name "developmentBuilds")
         CapabilityBindings = $capabilityBindings.ToArray()
     }
 }
@@ -696,6 +698,59 @@ function Get-MaviVisionBindingRuntimeRequirement {
         if ([string]::IsNullOrWhiteSpace((Get-MaviVisionPropertyText -Value $entry -Name $name))) { return $null }
     }
     return $entry
+}
+
+function Get-MaviVisionBindingRuntimeEntryForPack {
+    <#
+    .SYNOPSIS
+    The binding entry an installed Runtime Pack is: the variant's primary entry,
+    or one of its Development builds (ADR-014 amendment 2026-10-29); $null when
+    the pack is neither.
+
+    The primary entry is matched first, so a pack the release pins resolves
+    exactly as it did before builds existed. A build carries its buildId, its
+    computeCapabilities and its own lock file name (<variant>-<buildId>.lock);
+    the caller must refuse it on a GPU whose compute capability it does not list.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][object]$BindingRole,
+        [Parameter(Mandatory = $true)][string]$Variant,
+        [Parameter(Mandatory = $true)][string]$RuntimePackId
+    )
+    $primary = Get-MaviVisionBindingRuntimeRequirement -BindingRole $BindingRole -Variant $Variant
+    if ($null -eq $primary) { return $null }
+    if ([string]$primary.runtimePackId -ceq $RuntimePackId) {
+        return [pscustomobject][ordered]@{ Entry = $primary; BuildId = $null; ComputeCapabilities = $null; LockName = "$Variant.lock" }
+    }
+    $builds = Get-MaviVisionPropertyValue -Value (Get-MaviVisionPropertyValue -Value $BindingRole -Name "DevelopmentBuilds") -Name $Variant
+    foreach ($build in @($builds)) {
+        if ($null -eq $build -or $build -is [string]) { continue }
+        if ((Get-MaviVisionPropertyText -Value $build -Name "runtimePackId") -cne $RuntimePackId) { continue }
+        $buildId = Get-MaviVisionPropertyText -Value $build -Name "buildId"
+        $capabilities = @(@(Get-MaviVisionPropertyValue -Value $build -Name "computeCapabilities") | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ })
+        if ($buildId -cnotmatch '^[a-z0-9]+(-[a-z0-9]+)*$' -or $capabilities.Count -eq 0) { return $null }
+        foreach ($name in @("thirdPartyLockSha256", "runtimeRequirementsSha256", "nativeAbi")) {
+            if ([string]::IsNullOrWhiteSpace((Get-MaviVisionPropertyText -Value $build -Name $name))) { return $null }
+        }
+        return [pscustomobject][ordered]@{ Entry = $build; BuildId = $buildId; ComputeCapabilities = $capabilities; LockName = "$Variant-$buildId.lock" }
+    }
+    return $null
+}
+
+function Get-MaviVisionGpuComputeCapability {
+    <#
+    .SYNOPSIS
+    The compute capability nvidia-smi reports for one GPU index ("8.9"), or $null.
+    #>
+    param([int]$Index = 0)
+    $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
+    if (-not $nvidiaSmi) { return $null }
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { $value = (& $nvidiaSmi.Source -i $Index --query-gpu=compute_cap --format=csv,noheader,nounits 2>$null | Out-String).Trim() }
+    finally { $ErrorActionPreference = $previous }
+    if ($LASTEXITCODE -ne 0 -or $value -notmatch '^[0-9]+\.[0-9]+$') { return $null }
+    return $value
 }
 
 function Resolve-MaviVisionBoundModelPacks {
@@ -892,13 +947,17 @@ function Resolve-MaviVisionCudaAvailability {
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][string]$ComponentBindingPath,
         [int]$DeviceIndex = 0,
-        [scriptblock]$DriverProbe
+        [scriptblock]$DriverProbe,
+        # Asked only for a Development build (ADR-014 amendment 2026-10-29): the
+        # device's compute capability, "8.9", or $null when it cannot be read.
+        [scriptblock]$CapabilityProbe
     )
 
     $result = [ordered]@{
         Usable = $false
         Reason = "cuda_pack_absent"
         RuntimeRoot = $Root
+        BuildId = $null
     }
 
     $pythonPath = Join-Path $Root "venv\Scripts\python.exe"
@@ -938,10 +997,14 @@ function Resolve-MaviVisionCudaAvailability {
     # claim: its release lock stays pending-hardware-qualification and this
     # decision is Development Auto only.
     $cudaRequirement = $null
+    $cudaSelection = $null
     try {
         $bindingValue = Get-Content -LiteralPath $ComponentBindingPath -Raw | ConvertFrom-Json
         $bindingRole = Get-MaviVisionBindingRole -Binding $bindingValue -RoleId "vision"
         $cudaRequirement = Get-MaviVisionBindingRuntimeRequirement -BindingRole $bindingRole -Variant "windows-x86_64-cuda"
+        if ($null -ne $cudaRequirement) {
+            $cudaSelection = Get-MaviVisionBindingRuntimeEntryForPack -BindingRole $bindingRole -Variant "windows-x86_64-cuda" -RuntimePackId ([string]$manifestValue.runtimePackId)
+        }
     }
     catch {
         $result.Reason = "cuda_pack_not_declared"
@@ -951,7 +1014,8 @@ function Resolve-MaviVisionCudaAvailability {
         $result.Reason = "cuda_pack_not_declared"
         return [pscustomobject]$result
     }
-    if ([string]$cudaRequirement.runtimePackId -ne [string]$manifestValue.runtimePackId) {
+    # The primary entry, or a declared Development build of the variant.
+    if ($null -eq $cudaSelection) {
         $result.Reason = "cuda_pack_id_mismatch"
         return [pscustomobject]$result
     }
@@ -983,9 +1047,69 @@ function Resolve-MaviVisionCudaAvailability {
         return [pscustomobject]$result
     }
 
+    if ($null -ne $cudaSelection.BuildId) {
+        # A Development build serves only the compute capabilities it lists. No new
+        # reason code (the vocabulary is frozen in the completion contracts): the
+        # device at this index is not usable by the installed pack.
+        if (-not $CapabilityProbe) { $CapabilityProbe = { param([int]$Index) Get-MaviVisionGpuComputeCapability -Index $Index } }
+        try { $capability = & $CapabilityProbe $DeviceIndex } catch { $capability = $null }
+        if ($null -eq $capability -or @($cudaSelection.ComputeCapabilities) -notcontains [string]$capability) {
+            $result.Reason = "cuda_device_unavailable"
+            return [pscustomobject]$result
+        }
+        $result.BuildId = $cudaSelection.BuildId
+    }
+
     $result.Usable = $true
     $result.Reason = "cuda_selected"
     return [pscustomobject]$result
+}
+
+function Resolve-MaviPlatesDevicePolicy {
+    <#
+    .SYNOPSIS
+    Resolve the plates role's device under ADR-008 Auto / CUDA / CPU (PoC S3; Issue #229 GPU-first).
+
+    .DESCRIPTION
+    The plates role resolves its device on its own, like every role runtime. GPU-first applies only where the
+    runtime supports it: the role's bound runtime family must declare a windows-x86_64-cuda variant, and the plates
+    worker's adapters must run on it. Neither holds for plates-onnx-v1 (graph onnxruntime-cpu-v1; the adapters use
+    the CPU execution provider only), so Auto resolves CPU with that reason recorded, CPU resolves CPU, and an
+    explicit CUDA request fails closed -- never a silent CPU run (ADR-008). Throws "plates_device_unsupported:..."
+    for explicit CUDA and "plates_binding_invalid:..." for a binding without a usable plates role.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet("auto", "cpu", "cuda")][string]$DevicePolicy,
+        [Parameter(Mandatory = $true)][string]$ComponentBindingPath
+    )
+    try { $binding = Get-Content -LiteralPath $ComponentBindingPath -Raw | ConvertFrom-Json }
+    catch { throw "plates_binding_invalid:unreadable" }
+    $role = @(@($binding.roles) | Where-Object { [string]$_.roleId -eq "plates" })
+    if ($role.Count -ne 1) { throw "plates_binding_invalid:no_plates_role" }
+    $familyId = [string]$role[0].runtimePackFamilyId
+    $family = @(@($binding.runtimePacks) | Where-Object { [string]$_.runtimePackFamilyId -eq $familyId })
+    if ($family.Count -ne 1 -or $null -eq $family[0].variants) { throw "plates_binding_invalid:no_runtime_family" }
+    $variants = @($family[0].variants.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($variants -notcontains "windows-x86_64-cpu") { throw "plates_binding_invalid:no_cpu_variant" }
+    # The worker composes only on the CPU execution provider (src/vision/mavi_vision/plates/adapters/onnx.py), so a
+    # declared CUDA variant would still not be usable by this role yet: the reason says which of the two holds.
+    $cpuOnlyReason = if ($variants -contains "windows-x86_64-cuda") { "plates_worker_cpu_only" } else { "plates_runtime_cpu_only" }
+    $reason = switch ($DevicePolicy) {
+        "cpu" { "explicit_cpu" }
+        "auto" { $cpuOnlyReason }
+        "cuda" { throw "plates_device_unsupported:${cpuOnlyReason}: explicit CUDA was requested for the plates role, which runs on CPU only ($familyId)." }
+    }
+    $modelPacks = @(@($binding.capabilityBindings) | Where-Object { [string]$_.roleId -eq "plates" -and [bool]$_.enabled } |
+        Sort-Object { [string]$_.capabilityId } | ForEach-Object { [ordered]@{ capabilityId = [string]$_.capabilityId; modelPackId = [string]$_.modelPackId } })
+    [pscustomobject]@{
+        RequestedDevicePolicy = $DevicePolicy
+        ResolvedDevicePolicy = "cpu"
+        DeviceResolutionReason = $reason
+        RuntimePackFamilyId = $familyId
+        RuntimePackId = [string]$family[0].variants."windows-x86_64-cpu".runtimePackId
+        RuntimeVariant = "windows-x86_64-cpu"
+        ModelPacks = $modelPacks
+    }
 }
 
 Export-ModuleMember -Function *

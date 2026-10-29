@@ -40,6 +40,11 @@ function Get-MaviPocLayout {
         VisionModelRoot = Join-Path $install "vision\models"
         PlatesEnvironmentRoot = Join-Path $install "plates\venv"
         PlatesModelRoot = Join-Path $install "plates\models"
+        # The plates role's release (PoC S3, plan D4): PD5 + OC1-S on the plates-onnx-v1 family, read from the overlay.
+        PlatesComponentBindingPath = Join-Path $install "overlay\src\vision\config\components\development-plates-onnx-pilot-v1.json"
+        PlatesPipelineProfilePath = Join-Path $install "overlay\src\vision\config\plates\development-plates-onnx-pilot-v1.json"
+        EmbeddingsEnvironmentRoot = Join-Path $install "embeddings\venv"
+        EmbeddingsModelRoot = Join-Path $install "embeddings\models"
         PostgreSqlDataRoot = Join-Path $data "PostgreSQL\18\data"
         MediaRoot = Join-Path $data "Media"
         EvidenceRoot = Join-Path $data "Evidence"
@@ -50,6 +55,8 @@ function Get-MaviPocLayout {
         # Operator-writable (the launcher rewrites it on every start), so it lives under run\,
         # not beside the administrator-only release metadata.
         DeviceResolutionPath = Join-Path $data "run\device-resolution.json"
+        # The plates role resolves its own device (ADR-008 per runtime); its record sits beside the Vision worker's.
+        PlatesDeviceResolutionPath = Join-Path $data "run\plates-device-resolution.json"
         SetupRoot = Join-Path $data "setup"
         LogRoot = Join-Path $data "logs"
         RunRoot = Join-Path $data "run"
@@ -85,6 +92,117 @@ function Test-MaviPocCudaCompatibleGpu {
         return [pscustomobject]@{ Compatible = $true; Reason = "compute_capability_match"; Gpu = $match[0].Name; ComputeCapability = $match[0].ComputeCapability; Index = $match[0].Index }
     }
     return [pscustomobject]@{ Compatible = $false; Reason = "compute_capability_unsupported"; Gpu = $gpus[0].Name; ComputeCapability = $gpus[0].ComputeCapability; Index = $gpus[0].Index }
+}
+
+# The Windows CUDA Runtime Pack builds a PoC bundle may carry (S1b; plan D9, ADR-020), in
+# preference order. Each is the windows-x86_64-cuda platform variant built under its own
+# build contract; the contract's target GPU list is what the pack serves. The frozen v1
+# (sm_75) pack comes first, so an sm_75 host keeps it unless the sm_75;sm_89 one is asked for.
+function Get-MaviPocCudaRuntimePackCandidates {
+    param(
+        # The bundle overlay (or repository) root holding config\vision\.
+        [Parameter(Mandatory = $true)][string]$OverlayRoot,
+        # The bundle root; a candidate is Available when its pack directory carries a manifest.
+        [AllowNull()][string]$BundleRoot
+    )
+    $candidates = @()
+    foreach ($spec in @(
+            @{ Key = "sm75"; Contract = "windows-cuda-development-build-v1.json"; Directory = "windows-x86_64-cuda" },
+            @{ Key = "sm75-sm89"; Contract = "windows-cuda-development-build-v2.json"; Directory = "windows-x86_64-cuda-sm75-sm89" })) {
+        $contractPath = Join-Path $OverlayRoot "config\vision\$($spec.Contract)"
+        if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf)) {
+            # The frozen v1 contract is required; only a later build's contract may be absent.
+            if ($spec.Key -eq "sm75") { throw "The Windows CUDA build contract '$contractPath' is missing." }
+            continue
+        }
+        $contract = Get-Content -LiteralPath $contractPath -Raw | ConvertFrom-Json
+        $targets = if ($contract.PSObject.Properties["targetGpus"]) { @($contract.targetGpus) } else { @($contract.targetGpu) }
+        $source = if ($BundleRoot) { Join-Path $BundleRoot "vision\runtime\$($spec.Directory)" } else { $null }
+        $candidates += [pscustomobject]@{
+            Key = $spec.Key
+            Contract = $spec.Contract
+            NativeAbi = [string]$contract.nativeAbi
+            ComputeCapabilities = @($targets | ForEach-Object { [string]$_.computeCapability })
+            Source = $source
+            Available = [bool]($source -and (Test-Path -LiteralPath (Join-Path $source "runtime-pack-manifest.json") -PathType Leaf))
+        }
+    }
+    return , $candidates
+}
+
+# Which CUDA Runtime Pack build serves this host. Auto takes the first candidate (in
+# preference order) whose contract targets the GPU's exact compute capability, whether or
+# not the bundle carries it (an sm_75 host never drifts onto the sm_75;sm_89 build because
+# the sm_75 one is missing); a named pack must target the GPU or nothing is chosen. No
+# capability is served by a pack that does not list it: compute_89 PTX would not run on an
+# older GPU, and a newer GPU is not claimed until a build contract names it.
+function Select-MaviPocCudaRuntimePack {
+    param(
+        # nvidia-smi --query-gpu=index,name,compute_cap --format=csv,noheader output lines;
+        # $null when nvidia-smi is absent.
+        [AllowNull()][string[]]$NvidiaSmiLines,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Candidates,
+        [string]$Requested = "Auto"
+    )
+    $gpu = Test-MaviPocCudaCompatibleGpu -NvidiaSmiLines $NvidiaSmiLines -RequiredComputeCapability "none"
+    $none = [pscustomobject]@{ Compatible = $false; Reason = $gpu.Reason; Gpu = $gpu.Gpu; ComputeCapability = $gpu.ComputeCapability; Index = $gpu.Index; Pack = $null }
+    if ($gpu.Reason -in @("nvidia_smi_absent", "no_nvidia_gpu")) { return $none }
+    $pool = @($Candidates)
+    if ($Requested -ne "Auto") {
+        $pool = @($Candidates | Where-Object { $_.Key -eq $Requested })
+        if ($pool.Count -eq 0) { throw "CUDA Runtime Pack '$Requested' is not declared by this bundle's build contracts." }
+    }
+    foreach ($line in @($NvidiaSmiLines)) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $parts = @($line.Split(",") | ForEach-Object { $_.Trim() })
+        if ($parts.Count -lt 3) { continue }
+        foreach ($candidate in $pool) {
+            if (@($candidate.ComputeCapabilities) -contains $parts[2]) {
+                return [pscustomobject]@{ Compatible = $true; Reason = "compute_capability_match"; Gpu = $parts[1]; ComputeCapability = $parts[2]; Index = $parts[0]; Pack = $candidate }
+            }
+        }
+    }
+    $none.Reason = "compute_capability_unsupported"
+    return $none
+}
+
+# Which declared Windows CUDA build a Runtime Pack id is, from the component binding (ADR-014
+# amendment 2026-10-29): "sm75" for the release pin (variants.windows-x86_64-cuda), a build id
+# for one of its developmentBuilds, $null for anything else. The binding is the one source the
+# bundle builder, the kit builder and the installer all consult.
+function Get-MaviPocCudaBuildKey {
+    param(
+        [Parameter(Mandatory = $true)]$Binding,
+        [Parameter(Mandatory = $true)][string]$RuntimePackId
+    )
+    $family = @($Binding.runtimePacks | Where-Object { [string]$_.runtimePackFamilyId -eq "mmdetection-phase1-v1" })
+    if ($family.Count -ne 1) { return $null }
+    $variants = $family[0].PSObject.Properties["variants"]
+    $primary = if ($variants) { $variants.Value.PSObject.Properties["windows-x86_64-cuda"] } else { $null }
+    if ($primary -and [string]$primary.Value.runtimePackId -ceq $RuntimePackId) { return "sm75" }
+    $builds = $family[0].PSObject.Properties["developmentBuilds"]
+    if (-not $builds) { return $null }
+    $cudaBuilds = $builds.Value.PSObject.Properties["windows-x86_64-cuda"]
+    if (-not $cudaBuilds) { return $null }
+    foreach ($build in @($cudaBuilds.Value)) {
+        if ([string]$build.runtimePackId -ceq $RuntimePackId) { return [string]$build.buildId }
+    }
+    return $null
+}
+
+# The status the offline catalogue records for the PoC sm_75;sm_89 CUDA build
+# (visionRuntime.windowsCudaPocSm89Candidate), for the pack it names; "unrecorded" otherwise.
+function Get-MaviPocCudaBuildStatus {
+    param(
+        [Parameter(Mandatory = $true)][string]$OverlayRoot,
+        [Parameter(Mandatory = $true)][string]$RuntimePackId
+    )
+    $catalogPath = Join-Path $OverlayRoot "config\dependencies\offline-binary-catalog-v1.json"
+    if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) { return "unrecorded" }
+    $vision = (Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json).visionRuntime
+    $entry = $vision.PSObject.Properties["windowsCudaPocSm89Candidate"]
+    if (-not $entry -or [string]$entry.Value.runtimePackId -ne $RuntimePackId) { return "unrecorded" }
+    return [string]$entry.Value.status
 }
 
 # The verification status the repository records for a Runtime Pack variant
@@ -123,6 +241,18 @@ function Get-MaviPocModelVerificationStatus {
     return "unrecorded"
 }
 
+# Operator identity (ADR-010): every interactive local user of the dedicated, trusted PoC host
+# (owner decision S1-T1) is an operator, attributed to their own Windows account. The release
+# metadata records the mode installed; the platform discloses it beside the mode in effect.
+$script:PocIdentityMode = "windows-negotiate"
+$script:PocOperatorGroups = @("BUILTIN\Users")
+
+# The URL an operator opens (owner decision D-242-3). Browsers send Windows credentials silently to
+# localhost but not to 127.0.0.1 (ADR-010 section 3). The platform still listens on 127.0.0.1 only, and
+# scripts and the worker keep apiBaseUrl on 127.0.0.1: through localhost every new connection
+# first tries ::1 and costs about 2 s on Windows.
+function Get-MaviPocOperatorUrl([int]$HttpPort) { "http://localhost:$HttpPort" }
+
 # Release metadata (mavi-poc-release-metadata-v1). The disclosure fields are fixed here
 # and checked again by the platform at start-up (DeploymentDisclosureReader); there is no
 # parameter that changes them.
@@ -150,6 +280,7 @@ function New-MaviPocReleaseMetadata {
         application = [ordered]@{ revision = $ApplicationRevision; bundleSha256 = $BundleSha256 }
         installedAtUtc = $InstalledAtUtc
         devicePolicy = $DevicePolicy
+        identityMode = $script:PocIdentityMode
         cudaRuntimeDecision = $CudaDecision
         packs = @($Packs)
     }
@@ -166,6 +297,8 @@ function New-MaviPocMachineConfig {
     )
     [ordered]@{
         ConnectionStrings = [ordered]@{ Mavi = $ConnectionString }
+        # Loopback names only: a page on another host name (DNS rebinding) is refused before any endpoint.
+        AllowedHosts = "localhost;127.0.0.1"
         MediaStorage = [ordered]@{ RootPath = $Layout.MediaRoot; EvidenceRootPath = $Layout.EvidenceRoot }
         TrackSearch = [ordered]@{ CursorSigningKey = $CursorSigningKey }
         Kestrel = [ordered]@{ Endpoints = [ordered]@{ Http = [ordered]@{ Url = "http://127.0.0.1:$HttpPort" } } }
@@ -173,8 +306,90 @@ function New-MaviPocMachineConfig {
             Profile = $script:PocProfile
             ReleaseMetadataPath = $Layout.ReleaseMetadataPath
             DeviceResolutionPath = $Layout.DeviceResolutionPath
+            RoleDeviceResolutionPaths = [ordered]@{ plates = $Layout.PlatesDeviceResolutionPath }
+        }
+        # The plates role bound (PoC S3, C4.1). Re-analysis stays refused (no operator key is configured) until an
+        # owner configures one (runbook "poc-single-host"); S11-min replaces that gate with ADR-010 identity.
+        Plates = [ordered]@{
+            Enabled = $true
+            ComponentBindingPath = $Layout.PlatesComponentBindingPath
+            PipelineProfilePath = $Layout.PlatesPipelineProfilePath
+        }
+        # PoC S4 (ADR-021): the embeddings role is bound; the platform's loop queues runs for the SigLIP 2 identity.
+        Embeddings = [ordered]@{
+            Enabled = $true
+            ModelManifestPath = Join-Path $Layout.OverlayRoot "models\manifests\embeddings-siglip2-base-p16-224-dev-v1.json"
+            PipelineProfilePath = Join-Path $Layout.OverlayRoot "src\vision\config\embeddings\development-embeddings-siglip2-v1.json"
+        }
+        Identity = [ordered]@{
+            Mode = $script:PocIdentityMode
+            Operators = [ordered]@{ AuthorizedGroups = @($script:PocOperatorGroups) }
         }
     }
+}
+
+# The licence a Model Pack's own notice states, read from the notice file itself (PoC S3: "licence read from its own
+# LICENSE file"): it must be the notice the manifest pins (SHA-256) and must state the licence the manifest declares,
+# or the pack is not installed under this profile.
+function Get-MaviPocNoticeLicence {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256,
+        [Parameter(Mandatory = $true)][string]$DeclaredSpdxId
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "The licence notice '$Path' is missing." }
+    $sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($sha256 -ne $ExpectedSha256) { throw "The licence notice '$Path' is not the one its manifest pins ($sha256)." }
+    $text = [IO.File]::ReadAllText($Path)
+    $stated = if ($text -match '(?m)^\s*Apache License\s*$' -and $text -match 'Version 2\.0') { "Apache-2.0" }
+        elseif ($text -match '(?m)^\s*MIT License\s*$' -and $text -match 'Permission is hereby granted, free of charge') { "MIT" }
+        else { $null }
+    if (-not $stated) { throw "The licence notice '$Path' states no licence this installer recognises." }
+    if ($stated -ne $DeclaredSpdxId) { throw "The licence notice '$Path' states $stated, but its manifest declares $DeclaredSpdxId." }
+    [pscustomobject]@{ SpdxId = $stated; Sha256 = $sha256 }
+}
+
+# The plates role's packs as release metadata entries (PoC S3, C4.1): the Runtime Pack and both Model Packs the
+# plates binding names, each Model Pack with the licence read from its installed notice. The committed manifest of a
+# capability is the one named by its binding's qualificationId.
+function Get-MaviPocPlatesPacks {
+    param(
+        [Parameter(Mandatory = $true)][string]$ComponentBindingPath,
+        [Parameter(Mandatory = $true)][string]$ManifestDirectory,
+        [Parameter(Mandatory = $true)][string]$ModelRoot,
+        [Parameter(Mandatory = $true)][string]$RuntimeProfilePath
+    )
+    $binding = Get-Content -LiteralPath $ComponentBindingPath -Raw | ConvertFrom-Json
+    $role = @(@($binding.roles) | Where-Object { [string]$_.roleId -eq "plates" })
+    if ($role.Count -ne 1) { throw "'$ComponentBindingPath' binds no single plates role." }
+    $family = @(@($binding.runtimePacks) | Where-Object { [string]$_.runtimePackFamilyId -eq [string]$role[0].runtimePackFamilyId })
+    if ($family.Count -ne 1) { throw "'$ComponentBindingPath' declares no single runtime family for the plates role." }
+    $cpu = $family[0].variants."windows-x86_64-cpu"
+    $runtimeProfile = Get-Content -LiteralPath $RuntimeProfilePath -Raw | ConvertFrom-Json
+    $packs = @([ordered]@{
+        kind = "runtime"; role = "plates"; capabilityId = $null
+        packId = [string]$cpu.runtimePackId; variant = "windows-x86_64-cpu"
+        verificationStatus = (Get-MaviPocRuntimeVerificationStatus -RuntimeProfile $runtimeProfile -Variant "windows-x86_64-cpu")
+        note = "$($family[0].runtimePackFamilyId) Development environment, CPU only (lock $([string]$cpu.thirdPartyLockSha256))"
+        licence = $null
+    })
+    foreach ($capability in @(@($binding.capabilityBindings) | Where-Object { [string]$_.roleId -eq "plates" -and [bool]$_.enabled } | Sort-Object { [string]$_.capabilityId })) {
+        $manifestPath = Join-Path $ManifestDirectory ("{0}.json" -f [string]$capability.qualificationId)
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "No committed manifest for plates capability '$($capability.capabilityId)' ($manifestPath)." }
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        if (@($manifest.capabilityIds) -notcontains [string]$capability.capabilityId) { throw "'$manifestPath' does not serve capability '$($capability.capabilityId)'." }
+        $notice = @(@($manifest.artifacts) | Where-Object { [string]$_.artifactRole -eq [string]$manifest.licence.noticeArtifactRole })
+        if ($notice.Count -ne 1) { throw "'$manifestPath' names no single licence notice." }
+        $licence = Get-MaviPocNoticeLicence -Path (Join-Path $ModelRoot ([string]$notice[0].relativePath)) -ExpectedSha256 ([string]$notice[0].sha256) -DeclaredSpdxId ([string]$manifest.licence.spdxId)
+        $packs += [ordered]@{
+            kind = "model"; role = "plates"; capabilityId = [string]$capability.capabilityId
+            packId = [string]$capability.modelPackId; variant = $null
+            verificationStatus = [string]$manifest.verificationStatus
+            note = "$($manifest.modelId) $($manifest.modelVersion)"
+            licence = "$($licence.SpdxId), read from its LICENSE (SHA-256 $($licence.Sha256)); licence review $($manifest.licence.reviewStatus)"
+        }
+    }
+    return ,$packs
 }
 
 # The demo cameras: the S2 demo-corpus manifest, seeded as names and time zones only
@@ -389,4 +604,4 @@ function Get-MaviPocRecordedProcess {
     return $process
 }
 
-Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras
+Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks

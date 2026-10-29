@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
-import { displayTimestamp, formatConfidence } from '../../shared/format/format';
+import { displayTimestamp, formatConfidence, formatSimilarityScore } from '../../shared/format/format';
 import { reviewPath } from './TrackResultList';
 import TrackPlateMatch, { plateMatchAccessibleText } from './TrackPlateMatch';
 import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
@@ -56,7 +56,9 @@ export default memo(function TrackResultCard({
   const className = ['track-card', onSelect ? 'is-selectable' : '', selected ? 'is-selected' : ''].filter(Boolean).join(' ');
   const classLabel = objectClassLabel(track);
   const title = `${classLabel} · ${track.cameraCode} · ${track.cameraName}`;
-  const select = onSelect ? selectControlProps(track.id, `Select ${title}${track.plate ? ` · ${plateMatchAccessibleText(track.plate)}` : ''}`, onSelect) : null;
+  const score = track.appearanceScore;
+  const scoreText = score !== undefined ? ` · similarity score ${formatSimilarityScore(score)}` : '';
+  const select = onSelect ? selectControlProps(track.id, `Select ${title}${track.plate ? ` · ${plateMatchAccessibleText(track.plate)}` : ''}${scoreText}`, onSelect) : null;
   const ref = useKeepSelectedVisible<HTMLElement>(selected);
 
   return (
@@ -91,6 +93,11 @@ export default memo(function TrackResultCard({
               "Mean confidence" on one line, and one vocabulary is two fewer to learn. */}
           <div><dt>Confidence</dt><dd>{formatConfidence(track.meanConfidence, 'list')} mean</dd></div>
           <div><dt>Detections</dt><dd>{track.detectionCount}</dd></div>
+          {/* ADR-021 §5: an appearance-ranked result states its score — the raw
+              cosine to three decimals, never a percentage "match". */}
+          {score !== undefined ? (
+            <div><dt>Similarity</dt><dd className="num">{formatSimilarityScore(score)}</dd></div>
+          ) : null}
         </dl>
         {track.plate ? <TrackPlateMatch plate={track.plate} searchContext={searchContext} /> : null}
       </div>

@@ -491,6 +491,192 @@ def check_windows_cuda_build_contract(errors: list[str]) -> None:
         )
 
 
+POC_CUDA_CONTRACT = "config/vision/windows-cuda-development-build-v2.json"
+POC_CUDA_LOCK = "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda-sm75-sm89.lock"
+
+
+def check_poc_cuda_build_contract(errors: list[str]) -> None:
+    """Keep the PoC sm_75;sm_89 build contract (plan D9, ADR-020) honest.
+
+    It must stay scoped to poc-single-host, keep CUDA fail-closed, agree with
+    its catalogue entry and with the frozen v1 toolchain identity it shares,
+    and its lock may differ from the v1 CUDA lock only in the MMCV wheel.
+    """
+    contract_path = ROOT / POC_CUDA_CONTRACT
+    lock_path = ROOT / POC_CUDA_LOCK
+    contract = _read_json_or_none(contract_path)
+    if contract is None:
+        if lock_path.exists():
+            fail("The PoC sm_75;sm_89 CUDA lock exists without its v2 build contract.", errors)
+        return
+    if not isinstance(contract, dict) or contract.get("schemaVersion") != "mavi-windows-cuda-development-build-v2":
+        fail("Windows CUDA development build contract v2 is invalid or has an unsupported schema.", errors)
+        return
+    scope = contract.get("deploymentProfileScope")
+    if not isinstance(scope, dict) or scope.get("profiles") != ["poc-single-host"]:
+        fail("Windows CUDA build contract v2 must serve the poc-single-host profile only.", errors)
+    runtime_policy = contract.get("runtimePolicy")
+    if not isinstance(runtime_policy, dict) or any(
+        runtime_policy.get(name) is not False
+        for name in ("explicitCudaMayFallbackToCpu", "cudaToolkitRequiredAtRuntime", "compilerRequiredAtRuntime")
+    ):
+        fail("Windows CUDA build contract v2 must keep CUDA fail-closed and the build toolchain out of the runtime.", errors)
+    qualification = contract.get("qualification")
+    if not isinstance(qualification, dict) or qualification.get("status") != "unqualified":
+        fail("Windows CUDA build contract v2 must not claim a qualification; A7 earns it on the host.", errors)
+    mmcv = contract.get("mmcv") if isinstance(contract.get("mmcv"), dict) else {}
+    arch_list = (mmcv.get("buildEnvironment") or {}).get("TORCH_CUDA_ARCH_LIST")
+    targets = contract.get("targetGpus") if isinstance(contract.get("targetGpus"), list) else []
+    expected_arch_list = ";".join(str(item.get("computeCapability")) for item in targets if isinstance(item, dict)) + "+PTX"
+    if arch_list != contract.get("torchCudaArchList") or arch_list != expected_arch_list:
+        fail("Windows CUDA build contract v2 TORCH_CUDA_ARCH_LIST must spell its targetGpus.", errors)
+
+    toolchain = contract.get("toolchain") if isinstance(contract.get("toolchain"), dict) else {}
+    frozen = toolchain.get("verificationStatus") == "verified" and all(
+        _frozen_toolchain_value(name, toolchain.get(name))
+        for name in ("msvcToolset", "windowsSdkVersion", "cudaToolkitVersion")
+    )
+    if not frozen:
+        fail("Windows CUDA build contract v2 has no verified, frozen toolchain identity.", errors)
+    v1 = _read_json_or_none(ROOT / "config/vision/windows-cuda-development-build-v1.json")
+    v1 = v1 if isinstance(v1, dict) else {}
+    for key in ("platformVariant", "pythonVersion", "torchBinaryVersion", "torchvisionBinaryVersion", "cudaRuntimeFamily"):
+        if contract.get(key) != v1.get(key):
+            fail(f"Windows CUDA build contract v2 must keep v1's {key}; only the target GPUs differ.", errors)
+    for name in ("msvcToolset", "windowsSdkVersion", "cudaToolkitVersion"):
+        if toolchain.get(name) != (v1.get("toolchain") or {}).get(name):
+            fail(f"Windows CUDA build contracts v1 and v2 disagree on the toolchain field '{name}'.", errors)
+
+    catalog = _read_json_or_none(ROOT / "config/dependencies/offline-binary-catalog-v1.json")
+    candidate = ((catalog or {}).get("visionRuntime") or {}).get("windowsCudaPocSm89Candidate") if isinstance(catalog, dict) else None
+    if not isinstance(candidate, dict):
+        fail("Offline binary catalogue has no windowsCudaPocSm89Candidate for the v2 build contract.", errors)
+        return
+    if candidate.get("buildContract") != POC_CUDA_CONTRACT or candidate.get("nativeAbi") != contract.get("nativeAbi"):
+        fail("Offline catalogue windowsCudaPocSm89Candidate does not name the v2 contract and its native ABI.", errors)
+    if candidate.get("targetComputeCapabilities") != [item.get("computeCapability") for item in targets if isinstance(item, dict)]:
+        fail("Offline catalogue windowsCudaPocSm89Candidate target GPUs differ from the v2 contract.", errors)
+    candidate_toolchain = candidate.get("buildToolchain") if isinstance(candidate.get("buildToolchain"), dict) else {}
+    for contract_name, candidate_name in (
+        ("msvcToolset", "msvcToolset"),
+        ("windowsSdkVersion", "windowsSdk"),
+        ("cudaToolkitVersion", "cudaToolkit"),
+        ("msvcCompilerVersion", "msvcCompilerVersion"),
+    ):
+        if toolchain.get(contract_name) != candidate_toolchain.get(candidate_name):
+            fail(f"Windows CUDA build contract v2 and its catalogue entry disagree on '{contract_name}'.", errors)
+    if candidate.get("deploymentProfileScope") != ["poc-single-host"]:
+        fail("Offline catalogue windowsCudaPocSm89Candidate must be scoped to poc-single-host.", errors)
+    # The catalogue status is what the PoC installer discloses for this pack. Nothing
+    # qualifies it yet (A7 is the bound host observation), so it is exactly this value.
+    if candidate.get("status") != "built-hashed-locked" or contract.get("status") != "built-hashed-locked":
+        fail("The PoC sm_75;sm_89 build must stay built-hashed-locked in its contract and catalogue until A7 qualifies it.", errors)
+    # The ABI is derived from the contract by the tool that builds the pack, never typed.
+    try:
+        tools_vision = str(Path(__file__).resolve().parent / "vision")
+        if tools_vision not in sys.path:
+            sys.path.insert(0, tools_vision)
+        from build_runtime_pack import derive_native_abi  # noqa: PLC0415
+        derived_abi = derive_native_abi(contract)
+    except Exception as exc:  # noqa: BLE001 - any refusal is a contract defect
+        fail(f"Windows CUDA build contract v2 native ABI cannot be derived: {exc}", errors)
+        derived_abi = None
+    if derived_abi is not None and contract.get("nativeAbi") != derived_abi:
+        fail("Windows CUDA build contract v2 nativeAbi is not the one its toolchain and targetGpus derive.", errors)
+    if contract.get("nativeAbi") == v1.get("nativeAbi"):
+        fail("Windows CUDA build contracts v1 and v2 must have different native ABIs.", errors)
+
+    if not lock_path.exists():
+        if candidate.get("lock") is not None:
+            fail("Offline catalogue names a PoC sm_75;sm_89 CUDA lock that is not committed.", errors)
+        return
+    if not frozen:
+        fail("The PoC sm_75;sm_89 CUDA lock cannot be committed before the v2 toolchain is verified.", errors)
+    lock_bytes = lock_path.read_bytes()
+    if candidate.get("lock") != POC_CUDA_LOCK or candidate.get("lockSha256") != hashlib.sha256(lock_bytes).hexdigest():
+        fail("Offline catalogue windowsCudaPocSm89Candidate does not pin the committed PoC CUDA lock.", errors)
+    # The dependency policy moves with the dependency (CLAUDE.md): its PoC entries must
+    # pin the same lock and the same onnxruntime-gpu wheel as the catalogue.
+    policy = _read_json_or_none(ROOT / "config/dependencies/offline-dependency-policy-v1.json")
+    python_policy = ((policy or {}).get("ecosystemStrategies") or {}).get("python") or {} if isinstance(policy, dict) else {}
+    policy_variant = (python_policy.get("pocCudaRuntimeVariants") or {}).get("windows-x86_64-cuda-sm75-sm89") or {}
+    if policy_variant.get("lock") != POC_CUDA_LOCK or policy_variant.get("lockSha256") != hashlib.sha256(lock_bytes).hexdigest():
+        fail("Offline dependency policy pocCudaRuntimeVariants does not pin the committed PoC CUDA lock.", errors)
+    policy_ort = python_policy.get("pocOnnxRuntimeGpu") or {}
+    catalogue_ort = ((catalog or {}).get("visionRuntime") or {}).get("onnxruntimeGpuDevelopmentCandidate") or {}
+    catalogue_wheels = [item for item in catalogue_ort.get("wheels") or [] if isinstance(item, dict)]
+    if (
+        len(catalogue_wheels) != 1
+        or policy_ort.get("requirement") != f"onnxruntime-gpu=={catalogue_ort.get('version')}"
+        or policy_ort.get("wheelSha256") != catalogue_wheels[0].get("sha256")
+    ):
+        fail("Offline dependency policy pocOnnxRuntimeGpu and the catalogue's onnxruntime-gpu pin disagree.", errors)
+    v1_lock = (ROOT / "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.lock").read_text(encoding="utf-8")
+
+    def _without_mmcv(text: str) -> list[str]:
+        return [line for line in text.splitlines() if not line.startswith("mmcv==")]
+
+    v1_mmcv = [line for line in v1_lock.splitlines() if line.startswith("mmcv==")]
+    v2_mmcv = [line for line in lock_bytes.decode("utf-8").splitlines() if line.startswith("mmcv==")]
+    expected_pin = f"mmcv=={mmcv.get('version')} --hash=sha256:"
+    if (
+        _without_mmcv(lock_bytes.decode("utf-8")) != _without_mmcv(v1_lock)
+        or len(v2_mmcv) != 1
+        or len(v1_mmcv) != 1
+        or v2_mmcv == v1_mmcv
+        or not v2_mmcv[0].startswith(expected_pin)
+        or not v1_mmcv[0].startswith(expected_pin)
+    ):
+        fail("The PoC sm_75;sm_89 CUDA lock must equal the v1 CUDA lock except for its own MMCV wheel hash.", errors)
+    elif v2_mmcv[0].split("sha256:")[-1] != candidate.get("mmcvWheelSha256"):
+        fail("Offline catalogue windowsCudaPocSm89Candidate mmcvWheelSha256 differs from the PoC CUDA lock.", errors)
+
+    if str(VISION_ROOT) not in sys.path:
+        sys.path.insert(0, str(VISION_ROOT))
+    try:
+        from mavi_vision.runtime.component_identity import RuntimePackIdentityInputs, runtime_pack_id
+    except ImportError as exc:
+        fail(f"Runtime Pack identity tooling could not be imported: {exc}", errors)
+        return
+    requirements = ROOT / "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.requirements.txt"
+    derived = runtime_pack_id(
+        RuntimePackIdentityInputs(
+            platform_variant="windows-x86_64-cuda",
+            python_version=str(contract.get("pythonVersion")),
+            third_party_lock_sha256=hashlib.sha256(lock_bytes).hexdigest(),
+            runtime_requirements_sha256=str(candidate.get("runtimeRequirementsSha256")),
+            native_abi=str(contract.get("nativeAbi")),
+        )
+    )
+    if candidate.get("runtimePackId") != derived:
+        fail("Offline catalogue windowsCudaPocSm89Candidate runtimePackId does not derive from its lock and ABI.", errors)
+    v1_requirements_sha = None
+    binding = _read_json_or_none(ROOT / "src/vision/config/components/phase1-bindings-v2.json")
+    if isinstance(binding, dict):
+        for family in binding.get("runtimePacks") or []:
+            entry = ((family or {}).get("variants") or {}).get("windows-x86_64-cuda")
+            if isinstance(entry, dict):
+                v1_requirements_sha = entry.get("runtimeRequirementsSha256")
+    if not requirements.exists() or candidate.get("runtimeRequirementsSha256") != v1_requirements_sha:
+        fail("The PoC sm_75;sm_89 Runtime Pack must use the v1 CUDA requirements projection.", errors)
+    # The binding declares the pack as the Development build sm75-sm89 (ADR-014 amendment
+    # 2026-10-29); the resolver checks its identity, this checks it is the catalogue's pack.
+    declared = []
+    if isinstance(binding, dict):
+        for family in binding.get("runtimePacks") or []:
+            for build in (((family or {}).get("developmentBuilds") or {}).get("windows-x86_64-cuda") or []):
+                if isinstance(build, dict) and build.get("buildId") == "sm75-sm89":
+                    declared.append(build)
+    targets = [item.get("computeCapability") for item in contract.get("targetGpus") or [] if isinstance(item, dict)]
+    if (
+        len(declared) != 1
+        or declared[0].get("runtimePackId") != candidate.get("runtimePackId")
+        or declared[0].get("nativeAbi") != contract.get("nativeAbi")
+        or declared[0].get("computeCapabilities") != targets
+    ):
+        fail("The release binding must declare the catalogue's sm_75;sm_89 pack as Development build sm75-sm89 for the contract's target GPUs.", errors)
+
+
 def _read_json_or_none(path: Path) -> object | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -817,6 +1003,7 @@ def check_dependency_policy(errors: list[str]) -> None:
             )
 
     check_windows_cuda_build_contract(errors)
+    check_poc_cuda_build_contract(errors)
 
     review = policy.get("requiredChangeReview")
     if not isinstance(review, list) or len(review) < 8 or any(
@@ -1174,6 +1361,8 @@ def check_contracts(errors: list[str]) -> None:
         "benchmark-vehicle-subclass-result-v1",
         # Stage 4 PR-3 plate control plane (ADR-013 implementation amendment 2026-10-13).
         "plate-lease-v1", "plate-complete-v1", "plate-predictions-v1",
+        # PoC S4 embedding control plane (ADR-021).
+        "embedding-lease-v1", "embedding-complete-v1", "embedding-text-query-lease-v1", "embedding-text-query-complete-v1",
     ]
     pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:
@@ -1197,6 +1386,99 @@ def check_contracts(errors: list[str]) -> None:
     check_completion_v32_contract(errors)
     check_completion_v33_contract(errors)
     check_plate_contract(errors)
+    check_embedding_contract(errors)
+
+
+def embedding_identity(manifest_path: Path, profile_path: Path) -> tuple[str, str]:
+    """ADR-021 identity: canonical JSON (sorted keys, compact, trailing LF) of the manifest and profile, and its SHA-256."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    identity = {
+        "schemaVersion": "mavi-embedding-identity-v1",
+        "model": {
+            "id": manifest["modelId"],
+            "version": manifest["modelVersion"],
+            "manifestSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            "dimension": profile["dimension"],
+        },
+        "pipeline": {
+            "id": profile["pipelineId"],
+            "version": profile["pipelineVersion"],
+            "sha256": hashlib.sha256(profile_path.read_bytes()).hexdigest(),
+        },
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":")) + "\n"
+    return canonical, hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def check_embedding_contract(errors: list[str]) -> None:
+    """The embedding identity vectors re-derive from the committed files, and the examples agree with them."""
+    vectors = json.loads((ROOT / "contracts/test-vectors/embedding-identity-v1.json").read_text(encoding="utf-8"))
+    for vector in vectors["vectors"]:
+        manifest_path, profile_path = ROOT / vector["modelManifest"], ROOT / vector["pipelineProfile"]
+        if not (ROOT / "models").is_dir() and not (ROOT / "src").is_dir():
+            # A contracts-only tree (the contract drift tests) has no manifests or profiles to re-derive from.
+            continue
+        if not (manifest_path.is_file() and profile_path.is_file()):
+            # In a full tree a missing or renamed file fails closed rather than silently disabling the check.
+            fail(f"Embedding identity vector {vector['name']} names a missing manifest or profile.", errors)
+            continue
+        canonical, fingerprint = embedding_identity(manifest_path, profile_path)
+        if canonical != vector["canonicalIdentity"] or fingerprint != vector["fingerprint"]:
+            fail(f"Embedding identity vector {vector['name']} no longer matches its manifest and profile.", errors)
+    lease = json.loads((ROOT / "contracts/examples/embedding-lease-v1.example.json").read_text(encoding="utf-8"))
+    complete = json.loads((ROOT / "contracts/examples/embedding-complete-v1.example.json").read_text(encoding="utf-8"))
+    development = vectors["vectors"][0]
+    if lease["identity"]["fingerprint"] != development["fingerprint"] or \
+            complete["provenance"]["identityFingerprint"] != development["fingerprint"]:
+        fail("Embedding contract examples do not carry the development identity fingerprint.", errors)
+    if [track["trackId"] for track in lease["tracks"]] != [track["trackId"] for track in complete["tracks"]]:
+        fail("The embedding completion example does not describe the lease example's Tracks in order.", errors)
+
+
+def check_embedding_profiles(tracked: list[Path], manifests: dict, errors: list[str], root: Path = ROOT) -> set[str]:
+    """PoC S4 (ADR-021 §2-§3): the embeddings role is composed from explicit paths, not a Component Binding.
+
+    Every tracked embedding pipeline profile is developmentOnly and names a tracked, unverified ``embedding``
+    manifest with no qualification ID, whose dimension it repeats and whose runtime family is a declared
+    Development runtime family. Returns the Model Pack ids those profiles bind.
+    """
+    bound: set[str] = set()
+    by_path = {manifest_path.resolve(): (pack_id, manifest) for pack_id, (manifest_path, manifest, _hash) in manifests.items()}
+    families: dict | None = None
+    tracked_set = {path.resolve() for path in tracked}
+    for path in tracked:
+        relative = path.relative_to(root).as_posix()
+        if not (relative.startswith("src/vision/config/embeddings/") and relative.endswith(".json")):
+            continue
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            fail(f"Embedding pipeline profile {relative} is not valid JSON.", errors)
+            continue
+        if profile.get("schemaVersion") != "mavi-embedding-pipeline-v1" or profile.get("developmentOnly") is not True:
+            fail(f"Embedding pipeline profile {relative} must be mavi-embedding-pipeline-v1 and developmentOnly.", errors)
+            continue
+        manifest_path = (root / str(profile.get("modelManifest"))).resolve()
+        if manifest_path not in tracked_set or manifest_path not in by_path:
+            fail(f"Embedding pipeline profile {relative} names no tracked model manifest.", errors)
+            continue
+        pack_id, manifest = by_path[manifest_path]
+        if families is None:
+            policy_path = root / "config/dependencies/offline-dependency-policy-v1.json"
+            policy = json.loads(policy_path.read_text(encoding="utf-8")) if policy_path.is_file() else {}
+            families = ((policy.get("ecosystemStrategies") or {}).get("python") or {}).get("developmentRuntimeFamilies") or {}
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        family_ids = (document.get("runtimeCompatibility") or {}).get("runtimePackFamilyIds") or []
+        if (document.get("capabilityIds") != ["embedding"] or manifest.verification_status != "unverified"
+                or manifest.qualification_id is not None
+                or ((document.get("capabilitySpecific") or {}).get("embedding") or {}).get("dimension") != profile.get("dimension")
+                or not family_ids or any(family not in families for family in family_ids)):
+            fail(f"Embedding pipeline profile {relative} binds a manifest that is not an unverified, unqualified embedding "
+                 "pack of its dimension on a declared Development runtime family.", errors)
+            continue
+        bound.add(pack_id)
+    return bound
 
 
 def check_plate_contract(errors: list[str]) -> None:
@@ -2268,6 +2550,7 @@ def check_vision_release_metadata(
     for qualification_id, (record_path, _record, _hash) in records.items():
         if qualification_id not in bound_records:
             fail(f"Qualification record {rel(record_path)} is bound by no capability binding.", errors)
+    bound_packs |= check_embedding_profiles(tracked, manifests, errors, root)
     for model_pack_id, (manifest_path, _manifest, _hash) in manifests.items():
         if model_pack_id not in bound_packs:
             fail(f"Model manifest {rel(manifest_path)} is bound by no capability binding.", errors)
@@ -2317,7 +2600,7 @@ def main() -> int:
     print(" - direct dependency/offline packaging policy: synchronized")
     print(" - offline binary/version catalog: synchronized")
     print(" - ordinary Git executable/archive/large-file gate: clean")
-    print(" - contract examples: 36 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors, the S3.2 measurement, media, derivation and T9 artefacts, the S3.2d-1 benchmark harness contracts, and the Stage-4 plate control plane)")
+    print(" - contract examples: 40 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors, the S3.2 measurement, media, derivation and T9 artefacts, the S3.2d-1 benchmark harness contracts, the Stage-4 plate control plane and the PoC S4 embedding control plane)")
     print(" - Task-17 acceptance schemas/configuration: validated")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret/wheel scan: clean")

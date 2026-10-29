@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "mavi-embedding-pipeline-v1",
+  "pipelineId": "embeddings-siglip2-dev",
+  "pipelineVersion": "1.0.0",
+  "developmentOnly": true,
+  "modelManifest": "models/manifests/embeddings-siglip2-base-p16-224-dev-v1.json",
+  "dimension": 768,
+  "preprocessing": "siglip2-fixed-224-v1",
+  "aggregation": "mean-l2-v1",
+  "minimumCropSide": 80,
+  "objectClasses": [
+    "Person",
+    "Vehicle"
+  ],
+  "textMaximumTokens": 64,
+  "textMaximumCharacters": 200
+}

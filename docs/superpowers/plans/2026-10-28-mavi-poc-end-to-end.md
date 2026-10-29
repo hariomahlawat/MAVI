@@ -81,7 +81,7 @@ Each slice is one PR (some two), thin end-to-end first, exact-head CI, one cold 
 | Embeddings, attributes, appearance query | SigLIP 2 base patch16-224 | Apache-2.0 | resolved in S2c survey; export in S4 |
 | Face detector / embedder | YuNet; AdaFace IR-50 (fallback SFace) | YuNet per its model-folder LICENSE (verify at spike); AdaFace MIT code, checkpoints research provenance; SFace Apache-2.0 | spike in S6 |
 | Language model / runtime | Qwen2.5-1.5B / 7B-Instruct GGUF; llama.cpp | Apache-2.0; MIT | spike in S10 |
-| ONNX runtime | onnxruntime 1.31.0 CPU; onnxruntime-gpu (same pin) | MIT | CPU pinned; GPU in S1b |
+| ONNX runtime | onnxruntime 1.31.0 CPU; onnxruntime-gpu 1.26.0 (S1b: the last CUDA 12 build on PyPI; 1.27.0+ are CUDA 13 builds, so "same pin" was not possible) | MIT | CPU pinned; GPU pinned in S1b |
 | Demo media (kit) | Wikimedia Commons and similar | CC0 / CC-BY only | S2 |
 | Demo media (owner-machine demos only) | Pexels/Pixabay clips; BDD100K H3 sequences | platform licences (no standalone redistribution); research licence | S2, held locally |
 | Plate demo media | BDD100K H3 sequences | research, non-redistributable | held locally |

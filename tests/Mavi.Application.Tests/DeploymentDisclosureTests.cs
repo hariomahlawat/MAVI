@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Mavi.Application.Deployment;
+using Mavi.Application.Modules.Identity;
 
 namespace Mavi.Application.Tests;
 
@@ -100,7 +101,7 @@ public sealed class DeploymentDisclosureTests : IDisposable
         // The only configurable inputs are where the profile and its records are. Adding a
         // member here (an "enabled", "hide" or "qualified" switch) must fail this test.
         var members = typeof(DeploymentOptions).GetProperties().Select(property => property.Name).Order(StringComparer.Ordinal);
-        Assert.Equal(["DeviceResolutionPath", "Profile", "ReleaseMetadataPath"], members);
+        Assert.Equal(["DeviceResolutionPath", "Profile", "ReleaseMetadataPath", "RoleDeviceResolutionPaths"], members);
     }
 
     [Theory]
@@ -160,6 +161,32 @@ public sealed class DeploymentDisclosureTests : IDisposable
     }
 
     [Fact]
+    public void TheIdentityModeInEffectIsDisclosedBesideTheOneInstalled()
+    {
+        var metadata = ValidMetadata();
+        metadata["identityMode"] = JsonDocument.Parse("\"windows-negotiate\"").RootElement.Clone();
+        var identity = new OperatorIdentityOptions { Mode = OperatorIdentityModes.DevelopmentUnattributed };
+
+        var disclosure = DeploymentDisclosureReader.Read(PocOptions(WriteMetadata(metadata), null), identity: identity);
+
+        Assert.Equal(OperatorIdentityModes.DevelopmentUnattributed, disclosure.Identity.Mode);
+        Assert.False(disclosure.Identity.Attributable);
+        Assert.Contains("not attributable", disclosure.Identity.Statement, StringComparison.Ordinal);
+        Assert.Equal(OperatorIdentityModes.WindowsNegotiate, disclosure.Identity.InstalledMode);
+    }
+
+    [Fact]
+    public void AnUnconfiguredIdentityIsDisclosedAsDisabled()
+    {
+        var disclosure = DeploymentDisclosureReader.Read(new DeploymentOptions());
+
+        Assert.Equal(OperatorIdentityModes.Disabled, disclosure.Identity.Mode);
+        Assert.False(disclosure.Identity.Attributable);
+        Assert.False(disclosure.Identity.OperatorsConfigured);
+        Assert.Null(disclosure.Identity.InstalledMode);
+    }
+
+    [Fact]
     public void AMalformedDeviceRecordIsUnavailableNotAbsent()
     {
         var device = Path.Combine(_root, "device.json");
@@ -168,6 +195,63 @@ public sealed class DeploymentDisclosureTests : IDisposable
 
         Assert.Equal("unavailable", disclosure.DeviceStatus);
         Assert.Null(disclosure.Device);
+    }
+
+    [Fact]
+    public void ARoleRuntimeDisclosesItsOwnDeviceAndReasonBesideTheVisionWorker()
+    {
+        // PoC S3 (C4.1): the plates runtime resolves its device itself; its record is shown as its own, with its
+        // reason, and never replaces the Vision worker's.
+        var plates = Path.Combine(_root, "plates-device-resolution.json");
+        File.WriteAllText(plates, """
+            {
+              "schemaVersion": "mavi-device-resolution-v1",
+              "role": "plates",
+              "requestedDevicePolicy": "auto",
+              "resolvedDevicePolicy": "cpu",
+              "deviceResolutionReason": "plates_runtime_cpu_only",
+              "runtimePackId": "mavi-runtime-v2-plates",
+              "runtimeVariant": "windows-x86_64-cpu",
+              "verifyOnly": false
+            }
+            """);
+        var options = PocOptions(WriteMetadata(ValidMetadata()), WriteDevice());
+        options.RoleDeviceResolutionPaths["plates"] = plates;
+        options.RoleDeviceResolutionPaths["embeddings"] = Path.Combine(_root, "absent.json");
+        // A record is only its own role's: the plates record named for another role is not shown as that role's.
+        options.RoleDeviceResolutionPaths["faces"] = plates;
+
+        var disclosure = DeploymentDisclosureReader.Read(options);
+
+        Assert.Equal("cuda_pack_absent", disclosure.Device!.Reason);
+        Assert.NotNull(disclosure.RoleDevices);
+        Assert.Equal(["embeddings", "faces", "plates"], disclosure.RoleDevices!.Select(item => item.Role));
+        Assert.Equal("not-reported", disclosure.RoleDevices[0].DeviceStatus);
+        Assert.Equal(("unavailable", null), (disclosure.RoleDevices[1].DeviceStatus, disclosure.RoleDevices[1].Device));
+        var role = disclosure.RoleDevices[2];
+        Assert.Equal("reported", role.DeviceStatus);
+        Assert.Equal("auto", role.Device!.RequestedPolicy);
+        Assert.Equal("cpu", role.Device.ResolvedPolicy);
+        Assert.Equal("plates_runtime_cpu_only", role.Device.Reason);
+        Assert.Equal("mavi-runtime-v2-plates", role.Device.RuntimePackId);
+    }
+
+    [Fact]
+    public void APackDisclosesTheLicenceItsInstallerReadFromTheLicenceFile()
+    {
+        var metadata = ValidMetadata();
+        metadata["packs"] = JsonDocument.Parse("""
+            [
+              { "kind": "model", "role": "plates", "capabilityId": "ocr", "packId": "mavi-model-v2-ocr",
+                "verificationStatus": "unverified", "licence": "MIT (LICENSE a953e626)" },
+              { "kind": "model", "role": "vision", "packId": "mavi-model-v2-x", "verificationStatus": "unverified" }
+            ]
+            """).RootElement.Clone();
+
+        var disclosure = DeploymentDisclosureReader.Read(PocOptions(WriteMetadata(metadata), null));
+
+        Assert.Equal("MIT (LICENSE a953e626)", disclosure.Packs[0].Licence);
+        Assert.Null(disclosure.Packs[1].Licence);
     }
 
     private static DeploymentOptions PocOptions(string metadataPath, string? devicePath) => new()

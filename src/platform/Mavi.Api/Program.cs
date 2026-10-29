@@ -2,6 +2,7 @@ using System.Reflection;
 using Mavi.Api.Deployment;
 using Mavi.Api.Endpoints;
 using Mavi.Api.Finalization;
+using Mavi.Api.Identity;
 using Mavi.Api.Middleware;
 using Mavi.Api.Plates;
 using Mavi.Api.SceneAnalytics;
@@ -29,6 +30,9 @@ builder.Services.AddHealthChecks();
 // poc-single-host the disclosure is fixed by code and the host refuses inconsistent metadata.
 builder.Services.Configure<Mavi.Application.Deployment.DeploymentOptions>(
     builder.Configuration.GetSection(Mavi.Application.Deployment.DeploymentOptions.SectionName));
+// Operator identity and the operator policy (ADR-010). Identity:Mode defaults to disabled; existing
+// endpoints stay anonymous and only endpoints that require OperatorPolicy are attributable.
+builder.Services.AddMaviOperatorIdentity(builder.Configuration);
 // The platform's first background service. It shares this process deliberately (ADR-008
 // puts the API host on the operational plane) and is bounded so it cannot compete with
 // serving requests; SceneAnalytics:Enabled turns it off entirely.
@@ -47,10 +51,16 @@ builder.Services.AddSingleton<VisualAttributeHostedService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<VisualAttributeHostedService>());
 builder.Services.AddSingleton<VisualAttributeAudit>();
 // The plate authority loop (Stage 4 PR-3): activation, queueing, the deadline/exhaustion sweep and
-// plate staging reclamation. Plates:Enabled gates it; with nothing configured it idles (NotConfigured).
+// plate staging reclamation. It always runs; Plates:Enabled gates only activation and queueing, and with nothing
+// configured it only sweeps and reclaims (NotConfigured).
 builder.Services.AddSingleton<PlateHostedService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<PlateHostedService>());
 builder.Services.AddSingleton<PlateAudit>();
+// The embedding authority loop (PoC S4; ADR-021): activation, queueing and the deadline/exhaustion sweep.
+// Embeddings:Enabled gates it; with nothing configured it idles and similarity answers notConfigured.
+builder.Services.AddSingleton<Mavi.Api.Embeddings.EmbeddingHostedService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<Mavi.Api.Embeddings.EmbeddingHostedService>());
+builder.Services.AddSingleton<Mavi.Api.Embeddings.EmbeddingAudit>();
 // Canonical API JSON policy: property names are case-sensitive and numeric properties must be JSON numbers.
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -71,8 +81,10 @@ var app = builder.Build();
 await app.VerifyNativeMediaToolsAsync();
 app.VerifyTrackCursorSigning();
 app.VerifyVisualAttributeRelease();
-app.VerifyPlateRelease();
 app.VerifyDeploymentDisclosure();
+app.VerifyOperatorIdentity();
+app.VerifyPlateRelease();
+Mavi.Api.Embeddings.EmbeddingReleaseStartup.VerifyEmbeddingRelease(app);
 await app.ApplyDatabaseMigrationsAsync();
 // Sanitised request start/finish telemetry in place of the framework's raw-URL lines (Stage 4 §5.5).
 app.UseSafeRequestTelemetry();
@@ -85,8 +97,11 @@ app.UseMaviRequestCancellationHandling();
 app.UseVisionCompletionRequestLimits();
 app.UseVisualAttributeRequestLimits();
 app.UsePlateRequestLimits();
+Mavi.Api.Embeddings.EmbeddingRequestLimitMiddleware.UseEmbeddingRequestLimits(app);
 app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/api/health", (IStagingJanitorMonitor stagingJanitor, IVisionFinalizationMonitor visionFinalization,
     Mavi.Application.Modules.VisualAttributes.VisualAttributeIntegrityMonitor visualAttributeIntegrity,
@@ -113,12 +128,14 @@ app.MapStorageTopologyEndpoints();
 app.MapVisionJobEndpoints();
 app.MapVisualAttributeEndpoints();
 app.MapPlateEndpoints();
+app.MapEmbeddingEndpoints();
 app.MapTrackEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapArtifactEndpoints();
 app.MapSceneEndpoints();
 app.MapSceneAnalyticsEndpoints();
 app.MapDeploymentEndpoints();
+app.MapOperatorIdentityEndpoints();
 app.MapGet("/api/system/config", (Microsoft.Extensions.Options.IOptions<LocalizationOptions> options) =>
     Results.Ok(new { displayTimeZoneId = options.Value.DefaultDisplayTimeZoneId }));
 

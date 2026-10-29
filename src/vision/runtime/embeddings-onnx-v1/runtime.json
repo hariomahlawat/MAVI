@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "2.0",
+  "runtimeProfileId": "embeddings-onnx-v1",
+  "runtimeGraph": "onnxruntime-embeddings-cpu-v1",
+  "qualificationStatus": "partial",
+  "pythonMinor": "3.12",
+  "semanticGraph": {
+    "onnxruntime": "1.31.0",
+    "numpy": "2.5.3",
+    "pillow": "11.3.0",
+    "sentencepiece": "0.2.2"
+  },
+  "platformVariants": {
+    "linux-x86_64-cpu": {
+      "status": "pending-hardware-qualification"
+    },
+    "windows-x86_64-cpu": {
+      "status": "development-cpu",
+      "pythonIdentity": {
+        "version": "3.12.10",
+        "implementation": "CPython",
+        "build": [
+          "tags/v3.12.10:0cc8128",
+          "Apr  8 2025 12:21:36"
+        ],
+        "compiler": "MSC v.1943 64 bit (AMD64)"
+      }
+    },
+    "linux-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    },
+    "windows-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    }
+  },
+  "releaseLocks": {
+    "linux-x86_64-cpu": {
+      "status": "pending-hardware-qualification"
+    },
+    "windows-x86_64-cpu": {
+      "status": "development-offline-lock",
+      "artifact": "windows-x86_64-cpu.lock",
+      "sha256": "0ff5536d6754ff38de609bba706a5c095348457003f4a58a4193979f54dd949e"
+    },
+    "linux-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    },
+    "windows-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    }
+  }
+}

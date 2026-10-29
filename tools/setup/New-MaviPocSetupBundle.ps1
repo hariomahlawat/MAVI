@@ -7,8 +7,12 @@ param(
     # Built Model Pack roots (model-pack-manifest.json at each root). Every Model Pack the
     # binding enables for role vision must be among them, and nothing else.
     [Parameter(Mandatory = $true)][string[]]$ModelPackSource,
-    # A Windows CUDA Runtime Pack bundle root, when one is retained (S1b produces it).
+    # A Windows CUDA Runtime Pack bundle root, when one is retained: the v1 (sm_75) pack the
+    # component binding names for windows-x86_64-cuda.
     [string]$VisionRuntimeCudaSource,
+    # The PoC sm_75;sm_89 Windows CUDA Runtime Pack root (S1b; build contract v2), when
+    # retained: the pack the offline catalogue's visionRuntime.windowsCudaPocSm89Candidate names.
+    [string]$VisionRuntimeCudaSm89Source,
     # The offline cache holding python-plates-pilot-wheelhouse\ and plates-pilot-payloads\
     # (Prepare-MaviDeveloperOfflineCache.ps1). Defaults to the binary kit's developer cache.
     [string]$PlatesCache,
@@ -135,6 +139,16 @@ try {
     }
     $cpuSource = Resolve-MaviPocRuntimeSource -Root $VisionRuntimeCpuSource -Variant "windows-x86_64-cpu"
     $cudaSource = if ($VisionRuntimeCudaSource) { Resolve-MaviPocRuntimeSource -Root $VisionRuntimeCudaSource -Variant "windows-x86_64-cuda" } else { $null }
+    $cudaSm89Source = $null
+    if ($VisionRuntimeCudaSm89Source) {
+        # The binding declares it as the Development build sm75-sm89 of windows-x86_64-cuda
+        # (ADR-014 amendment 2026-10-29); any other pack is refused.
+        $cudaSm89Source = [IO.Path]::GetFullPath($VisionRuntimeCudaSm89Source)
+        $sm89Manifest = Read-MaviJson -Path (Join-Path $cudaSm89Source "runtime-pack-manifest.json")
+        if ((Get-MaviPocCudaBuildKey -Binding $binding -RuntimePackId ([string]$sm89Manifest.runtimePackId)) -ne "sm75-sm89" -or [string]$sm89Manifest.platformVariant -ne "windows-x86_64-cuda") {
+            throw "The CUDA Runtime Pack at '$cudaSm89Source' is '$($sm89Manifest.runtimePackId)', which the component binding does not declare as the sm75-sm89 build."
+        }
+    }
     $boundModelPackIds = @($binding.capabilityBindings | Where-Object { $_.roleId -eq "vision" -and $_.enabled } | ForEach-Object { [string]$_.modelPackId } | Sort-Object -Unique)
     $modelSources = @{}
     foreach ($root in $ModelPackSource) {
@@ -147,7 +161,7 @@ try {
 
     if ([string]::IsNullOrWhiteSpace($PlatesCache)) { $PlatesCache = Join-Path $BinaryKitRoot "vendor\developer-cache\win-x64" }
     $PlatesCache = [IO.Path]::GetFullPath($PlatesCache)
-    foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads")) {
+    foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads", "python-embeddings-wheelhouse", "embeddings-payloads")) {
         if (-not (Test-Path -LiteralPath (Join-Path $PlatesCache $name) -PathType Container)) { throw "The plates cache '$PlatesCache' has no $name\ (Prepare-MaviDeveloperOfflineCache.ps1)." }
     }
     if ($SmokeClip -and [string]::IsNullOrWhiteSpace($SmokeClipLicence)) { throw "A shipped smoke clip needs -SmokeClipLicence (CC0 / CC-BY attribution text)." }
@@ -182,10 +196,15 @@ try {
     # 5. Vision packs and the plates cache.
     Copy-MaviPocTree -Source $cpuSource -Target (Join-Path $destination "vision\runtime\windows-x86_64-cpu")
     if ($cudaSource) { Copy-MaviPocTree -Source $cudaSource -Target (Join-Path $destination "vision\runtime\windows-x86_64-cuda") }
+    if ($cudaSm89Source) { Copy-MaviPocTree -Source $cudaSm89Source -Target (Join-Path $destination "vision\runtime\windows-x86_64-cuda-sm75-sm89") }
     foreach ($entry in $modelSources.GetEnumerator()) {
         $manifest = Read-MaviJson -Path (Join-Path $entry.Value "model-pack-manifest.json")
         $packDirectory = @($manifest.artifacts)[0].relativePath.Split("/")[0]
         Copy-MaviPocTree -Source $entry.Value -Target (Join-Path $destination "vision\models\$packDirectory")
+    }
+    # PoC S4 (ADR-021): the embeddings runtime wheels and the SigLIP 2 pack payloads, from the same developer cache.
+    foreach ($name in @("python-embeddings-wheelhouse", "embeddings-payloads")) {
+        Copy-MaviPocTree -Source (Join-Path $PlatesCache $name) -Target (Join-Path $destination "embeddings\$name")
     }
     foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads")) {
         Copy-MaviPocTree -Source (Join-Path $PlatesCache $name) -Target (Join-Path $destination "plates\$name")
@@ -227,6 +246,7 @@ try {
         sourceBinaryKitManifestSha256 = (Get-MaviSha256 -Path (Join-Path $BinaryKitRoot "mavi-offline-binary-kit.json"))
         contains = [ordered]@{
             cudaRuntimePack = [bool]$cudaSource
+            cudaRuntimePackSm75Sm89 = [bool]$cudaSm89Source
             modelPackIds = @($boundModelPackIds)
             smokeClip = [bool]$SmokeClip
             vcRedist = [ordered]@{ productVersion = $vcRedist.ProductVersion; sha256 = $vcRedist.Sha256 }
@@ -239,6 +259,7 @@ try {
     Write-Host "  Revision    : $revisionSha"
     Write-Host "  Files       : $($artifacts.Count)"
     Write-Host "  CUDA pack   : $(if ($cudaSource) { 'included' } else { 'not included (Auto resolves CPU unless -AdoptCudaRuntimeRoot is used at install)' })"
+    Write-Host "  sm89 pack   : $(if ($cudaSm89Source) { 'included (sm75-sm89, build contract v2; built, hashed, locked)' } else { 'not included' })"
     Write-Host "  Manifest    : $(Get-MaviSha256 -Path (Join-Path $destination 'mavi-poc-bundle.json'))"
 }
 finally {

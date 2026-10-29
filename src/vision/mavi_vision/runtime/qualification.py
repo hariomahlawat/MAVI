@@ -201,6 +201,25 @@ class _OnnxRuntimeCpuSemanticGraphSchema(_StrictModel):
         return value
 
 
+class _OnnxRuntimeEmbeddingsCpuSemanticGraphSchema(_StrictModel):
+    """The ``onnxruntime-embeddings-cpu-v1`` runtime graph (PoC S4 embeddings role; ADR-021 section 2).
+
+    A Development-only family: its variants can never carry a qualified status (``RUNTIME_GRAPHS``).
+    """
+
+    onnxruntime: str
+    numpy: str
+    pillow: str
+    sentencepiece: str
+
+    @field_validator("onnxruntime", "numpy", "pillow", "sentencepiece")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        if not value or value != value.strip():
+            raise ValueError("runtime_semantic_version_invalid")
+        return value
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeGraph:
     """One registered runtime graph: its schema, the lock distribution per field, and its policy."""
@@ -239,6 +258,14 @@ RUNTIME_GRAPHS: Mapping[str, RuntimeGraph] = MappingProxyType(
                     "onnxruntime": "onnxruntime", "numpy": "numpy", "opencvPythonHeadless": "opencv-python-headless",
                     "pillow": "pillow", "scipy": "scipy", "pyyaml": "pyyaml",
                 }
+            ),
+            development_only=True,
+        ),
+        "onnxruntime-embeddings-cpu-v1": RuntimeGraph(
+            graph_id="onnxruntime-embeddings-cpu-v1",
+            schema=_OnnxRuntimeEmbeddingsCpuSemanticGraphSchema,
+            distributions=MappingProxyType(
+                {"onnxruntime": "onnxruntime", "numpy": "numpy", "pillow": "pillow", "sentencepiece": "sentencepiece"}
             ),
             development_only=True,
         ),

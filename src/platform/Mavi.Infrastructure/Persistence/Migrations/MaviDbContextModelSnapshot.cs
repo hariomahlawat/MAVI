@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 
 #nullable disable
 
@@ -26,6 +27,79 @@ namespace Mavi.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.HasSequence("processing_visibility_sequence");
+
+            modelBuilder.Entity("Mavi.Domain.Audit.AuditEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<string>("IdentitySource")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("identity_source");
+
+                    b.Property<string>("OperatorDisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("operator_display_name");
+
+                    b.Property<string>("OperatorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("operator_id");
+
+                    b.Property<string>("PayloadSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("payload_sha256")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("recorded_at_utc");
+
+                    b.Property<string>("SubjectId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("subject_id");
+
+                    b.Property<string>("SubjectType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("subject_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecordedAtUtc")
+                        .HasDatabaseName("ix_audit_entries_recorded_at_utc");
+
+                    b.HasIndex("SubjectType", "SubjectId", "RecordedAtUtc")
+                        .HasDatabaseName("ix_audit_entries_subject");
+
+                    b.ToTable("audit_entries", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_audit_entries_payload_sha256", "payload_sha256 ~ '^[0-9a-f]{64}$'");
+                        });
+                });
 
             modelBuilder.Entity("Mavi.Domain.Cameras.Camera", b =>
                 {
@@ -82,6 +156,326 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     b.HasIndex("IsActive");
 
                     b.ToTable("cameras", (string)null);
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Embeddings.AppearanceQueryEmbedding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at_utc");
+
+                    b.Property<Vector>("Embedding")
+                        .HasColumnType("vector")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("IdentityFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("identity_fingerprint")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_expires_at_utc");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<byte[]>("LeaseTokenHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("lease_token_hash");
+
+                    b.Property<DateTimeOffset>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at_utc");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("text");
+
+                    b.Property<string>("TextSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("text_sha256")
+                        .IsFixedLength();
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdentityFingerprint", "TextSha256")
+                        .IsUnique()
+                        .HasDatabaseName("ux_appearance_query_embeddings_text");
+
+                    b.HasIndex("IdentityFingerprint", "Status", "RequestedAtUtc")
+                        .HasDatabaseName("ix_appearance_query_embeddings_claim")
+                        .HasFilter("status IN ('Pending', 'Running')");
+
+                    b.ToTable("appearance_query_embeddings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_appearance_query_embeddings_completed", "(status = 'Completed') = (embedding IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_appearance_query_embeddings_status", "status IN ('Pending', 'Running', 'Completed', 'Failed')");
+
+                            t.HasCheckConstraint("ck_appearance_query_embeddings_text", "char_length(text) BETWEEN 1 AND 200");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Embeddings.EmbeddingAnalysis", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at_utc");
+
+                    b.Property<string>("CompletionDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("completion_digest")
+                        .IsFixedLength();
+
+                    b.Property<int>("Dimension")
+                        .HasColumnType("integer")
+                        .HasColumnName("dimension");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("FailureDetails")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("failure_details");
+
+                    b.Property<DateTimeOffset?>("FirstClaimedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_claimed_at_utc");
+
+                    b.Property<string>("IdentityFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("identity_fingerprint")
+                        .IsFixedLength();
+
+                    b.Property<int?>("LastFailedAttempt")
+                        .HasColumnType("integer")
+                        .HasColumnName("last_failed_attempt");
+
+                    b.Property<string>("LastFailedCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("last_failed_code");
+
+                    b.Property<string>("LastFailedDetails")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("last_failed_details");
+
+                    b.Property<string>("LastFailedOutcome")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("last_failed_outcome");
+
+                    b.Property<byte[]>("LastFailedTokenHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("last_failed_token_hash");
+
+                    b.Property<string>("LastFailedWorkerId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("last_failed_worker_id");
+
+                    b.Property<DateTimeOffset?>("LastHeartbeatUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_heartbeat_utc");
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_expires_at_utc");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<byte[]>("LeaseTokenHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("lease_token_hash");
+
+                    b.Property<string>("ManifestSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("manifest_sha256")
+                        .IsFixedLength();
+
+                    b.Property<string>("ModelId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("model_id");
+
+                    b.Property<string>("ModelVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("model_version");
+
+                    b.Property<string>("PipelineId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("pipeline_id");
+
+                    b.Property<string>("PipelineSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("pipeline_sha256")
+                        .IsFixedLength();
+
+                    b.Property<string>("PipelineVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("pipeline_version");
+
+                    b.Property<Guid>("ProcessingRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("processing_run_id");
+
+                    b.Property<string>("ProvenanceJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("provenance_json");
+
+                    b.Property<DateTimeOffset>("QueuedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("queued_at_utc");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<int>("TracksEmbedded")
+                        .HasColumnType("integer")
+                        .HasColumnName("tracks_embedded");
+
+                    b.Property<int>("TracksUnavailable")
+                        .HasColumnType("integer")
+                        .HasColumnName("tracks_unavailable");
+
+                    b.Property<long?>("VisibilitySequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("visibility_sequence");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("VisibilitySequence")
+                        .IsUnique()
+                        .HasDatabaseName("ux_embedding_analyses_visibility_sequence")
+                        .HasFilter("visibility_sequence IS NOT NULL");
+
+                    b.HasIndex("ProcessingRunId", "IdentityFingerprint")
+                        .IsUnique()
+                        .HasDatabaseName("ux_embedding_analyses_identity");
+
+                    b.HasIndex("IdentityFingerprint", "Status", "QueuedAtUtc")
+                        .HasDatabaseName("ix_embedding_analyses_claim")
+                        .HasFilter("status IN ('Queued', 'Running')");
+
+                    b.ToTable("embedding_analyses", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_embedding_analyses_attempt_count", "attempt_count >= 0");
+
+                            t.HasCheckConstraint("ck_embedding_analyses_counts", "tracks_embedded >= 0 AND tracks_unavailable >= 0");
+
+                            t.HasCheckConstraint("ck_embedding_analyses_dimension", "dimension BETWEEN 1 AND 4096");
+
+                            t.HasCheckConstraint("ck_embedding_analyses_fact_bearing", "status NOT IN ('Completed', 'Superseded') OR (completion_digest IS NOT NULL AND visibility_sequence IS NOT NULL AND provenance_json IS NOT NULL AND completed_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_embedding_analyses_failed", "status <> 'Failed' OR (failure_code IS NOT NULL AND completed_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_embedding_analyses_running_lease", "status <> 'Running' OR (lease_owner IS NOT NULL AND lease_token_hash IS NOT NULL AND lease_expires_at_utc IS NOT NULL AND first_claimed_at_utc IS NOT NULL AND attempt_count > 0)");
+
+                            t.HasCheckConstraint("ck_embedding_analyses_sha256", "identity_fingerprint ~ '^[0-9a-f]{64}$' AND manifest_sha256 ~ '^[0-9a-f]{64}$' AND pipeline_sha256 ~ '^[0-9a-f]{64}$' AND (completion_digest IS NULL OR completion_digest ~ '^[0-9a-f]{64}$')");
+
+                            t.HasCheckConstraint("ck_embedding_analyses_status", "status IN ('Queued', 'Running', 'Completed', 'Failed', 'Superseded')");
+
+                            t.HasCheckConstraint("ck_embedding_analyses_token_hashes", "(lease_token_hash IS NULL OR octet_length(lease_token_hash) = 32) AND (last_failed_token_hash IS NULL OR octet_length(last_failed_token_hash) = 32)");
+
+                            t.HasCheckConstraint("ck_embedding_analyses_unpublished", "status IN ('Completed', 'Superseded') OR visibility_sequence IS NULL");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Embeddings.EmbeddingIdentityActivation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("ActivatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("activated_at_utc");
+
+                    b.Property<string>("CanonicalIdentity")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("canonical_identity");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("fingerprint")
+                        .IsFixedLength();
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActivatedAtUtc")
+                        .HasDatabaseName("ix_embedding_identity_activations_activated");
+
+                    b.ToTable("embedding_identity_activations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_embedding_identity_activations_fingerprint", "fingerprint ~ '^[0-9a-f]{64}$'");
+                        });
                 });
 
             modelBuilder.Entity("Mavi.Domain.Intelligence.Entity", b =>
@@ -2532,6 +2926,60 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.TrackEmbeddingRow", b =>
+                {
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.Property<Vector>("Embedding")
+                        .HasColumnType("vector")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("outcome");
+
+                    b.Property<Guid>("ProcessingRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("processing_run_id");
+
+                    b.PrimitiveCollection<Guid[]>("SourceObservationIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("source_observation_ids");
+
+                    b.Property<string>("UnavailableReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("unavailable_reason");
+
+                    b.HasKey("AnalysisId", "TrackId");
+
+                    b.HasIndex("TrackId")
+                        .HasDatabaseName("ix_track_embeddings_track");
+
+                    b.ToTable("track_embeddings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_track_embeddings_outcome", "(outcome = 'Embedded' AND embedding IS NOT NULL AND unavailable_reason IS NULL AND cardinality(source_observation_ids) >= 1) OR (outcome = 'Unavailable' AND embedding IS NULL AND unavailable_reason IN ('no_evidence', 'evidence_too_small', 'evidence_unavailable') AND cardinality(source_observation_ids) = 0)");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Embeddings.EmbeddingAnalysis", b =>
+                {
+                    b.HasOne("Mavi.Domain.Processing.ProcessingRun", null)
+                        .WithMany()
+                        .HasForeignKey("ProcessingRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Mavi.Domain.Intelligence.Entity", b =>
                 {
                     b.HasOne("Mavi.Domain.Media.Artifact", null)
@@ -2907,6 +3355,21 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TrackId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.TrackEmbeddingRow", b =>
+                {
+                    b.HasOne("Mavi.Domain.Embeddings.EmbeddingAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

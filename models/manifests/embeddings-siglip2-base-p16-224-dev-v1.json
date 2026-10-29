@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "2.0",
+  "modelId": "siglip2-base-patch16-224",
+  "modelVersion": "75de2d55-dev.1",
+  "capabilityIds": [
+    "embedding"
+  ],
+  "artifacts": [
+    {
+      "artifactRole": "licence-notice",
+      "relativePath": "embeddings-siglip2-base-p16-224-dev-v1/LICENSE",
+      "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
+    },
+    {
+      "artifactRole": "model-card",
+      "relativePath": "embeddings-siglip2-base-p16-224-dev-v1/README.md",
+      "sha256": "39ac3705d62af9ffa1a14675b8ccb220a75f2d81acd530e564a3b1e3dfe418d8"
+    },
+    {
+      "artifactRole": "onnx-text-encoder",
+      "relativePath": "embeddings-siglip2-base-p16-224-dev-v1/text.onnx",
+      "sha256": "ee05dba367ab85a0e7421a5d7c3f782b228a8dfd59f448e40352b322dcbc47a9"
+    },
+    {
+      "artifactRole": "onnx-vision-encoder",
+      "relativePath": "embeddings-siglip2-base-p16-224-dev-v1/vision.onnx",
+      "sha256": "7f25d56372effe2af57552dfe46a3ea148f7b12dcfb938d7fdb8e17591302b5c"
+    },
+    {
+      "artifactRole": "text-tokenizer",
+      "relativePath": "embeddings-siglip2-base-p16-224-dev-v1/tokenizer.model",
+      "sha256": "61a7b147390c64585d6c3543dd6fc636906c9af3865a5548f27f31aee1d4c8e2"
+    }
+  ],
+  "inputContract": {
+    "kind": "evidence-crop-jpeg",
+    "colourSpace": "RGB"
+  },
+  "outputContract": {
+    "schemaId": "track-embedding-v1"
+  },
+  "runtimeCompatibility": {
+    "runtimePackFamilyIds": [
+      "embeddings-onnx-v1"
+    ]
+  },
+  "licence": {
+    "spdxId": "Apache-2.0",
+    "noticeArtifactRole": "licence-notice",
+    "reviewStatus": "pending-review"
+  },
+  "provenance": {
+    "publisher": "Google (SigLIP 2; checkpoints published by google-research/big_vision and on Hugging Face)",
+    "sourceRepository": "huggingface.co/google/siglip2-base-patch16-224; licence text from github.com/google-research/big_vision",
+    "sourceRevision": "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2 (model); 0127fb6b337ee2a27bf4e54dea79cff176527356 (LICENSE); ONNX export by tools/vision/build_siglip2_pack.py (torch 2.6.0+cpu, transformers 5.21.1, opset 17)"
+  },
+  "verificationStatus": "unverified",
+  "qualificationId": null,
+  "capabilitySpecific": {
+    "embedding": {
+      "dimension": 768
+    }
+  }
+}

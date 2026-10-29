@@ -646,3 +646,222 @@ def test_a_cpu_variant_may_still_supply_its_abi_directly():
     assert module._resolve_native_abi(args) == (
         "win_amd64-msvc-14.44-sdk-10.0.26100.0"
     )
+
+
+CONTRACT_V2_RELATIVE = "config/vision/windows-cuda-development-build-v2.json"
+
+
+def _contract_v2() -> dict:
+    return json.loads((ROOT / CONTRACT_V2_RELATIVE).read_text(encoding="utf-8"))
+
+
+def test_v2_native_abi_names_every_target_architecture() -> None:
+    """PoC D9: the sm_75;sm_89 variant carries its own native ABI, distinct from v1's."""
+    module = _runtime_pack_tool()
+    contract = _contract_v2()
+
+    derived = module.derive_native_abi(contract)
+    assert derived == "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75-sm89"
+    assert contract["nativeAbi"] == derived
+    assert derived != json.loads(CONTRACT_RELATIVE_TEXT())["nativeAbi"]
+    module._validate_native_abi_for_variant(derived, "windows-x86_64-cuda")
+
+
+@pytest.mark.parametrize(
+    ("targets", "code"),
+    [
+        ([], "native_abi_contract_target_missing"),
+        ([{"computeCapability": "8.9", "architecture": "sm89"}, {"computeCapability": "7.5", "architecture": "sm75"}], "native_abi_contract_targets_unordered"),
+        ([{"computeCapability": "7.5", "architecture": "sm75"}, {"computeCapability": "7.5", "architecture": "sm75"}], "native_abi_contract_targets_unordered"),
+        ([{"computeCapability": "7.5", "architecture": "sm75"}, {"computeCapability": "8.9", "architecture": "sm86"}], "native_abi_contract_target_inconsistent"),
+        ([{"computeCapability": "7.5", "architecture": "sm75"}, {"computeCapability": "eight"}], "native_abi_contract_field_invalid:computeCapability"),
+    ],
+)
+def test_v2_native_abi_refuses_an_unusable_target_list(targets: list, code: str) -> None:
+    module = _runtime_pack_tool()
+    contract = _contract_v2()
+    contract["targetGpus"] = targets
+
+    with pytest.raises(module.NativeAbiDerivationError, match=code):
+        module.derive_native_abi(contract)
+
+
+def test_v2_contract_serves_the_poc_profile_only_and_keeps_cuda_fail_closed() -> None:
+    contract = _contract_v2()
+
+    assert contract["deploymentProfileScope"]["profiles"] == ["poc-single-host"]
+    assert contract["buildHost"]["policy"] == "development-laptop-poc-only"
+    assert contract["mmcv"]["buildEnvironment"]["TORCH_CUDA_ARCH_LIST"] == contract["torchCudaArchList"] == "7.5;8.9+PTX"
+    assert contract["runtimePolicy"]["explicitCudaMayFallbackToCpu"] is False
+    assert contract["qualification"]["status"] == "unqualified"
+    v1 = json.loads(CONTRACT_RELATIVE_TEXT())
+    for key in ("platformVariant", "pythonVersion", "torchBinaryVersion", "torchvisionBinaryVersion", "cudaRuntimeFamily"):
+        assert contract[key] == v1[key]
+    assert contract["mmcv"]["sourceCommit"] == v1["mmcv"]["sourceCommit"]
+
+
+_POC_FILES = (
+    CONTRACT_RELATIVE,
+    CONTRACT_V2_RELATIVE,
+    CATALOG_RELATIVE,
+    LOCK_RELATIVE,
+    "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda-sm75-sm89.lock",
+    "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.requirements.txt",
+    "src/vision/config/components/phase1-bindings-v2.json",
+    "config/dependencies/offline-dependency-policy-v1.json",
+)
+
+
+def _stage_poc(tmp_path: Path) -> Path:
+    for relative in _POC_FILES:
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / relative).read_bytes())
+    return tmp_path
+
+
+def _run_poc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    module = _load_verify_repo()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    errors: list[str] = []
+    module.check_poc_cuda_build_contract(errors)
+    return errors
+
+
+def _edit_json(path: Path, edit) -> None:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    edit(value)
+    _write(path, value)
+
+
+def test_repository_poc_cuda_contract_catalogue_and_lock_agree(tmp_path, monkeypatch) -> None:
+    assert _run_poc(_stage_poc(tmp_path), monkeypatch) == []
+
+
+def test_poc_lock_may_differ_from_v1_only_in_mmcv(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    lock = root / _POC_FILES[4]
+    text = lock.read_text(encoding="utf-8").replace("numpy==2.5.3 --hash=sha256:0a59", "numpy==2.5.3 --hash=sha256:1a59")
+    lock.write_text(text, encoding="utf-8", newline="\n")
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("except for its own MMCV wheel" in error for error in errors)
+
+
+def test_poc_lock_must_not_reuse_the_v1_mmcv_wheel(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    (root / _POC_FILES[4]).write_bytes((root / LOCK_RELATIVE).read_bytes())
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("except for its own MMCV wheel" in error for error in errors)
+
+
+def test_poc_catalogue_pack_id_must_derive_from_lock_and_abi(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(
+        root / CATALOG_RELATIVE,
+        lambda c: c["visionRuntime"]["windowsCudaPocSm89Candidate"].update(runtimePackId="mavi-runtime-v2-" + "0" * 64),
+    )
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("does not derive from its lock and ABI" in error for error in errors)
+
+
+def test_poc_contract_may_not_widen_its_profile_scope(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(root / CONTRACT_V2_RELATIVE, lambda c: c["deploymentProfileScope"].update(profiles=["poc-single-host", "P1"]))
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("poc-single-host profile only" in error for error in errors)
+
+
+def test_poc_contract_may_not_claim_a_qualification(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(root / CONTRACT_V2_RELATIVE, lambda c: c["qualification"].update(status="qualified-development-hardware"))
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("must not claim a qualification" in error for error in errors)
+
+
+def test_poc_contract_arch_list_must_spell_its_targets(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(root / CONTRACT_V2_RELATIVE, lambda c: c["mmcv"]["buildEnvironment"].update(TORCH_CUDA_ARCH_LIST="7.5;8.6+PTX"))
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("must spell its targetGpus" in error for error in errors)
+
+
+def test_poc_contract_must_share_v1_toolchain_and_binaries(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(root / CONTRACT_V2_RELATIVE, lambda c: c.update(torchBinaryVersion="2.7.0+cu126"))
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("must keep v1's torchBinaryVersion" in error for error in errors)
+
+
+def test_poc_lock_without_its_contract_is_refused(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    (root / CONTRACT_V2_RELATIVE).unlink()
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("exists without its v2 build contract" in error for error in errors)
+
+
+def test_poc_build_status_may_not_claim_more_than_built_hashed_locked(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(root / CATALOG_RELATIVE, lambda c: c["visionRuntime"]["windowsCudaPocSm89Candidate"].update(status="qualified-development-hardware"))
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("must stay built-hashed-locked" in error for error in errors)
+
+
+def test_poc_native_abi_must_be_the_derived_one(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    v1_abi = json.loads((root / CONTRACT_RELATIVE).read_text(encoding="utf-8"))["nativeAbi"]
+    _edit_json(root / CONTRACT_V2_RELATIVE, lambda c: c.update(nativeAbi=v1_abi))
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("not the one its toolchain and targetGpus derive" in error for error in errors)
+    assert any("must have different native ABIs" in error for error in errors)
+
+
+def test_poc_lock_may_not_change_the_mmcv_version(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    lock = root / _POC_FILES[4]
+    lock.write_text(lock.read_text(encoding="utf-8").replace("mmcv==2.1.0", "mmcv==2.2.0"), encoding="utf-8", newline="\n")
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("except for its own MMCV wheel hash" in error for error in errors)
+
+
+def test_poc_pack_must_be_the_binding_declared_development_build(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(
+        root / "src/vision/config/components/phase1-bindings-v2.json",
+        lambda b: b["runtimePacks"][0]["developmentBuilds"]["windows-x86_64-cuda"][0].update(computeCapabilities=["8.9"]),
+    )
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("Development build sm75-sm89" in error for error in errors)
+
+
+def test_poc_policy_must_pin_the_committed_lock(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(
+        root / "config/dependencies/offline-dependency-policy-v1.json",
+        lambda p: p["ecosystemStrategies"]["python"]["pocCudaRuntimeVariants"]["windows-x86_64-cuda-sm75-sm89"].update(lockSha256="0" * 64),
+    )
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("pocCudaRuntimeVariants does not pin the committed PoC CUDA lock" in error for error in errors)
+
+
+def test_poc_policy_and_catalogue_must_pin_one_onnxruntime_gpu(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(
+        root / "config/dependencies/offline-dependency-policy-v1.json",
+        lambda p: p["ecosystemStrategies"]["python"]["pocOnnxRuntimeGpu"].update(requirement="onnxruntime-gpu==1.31.0"),
+    )
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("pocOnnxRuntimeGpu and the catalogue" in error for error in errors)
