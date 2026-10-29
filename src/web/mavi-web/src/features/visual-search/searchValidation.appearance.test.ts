@@ -25,7 +25,7 @@ describe('PoC S4 appearance query: committing the draft', () => {
     const result = commit({ appearanceQuery: 'white van', plateText: 'KA01AB1234' });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.errors.appearanceQuery).toMatch(/cannot be combined with plate text or analytics filters/);
+      expect(result.errors.appearanceQuery).toMatch(/cannot be combined with plate text, attribute or analytics filters/);
       expect(result.errors.plateText).toBeUndefined();
     }
   });

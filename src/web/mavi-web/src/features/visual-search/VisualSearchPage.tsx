@@ -39,6 +39,7 @@ import {
   canonicalSearchParams,
   confidenceFractionToPercentText,
   isAnalyticSearch,
+  APPEARANCE_CONFLICT_MESSAGE,
   isAppearanceSearch,
   millisecondsToSecondsText,
   parseCommittedSearch,
@@ -208,7 +209,7 @@ function appearanceErrorMessage(error: unknown): string | undefined {
     case 'appearance_query_invalid':
       return 'The appearance description must be 1 to 200 characters.';
     case 'appearance_query_combination_unsupported':
-      return 'Appearance search cannot be combined with plate text or analytics filters.';
+      return APPEARANCE_CONFLICT_MESSAGE;
     case 'appearance_query_failed':
       return 'The appearance description could not be prepared for search. Try again in a few minutes or rephrase it.';
     case 'appearance_query_queue_full':
