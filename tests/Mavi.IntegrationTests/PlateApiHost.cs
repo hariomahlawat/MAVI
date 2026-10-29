@@ -130,9 +130,17 @@ internal sealed class PlateApiHost : IAsyncDisposable
             EvidenceRootOverride = World.EvidenceRoot,
             PlateComponentBindingPath = configured ? PlateReleaseFixture.WriteBinding(_releaseDirectory, identityB) : null,
             PlatePipelineProfilePath = configured ? PlateReleaseFixture.PipelineProfile : null,
-            AdditionalConfiguration = _configuration,
+            // ADR-010 operator identity for re-analysis; a test's own configuration may override it.
+            AdditionalConfiguration = TestOperatorIdentity.WindowsMode()
+                .Concat(_configuration ?? new Dictionary<string, string?>())
+                .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Last().Value, StringComparer.OrdinalIgnoreCase),
             ConfigureDbContext = _configureDbContext,
-            OverrideServices = services => services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(Logs),
+            OverrideServices = services =>
+            {
+                services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(Logs);
+                TestOperatorIdentity.UseTestWindowsHandler(services);
+            },
         };
         if (_kestrel)
         {
@@ -229,14 +237,16 @@ internal sealed class PlateApiHost : IAsyncDisposable
         return await CompleteAsync(unit, completion.Request);
     }
 
-    /// <summary>An authorised re-analysis request: it presents the test platform's operator key (PoC S3, C4.2).</summary>
-    public Task<HttpResponseMessage> ReanalysisAsync(object body) => ReanalysisAsync(body, ApiTestFactory.TestReanalysisOperatorKey);
+    /// <summary>An authorised re-analysis request: made as the test platform's allow-listed operator (ADR-010).</summary>
+    public Task<HttpResponseMessage> ReanalysisAsync(object body) =>
+        ReanalysisAsync(body, TestOperatorIdentity.Operator, TestOperatorIdentity.OperatorSid);
 
-    public async Task<HttpResponseMessage> ReanalysisAsync(object body, string? operatorKey)
+    /// <summary>A re-analysis request as <paramref name="user"/>, or anonymous when it is <see langword="null"/>.</summary>
+    public async Task<HttpResponseMessage> ReanalysisAsync(object body, string? user, string? sid = null, string? groups = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/plates/reanalysis") { Content = JsonContent.Create(body) };
-        if (operatorKey is not null)
-            request.Headers.Add(PlateOptions.ReanalysisOperatorKeyHeader, operatorKey);
+        if (user is not null)
+            TestOperatorIdentity.As(request, user, sid, groups);
         return await Client.SendAsync(request);
     }
 
