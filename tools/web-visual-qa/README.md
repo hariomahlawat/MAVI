@@ -678,7 +678,7 @@ budget block, and `test/performance.test.mjs` fails if they disagree.
 The long-task classes are owner decisions (`DECISIONS.longTasks`), not
 derived values: the calibration's long-task runs only check them. To
 re-decide them on new evidence without re-deriving any CLS class,
-`--long-tasks-only --linux-long-tasks x.json,y.json [--windows-long-tasks …]`
+`--long-tasks-only --linux-long-tasks x.json,y.json [--windows-long-tasks …] [--linux-runs "<provenance>"]`
 takes two single-lane Linux runs of one head and regenerates only the
 long-task table. Every CLS class, its calibration and its measured sets are
 carried byte for byte, and the write is refused if an interaction case that
