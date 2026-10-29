@@ -1360,6 +1360,7 @@
 .events-page__counts { display: flex; flex-wrap: wrap; gap: var(--s-4); list-style: none; padding: 0; margin: 0 0 var(--s-2); }
 .events-page__lanes { width: 100%; height: auto; display: block; margin-bottom: var(--s-3); }
 .events-page__lane { stroke: var(--border-subtle); }
+.events-page__lane-label { fill: var(--text-secondary); font-size: var(--fs-1); }
 .events-page__mark { fill: var(--accent); cursor: pointer; }
 .events-page__mark--selected { fill: var(--accent-strong); stroke: var(--text-primary); }
 .events-page__table { width: 100%; border-collapse: collapse; margin-bottom: var(--s-3); }

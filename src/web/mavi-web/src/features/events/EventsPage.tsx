@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { MAXIMUM_BUCKETS, bucketCount } from '../../api/analytics';
 import { getCamera } from '../../api/cameras';
@@ -134,6 +134,12 @@ export default function EventsPage() {
     enabled: cameraId !== '' && query !== null,
   });
 
+  // The evidence panel sits below the list; bring it to the operator when they ask for it.
+  const evidenceRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selectedId !== null) evidenceRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [selectedId]);
+
   const detail = useQuery({
     queryKey: ['analytic-event', selectedId ?? ''],
     queryFn: ({ signal }) => getEvent(selectedId!, signal),
@@ -224,7 +230,11 @@ export default function EventsPage() {
         </fieldset>
       </Panel>
 
-      {window === null ? (
+      {videos.isError || catalogue.isError ? (
+        <EmptyState title="Events are unavailable">The camera's recordings or the rule catalogue could not be read. Try again.</EmptyState>
+      ) : window === null && (videos.isPending || catalogue.isPending) ? (
+        <p className="events-page__muted" role="status">Loading recordings…</p>
+      ) : window === null ? (
         <EmptyState title="No recordings for this camera">Import and process a video to see its events.</EmptyState>
       ) : timeline.isError ? (
         <EmptyState title="Events are unavailable">The timeline could not be read. Try again.</EmptyState>
@@ -242,6 +252,7 @@ export default function EventsPage() {
       )}
 
       {selectedId !== null ? (
+        <div ref={evidenceRef}>
         <Panel title="Event evidence">
           {detail.isError ? (
             <p>The event could not be read.</p>
@@ -303,6 +314,7 @@ export default function EventsPage() {
             </section>
           )}
         </Panel>
+        </div>
       ) : null}
     </div>
   );
@@ -337,7 +349,9 @@ function TimelineBody({
   const span = Math.max(1, Date.parse(timeline.toUtc) - from);
   const lanes = shownRules;
   const laneHeight = 22;
+  const labelWidth = 150;
   const width = 1000;
+  const plot = width - labelWidth;
 
   return (
     <>
@@ -364,15 +378,16 @@ function TimelineBody({
         >
           {lanes.map((ruleId, lane) => (
             <g key={ruleId} transform={`translate(0 ${lane * laneHeight})`}>
-              <line x1={0} x2={width} y1={laneHeight / 2} y2={laneHeight / 2} className="events-page__lane" />
+              <text x={0} y={laneHeight / 2 + 4} className="events-page__lane-label">{ruleTitle(catalogue, ruleId)}</text>
+              <line x1={labelWidth} x2={width} y1={laneHeight / 2} y2={laneHeight / 2} className="events-page__lane" />
               {timeline.events.filter((item) => item.ruleId === ruleId).map((item) => {
-                const x1 = ((Date.parse(item.startUtc) - from) / span) * width;
-                const x2 = ((Date.parse(item.endUtc) - from) / span) * width;
+                const x1 = labelWidth + ((Date.parse(item.startUtc) - from) / span) * plot;
+                const x2 = labelWidth + ((Date.parse(item.endUtc) - from) / span) * plot;
                 const selected = item.eventId === selectedId;
                 return (
                   <rect
                     key={item.eventId}
-                    x={Math.max(0, x1)}
+                    x={Math.max(labelWidth, x1)}
                     y={4}
                     width={Math.max(3, x2 - x1)}
                     height={laneHeight - 8}
