@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "mavi-embedding-pipeline-v1",
+  "pipelineId": "embeddings-fixture",
+  "pipelineVersion": "1.0.0",
+  "developmentOnly": true,
+  "modelManifest": "src/vision/tests/fixtures/model-manifests/embedding-fixture-v2.json",
+  "dimension": 512,
+  "preprocessing": "siglip2-fixed-224-v1",
+  "aggregation": "mean-l2-v1",
+  "minimumCropSide": 80,
+  "objectClasses": [
+    "Person",
+    "Vehicle"
+  ],
+  "textMaximumTokens": 64,
+  "textMaximumCharacters": 200
+}
