@@ -28,6 +28,7 @@ import { displayTimestamp, formatOffset } from '../../shared/format/format';
 
 /** Preferred bucket sizes; the smallest one that keeps the window within the response bound is used. */
 const BUCKETS = [60, 300, 900, 3_600, 21_600, 86_400] as const;
+const PENDING_REFRESH_MS = 10_000;
 
 type Window = { fromUtc: string; toUtc: string; bucketSeconds: number };
 
@@ -72,6 +73,8 @@ export function coverageGaps(coverage: EventCoverage): string[] {
   if (analytics.notConfiguredRuns > 0) gaps.push(`${analytics.notConfiguredRuns} run(s) on a camera with no scene configuration`);
   if (analytics.disabledRuns > 0) gaps.push(`${analytics.disabledRuns} run(s) with analytics switched off`);
   if (coverage.eventsPendingRuns > 0) gaps.push(`${coverage.eventsPendingRuns} analysed run(s) whose events are not derived yet`);
+  // A run can be complete while some of its Tracks could not be analysed; no event can name those.
+  if (analytics.unavailableTracks > 0) gaps.push(`${analytics.unavailableTracks} Track(s) could not be analysed, so no event can involve them`);
   return gaps;
 }
 
@@ -141,6 +144,12 @@ export default function EventsPage() {
     queryKey: ['camera-events', cameraId, query ? serializeEventTimelineQuery(query) : ''],
     queryFn: ({ signal }) => getEventTimeline(cameraId, query!, signal),
     enabled: cameraId !== '' && query !== null,
+    // While runs are still being analysed or derived, ask again on a bounded interval,
+    // so a page opened before the sweep finishes reaches the derived answer by itself.
+    refetchInterval: (current) => {
+      const coverage = current.state.data?.coverage;
+      return coverage && (coverage.eventsPendingRuns > 0 || coverage.analytics.pendingRuns > 0) ? PENDING_REFRESH_MS : false;
+    },
   });
 
   // The evidence panel sits below the list; bring it to the operator when they ask for it.
@@ -222,6 +231,14 @@ export default function EventsPage() {
               Fit to recordings
             </button>
           ) : null}
+          <button
+            type="button"
+            className="button button--ghost button--md"
+            onClick={() => { void timeline.refetch(); }}
+            disabled={query === null || timeline.isFetching}
+          >
+            {timeline.isFetching ? 'Refreshing…' : 'Refresh'}
+          </button>
         </form>
         <fieldset className="events-page__rules">
           <legend>Rules</legend>

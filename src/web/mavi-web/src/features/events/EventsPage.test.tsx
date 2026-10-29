@@ -263,6 +263,32 @@ describe('EventsPage', () => {
     expect(screen.queryByText('Loading events…')).not.toBeInTheDocument();
   });
 
+  it('names Tracks that could not be analysed, even when every run is complete', async () => {
+    vi.mocked(getEventTimeline).mockResolvedValue(timeline({
+      events: [],
+      ruleCounts: [],
+      crossingCounts: [],
+      coverage: { analytics: { ...completeAnalytics, unavailableTracks: 2 }, derivedRuns: 1, eventsPendingRuns: 0, complete: true },
+    }));
+    renderPage();
+
+    const status = await screen.findByText(/^Incomplete:/);
+    expect(status).toHaveTextContent('2 Track(s) could not be analysed, so no event can involve them');
+    expect(screen.queryByText('No events in this window.')).not.toBeInTheDocument();
+  });
+
+  it('asks again for the same window when the operator refreshes', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText(/^Complete:/);
+    const before = vi.mocked(getEventTimeline).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    await waitFor(() => expect(vi.mocked(getEventTimeline).mock.calls.length).toBe(before + 1));
+    expect(vi.mocked(getEventTimeline).mock.calls.at(-1)?.[1]).toEqual(vi.mocked(getEventTimeline).mock.calls[before - 1]?.[1]);
+  });
+
   it('discloses truncation', async () => {
     vi.mocked(getEventTimeline).mockResolvedValue(timeline({ truncated: true, limit: 1 }));
     renderPage();
