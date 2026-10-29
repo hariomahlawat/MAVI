@@ -42,7 +42,12 @@ The measured starting point is weak. On the demo corpus (protocol `s6-face-cover
     - it may be used only for non-commercial demonstration and evaluation;
     - the pack's notice records the code's MIT LICENSE and the checkpoint's research-only terms.
   - **SFace** (`face_recognition_sface_2021dec.onnx`). Its model folder's own LICENSE is **Apache-2.0**. It is the fallback if AdaFace's export, parity or quality fails, and the default if the owner rules out research-only checkpoints.
-- Both packs are Development-grade (`unverified`, ADR-020). Each licence is read from the pack's own LICENSE file and recorded with its SHA-256. A Production face capability needs its own model selection and licence review (§9).
+- **One Model Pack per face pipeline:** `faces-yunet-adaface-ir50-dev-v1` or `faces-yunet-sface-dev-v1`.
+  - Each holds `detector.onnx` (YuNet) and `embedder.onnx`, plus each component's own LICENSE file and card: `LICENSE-yunet` and `LICENSE`.
+  - The manifest's capability is `embedding`, because the pack's output is a face embedding, and `embedding.dimension` is the embedder's.
+  - No new capability id is added. The closed capability registry is bound to the published VisionJob completion 3.2 enum, and a face pipeline does not justify changing that contract.
+  - The detector is a pipeline stage inside the pack, as the tokenizer is inside the SigLIP 2 pack.
+- **Licences and grade.** Both packs are Development-grade (`unverified`, ADR-020). Each licence is read from its own LICENSE file in the pack and recorded with its SHA-256. A Production face capability needs its own model selection and licence review (§9).
 
 ### 3. What is processed: opt-in per camera, the existing Person Evidence Set only
 
@@ -66,7 +71,7 @@ Only in the installation's own PostgreSQL database (pgvector). Nothing goes to f
 | `face_observations` | One row per detection: the evidence Observation, box and five landmarks in crop pixels, score, shorter side, `usable`. **No image bytes.** A face is shown by cropping the existing evidence crop in the browser. | location only |
 | `face_embeddings` | One vector per usable face observation, from one model identity. Exact cosine search, no ANN index (ADR-021 §4 reasoning). | **yes (template)** |
 | `enrolled_persons` | The gallery entry: operator-entered label and note, state, created/updated metadata. | personal data |
-| `enrolled_person_faces` | One or more templates per enrolled person: vector, model identity, source (a face observation or a transient query), and a 112×112 aligned JPEG thumbnail so the operator can review the gallery. | **yes** |
+| `enrolled_person_faces` | One or more templates per enrolled person: vector, model identity and source (a face observation or a transient query face). A template enrolled from an uploaded image keeps a 112×112 aligned JPEG thumbnail made by the worker, so the gallery stays reviewable once the upload is erased. A template enrolled from evidence keeps no image: it is shown from its evidence crop while that exists. | **yes** |
 | `face_queries` | A transient query image (JPEG or PNG, ≤ 2 MB, sent as JSON base64), its detected faces and their vectors. | **yes, transient** |
 
 ### 5. Retention and removal
@@ -126,7 +131,8 @@ The `faces` role and its packs are refused under P1–P3. A Production face capa
 ## Trade-offs accepted
 
 - **Low coverage, stated rather than engineered around.** On this corpus at the frozen threshold, 2 of 110 Person Tracks have a usable face. Unknown will dominate. Face-oriented evidence selection or higher-resolution capture is the real fix, and it needs an ADR-013 amendment.
-- **No face crop files.** The browser crops the evidence image to show a face. A gallery entry keeps one small aligned thumbnail, because the gallery must remain reviewable after its source run is deleted.
+- **No face crop files.** The browser crops the evidence image to show a face. A gallery template enrolled from an uploaded image keeps one small aligned thumbnail, because the upload itself is erased. A template enrolled from evidence loses its picture when its run is deleted, which is accepted to avoid copying evidence faces.
+- **One pack per pipeline, capability `embedding`.** This avoids a change to a published contract enum. The cost is that the detector is not separately bound or swappable: changing it means a new pack and a new identity.
 - **Searches are audited.** Each search adds a row and requires an operator. That is the price of a biometric search being attributable.
 - **No face history.** Superseded face analyses are deleted, not kept. Forensic replay re-runs the role over the sealed evidence.
 - **Uncalibrated threshold.** Benchmark faces are large and frontal, and CCTV faces are not. The threshold is context for the operator, not a decision rule. Gallery comparisons hide sub-threshold entries to avoid showing a name next to a weak score.
@@ -139,7 +145,7 @@ The `faces` role and its packs are refused under P1–P3. A Production face capa
 > 2. Face analysis is **opt-in per camera** (off by default, attributable). It runs as the post-Track `faces` role over the existing, model-neutral Person Evidence Set, with no face-oriented selection (ADR-013 §19 unchanged).
 > 3. Templates, gallery and transient queries are stored only in the installation's PostgreSQL database (pgvector):
 >    - no face image files;
->    - one 112×112 thumbnail per gallery template;
+>    - one 112×112 thumbnail per gallery template enrolled from an uploaded image;
 >    - query images erased on analysis, query vectors purged after 1 h;
 >    - face rows deleted with their run or when the camera is opted out;
 >    - the gallery is kept until an operator deletes it;
