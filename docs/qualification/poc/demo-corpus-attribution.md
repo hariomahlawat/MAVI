@@ -1,6 +1,13 @@
 # MAVI PoC demo corpus — attribution and licences
 
-**Status:** **ACCEPTED** by the owner on 2026-10-29 (register row B2, owner decision 4). It ships in the PoC kit next to the demo clips, unchanged. The same day, owner decision 5(b) replaced clip 8 (Commons "Three Minutes of Damascus Gate") with the MEVA bus-stop clip (amendment A5). Clip 8's row was updated to match, under the MEVA notice the owner accepted. No other row changed.
+**Status:** the owner **accepted** the previous text of this file on 2026-10-29 (register row B2, owner decision 4; `main@8a03ce8d`, blob `db2b0278`). The same day, owner decision 5(b) replaced clip 8 (Commons "Three Minutes of Damascus Gate") with the MEVA bus-stop clip (amendment A5). This text was updated to match:
+- the clip ranges;
+- the table header;
+- row 8;
+- the scope of the MEVA notice;
+- the five-camera note.
+
+No licence, credit or other row changed. **This updated text is pending owner reconfirmation** (decision 12). Once reconfirmed, it ships in the PoC kit next to the demo clips, unchanged.
 
 The MAVI PoC kit contains twelve short video clips, licensed under **CC0 1.0** or a **Creative Commons Attribution (CC BY)** licence. No ShareAlike, NonCommercial or NoDerivatives material is included.
 - **Clips 1–7** are derived from videos published on Wikimedia Commons. Each licence was read from the file's own Commons description page, at the exact page revision recorded in `tools/poc/demo-corpus/demo-corpus-v1.json`.
