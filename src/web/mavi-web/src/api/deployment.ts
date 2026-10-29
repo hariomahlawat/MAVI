@@ -33,6 +33,20 @@ export type DeploymentRoleDevice = {
   device: DeploymentDevice | null;
 };
 
+/** The identity modes of ADR-010 §1. */
+export type OperatorIdentityMode = 'disabled' | 'windows-negotiate' | 'development-unattributed';
+
+/** The operator-identity block of the disclosure (ADR-010 §3). */
+export type DeploymentIdentity = {
+  mode: OperatorIdentityMode;
+  /** True only when actions are attributed to a Windows account. */
+  attributable: boolean;
+  operatorsConfigured: boolean;
+  statement: string;
+  /** The mode the installer recorded in the release metadata, when there is one. */
+  installedMode: string | null;
+};
+
 /** `GET /api/system/deployment` (`mavi-deployment-disclosure-v1`). */
 export type DeploymentDisclosure = {
   schemaVersion: string;
@@ -46,6 +60,7 @@ export type DeploymentDisclosure = {
   deviceStatus: 'reported' | 'not-reported' | 'unavailable';
   device: DeploymentDevice | null;
   packs: DeploymentPack[];
+  identity: DeploymentIdentity;
   roleDevices?: DeploymentRoleDevice[] | null;
 };
 

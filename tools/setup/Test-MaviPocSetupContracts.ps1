@@ -126,6 +126,18 @@ try {
     if ($config.Kestrel.Endpoints.Http.Url -ne "http://127.0.0.1:8090") { throw "The PoC platform must listen on loopback only." }
     if ($config.Deployment.Profile -ne "poc-single-host" -or $config.Deployment.ReleaseMetadataPath -ne $layout.ReleaseMetadataPath) { throw "The machine configuration must declare the PoC profile and its metadata." }
     if (@($config.Deployment.Keys) -join "," -ne "Profile,ReleaseMetadataPath,DeviceResolutionPath,RoleDeviceResolutionPaths") { throw "The Deployment section carries a key the platform does not define." }
+    if ($config.Identity.Mode -ne "windows-negotiate" -or (@($config.Identity.Operators.AuthorizedGroups) -join ",") -ne "BUILTIN\Users") { throw "The PoC platform must identify operators by Windows account (ADR-010)." }
+    if ($metadata.identityMode -ne $config.Identity.Mode) { throw "The release metadata must record the identity mode the machine configuration sets." }
+    if ((Get-MaviPocOperatorUrl -HttpPort 8090) -ne "http://localhost:8090") { throw "Operators must open the PoC at localhost, where browsers negotiate Windows identity (ADR-010)." }
+    $installText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Install-MAVI-PoC.ps1") -Raw
+    $startText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviPoc.ps1") -Raw
+    if (-not $startText.Contains("`$state.PSObject.Properties['operatorUrl']") -or $startText -match '\$state\.operatorUrl') { throw "Start-MaviPoc must accept an installation state without operatorUrl under strict mode." }
+    $oldStateUrl = & { Set-StrictMode -Version Latest; $state = [pscustomobject]@{ apiBaseUrl = "http://127.0.0.1:8090" }; $p = $state.PSObject.Properties['operatorUrl']; if ($p -and [string]$p.Value) { [string]$p.Value } else { $state.apiBaseUrl } }
+    if ($oldStateUrl -ne "http://127.0.0.1:8090") { throw "An installation state without operatorUrl must fall back to apiBaseUrl." }
+    if (-not $installText.Contains('.Replace("__MAVI_POC_URL__", (Get-MaviPocOperatorUrl -HttpPort $HttpPort))') -or -not $installText.Contains('apiBaseUrl = "http://127.0.0.1:$HttpPort"')) { throw "The launcher must open the operator URL; scripts must keep the loopback API URL." }
+    if ($config.AllowedHosts -ne "localhost;127.0.0.1") { throw "The PoC platform must accept only loopback host names." }
+    $serialised = ConvertTo-Json -InputObject $config -Depth 8 | ConvertFrom-Json
+    if (@($serialised.Identity.Operators.AuthorizedGroups).Count -ne 1 -or $serialised.Identity.Operators.AuthorizedGroups -isnot [array]) { throw "The operator groups must serialise as a JSON array." }
     # PoC S3 (C4.1): the plates role is bound by the machine configuration, its device record disclosed beside the
     # Vision worker's; re-analysis stays refused (no operator key) until an owner configures one.
     if ($config.Deployment.RoleDeviceResolutionPaths.plates -ne $layout.PlatesDeviceResolutionPath) { throw "The plates device record is not disclosed." }
@@ -379,7 +391,7 @@ try {
     $plan = $planJson.Substring($planJson.IndexOf("{")) | ConvertFrom-Json
     if ($plan.profile -ne "poc-single-host" -or $plan.productionQualified -ne $false -or $plan.evidenceClass -ne "Development") { throw "The plan does not disclose the PoC profile." }
     if ($plan.postgresql.serviceName -ne "MAVI-PoC-PostgreSQL-18" -or $plan.postgresql.port -ne 55434) { throw "The PoC must own its own PostgreSQL service and port." }
-    if ($plan.platform.url -ne "http://127.0.0.1:8090" -or $plan.plates.bound -ne $true -or $plan.plates.devicePolicy -ne "Auto") { throw "Plan defaults changed: $($plan.platform.url), plates bound $($plan.plates.bound), plates device $($plan.plates.devicePolicy)." }
+    if ($plan.platform.url -ne "http://localhost:8090" -or $plan.plates.bound -ne $true -or $plan.plates.devicePolicy -ne "Auto") { throw "Plan defaults changed: $($plan.platform.url), plates bound $($plan.plates.bound), plates device $($plan.plates.devicePolicy)." }
     if (Test-Path -LiteralPath $installRoot) { throw "Plan-only created the install root." }
     if (Test-Path -LiteralPath $dataRoot) { throw "Plan-only created the data root." }
     # Windows PowerShell turns a native command's stderr into a terminating error under Stop.

@@ -2,6 +2,7 @@ using Mavi.Application.Abstractions.Storage;
 using Mavi.Application.Abstractions.Security;
 using Mavi.Application.Abstractions.Time;
 using Mavi.Application;
+using Mavi.Application.Modules.Audit;
 using Mavi.Application.Modules.Cameras;
 using Mavi.Application.Modules.Media;
 using Mavi.Application.Modules.Intelligence;
@@ -10,6 +11,7 @@ using Mavi.Application.Modules.SceneAnalytics.Configuration;
 using Mavi.Application.Modules.SceneAnalytics.Lifecycle;
 using Mavi.Application.Modules.SceneAnalytics.Aggregates;
 using Mavi.Application.Modules.VisualAttributes;
+using Mavi.Infrastructure.Audit;
 using Mavi.Infrastructure.VisualAttributes;
 using Mavi.Infrastructure.SceneAnalytics;
 using Mavi.Infrastructure.Finalization;
@@ -36,6 +38,8 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.AddMaviDbContext(configuration);
+        // ADR-010: audit entries share the request's unit of work; the API host supplies the operator and correlation.
+        services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddScoped<ICameraRepository, CameraRepository>();
         services.AddScoped<CameraService>();
         services.AddScoped<IVideoCatalog, VideoCatalog>();

@@ -208,4 +208,7 @@ catch {
     throw
 }
 Write-Host ""
-Write-Host "MAVI PoC running: $apiBaseUrl" -ForegroundColor Green
+# An installation state written before operatorUrl existed has no such property (strict mode).
+$operatorUrlProperty = $state.PSObject.Properties['operatorUrl']
+$operatorUrl = if ($operatorUrlProperty -and [string]$operatorUrlProperty.Value) { [string]$operatorUrlProperty.Value } else { $apiBaseUrl }
+Write-Host "MAVI PoC running: $operatorUrl" -ForegroundColor Green

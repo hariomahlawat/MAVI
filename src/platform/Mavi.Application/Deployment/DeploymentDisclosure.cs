@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Mavi.Application.Modules.Identity;
 
 namespace Mavi.Application.Deployment;
 
@@ -87,6 +88,7 @@ public sealed record DeploymentDisclosure(
     string DeviceStatus,
     DeploymentDevice? Device,
     IReadOnlyList<DeploymentPack> Packs,
+    OperatorIdentityDisclosure Identity,
     IReadOnlyList<DeploymentRoleDevice>? RoleDevices = null);
 
 public sealed class DeploymentDisclosureException(string message) : Exception(message);
@@ -121,9 +123,11 @@ public static class DeploymentDisclosureReader
     /// constants above whatever the files say; an unreadable file is reported as
     /// unavailable, never as an absence of the disclosure.
     /// </summary>
-    public static DeploymentDisclosure Read(DeploymentOptions options, string? buildProfile = null)
+    /// <param name="identity">The operator identity configuration (ADR-010 §3); absent means mode <c>disabled</c>.</param>
+    public static DeploymentDisclosure Read(DeploymentOptions options, string? buildProfile = null, OperatorIdentityOptions? identity = null)
     {
         ArgumentNullException.ThrowIfNull(options);
+        identity ??= new OperatorIdentityOptions();
         var profile = EffectiveProfile(options.Profile, buildProfile);
         var (deviceStatus, device) = ReadDevice(options.DeviceResolutionPath);
         var roleDevices = options.RoleDeviceResolutionPaths
@@ -137,7 +141,7 @@ public static class DeploymentDisclosureReader
         if (profile != DeploymentProfiles.PocSingleHost)
         {
             return new DeploymentDisclosure(SchemaVersion, profile, ProductionQualified: false, null, null,
-                "not-configured", null, null, deviceStatus, device, [], roleDevices);
+                "not-configured", null, null, deviceStatus, device, [], OperatorIdentityPolicy.Disclose(identity, null), roleDevices);
         }
 
         string metadataStatus;
@@ -166,7 +170,14 @@ public static class DeploymentDisclosureReader
             deviceStatus,
             device,
             metadata?.Packs ?? [],
-            roleDevices);
+            OperatorIdentityPolicy.Disclose(identity, metadata?.IdentityMode), roleDevices);
+    }
+
+    /// <summary>The profile in effect: the build's, confirmed (never changed) by configuration.</summary>
+    public static string ResolveProfile(DeploymentOptions options, string? buildProfile = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return EffectiveProfile(options.Profile, buildProfile);
     }
 
     private static string EffectiveProfile(string? configured, string? buildProfile)
@@ -194,7 +205,8 @@ public static class DeploymentDisclosureReader
             $"{DeploymentOptions.SectionName}:Profile '{value}' is not a profile this host can declare; the only accepted value is {DeploymentProfiles.PocSingleHost}.");
     }
 
-    private sealed record ReleaseMetadata(string? ApplicationRevision, string? InstalledAtUtc, IReadOnlyList<DeploymentPack> Packs);
+    private sealed record ReleaseMetadata(string? ApplicationRevision, string? InstalledAtUtc, IReadOnlyList<DeploymentPack> Packs,
+        string? IdentityMode);
 
     private static ReleaseMetadata ReadReleaseMetadata(string path)
     {
@@ -240,7 +252,8 @@ public static class DeploymentDisclosureReader
                 }
             }
 
-            return new ReleaseMetadata(revision, Text(root, "installedAtUtc"), packs);
+            // The identity mode the installer configured (ADR-010 §3); optional, older installs have none.
+            return new ReleaseMetadata(revision, Text(root, "installedAtUtc"), packs, Text(root, "identityMode"));
         }
     }
 
