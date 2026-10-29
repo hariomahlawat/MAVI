@@ -1,6 +1,6 @@
 # ADR-022: Face biometric data handling, gallery and candidate-match semantics (PoC Stage 5A)
 
-**Status:** **Proposed**, 2026-10-29. Awaiting owner ratification of §Owner decision (register C5A.1). No face code merges before it is accepted.
+**Status:** **Accepted** owner decision, 2026-10-29. The owner ratified the decision text in §Owner decision as written ("Yes, all three", relayed by the PoC coordinator session; register C5A.1, decisions D-S6-1 to D-S6-3), before any face code merged.
 
 **Date:** 2026-10-29
 
@@ -142,7 +142,7 @@ The `faces` role and its packs are refused under P1–P3. A Production face capa
 - **Uncalibrated threshold.** Benchmark faces are large and frontal, and CCTV faces are not. The threshold is context for the operator, not a decision rule. Gallery comparisons hide sub-threshold entries to avoid showing a name next to a weak score.
 - **Research-only checkpoint (if AdaFace).** It is better on low-quality faces in the literature, but its terms confine it to non-commercial Development use. SFace avoids that at some accuracy cost.
 
-## Owner decision (proposed)
+## Owner decision (ratified 2026-10-29)
 
 > **ADR-022 (PoC Stage 5A) is accepted:**
 > 1. Face results are **candidates** with score, reference threshold and model identity. They are never identity, never stored as a match, and never write `EntityId`. Unknown (no usable face) is first-class.
