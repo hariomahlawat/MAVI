@@ -152,6 +152,8 @@ The generated kit contains no MAVI application build. It contains the external W
 - the repository-owned binary/version catalog; and
 - SHA-256 identity for every installer and retained payload byte.
 
+For a `poc-single-host` kit, `-VisionCudaRuntimePack <pack>[,<pack>]` adds the Windows CUDA Runtime Packs (only the release binding's `windows-x86_64-cuda` pack and the catalogue's `windowsCudaPocSm89Candidate` are accepted, each re-hashed against its manifest) under `vendor/vision/runtime/<build>`, and `-OnnxRuntimeGpuWheel <wheel>` adds the catalogue-pinned `onnxruntime-gpu` wheel under `vendor/vision/onnxruntime-gpu`; the kit manifest records them under `payload.pocVision`. Both are Development grade (ADR-020) and never Production payloads.
+
 Keep this ZIP with release/development media. Do not commit it to ordinary Git.
 
 ### 5. Publish MAVI with app-local FFmpeg
@@ -312,7 +314,7 @@ powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviPocSetupBundle.ps1 
   -VisionRuntimeCpuSource "<Windows CPU Runtime Pack bundle>" `
   -ModelPackSource "<built Model Pack>" `
   -PlatesCache "<cache with python-plates-pilot-wheelhouse\ and plates-pilot-payloads\>" `
-  [-VisionRuntimeCudaSource "<Windows CUDA Runtime Pack bundle>"] [-SmokeClip <clip.mp4> -SmokeClipLicence "<CC0/CC-BY attribution>"]
+  [-VisionRuntimeCudaSource "<v1 sm_75 Windows CUDA Runtime Pack>"] [-VisionRuntimeCudaSm89Source "<sm_75;sm_89 Windows CUDA Runtime Pack>"] [-SmokeClip <clip.mp4> -SmokeClipLicence "<CC0/CC-BY attribution>"]
 ~~~
 
 The builder exports the exact commit first (`git archive`; uncommitted changes never ship) and reads the component binding and the binary catalogue from that export, not from the preparer's checkout; it publishes the platform from it, writes the **application overlay** (the repository subset the setup scripts and workers read, with `mavi-application-overlay.json`: revision + per-file SHA-256), copies the PostgreSQL runtime pack, FFmpeg and the Hosting Bundle from the kit, copies the Runtime and Model Packs the component binding names (and refuses any other), copies the plates cache, and hashes every file into `mavi-poc-bundle.json`. The kit's catalogue entries for PostgreSQL, pgvector, FFmpeg and the Hosting Bundle must equal the repository's; the kit's developer caches are not shipped, so their freshness does not apply. The plates payloads may come from `plates_pilot_packs.py fetch` or, verified by SHA-256, from the Stage-4 controlled candidate store.
@@ -322,7 +324,7 @@ The builder exports the exact commit first (`git archive`; uncommitted changes n
 Double-click `Install-MAVI-PoC.cmd` in the bundle and approve elevation, or from an elevated prompt:
 
 ~~~powershell
-Install-MAVI-PoC.cmd -InstallRoot "E:\MAVI-PoC\Program" -DataRoot "E:\MAVI-PoC\Data" [-DevicePolicy Auto|CUDA|CPU] [-AdoptCudaRuntimeRoot <installed CUDA pack>] [-PlanOnly]
+Install-MAVI-PoC.cmd -InstallRoot "E:\MAVI-PoC\Program" -DataRoot "E:\MAVI-PoC\Data" [-DevicePolicy Auto|CUDA|CPU] [-CudaRuntimePack Auto|sm75|sm75-sm89] [-AdoptCudaRuntimeRoot <installed CUDA pack>] [-PlanOnly]
 ~~~
 
 | Item | Value |
@@ -330,7 +332,7 @@ Install-MAVI-PoC.cmd -InstallRoot "E:\MAVI-PoC\Program" -DataRoot "E:\MAVI-PoC\D
 | Roots | `%ProgramFiles%\MAVI\PoC` and `%ProgramData%\MAVI\PoC` by default; every PoC file is under the two roots |
 | PostgreSQL | `MAVI-PoC-PostgreSQL-18`, port 55434, database `mavi_poc`, DPAPI-protected generated credentials |
 | Platform | Kestrel on `http://127.0.0.1:8090` (loopback only: no IIS, no firewall rule); ASP.NET Core 10 from the kit's Hosting Bundle when absent |
-| Vision | CPU Runtime Pack always; the `sm_75` CUDA Runtime Pack when `nvidia-smi` reports compute capability 7.5 and the bundle carries it (or `-AdoptCudaRuntimeRoot` names an installed one, which must pass the launcher's integrity preflight); every bound Model Pack |
+| Vision | CPU Runtime Pack always; a CUDA Runtime Pack when `nvidia-smi` reports a compute capability a build contract targets and the bundle carries that build: the v1 `sm_75` pack on 7.5, the PoC `sm_75;sm_89` pack (S1b, build contract v2, `built-hashed-locked`) on 8.9; `-CudaRuntimePack` names a build, which must target the GPU (or `-AdoptCudaRuntimeRoot` names an installed one, which must pass the launcher's integrity preflight); every bound Model Pack. The `sm_75;sm_89` pack is not in the release component binding yet, so a worker on it resolves Auto to CPU (`cuda_pack_id_mismatch`): `docs/runbooks/poc-windows-cuda-sm89-variant.md` |
 | Plates | `plates-onnx-v1` runtime and its Model Packs, installed and **not bound** (S3 binds them) |
 | Machine environment | none written; the launchers are given every root explicitly |
 

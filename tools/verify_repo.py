@@ -491,6 +491,134 @@ def check_windows_cuda_build_contract(errors: list[str]) -> None:
         )
 
 
+POC_CUDA_CONTRACT = "config/vision/windows-cuda-development-build-v2.json"
+POC_CUDA_LOCK = "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda-sm75-sm89.lock"
+
+
+def check_poc_cuda_build_contract(errors: list[str]) -> None:
+    """Keep the PoC sm_75;sm_89 build contract (plan D9, ADR-020) honest.
+
+    It must stay scoped to poc-single-host, keep CUDA fail-closed, agree with
+    its catalogue entry and with the frozen v1 toolchain identity it shares,
+    and its lock may differ from the v1 CUDA lock only in the MMCV wheel.
+    """
+    contract_path = ROOT / POC_CUDA_CONTRACT
+    lock_path = ROOT / POC_CUDA_LOCK
+    contract = _read_json_or_none(contract_path)
+    if contract is None:
+        if lock_path.exists():
+            fail("The PoC sm_75;sm_89 CUDA lock exists without its v2 build contract.", errors)
+        return
+    if not isinstance(contract, dict) or contract.get("schemaVersion") != "mavi-windows-cuda-development-build-v2":
+        fail("Windows CUDA development build contract v2 is invalid or has an unsupported schema.", errors)
+        return
+    scope = contract.get("deploymentProfileScope")
+    if not isinstance(scope, dict) or scope.get("profiles") != ["poc-single-host"]:
+        fail("Windows CUDA build contract v2 must serve the poc-single-host profile only.", errors)
+    runtime_policy = contract.get("runtimePolicy")
+    if not isinstance(runtime_policy, dict) or any(
+        runtime_policy.get(name) is not False
+        for name in ("explicitCudaMayFallbackToCpu", "cudaToolkitRequiredAtRuntime", "compilerRequiredAtRuntime")
+    ):
+        fail("Windows CUDA build contract v2 must keep CUDA fail-closed and the build toolchain out of the runtime.", errors)
+    qualification = contract.get("qualification")
+    if not isinstance(qualification, dict) or qualification.get("status") != "unqualified":
+        fail("Windows CUDA build contract v2 must not claim a qualification; A7 earns it on the host.", errors)
+    mmcv = contract.get("mmcv") if isinstance(contract.get("mmcv"), dict) else {}
+    arch_list = (mmcv.get("buildEnvironment") or {}).get("TORCH_CUDA_ARCH_LIST")
+    targets = contract.get("targetGpus") if isinstance(contract.get("targetGpus"), list) else []
+    expected_arch_list = ";".join(str(item.get("computeCapability")) for item in targets if isinstance(item, dict)) + "+PTX"
+    if arch_list != contract.get("torchCudaArchList") or arch_list != expected_arch_list:
+        fail("Windows CUDA build contract v2 TORCH_CUDA_ARCH_LIST must spell its targetGpus.", errors)
+
+    toolchain = contract.get("toolchain") if isinstance(contract.get("toolchain"), dict) else {}
+    frozen = toolchain.get("verificationStatus") == "verified" and all(
+        _frozen_toolchain_value(name, toolchain.get(name))
+        for name in ("msvcToolset", "windowsSdkVersion", "cudaToolkitVersion")
+    )
+    if not frozen:
+        fail("Windows CUDA build contract v2 has no verified, frozen toolchain identity.", errors)
+    v1 = _read_json_or_none(ROOT / "config/vision/windows-cuda-development-build-v1.json")
+    v1 = v1 if isinstance(v1, dict) else {}
+    for key in ("platformVariant", "pythonVersion", "torchBinaryVersion", "torchvisionBinaryVersion", "cudaRuntimeFamily"):
+        if contract.get(key) != v1.get(key):
+            fail(f"Windows CUDA build contract v2 must keep v1's {key}; only the target GPUs differ.", errors)
+    for name in ("msvcToolset", "windowsSdkVersion", "cudaToolkitVersion"):
+        if toolchain.get(name) != (v1.get("toolchain") or {}).get(name):
+            fail(f"Windows CUDA build contracts v1 and v2 disagree on the toolchain field '{name}'.", errors)
+
+    catalog = _read_json_or_none(ROOT / "config/dependencies/offline-binary-catalog-v1.json")
+    candidate = ((catalog or {}).get("visionRuntime") or {}).get("windowsCudaPocSm89Candidate") if isinstance(catalog, dict) else None
+    if not isinstance(candidate, dict):
+        fail("Offline binary catalogue has no windowsCudaPocSm89Candidate for the v2 build contract.", errors)
+        return
+    if candidate.get("buildContract") != POC_CUDA_CONTRACT or candidate.get("nativeAbi") != contract.get("nativeAbi"):
+        fail("Offline catalogue windowsCudaPocSm89Candidate does not name the v2 contract and its native ABI.", errors)
+    if candidate.get("targetComputeCapabilities") != [item.get("computeCapability") for item in targets if isinstance(item, dict)]:
+        fail("Offline catalogue windowsCudaPocSm89Candidate target GPUs differ from the v2 contract.", errors)
+    candidate_toolchain = candidate.get("buildToolchain") if isinstance(candidate.get("buildToolchain"), dict) else {}
+    for contract_name, candidate_name in (
+        ("msvcToolset", "msvcToolset"),
+        ("windowsSdkVersion", "windowsSdk"),
+        ("cudaToolkitVersion", "cudaToolkit"),
+        ("msvcCompilerVersion", "msvcCompilerVersion"),
+    ):
+        if toolchain.get(contract_name) != candidate_toolchain.get(candidate_name):
+            fail(f"Windows CUDA build contract v2 and its catalogue entry disagree on '{contract_name}'.", errors)
+    if candidate.get("deploymentProfileScope") != ["poc-single-host"]:
+        fail("Offline catalogue windowsCudaPocSm89Candidate must be scoped to poc-single-host.", errors)
+
+    if not lock_path.exists():
+        if candidate.get("lock") is not None:
+            fail("Offline catalogue names a PoC sm_75;sm_89 CUDA lock that is not committed.", errors)
+        return
+    if not frozen:
+        fail("The PoC sm_75;sm_89 CUDA lock cannot be committed before the v2 toolchain is verified.", errors)
+    lock_bytes = lock_path.read_bytes()
+    if candidate.get("lock") != POC_CUDA_LOCK or candidate.get("lockSha256") != hashlib.sha256(lock_bytes).hexdigest():
+        fail("Offline catalogue windowsCudaPocSm89Candidate does not pin the committed PoC CUDA lock.", errors)
+    v1_lock = (ROOT / "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.lock").read_text(encoding="utf-8")
+
+    def _without_mmcv(text: str) -> list[str]:
+        return [line for line in text.splitlines() if not line.startswith("mmcv==")]
+
+    v1_mmcv = [line for line in v1_lock.splitlines() if line.startswith("mmcv==")]
+    v2_mmcv = [line for line in lock_bytes.decode("utf-8").splitlines() if line.startswith("mmcv==")]
+    if _without_mmcv(lock_bytes.decode("utf-8")) != _without_mmcv(v1_lock) or len(v2_mmcv) != 1 or v2_mmcv == v1_mmcv:
+        fail("The PoC sm_75;sm_89 CUDA lock must equal the v1 CUDA lock except for its own MMCV wheel.", errors)
+    elif v2_mmcv[0].split("sha256:")[-1] != candidate.get("mmcvWheelSha256"):
+        fail("Offline catalogue windowsCudaPocSm89Candidate mmcvWheelSha256 differs from the PoC CUDA lock.", errors)
+
+    if str(VISION_ROOT) not in sys.path:
+        sys.path.insert(0, str(VISION_ROOT))
+    try:
+        from mavi_vision.runtime.component_identity import RuntimePackIdentityInputs, runtime_pack_id
+    except ImportError as exc:
+        fail(f"Runtime Pack identity tooling could not be imported: {exc}", errors)
+        return
+    requirements = ROOT / "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.requirements.txt"
+    derived = runtime_pack_id(
+        RuntimePackIdentityInputs(
+            platform_variant="windows-x86_64-cuda",
+            python_version=str(contract.get("pythonVersion")),
+            third_party_lock_sha256=hashlib.sha256(lock_bytes).hexdigest(),
+            runtime_requirements_sha256=str(candidate.get("runtimeRequirementsSha256")),
+            native_abi=str(contract.get("nativeAbi")),
+        )
+    )
+    if candidate.get("runtimePackId") != derived:
+        fail("Offline catalogue windowsCudaPocSm89Candidate runtimePackId does not derive from its lock and ABI.", errors)
+    v1_requirements_sha = None
+    binding = _read_json_or_none(ROOT / "src/vision/config/components/phase1-bindings-v2.json")
+    if isinstance(binding, dict):
+        for family in binding.get("runtimePacks") or []:
+            entry = ((family or {}).get("variants") or {}).get("windows-x86_64-cuda")
+            if isinstance(entry, dict):
+                v1_requirements_sha = entry.get("runtimeRequirementsSha256")
+    if not requirements.exists() or candidate.get("runtimeRequirementsSha256") != v1_requirements_sha:
+        fail("The PoC sm_75;sm_89 Runtime Pack must use the v1 CUDA requirements projection.", errors)
+
+
 def _read_json_or_none(path: Path) -> object | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -817,6 +945,7 @@ def check_dependency_policy(errors: list[str]) -> None:
             )
 
     check_windows_cuda_build_contract(errors)
+    check_poc_cuda_build_contract(errors)
 
     review = policy.get("requiredChangeReview")
     if not isinstance(review, list) or len(review) < 8 or any(

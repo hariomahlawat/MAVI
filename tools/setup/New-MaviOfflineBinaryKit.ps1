@@ -19,6 +19,16 @@ param(
 
     [string]$CatalogPath = (Join-Path $PSScriptRoot "..\..\config\dependencies\offline-binary-catalog-v1.json"),
 
+    # Optional Windows CUDA Runtime Pack roots (runtime-pack-manifest.json at each root) for the
+    # poc-single-host profile (S1b; plan D9): the v1 sm_75 pack the release binding names and/or
+    # the sm_75;sm_89 pack the catalogue's windowsCudaPocSm89Candidate names. Carried under
+    # vendor/vision/runtime/<build>; never a Production payload.
+    [string[]]$VisionCudaRuntimePack = @(),
+
+    # Optional onnxruntime-gpu wheel(s) pinned by the catalogue's onnxruntimeGpuDevelopmentCandidate
+    # (poc-single-host, Development grade). Carried under vendor/vision/onnxruntime-gpu.
+    [string[]]$OnnxRuntimeGpuWheel = @(),
+
     [string]$ZipPath
 )
 
@@ -95,6 +105,38 @@ Copy-Item -LiteralPath $catalogPath -Destination (Join-Path $catalogDestination 
 Copy-MaviTree -Source $postgreSqlRuntimePack -Target (Join-Path $destination "vendor\postgresql\pg18\win-x64")
 Copy-MaviTree -Source $ffmpegPack -Target (Join-Path $destination "vendor\ffmpeg")
 Copy-MaviTree -Source $developerDependencyCache -Target (Join-Path $destination "vendor\developer-cache\win-x64")
+
+# PoC Development-grade vision payloads (S1b). Each CUDA pack must be one a tracked record
+# names -- the release binding's windows-x86_64-cuda pack (sm75) or the catalogue's
+# windowsCudaPocSm89Candidate (sm75-sm89) -- and every file must match its manifest.
+$visionPayload = [ordered]@{}
+$repoBinding = Read-MaviJson -Path (Join-Path $PSScriptRoot "..\..\src\vision\config\components\phase1-bindings-v2.json")
+$bindingCudaId = [string]$repoBinding.runtimePacks[0].variants."windows-x86_64-cuda".runtimePackId
+$sm89Candidate = $catalog.visionRuntime.windowsCudaPocSm89Candidate
+foreach ($packRoot in @($VisionCudaRuntimePack)) {
+    $root = (Resolve-Path -LiteralPath $packRoot).Path
+    $packManifest = Test-MaviManifest -Root $root -ManifestPath (Join-Path $root "runtime-pack-manifest.json") -ExpectedSchemaVersion "mavi-vision-runtime-pack-v2"
+    $packId = [string]$packManifest.runtimePackId
+    $build = if ($packId -eq $bindingCudaId) { "windows-x86_64-cuda" } elseif ($sm89Candidate -and $packId -eq [string]$sm89Candidate.runtimePackId) { "windows-x86_64-cuda-sm75-sm89" } else { $null }
+    if (-not $build -or [string]$packManifest.platformVariant -ne "windows-x86_64-cuda") {
+        throw "CUDA Runtime Pack '$packId' at '$root' is neither the release binding's windows-x86_64-cuda pack nor the catalogue's sm75-sm89 pack."
+    }
+    if ($visionPayload.Contains($build)) { throw "Two CUDA Runtime Packs given for $build." }
+    Copy-MaviTree -Source $root -Target (Join-Path $destination "vendor\vision\runtime\$build")
+    $visionPayload[$build] = [ordered]@{ path = "vendor/vision/runtime/$build"; runtimePackId = $packId }
+}
+$ortCandidate = $catalog.visionRuntime.onnxruntimeGpuDevelopmentCandidate
+foreach ($wheel in @($OnnxRuntimeGpuWheel)) {
+    $item = Get-Item -LiteralPath $wheel
+    $pinned = @($ortCandidate.wheels | Where-Object { [string]$_.fileName -eq $item.Name })
+    if ($pinned.Count -ne 1 -or (Get-MaviSha256 -Path $item.FullName) -ne [string]$pinned[0].sha256) {
+        throw "onnxruntime-gpu wheel '$($item.Name)' is not the one the catalogue pins."
+    }
+    $ortDestination = Join-Path $destination "vendor\vision\onnxruntime-gpu"
+    New-Item -ItemType Directory -Path $ortDestination -Force | Out-Null
+    Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $ortDestination $item.Name)
+    $visionPayload["onnxruntime-gpu"] = "vendor/vision/onnxruntime-gpu"
+}
 
 $installerDestination = Join-Path $destination "vendor\installers\win-x64"
 New-Item -ItemType Directory -Path $installerDestination -Force | Out-Null
@@ -271,6 +313,8 @@ $manifest = [ordered]@{
         installers = "vendor/installers/win-x64"
         developerCache = "vendor/developer-cache/win-x64"
     }
+    # poc-single-host Development-grade vision payloads (S1b); absent when none were given.
+    pocVision = $(if ($visionPayload.Count -gt 0) { $visionPayload } else { $null })
     artifacts = @($artifacts)
 }
 

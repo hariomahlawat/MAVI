@@ -53,6 +53,37 @@ try {
     $ada = Test-MaviPocCudaCompatibleGpu -NvidiaSmiLines @("0, NVIDIA GeForce RTX 4090, 8.9") -RequiredComputeCapability $required
     if ($ada.Compatible -or $ada.Reason -ne "compute_capability_unsupported") { throw "An sm_89 GPU must not get the sm_75 pack (S1b builds its variant)." }
 
+    # --- S1b pack selection: each GPU gets the build whose contract targets it; sm_75 keeps v1. ---
+    $selectionBundle = Join-Path $tempRoot "selection-bundle"
+    foreach ($directory in @("windows-x86_64-cuda", "windows-x86_64-cuda-sm75-sm89")) {
+        New-Item -ItemType Directory -Path (Join-Path $selectionBundle "vision\runtime\$directory") -Force | Out-Null
+        "{}" | Set-Content -LiteralPath (Join-Path $selectionBundle "vision\runtime\$directory\runtime-pack-manifest.json") -Encoding ASCII
+    }
+    $candidates = Get-MaviPocCudaRuntimePackCandidates -OverlayRoot $repoRoot -BundleRoot $selectionBundle
+    if ((@($candidates | ForEach-Object { $_.Key }) -join ",") -ne "sm75,sm75-sm89") { throw "The CUDA builds must be offered v1 (sm75) first, then sm75-sm89." }
+    if ((@($candidates[1].ComputeCapabilities) -join ";") -ne "7.5;8.9" -or -not $candidates[1].Available) { throw "The sm75-sm89 build must come from the v2 contract's targetGpus." }
+    $pick = Select-MaviPocCudaRuntimePack -NvidiaSmiLines @("0, NVIDIA GeForce GTX 1650 Ti, 7.5") -Candidates $candidates
+    if (-not $pick.Compatible -or $pick.Pack.Key -ne "sm75") { throw "Auto on sm_75 must keep the v1 sm_75 pack." }
+    $pick = Select-MaviPocCudaRuntimePack -NvidiaSmiLines @("0, NVIDIA GeForce RTX 4090, 8.9") -Candidates $candidates
+    if (-not $pick.Compatible -or $pick.Pack.Key -ne "sm75-sm89" -or $pick.Pack.Source -notlike "*windows-x86_64-cuda-sm75-sm89") { throw "Auto on sm_89 must take the sm75-sm89 pack from the bundle." }
+    $pick = Select-MaviPocCudaRuntimePack -NvidiaSmiLines @("0, NVIDIA GeForce GTX 1650 Ti, 7.5") -Candidates $candidates -Requested "sm75-sm89"
+    if (-not $pick.Compatible -or $pick.Pack.Key -ne "sm75-sm89") { throw "The sm75-sm89 pack may be selected explicitly on sm_75 (it targets 7.5)." }
+    $pick = Select-MaviPocCudaRuntimePack -NvidiaSmiLines @("0, NVIDIA GeForce RTX 4090, 8.9") -Candidates $candidates -Requested "sm75"
+    if ($pick.Compatible -or $pick.Reason -ne "compute_capability_unsupported") { throw "The sm_75 pack must not be installed on sm_89." }
+    $pick = Select-MaviPocCudaRuntimePack -NvidiaSmiLines @("0, NVIDIA GeForce RTX 3080, 8.6") -Candidates $candidates
+    if ($pick.Compatible -or $pick.Reason -ne "compute_capability_unsupported") { throw "No build targets sm_86; compute_89 PTX must not be claimed for it." }
+    $pick = Select-MaviPocCudaRuntimePack -NvidiaSmiLines $null -Candidates $candidates
+    if ($pick.Compatible -or $pick.Reason -ne "nvidia_smi_absent") { throw "No nvidia-smi means no CUDA pack." }
+    $v1Only = @($candidates[0].PSObject.Copy())
+    $v1Only[0].Available = $false
+    $pick = Select-MaviPocCudaRuntimePack -NvidiaSmiLines @("0, NVIDIA GeForce GTX 1650 Ti, 7.5") -Candidates @($v1Only[0], $candidates[1])
+    if ($pick.Pack.Key -ne "sm75" -or $pick.Pack.Available) { throw "Auto on sm_75 must not drift onto the sm75-sm89 pack because the bundle lacks the sm_75 one." }
+    Assert-Throws { Select-MaviPocCudaRuntimePack -NvidiaSmiLines @("0, X, 8.9") -Candidates $candidates -Requested "sm90" } "not declared" "An undeclared pack name"
+    if ((Get-MaviPocCudaBuildStatus -OverlayRoot $repoRoot -RuntimePackId ("mavi-runtime-v2-" + "0" * 64)) -ne "unrecorded") { throw "A pack the catalogue does not name has no recorded status." }
+    $install = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Install-MAVI-PoC.ps1") -Raw
+    if ($install -notmatch 'is not the one the offline catalogue records') { throw "The installer must refuse a bundled sm75-sm89 pack the catalogue does not name." }
+    if ($install -notmatch 'Get-MaviPocCudaBuildStatus -OverlayRoot') { throw "The sm75-sm89 pack must report its own status, never v1's." }
+
     # --- Release metadata: the disclosure is fixed; the platform's start-up checks hold. ---
     $packs = @([ordered]@{ kind = "runtime"; role = "vision"; capabilityId = $null; packId = "mavi-runtime-v2-x"; variant = "windows-x86_64-cpu"; verificationStatus = "qualified-hosted-cpu"; note = $null })
     $metadata = New-MaviPocReleaseMetadata -ApplicationRevision ("a" * 40) -BundleSha256 ("b" * 64) -DevicePolicy "Auto" -CudaDecision ([ordered]@{ gpuCheck = "nvidia_smi_absent" }) -Packs $packs -InstalledAtUtc "2026-10-28T00:00:00Z"
@@ -249,6 +280,7 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $bundle "overlay\config\setup"), (Join-Path $bundle "overlay\config\vision") -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $repoRoot "config\setup\mavi-setup-defaults.json") -Destination (Join-Path $bundle "overlay\config\setup\")
     Copy-Item -LiteralPath (Join-Path $repoRoot "config\vision\windows-cuda-development-build-v1.json") -Destination (Join-Path $bundle "overlay\config\vision\")
+    Copy-Item -LiteralPath (Join-Path $repoRoot "config\vision\windows-cuda-development-build-v2.json") -Destination (Join-Path $bundle "overlay\config\vision\")
     '{"schemaVersion":"mavi-poc-setup-bundle-v1"}' | Set-Content -LiteralPath (Join-Path $bundle "mavi-poc-bundle.json") -Encoding UTF8
     $installRoot = Join-Path $tempRoot "install"
     $dataRoot = Join-Path $tempRoot "data"

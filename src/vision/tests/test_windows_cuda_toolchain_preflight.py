@@ -568,3 +568,57 @@ def test_an_empty_nvcc_environment_flag_variable_is_not_a_hook(
     assert module.verify_toolchain(CONTRACT, source_head_sha="a" * 40)[
         "status"
     ] == "passed"
+
+
+CONTRACT_V2 = ROOT / "config" / "vision" / "windows-cuda-development-build-v2.json"
+
+
+def test_v2_probe_compiles_every_target_and_the_ptx_of_the_last() -> None:
+    """PoC D9: the v2 probe must prove sm_75 and sm_89 in the compile that TORCH_CUDA_ARCH_LIST asks for."""
+    module = _load()
+    contract = json.loads(CONTRACT_V2.read_text(encoding="utf-8"))
+
+    assert module._nvcc_architecture_flags(contract) == (
+        "-gencode=arch=compute_75,code=sm_75",
+        "-gencode=arch=compute_89,code=sm_89",
+        "-gencode=arch=compute_89,code=compute_89",
+    )
+
+
+def test_v1_probe_is_unchanged_by_the_v2_contract() -> None:
+    module = _load()
+    contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+
+    assert module._nvcc_architecture_flags(contract) == ("-arch=sm_75",)
+
+
+@pytest.mark.parametrize(
+    "targets",
+    [
+        [],
+        [{"computeCapability": "8.9", "architecture": "sm89"}, {"computeCapability": "7.5", "architecture": "sm75"}],
+        [{"computeCapability": "7.5", "architecture": "sm75"}, {"computeCapability": "7.5", "architecture": "sm75"}],
+        [{"computeCapability": "7.5", "architecture": "sm75"}, {"computeCapability": "8.9", "architecture": "sm86"}],
+    ],
+)
+def test_v2_probe_refuses_an_unusable_target_list(targets: list) -> None:
+    module = _load()
+    contract = json.loads(CONTRACT_V2.read_text(encoding="utf-8"))
+    contract["targetGpus"] = targets
+
+    with pytest.raises(module.ToolchainVerificationError, match="cuda_build_contract_target_"):
+        module._nvcc_architecture_flags(contract)
+
+
+def test_v2_preflight_records_every_target_architecture(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    fake = _FakeToolchain(cl_version="19.44.35229")
+    _windows_host(monkeypatch, module, fake)
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "7.5;8.9+PTX")
+
+    result = module.verify_toolchain(CONTRACT_V2, source_head_sha="a" * 40)
+
+    assert result["status"] == "passed"
+    assert result["targetArchitectures"] == ["sm75", "sm89"]
+    assert result["targetArchitecture"] == "sm89"
+    assert "-gencode=arch=compute_89,code=sm_89" in result["compile"]["command"]

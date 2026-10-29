@@ -646,3 +646,55 @@ def test_a_cpu_variant_may_still_supply_its_abi_directly():
     assert module._resolve_native_abi(args) == (
         "win_amd64-msvc-14.44-sdk-10.0.26100.0"
     )
+
+
+CONTRACT_V2_RELATIVE = "config/vision/windows-cuda-development-build-v2.json"
+
+
+def _contract_v2() -> dict:
+    return json.loads((ROOT / CONTRACT_V2_RELATIVE).read_text(encoding="utf-8"))
+
+
+def test_v2_native_abi_names_every_target_architecture() -> None:
+    """PoC D9: the sm_75;sm_89 variant carries its own native ABI, distinct from v1's."""
+    module = _runtime_pack_tool()
+    contract = _contract_v2()
+
+    derived = module.derive_native_abi(contract)
+    assert derived == "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75-sm89"
+    assert contract["nativeAbi"] == derived
+    assert derived != json.loads(CONTRACT_RELATIVE_TEXT())["nativeAbi"]
+    module._validate_native_abi_for_variant(derived, "windows-x86_64-cuda")
+
+
+@pytest.mark.parametrize(
+    ("targets", "code"),
+    [
+        ([], "native_abi_contract_target_missing"),
+        ([{"computeCapability": "8.9", "architecture": "sm89"}, {"computeCapability": "7.5", "architecture": "sm75"}], "native_abi_contract_targets_unordered"),
+        ([{"computeCapability": "7.5", "architecture": "sm75"}, {"computeCapability": "7.5", "architecture": "sm75"}], "native_abi_contract_targets_unordered"),
+        ([{"computeCapability": "7.5", "architecture": "sm75"}, {"computeCapability": "8.9", "architecture": "sm86"}], "native_abi_contract_target_inconsistent"),
+        ([{"computeCapability": "7.5", "architecture": "sm75"}, {"computeCapability": "eight"}], "native_abi_contract_field_invalid:computeCapability"),
+    ],
+)
+def test_v2_native_abi_refuses_an_unusable_target_list(targets: list, code: str) -> None:
+    module = _runtime_pack_tool()
+    contract = _contract_v2()
+    contract["targetGpus"] = targets
+
+    with pytest.raises(module.NativeAbiDerivationError, match=code):
+        module.derive_native_abi(contract)
+
+
+def test_v2_contract_serves_the_poc_profile_only_and_keeps_cuda_fail_closed() -> None:
+    contract = _contract_v2()
+
+    assert contract["deploymentProfileScope"]["profiles"] == ["poc-single-host"]
+    assert contract["buildHost"]["policy"] == "development-laptop-poc-only"
+    assert contract["mmcv"]["buildEnvironment"]["TORCH_CUDA_ARCH_LIST"] == contract["torchCudaArchList"] == "7.5;8.9+PTX"
+    assert contract["runtimePolicy"]["explicitCudaMayFallbackToCpu"] is False
+    assert contract["qualification"]["status"] == "unqualified"
+    v1 = json.loads(CONTRACT_RELATIVE_TEXT())
+    for key in ("platformVariant", "pythonVersion", "torchBinaryVersion", "torchvisionBinaryVersion", "cudaRuntimeFamily"):
+        assert contract[key] == v1[key]
+    assert contract["mmcv"]["sourceCommit"] == v1["mmcv"]["sourceCommit"]

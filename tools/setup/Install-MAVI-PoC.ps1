@@ -10,10 +10,14 @@ param(
     # GPU answers, otherwise CPU with the reason recorded; CUDA fails closed; CPU never
     # uses the GPU. Recorded for Start-MAVI-PoC.
     [ValidateSet("Auto", "CUDA", "CPU")][string]$DevicePolicy = "Auto",
-    # An already-installed Windows CUDA Runtime Pack to use instead of one from the bundle
-    # (the bundle carries none until S1b). It must pass the launcher's integrity preflight;
-    # it is referenced, never copied or modified.
+    # An already-installed Windows CUDA Runtime Pack to use instead of one from the bundle.
+    # It must pass the launcher's integrity preflight; it is referenced, never copied or
+    # modified.
     [string]$AdoptCudaRuntimeRoot,
+    # Which Windows CUDA Runtime Pack build to install (S1b; plan D9): Auto takes the first
+    # build whose contract targets this GPU (the sm_75 pack on sm_75, the sm_75;sm_89 pack on
+    # sm_89); naming one installs that build only if it targets this GPU.
+    [ValidateSet("Auto", "sm75", "sm75-sm89")][string]$CudaRuntimePack = "Auto",
     # Resolve and print the plan; change nothing.
     [switch]$PlanOnly
 )
@@ -68,11 +72,9 @@ $databaseUser = [string]$pocDefaults.databaseUser
 # What the bundle carries decides what can be installed; the GPU decides whether the CUDA
 # Runtime Pack is offered at all.
 $cpuRuntimeSource = Join-Path $BundleRoot "vision\runtime\windows-x86_64-cpu"
-$cudaRuntimeSource = Join-Path $BundleRoot "vision\runtime\windows-x86_64-cuda"
 $modelSourceRoot = Join-Path $BundleRoot "vision\models"
 $platesCache = Join-Path $BundleRoot "plates"
-$buildContract = Read-MaviJson -Path (Join-Path $bundleOverlay "config\vision\windows-cuda-development-build-v1.json")
-$requiredComputeCapability = [string]$buildContract.targetGpu.computeCapability
+$cudaCandidates = Get-MaviPocCudaRuntimePackCandidates -OverlayRoot $bundleOverlay -BundleRoot $BundleRoot
 $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
 $smiLines = $null
 if ($nvidiaSmi) {
@@ -87,16 +89,30 @@ if ($nvidiaSmi) {
     catch { $smiLines = @() }
     finally { $ErrorActionPreference = $previousPreference }
 }
-$gpu = Test-MaviPocCudaCompatibleGpu -NvidiaSmiLines $smiLines -RequiredComputeCapability $requiredComputeCapability
+$requestedPack = $CudaRuntimePack
+if ($AdoptCudaRuntimeRoot) {
+    # An adopted pack is served by the build whose native ABI it carries; it must target this GPU.
+    $adoptedAbi = [string](Read-MaviJson -Path (Join-Path ([IO.Path]::GetFullPath($AdoptCudaRuntimeRoot.Trim().Trim('"'))) "runtime-pack-manifest.json")).nativeAbi
+    $adoptedBuild = @($cudaCandidates | Where-Object { $_.NativeAbi -eq $adoptedAbi })
+    if ($adoptedBuild.Count -ne 1) { throw "-AdoptCudaRuntimeRoot names a Runtime Pack whose native ABI '$adoptedAbi' matches no Windows CUDA build contract." }
+    if ($CudaRuntimePack -ne "Auto" -and $CudaRuntimePack -ne $adoptedBuild[0].Key) { throw "-AdoptCudaRuntimeRoot is the $($adoptedBuild[0].Key) build, but -CudaRuntimePack $CudaRuntimePack was requested." }
+    $requestedPack = $adoptedBuild[0].Key
+}
+$gpu = Select-MaviPocCudaRuntimePack -NvidiaSmiLines $smiLines -Candidates $cudaCandidates -Requested $requestedPack
 if ($AdoptCudaRuntimeRoot -and -not $gpu.Compatible) {
-    # An explicit request is never silently dropped: the sm_75 pack does not serve this GPU.
-    throw "-AdoptCudaRuntimeRoot was given, but this host's GPU is not served by the sm_$($requiredComputeCapability.Replace('.', '')) CUDA Runtime Pack ($($gpu.Reason); compute capability $($gpu.ComputeCapability))."
+    # An explicit request is never silently dropped.
+    throw "-AdoptCudaRuntimeRoot was given, but this host's GPU is not served by the $requestedPack CUDA Runtime Pack ($($gpu.Reason); compute capability $($gpu.ComputeCapability))."
+}
+if ($CudaRuntimePack -ne "Auto" -and -not $gpu.Compatible) {
+    throw "-CudaRuntimePack $CudaRuntimePack was requested, but it does not target this host's GPU ($($gpu.Reason); compute capability $($gpu.ComputeCapability))."
 }
 $cudaSource = "none"
+$cudaRuntimeSource = $null
 if ($gpu.Compatible) {
     if ($AdoptCudaRuntimeRoot) { $cudaSource = "adopted" }
-    elseif (Test-Path -LiteralPath (Join-Path $cudaRuntimeSource "runtime-pack-manifest.json") -PathType Leaf) { $cudaSource = "bundle" }
+    elseif ($gpu.Pack.Available) { $cudaSource = "bundle"; $cudaRuntimeSource = $gpu.Pack.Source }
 }
+$requiredComputeCapability = if ($gpu.Pack) { @($gpu.Pack.ComputeCapabilities) -join ";" } else { (@($cudaCandidates | ForEach-Object { @($_.ComputeCapabilities) }) | Select-Object -Unique) -join ";" }
 $cudaRuntimeRoot = switch ($cudaSource) {
     "adopted" { [IO.Path]::GetFullPath($AdoptCudaRuntimeRoot.Trim().Trim('"')) }
     default { $layout.VisionRuntimeCudaRoot }
@@ -107,6 +123,9 @@ $cudaDecision = [ordered]@{
     computeCapability = $gpu.ComputeCapability
     requiredComputeCapability = $requiredComputeCapability
     cudaRuntimePackSource = $cudaSource
+    cudaRuntimePackRequested = $CudaRuntimePack
+    cudaRuntimePackBuild = $(if ($gpu.Pack) { $gpu.Pack.Key } else { $null })
+    cudaBuildContract = $(if ($gpu.Pack) { $gpu.Pack.Contract } else { $null })
 }
 
 $plan = [ordered]@{
@@ -231,9 +250,16 @@ try {
     Write-MaviSetupStatus -Name "Vision CPU Runtime Pack" -Status "OK" -Detail "$($layout.VisionRuntimeCpuRoot) (torch and mmcv native ops load)"
     switch ($cudaSource) {
         "bundle" {
+            if ($gpu.Pack.Key -ne "sm75") {
+                # The sm_75;sm_89 build is not in the release binding; the catalogue is what names it.
+                $bundledId = [string](Read-MaviJson -Path (Join-Path $cudaRuntimeSource "runtime-pack-manifest.json")).runtimePackId
+                if ((Get-MaviPocCudaBuildStatus -OverlayRoot $layout.OverlayRoot -RuntimePackId $bundledId) -eq "unrecorded") {
+                    throw "The bundled $($gpu.Pack.Key) CUDA Runtime Pack '$bundledId' is not the one the offline catalogue records."
+                }
+            }
             & $installRuntime -BundleRoot $cudaRuntimeSource -RepositoryRoot $layout.OverlayRoot -Variant "windows-x86_64-cuda" -InstallRoot $layout.VisionRuntimeCudaRoot -NoMachineEnvironment
             Assert-MaviPocRuntimeLoads -RuntimeRoot $layout.VisionRuntimeCudaRoot
-            Write-MaviSetupStatus -Name "Vision CUDA Runtime Pack" -Status "OK" -Detail "$($gpu.Gpu) (compute $($gpu.ComputeCapability))"
+            Write-MaviSetupStatus -Name "Vision CUDA Runtime Pack" -Status "OK" -Detail "$($gpu.Pack.Key) build for $($gpu.Gpu) (compute $($gpu.ComputeCapability))"
         }
         "adopted" {
             $adoptedManifest = Read-MaviJson -Path (Join-Path $cudaRuntimeRoot "runtime-pack-manifest.json")
@@ -287,7 +313,12 @@ try {
     $packs += [ordered]@{ kind = "runtime"; role = "vision"; capabilityId = $null; packId = [string]$cpuManifest.runtimePackId; variant = "windows-x86_64-cpu"; verificationStatus = (Get-MaviPocRuntimeVerificationStatus -RuntimeProfile $runtimeProfile -Variant "windows-x86_64-cpu"); note = $null }
     if ($cudaSource -ne "none") {
         $cudaManifest = Read-MaviJson -Path (Join-Path $cudaRuntimeRoot "runtime-pack-manifest.json")
-        $packs += [ordered]@{ kind = "runtime"; role = "vision"; capabilityId = $null; packId = [string]$cudaManifest.runtimePackId; variant = "windows-x86_64-cuda"; verificationStatus = (Get-MaviPocRuntimeVerificationStatus -RuntimeProfile $runtimeProfile -Variant "windows-x86_64-cuda"); note = $(if ($cudaSource -eq "adopted") { "adopted from an existing installation" } else { $null }) }
+        # runtime.json's status belongs to the v1 (sm_75) pack; the sm_75;sm_89 build carries its
+        # own catalogue status ("built-hashed-locked" until A7) and never inherits v1's.
+        $cudaStatus = if ($gpu.Pack.Key -eq "sm75") { Get-MaviPocRuntimeVerificationStatus -RuntimeProfile $runtimeProfile -Variant "windows-x86_64-cuda" } else { Get-MaviPocCudaBuildStatus -OverlayRoot $layout.OverlayRoot -RuntimePackId ([string]$cudaManifest.runtimePackId) }
+        $cudaNote = "$($gpu.Pack.Key) build ($($gpu.Pack.Contract))"
+        if ($cudaSource -eq "adopted") { $cudaNote = "$cudaNote; adopted from an existing installation" }
+        $packs += [ordered]@{ kind = "runtime"; role = "vision"; capabilityId = $null; packId = [string]$cudaManifest.runtimePackId; variant = "windows-x86_64-cuda"; verificationStatus = $cudaStatus; note = $cudaNote }
     }
     foreach ($pack in $modelPacks) {
         $manifest = Read-MaviJson -Path (Join-Path $pack.FullName "model-pack-manifest.json")
