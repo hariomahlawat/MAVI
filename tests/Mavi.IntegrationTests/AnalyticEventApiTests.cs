@@ -56,7 +56,8 @@ public sealed class AnalyticEventApiTests(PostgresFixture fixture)
         Assert.Equal((world.LineId, "AToB", world.TrackId), (crossing.LineId!.Value, crossing.Direction, crossing.PrimaryTrackId!.Value));
         Assert.Equal("Kerb", crossing.LineName);
         Assert.Equal(1, timeline.RuleCounts.Single(count => count.RuleId == EventRuleIds.LineCrossing).Count);
-        Assert.Equal(0, timeline.RuleCounts.Single(count => count.RuleId == EventRuleIds.RepeatedVisit).Count);
+        // A disabled rule has no count at all, rather than a zero.
+        Assert.DoesNotContain(timeline.RuleCounts, count => count.RuleId == EventRuleIds.RepeatedVisit);
 
         var detail = await client.GetFromJsonAsync<AnalyticEventDetailResponse>($"/api/events/{crossing.EventId}", Json);
 
@@ -111,6 +112,8 @@ public sealed class AnalyticEventApiTests(PostgresFixture fixture)
             $"/api/cameras/{world.CameraId}/events?{Window}", Json);
 
         Assert.Empty(timeline!.Events);
+        Assert.Empty(timeline.RuleCounts);
+        Assert.Empty(timeline.CrossingCounts);
         Assert.Equal((0, 1), (timeline.Coverage.DerivedRuns, timeline.Coverage.EventsPendingRuns));
         Assert.True(timeline.Coverage.Analytics.Complete);
         Assert.False(timeline.Coverage.Complete);
@@ -267,7 +270,9 @@ public sealed class AnalyticEventApiTests(PostgresFixture fixture)
         var filtered = await client.GetFromJsonAsync<AnalyticEventTimelineResponse>(
             $"/api/cameras/{world.CameraId}/events?{Window}&ruleId={EventRuleIds.ZoneDwell}", Json);
         Assert.Equal([EventRuleIds.ZoneDwell], filtered!.Events.Select(item => item.RuleId));
-        Assert.DoesNotContain(filtered.CrossingCounts.SelectMany(line => line.AToBCounts), count => count > 0);
+        // Line crossing was filtered out, so it reports nothing, not a row of zeros.
+        Assert.Empty(filtered.CrossingCounts);
+        Assert.Equal([EventRuleIds.ZoneDwell], filtered.RuleCounts.Select(count => count.RuleId));
 
         var limited = await client.GetFromJsonAsync<AnalyticEventTimelineResponse>(
             $"/api/cameras/{world.CameraId}/events?{Window}&limit=1", Json);
@@ -275,6 +280,44 @@ public sealed class AnalyticEventApiTests(PostgresFixture fixture)
         Assert.True(limited.Truncated);
         // Counts are over every matching event, not the page.
         Assert.Equal(2, limited.RuleCounts.Sum(count => count.Count));
+    }
+
+    [Fact]
+    public async Task AnEventOfARunThatIsNotPublishedIsNotFound()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        var unitId = await CommitFactsAsync(world);
+        await using var factory = CreateFactory(world);
+        using var client = factory.CreateClient();
+        await DeriveUnitAsync(factory, unitId);
+        Guid eventId;
+        await using (var db = world.Read())
+        {
+            eventId = await db.AnalyticEvents.Where(item => item.SceneAnalysisId == unitId).Select(item => item.Id).FirstAsync();
+            await db.ProcessingRuns.Where(run => run.Id == world.RunId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(run => run.VisibilitySequence, (long?)null));
+        }
+
+        using var response = await client.GetAsync($"/api/events/{eventId}");
+
+        // The same answer as for an event that does not exist: the boundary does not enumerate.
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ConcurrentDerivationsOfOneUnitWriteItOnce()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        var unitId = await CommitFactsAsync(world);
+        await using var factory = CreateFactory(world);
+
+        var outcomes = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => DeriveUnitAsync(factory, unitId)));
+
+        Assert.Single(outcomes, outcome => outcome == EventDerivationOutcome.Derived);
+        Assert.All(outcomes.Where(outcome => outcome != EventDerivationOutcome.Derived),
+            outcome => Assert.Equal(EventDerivationOutcome.AlreadyDerived, outcome));
+        await using var db = world.Read();
+        Assert.Equal(1, await db.AnalyticEventDerivations.CountAsync(item => item.SceneAnalysisId == unitId));
     }
 
     [Fact]

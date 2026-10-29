@@ -73,6 +73,9 @@ public sealed record AnalyticEventRuleCountResponse(string RuleId, int Count);
 /// <remarks>
 /// <paramref name="Truncated"/> is true when more events matched than
 /// <paramref name="Limit"/>; the counts are always over every matching event.
+/// <paramref name="RuleCounts"/> and <paramref name="CrossingCounts"/> name only rules that
+/// ran: a rule that is disabled, filtered out, or has no derived run in scope is absent,
+/// never reported as zero.
 /// </remarks>
 public sealed record AnalyticEventTimelineResponse(
     Guid CameraId,

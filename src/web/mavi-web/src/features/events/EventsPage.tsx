@@ -236,6 +236,8 @@ export default function EventsPage() {
         <p className="events-page__muted" role="status">Loading recordings…</p>
       ) : window === null ? (
         <EmptyState title="No recordings for this camera">Import and process a video to see its events.</EmptyState>
+      ) : shownRules.length === 0 ? (
+        <EmptyState title="No rule selected">Choose at least one rule to see its events.</EmptyState>
       ) : timeline.isError ? (
         <EmptyState title="Events are unavailable">The timeline could not be read. Try again.</EmptyState>
       ) : !timeline.data ? (
@@ -365,6 +367,9 @@ function TimelineBody({
       </div>
 
       <Panel title="Timeline">
+        {gaps.length > 0 && timeline.ruleCounts.length > 0 ? (
+          <p className="events-page__muted">Counts cover the evaluated runs only.</p>
+        ) : null}
         <ul className="events-page__counts" aria-label="Events per rule">
           {timeline.ruleCounts.map((count) => (
             <li key={count.ruleId}>{ruleTitle(catalogue, count.ruleId)}: <strong>{count.count}</strong></li>
@@ -384,12 +389,16 @@ function TimelineBody({
                 const x1 = labelWidth + ((Date.parse(item.startUtc) - from) / span) * plot;
                 const x2 = labelWidth + ((Date.parse(item.endUtc) - from) / span) * plot;
                 const selected = item.eventId === selectedId;
+                // Clamp both ends into the plot, so a span reaching outside the window
+                // never draws over the lane labels or past the right edge.
+                const left = Math.min(width, Math.max(labelWidth, x1));
+                const right = Math.min(width, Math.max(labelWidth, x2));
                 return (
                   <rect
                     key={item.eventId}
-                    x={Math.max(labelWidth, x1)}
+                    x={Math.min(left, width - 3)}
                     y={4}
-                    width={Math.max(3, x2 - x1)}
+                    width={Math.max(3, right - left)}
                     height={laneHeight - 8}
                     className={selected ? 'events-page__mark events-page__mark--selected' : 'events-page__mark'}
                     onClick={() => onSelect(item.eventId)}

@@ -3,6 +3,7 @@ using Mavi.Application.Modules.SceneAnalytics.Aggregates;
 using Mavi.Contracts.Api.Analytics;
 using Mavi.Contracts.Api.Events;
 using Mavi.Domain.Scene;
+using Microsoft.Extensions.Logging;
 
 namespace Mavi.Application.Modules.Events;
 
@@ -10,8 +11,17 @@ namespace Mavi.Application.Modules.Events;
 /// The Events surface (ADR-025): the derivation sweep the host drives, and the
 /// read-only catalogue, timeline and detail projections.
 /// </summary>
-public sealed class AnalyticEventService(IAnalyticEventRepository repository, TimeProvider timeProvider)
+public sealed class AnalyticEventService(
+    IAnalyticEventRepository repository,
+    TimeProvider timeProvider,
+    ILogger<AnalyticEventService> logger)
 {
+    private static readonly Action<ILogger, Guid, string, Exception?> LogUnitFailed =
+        LoggerMessage.Define<Guid, string>(
+            LogLevel.Error,
+            new EventId(1963, "AnalyticEventsUnitFailed"),
+            "Analytic events could not be derived for analysis unit {SceneAnalysisId} ({CatalogueVersion}); the sweep continues with the next unit.");
+
     /// <summary>
     /// Derives up to <paramref name="batchSize"/> units that have no derivation at the
     /// current catalogue version, each in its own transaction. Returns how many were derived.
@@ -23,9 +33,23 @@ public sealed class AnalyticEventService(IAnalyticEventRepository repository, Ti
         var derived = 0;
         foreach (var unitId in due)
         {
-            var outcome = await repository.DeriveAsync(unitId, catalogue, timeProvider.GetUtcNow(), cancellationToken);
-            if (outcome == EventDerivationOutcome.Derived)
-                derived++;
+            try
+            {
+                var outcome = await repository.DeriveAsync(unitId, catalogue, timeProvider.GetUtcNow(), cancellationToken);
+                if (outcome == EventDerivationOutcome.Derived)
+                    derived++;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+#pragma warning disable CA1031 // One unit that cannot be derived must not starve every unit behind it.
+            catch (Exception exception)
+#pragma warning restore CA1031
+            {
+                // Its runs stay "events not derived yet" in coverage, which is the operator-facing truth.
+                LogUnitFailed(logger, unitId, catalogue.CatalogueVersion, exception);
+            }
         }
 
         return derived;
@@ -59,7 +83,18 @@ public sealed class AnalyticEventService(IAnalyticEventRepository repository, Ti
         var zoneNames = result.Zones.ToDictionary(zone => zone.ZoneId, zone => zone.Name);
         var lines = result.Lines.ToDictionary(line => line.LineId);
 
-        var crossingCounts = result.Lines
+        // A count is only ever reported for a rule that ran over at least one derived run.
+        // A rule filtered out, disabled, or not yet derived anywhere has no count rather
+        // than a zero: a zero would claim an observed absence (ADR-025 §5).
+        var counted = result.DerivedRuns == 0
+            ? []
+            : catalogue.Rules
+                .Where(rule => rule.Enabled && (query.RuleIds is null || query.RuleIds.Contains(rule.RuleId)))
+                .Select(rule => rule.RuleId)
+                .ToList();
+        var crossingCounts = !counted.Contains(EventRuleIds.LineCrossing)
+            ? []
+            : result.Lines
             .OrderBy(line => line.Name, StringComparer.Ordinal)
             .Select(line =>
             {
@@ -90,10 +125,8 @@ public sealed class AnalyticEventService(IAnalyticEventRepository repository, Ti
             query.BucketSeconds,
             new AnalyticEventCoverageResponse(ToCoverage(result.Coverage!), result.DerivedRuns, result.EventsPendingRuns),
             [.. buckets.Select(bucket => new AnalyticsBucketResponse(bucket.StartUtc, bucket.EndUtc))],
-            [.. catalogue.Rules
-                .Where(rule => query.RuleIds is null || query.RuleIds.Contains(rule.RuleId))
-                .Select(rule => new AnalyticEventRuleCountResponse(
-                    rule.RuleId, result.RuleCounts.TryGetValue(rule.RuleId, out var count) ? count : 0))],
+            [.. counted.Select(ruleId => new AnalyticEventRuleCountResponse(
+                ruleId, result.RuleCounts.TryGetValue(ruleId, out var count) ? count : 0))],
             crossingCounts,
             [.. result.Events.Select(row => Summary(row, zoneNames, lines))],
             query.Limit,

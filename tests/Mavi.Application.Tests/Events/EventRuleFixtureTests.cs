@@ -71,7 +71,7 @@ public sealed class EventRuleFixtureTests
 
         Assert.Equal(Person, single.PrimaryTrackId);
         Assert.Equal(Pavement, single.ZoneId);
-        Assert.Equal(1_000, single.StartOffsetMs);
+        Assert.Equal(25_000, single.StartOffsetMs);
         Assert.Equal(30_000, single.EndOffsetMs);
         // 10 s in the first visit, 5 s more needed in the second, which began at 20 s.
         Assert.Equal("25000", single.Provenance.Details.Single(detail => detail.Name == "thresholdReachedOffsetMs").Value);

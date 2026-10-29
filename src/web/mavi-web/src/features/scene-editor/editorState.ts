@@ -220,6 +220,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         directed: false,
         aToBLabel: 'A to B',
         bToALabel: 'B to A',
+        permittedDirection: null,
       };
       return withDraft(state, {
         ...state.draft,

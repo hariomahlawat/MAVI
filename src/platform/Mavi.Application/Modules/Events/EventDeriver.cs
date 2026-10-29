@@ -37,6 +37,11 @@ public static class EventDeriver
             states.Add(new EventRuleState(rule.RuleId, rule.RuleVersion, true, null, drafts.Count));
         }
 
+        // Two events of one derivation sharing an identity would be a discriminator defect;
+        // fail loudly here rather than as a database conflict that reads like a duplicate run.
+        if (events.Select(item => item.EventId).Distinct().Count() != events.Count)
+            throw new InvalidOperationException("Two derived events share one identity.");
+
         var ordered = events
             .OrderBy(item => item.StartOffsetMs)
             .ThenBy(item => item.RuleId, StringComparer.Ordinal)

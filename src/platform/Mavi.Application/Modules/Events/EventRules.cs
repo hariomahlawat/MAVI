@@ -84,6 +84,9 @@ public static class EventRules
                 accumulated += visit.DwellMs;
             }
 
+            // The event is the moment the threshold was reached, through the last exit; the
+            // first entry stays in the provenance. A summary whose persisted visits do not
+            // add up to its own verdict (not expected) falls back to the first entry.
             events.Add(new EventDraft(
                 summary.TrackId.ToString("D") + "/" + summary.ZoneId.ToString("D"),
                 summary.TrackId,
@@ -91,7 +94,7 @@ public static class EventRules
                 summary.ZoneId,
                 LineId: null,
                 Direction: null,
-                visits[0].EntryOffsetMs,
+                reachedAt ?? visits[0].EntryOffsetMs,
                 visits.Max(visit => visit.ExitOffsetMs),
                 new EventProvenance(
                     [new EventParticipant(summary.TrackId, SubjectRole, objectClass)],
@@ -108,6 +111,7 @@ public static class EventRules
                             "zone loiteringThresholdSeconds at the unit's revision (engine default when unset)"),
                     ],
                     [
+                        new EventDetail("firstEntryOffsetMs", Number(visits[0].EntryOffsetMs)),
                         new EventDetail("totalDwellMs", Number(summary.TotalDwellMs)),
                         new EventDetail("visitCount", Number(summary.VisitCount)),
                         new EventDetail("thresholdReachedOffsetMs", reachedAt is { } at ? Number(at) : "unknown"),

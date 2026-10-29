@@ -225,6 +225,17 @@ describe('EventsPage', () => {
     expect(screen.getByText('No events in the evaluated runs so far.')).toBeInTheDocument();
   });
 
+  it('says to choose a rule when every rule is unticked, instead of loading forever', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('checkbox', { name: /Line crossing/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Stopped vehicle/ }));
+
+    expect(await screen.findByText('No rule selected')).toBeInTheDocument();
+    expect(screen.queryByText('Loading events…')).not.toBeInTheDocument();
+  });
+
   it('discloses truncation', async () => {
     vi.mocked(getEventTimeline).mockResolvedValue(timeline({ truncated: true, limit: 1 }));
     renderPage();

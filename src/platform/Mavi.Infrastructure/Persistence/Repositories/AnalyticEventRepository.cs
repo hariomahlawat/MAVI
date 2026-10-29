@@ -30,6 +30,7 @@ namespace Mavi.Infrastructure.Persistence.Repositories;
 public sealed class AnalyticEventRepository(MaviDbContext db) : IAnalyticEventRepository
 {
     private const string UniqueViolation = "23505";
+    private const string DerivationUniqueIndex = "ux_analytic_event_derivations_unit_catalogue";
 
     public async Task<IReadOnlyList<Guid>> ListUnitsAwaitingDerivationAsync(
         string catalogueVersion,
@@ -122,7 +123,11 @@ public sealed class AnalyticEventRepository(MaviDbContext db) : IAnalyticEventRe
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
-        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: UniqueViolation })
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+                                                 {
+                                                     SqlState: UniqueViolation,
+                                                     ConstraintName: DerivationUniqueIndex,
+                                                 })
         {
             // Another writer won; its derivation is the same deterministic answer.
             db.ChangeTracker.Clear();
@@ -296,7 +301,9 @@ public sealed class AnalyticEventRepository(MaviDbContext db) : IAnalyticEventRe
             .Where(item => derivedUnitIds.Contains(item.SceneAnalysisId) &&
                            item.CatalogueVersion == catalogueVersion &&
                            item.StartUtc < query.ToUtc &&
-                           item.EndUtc >= query.FromUtc);
+                           // Half-open [from, to): a span that ended exactly at "from" is outside;
+                           // a point event at "from" is inside.
+                           (item.EndUtc > query.FromUtc || item.StartUtc >= query.FromUtc));
         if (query.RuleIds is { } ruleIds)
         {
             var allowed = ruleIds.ToList();
@@ -335,7 +342,7 @@ public sealed class AnalyticEventRepository(MaviDbContext db) : IAnalyticEventRe
             .Where(item => item.RuleId == EventRuleIds.LineCrossing &&
                            item.LineId != null &&
                            item.StartUtc >= query.FromUtc)
-            .Select(item => new EventCrossingPoint(item.LineId!.Value, item.StartUtc, item.Direction == "AToB"))
+            .Select(item => new EventCrossingPoint(item.LineId!.Value, item.StartUtc, item.Direction == CrossingDirection.AToB))
             .ToListAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
