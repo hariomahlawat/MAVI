@@ -129,6 +129,12 @@ function Get-MaviPocModelVerificationStatus {
 $script:PocIdentityMode = "windows-negotiate"
 $script:PocOperatorGroups = @("BUILTIN\Users")
 
+# The URL an operator opens (owner decision D-242-3). Browsers send Windows credentials silently to
+# localhost but not to 127.0.0.1 (ADR-010 section 3). The platform still listens on 127.0.0.1 only, and
+# scripts and the worker keep apiBaseUrl on 127.0.0.1: through localhost every new connection
+# first tries ::1 and costs about 2 s on Windows.
+function Get-MaviPocOperatorUrl([int]$HttpPort) { "http://localhost:$HttpPort" }
+
 # Release metadata (mavi-poc-release-metadata-v1). The disclosure fields are fixed here
 # and checked again by the platform at start-up (DeploymentDisclosureReader); there is no
 # parameter that changes them.
@@ -402,4 +408,4 @@ function Get-MaviPocRecordedProcess {
     return $process
 }
 
-Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras
+Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras

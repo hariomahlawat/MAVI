@@ -160,4 +160,5 @@ catch {
     throw
 }
 Write-Host ""
-Write-Host "MAVI PoC running: $apiBaseUrl" -ForegroundColor Green
+$operatorUrl = if ([string]$state.operatorUrl) { [string]$state.operatorUrl } else { $apiBaseUrl }
+Write-Host "MAVI PoC running: $operatorUrl" -ForegroundColor Green
