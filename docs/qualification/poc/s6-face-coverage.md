@@ -72,3 +72,45 @@ A 0.8 threshold is a hypothesis from this look. It is not evidence. Adopting it 
 - **Unknown dominates.** It is the honest majority result.
 
 **Owner decision S6-1** (coverage and demonstration scope) is raised with the coordinator. The options and recommendation are in the S6 report.
+
+## Re-measurement on the A6 clip (protocol `s6-face-coverage-v2`; owner decision D-S6-2(a))
+
+**Protocol:** `s6-face-coverage-v2`, the `--protocol v2` mode of `tools/poc/faces_coverage.py`. It was committed (`fcba1d2f`) before any detection on its clip.
+**Raw outputs:** `E:\MAVI-Controlled\PoC\S6\coverage-v2\`. `SHA256SUMS` SHA-256 `f3408441465e6537133e1535dccd0cd2aec039bc5fa561067dbb049258d27259`.
+
+**Clip.** S2 amendment A6 added one clip: **s2-13**, MEVA G420, the school entrance hall. It comes from the same release and slot as s2-08 to s2-12. The other four candidate views were outdoor (S2 admissibility §13).
+
+**Run.** The clip was processed into the same Development database and pipeline as v1: RTMDet `mavi-model-v2-86754e36…`, `windows-x86_64-cuda`, run `01a188f7-d6de-742e-beef-125ee7cf87cd`. That gave 30 Tracks, all 30 of them Person Tracks, with 103 evidence crops and 0 hash mismatches.
+
+**Primary result (unchanged rule: score ≥ 0.9, shorter side ≥ 32 px): 5 of 30 Person Tracks (16.7 %) have a usable face.**
+
+| Clip | Person Tracks | Crops | Median crop shorter side (px) | Any face at 0.9 | Usable (≥ 32 px, 0.9) |
+|---|---:|---:|---:|---:|---:|
+| s2-13 MEVA entrance hall | 30 | 103 | 148 | 6 | **5** |
+
+**Sensitivity:**
+
+| Score | ≥ 16 px | ≥ 24 px | ≥ 32 px | ≥ 48 px | ≥ 64 px |
+|---|---:|---:|---:|---:|---:|
+| 0.9 | 6 | 6 | 5 | 1 | 0 |
+| 0.6 | 27 | 26 | 21 | 10 | 6 |
+
+**Threshold rule (predeclared).** The detector threshold moves to 0.8 only if all three conditions hold for the band (0.8 ≤ score < 0.9, shorter side ≥ 32 px):
+
+| Condition | Required | Measured | Holds |
+|---|---|---|---|
+| (i) detections in the band | ≥ 5 | 26 | yes |
+| (ii) band detections that are faces, in one diagnostic look | ≥ 90 % | **20 / 26 = 77 %** | **no** |
+| (iii) Person Tracks with a usable face added by the band | ≥ 1 | 13 | yes |
+
+The faces criterion in (ii) was: the eyes or the front of the face are visible, frontal or profile. The six detections that did not meet it were crowns of heads looking down, a rear-side view and a hat brim hiding the eyes. Counting the two most borderline ones as faces would give 85 %, still under the bar.
+
+The look is recorded as counts only, in `diagnostic-look.txt`. No label was kept, and the temporary sheet was deleted.
+
+**Decision: the role keeps the detector threshold at 0.9.** `src/vision/config/faces/development-faces-adaface-v1.json` is unchanged.
+
+**Reading.**
+- **Coverage improved.** With s2-13, the corpus has usable faces in **7 of 140 Person Tracks** (5 %). They come from two indoor cameras: s2-12 (2/9) and s2-13 (5/30).
+- **A same-slot demonstration is now possible.** "Find this face" can be shown across two cameras of the same slot (s2-12 and s2-13), but only for actors whose face is usable in both. The protocol does not test whether the same actor appears in both, and no identity label is created.
+- **The 0.8 band is mostly faces.** At 77 % faces, it would add 13 Tracks, but a quarter of its detections would be crowns or rear views that embed poorly. The 0.9 rule keeps Unknown honest.
+- **Unknown remains the majority result.**
