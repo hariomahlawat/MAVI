@@ -140,6 +140,14 @@ export default function VideoReviewPage() {
   });
 
   const detail = track.data;
+  // An Events drill-through names the instant to show (`seekMs`, media offset): the
+  // event, not the Track's first frame. A plate source selection made afterwards
+  // replaces it, as any later operator request does.
+  const rawSeekMs = searchParams.get('seekMs');
+  const linkedSeek = useMemo(() => {
+    if (rawSeekMs === null || !/^\d{1,10}$/.test(rawSeekMs)) return undefined;
+    return { serial: 0, offsetMs: Number(rawSeekMs) };
+  }, [rawSeekMs]);
   const [plateSelection, setPlateSelection] = useState<{
     observationId: string; seek: { serial: number; offsetMs: number };
   } | null>(null);
@@ -245,7 +253,7 @@ export default function VideoReviewPage() {
             <TrackEvidence
               detail={detail}
               analytics={analyticsEvidence}
-              seekRequest={plateSelection?.seek}
+              seekRequest={plateSelection?.seek ?? linkedSeek}
               trajectory={trajectory.data}
               // A layer request: a first-load failure is stated in the player
               // with its retry; a failed refresh keeps the drawn path (§14.1).

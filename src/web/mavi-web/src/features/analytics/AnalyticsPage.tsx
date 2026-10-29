@@ -244,7 +244,12 @@ export default function AnalyticsPage() {
             </>
           );
         })()}
-        actions={<ButtonLink size="sm" variant="ghost" to={`/cameras/${cameraId}/scene`}>Scene configuration</ButtonLink>}
+        actions={(
+          <>
+            <ButtonLink size="sm" variant="ghost" to={`/cameras/${cameraId}/events`}>Events</ButtonLink>
+            <ButtonLink size="sm" variant="ghost" to={`/cameras/${cameraId}/scene`}>Scene configuration</ButtonLink>
+          </>
+        )}
       />
 
       <WorkbenchLayout
