@@ -233,6 +233,37 @@
             "anyio/idna/certifi/h11/annotated-types/typing-extensions/typing-inspection/python-dotenv/packaging": "MIT/BSD/MPL-2.0 (certifi) as in the vision lock"
           }
         }
+      },
+      "pocCudaRuntimeVariants": {
+        "windows-x86_64-cuda-sm75-sm89": {
+          "scope": "poc-single-host",
+          "purpose": "PoC S1b (plan D9, ADR-020): the mmdetection-phase1-v1 Windows CUDA Runtime Pack rebuilt with MMCV native ops for sm_75 and sm_89 so the RTX 4090 demonstration host runs native SASS; Development grade, never Production.",
+          "buildContract": "config/vision/windows-cuda-development-build-v2.json",
+          "lock": "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda-sm75-sm89.lock",
+          "lockSha256": "e208c79a1a3b09339022132bd597a99996518d6e09677cbd2915c50845ccb46a",
+          "differsFromV1": "only the mmcv==2.1.0 wheel hash (tools/verify_repo.py enforces it)",
+          "packagedBy": "tools/vision/build_runtime_pack.py --contract config/vision/windows-cuda-development-build-v2.json; carried by tools/setup/New-MaviOfflineBinaryKit.ps1 -VisionCudaRuntimePack and tools/setup/New-MaviPocSetupBundle.ps1 -VisionRuntimeCudaSm89Source",
+          "installedBy": "tools/setup/Install-MAVI-PoC.ps1 (-CudaRuntimePack Auto selects it on compute capability 8.9 only) via tools/setup/Install-MaviVisionRuntime.ps1 (pip --no-index --require-hashes)",
+          "verification": "verify_repo derives the Runtime Pack id from the lock and the contract's native ABI and holds contract, catalogue and lock consistent; laptop: offline install, pip check, mmcv CUDA op on sm_75; sm_89 execution waits for register row A7",
+          "licences": {
+            "mmcv": "Apache-2.0",
+            "torch/torchvision": "BSD-3-Clause (as in the v1 lock)",
+            "other wheels": "identical to the v1 Windows CUDA lock"
+          },
+          "runbook": "docs/runbooks/poc-windows-cuda-sm89-variant.md"
+        }
+      },
+      "pocOnnxRuntimeGpu": {
+        "scope": "poc-single-host",
+        "purpose": "Development-grade CUDA execution provider for the ONNX roles (plates, embeddings, faces) on GPU hosts (plan D9); pinned at S1b, bound by the consuming slices.",
+        "requirement": "onnxruntime-gpu==1.26.0",
+        "wheelSha256": "5f49c44689894650990e4c8a857d2edafc276fbd79bba57ceb224bd18d25d491",
+        "packagedBy": "tools/setup/New-MaviOfflineBinaryKit.ps1 -OnnxRuntimeGpuWheel (hash checked against the catalogue's onnxruntimeGpuDevelopmentCandidate)",
+        "installedBy": "not installed by S1b; a consuming runtime family adds it to its lock",
+        "verification": "laptop CUDA EP probe with the torch cu124 CUDA 12.4 / cuDNN 9.1 DLLs (E:\\MAVI-Controlled\\PoC\\S1b)",
+        "licences": {
+          "onnxruntime-gpu": "MIT"
+        }
       }
     }
   },
