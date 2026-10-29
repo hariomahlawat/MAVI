@@ -49,6 +49,13 @@ describe('the About page (ADR-020 §3)', () => {
         { kind: 'runtime', role: 'vision', capabilityId: null, packId: 'mavi-runtime-v2-cpu', variant: 'windows-x86_64-cpu', verificationStatus: 'qualified-development', note: null },
         { kind: 'model', role: 'vision', capabilityId: 'detector', packId: 'mavi-model-v2-rtmdet', variant: null, verificationStatus: 'verified', note: null },
       ],
+      identity: {
+        mode: 'windows-negotiate',
+        attributable: true,
+        operatorsConfigured: true,
+        statement: 'Operators are identified by their Windows account; every recorded action names the account.',
+        installedMode: 'windows-negotiate',
+      },
     });
     renderPage();
 
@@ -59,5 +66,36 @@ describe('the About page (ADR-020 §3)', () => {
     expect(rows).toHaveLength(3);
     expect(rows[2]).toHaveTextContent('mavi-model-v2-rtmdet');
     expect(rows[2]).toHaveTextContent('verified');
+    expect(screen.getByText('Windows account (Negotiate)')).toBeInTheDocument();
+    expect(screen.getByText('Attributed to a Windows account')).toBeInTheDocument();
+  });
+
+  it('labels the development fallback identity as unattributed (ADR-010 §3)', async () => {
+    vi.mocked(getDeploymentDisclosure).mockResolvedValue({
+      schemaVersion: 'mavi-deployment-disclosure-v1',
+      profile: 'poc-single-host',
+      productionQualified: false,
+      evidenceClass: 'Development',
+      statement: 'Proof-of-concept installation (profile poc-single-host). Not Production-qualified. Evidence class: Development.',
+      metadataStatus: 'verified',
+      applicationRevision: null,
+      installedAtUtc: null,
+      deviceStatus: 'not-reported',
+      device: null,
+      packs: [],
+      identity: {
+        mode: 'development-unattributed',
+        attributable: false,
+        operatorsConfigured: true,
+        statement: "Development fallback identity: actions are recorded as 'development-unattributed' and are not attributable to a person.",
+        installedMode: 'windows-negotiate',
+      },
+    });
+    renderPage();
+
+    expect(await screen.findByText('Development fallback (unattributed)')).toBeInTheDocument();
+    expect(screen.getByText('Not attributable')).toBeInTheDocument();
+    expect(screen.getByText(/not attributable to a person/)).toBeInTheDocument();
+    expect(screen.getByText('windows-negotiate')).toBeInTheDocument();
   });
 });

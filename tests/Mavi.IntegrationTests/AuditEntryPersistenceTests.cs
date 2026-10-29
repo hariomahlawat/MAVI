@@ -1,0 +1,142 @@
+using Mavi.Application.Modules.Audit;
+using Mavi.Application.Modules.Identity;
+using Mavi.Domain.Cameras;
+using Mavi.Infrastructure.Audit;
+using Mavi.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+
+namespace Mavi.IntegrationTests;
+
+/// <summary>
+/// ADR-010 §4 against PostgreSQL: an audit entry commits and rolls back with the mutation it records,
+/// takes its time from the server's <see cref="TimeProvider"/>, and the table refuses UPDATE, DELETE
+/// and TRUNCATE from any client.
+/// </summary>
+[Collection(DatabaseIntegrationGroup.Name)]
+public sealed class AuditEntryPersistenceTests(PostgresFixture fixture)
+{
+    private static readonly DateTimeOffset ServerNow = new(2026, 10, 29, 9, 30, 0, TimeSpan.Zero);
+    private static readonly OperatorIdentity Alice = new("S-1-5-21-1-2-3-1001", "HOST\\alice", OperatorIdentityModes.WindowsNegotiate);
+
+    [Fact]
+    public async Task TheEntryCommitsWithTheMutationItRecords()
+    {
+        await using var db = await MigratedAsync();
+        var camera = Camera.Create("AUDIT-01", "Audited camera", "UTC");
+        db.Cameras.Add(camera);
+        var receipt = Writer(db).Append(new AuditRecord("cameras.created", "camera", camera.Id.ToString(), new { camera.Code }));
+
+        await db.SaveChangesAsync();
+
+        await using var read = fixture.CreateDbContext();
+        Assert.True(await read.Cameras.AnyAsync(x => x.Id == camera.Id));
+        var entry = await read.AuditEntries.SingleAsync();
+        Assert.Equal(receipt.AuditEntryId, entry.Id);
+        Assert.Equal(Alice.OperatorId, entry.OperatorId);
+        Assert.Equal(Alice.DisplayName, entry.OperatorDisplayName);
+        Assert.Equal(OperatorIdentityModes.WindowsNegotiate, entry.IdentitySource);
+        Assert.Equal("cameras.created", entry.Action);
+        Assert.Equal(camera.Id.ToString(), entry.SubjectId);
+        Assert.Equal(ServerNow, entry.RecordedAtUtc);
+        Assert.Equal(AuditPayload.Sha256(new { camera.Code }), entry.PayloadSha256);
+        Assert.Equal("correlation-1", entry.CorrelationId);
+    }
+
+    [Fact]
+    public async Task AFailedMutationLeavesNoEntry()
+    {
+        await using var db = await MigratedAsync();
+        db.Cameras.Add(Camera.Create("AUDIT-02", "First", "UTC"));
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        // The same code again: the unique index refuses the camera, and the entry staged with it goes too.
+        var duplicate = Camera.Create("AUDIT-02", "Duplicate", "UTC");
+        db.Cameras.Add(duplicate);
+        Writer(db).Append(new AuditRecord("cameras.created", "camera", duplicate.Id.ToString(), null));
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+
+        await using var read = fixture.CreateDbContext();
+        Assert.Equal(0, await read.AuditEntries.CountAsync());
+        Assert.Equal(1, await read.Cameras.CountAsync());
+    }
+
+    [Fact]
+    public async Task ARolledBackTransactionTakesTheEntryWithIt()
+    {
+        await using var db = await MigratedAsync();
+        await using (var transaction = await db.Database.BeginTransactionAsync())
+        {
+            var camera = Camera.Create("AUDIT-03", "Rolled back", "UTC");
+            db.Cameras.Add(camera);
+            Writer(db).Append(new AuditRecord("cameras.created", "camera", camera.Id.ToString(), null));
+            await db.SaveChangesAsync();
+            await transaction.RollbackAsync();
+        }
+
+        await using var read = fixture.CreateDbContext();
+        Assert.Equal(0, await read.AuditEntries.CountAsync());
+        Assert.Equal(0, await read.Cameras.CountAsync());
+    }
+
+    [Theory]
+    [InlineData("UPDATE audit_entries SET operator_id = 'someone-else'", "UPDATE")]
+    [InlineData("DELETE FROM audit_entries", "DELETE")]
+    [InlineData("TRUNCATE audit_entries", "TRUNCATE")]
+    public async Task TheDatabaseRefusesToChangeOrRemoveAnEntry(string sql, string operation)
+    {
+        await using var db = await MigratedAsync();
+        var receipt = await Writer(db).AppendAndCommitAsync(new AuditRecord("system.check", "system", "1", null), CancellationToken.None);
+
+        // Raw SQL on its own connection: the guard is the database's, not the application's.
+        await using (var connection = new NpgsqlConnection(fixture.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(sql, connection);
+            var exception = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync());
+            Assert.Equal(PostgresErrorCodes.ObjectNotInPrerequisiteState, exception.SqlState);
+            Assert.Contains($"append-only: {operation} is refused", exception.MessageText, StringComparison.Ordinal);
+        }
+
+        await using var read = fixture.CreateDbContext();
+        var entry = await read.AuditEntries.SingleAsync();
+        Assert.Equal(receipt.AuditEntryId, entry.Id);
+        Assert.Equal(Alice.OperatorId, entry.OperatorId);
+    }
+
+    [Fact]
+    public async Task WithoutAnOperatorNothingIsStaged()
+    {
+        await using var db = await MigratedAsync();
+        var writer = new AuditWriter(db, new FixedOperator(null), new FixedCorrelation(), new FixedClock());
+
+        Assert.Throws<InvalidOperationException>(() => writer.Append(new AuditRecord("system.check", "system", "1", null)));
+        Assert.Empty(db.ChangeTracker.Entries());
+    }
+
+    private async Task<MaviDbContext> MigratedAsync()
+    {
+        await fixture.ResetDatabaseAsync();
+        var db = fixture.CreateDbContext();
+        await db.Database.MigrateAsync();
+        return db;
+    }
+
+    private static AuditWriter Writer(MaviDbContext db) => new(db, new FixedOperator(Alice), new FixedCorrelation(), new FixedClock());
+
+    private sealed class FixedOperator(OperatorIdentity? identity) : ICurrentOperator
+    {
+        public OperatorIdentity? Current => identity;
+    }
+
+    private sealed class FixedCorrelation : IAuditCorrelation
+    {
+        public string CorrelationId => "correlation-1";
+    }
+
+    private sealed class FixedClock : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => ServerNow;
+    }
+}

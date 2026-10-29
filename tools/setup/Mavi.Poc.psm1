@@ -123,6 +123,12 @@ function Get-MaviPocModelVerificationStatus {
     return "unrecorded"
 }
 
+# Operator identity (ADR-010): every interactive local user of the dedicated, trusted PoC host
+# (owner decision S1-T1) is an operator, attributed to their own Windows account. The release
+# metadata records the mode installed; the platform discloses it beside the mode in effect.
+$script:PocIdentityMode = "windows-negotiate"
+$script:PocOperatorGroups = @("BUILTIN\Users")
+
 # Release metadata (mavi-poc-release-metadata-v1). The disclosure fields are fixed here
 # and checked again by the platform at start-up (DeploymentDisclosureReader); there is no
 # parameter that changes them.
@@ -150,6 +156,7 @@ function New-MaviPocReleaseMetadata {
         application = [ordered]@{ revision = $ApplicationRevision; bundleSha256 = $BundleSha256 }
         installedAtUtc = $InstalledAtUtc
         devicePolicy = $DevicePolicy
+        identityMode = $script:PocIdentityMode
         cudaRuntimeDecision = $CudaDecision
         packs = @($Packs)
     }
@@ -173,6 +180,10 @@ function New-MaviPocMachineConfig {
             Profile = $script:PocProfile
             ReleaseMetadataPath = $Layout.ReleaseMetadataPath
             DeviceResolutionPath = $Layout.DeviceResolutionPath
+        }
+        Identity = [ordered]@{
+            Mode = $script:PocIdentityMode
+            Operators = [ordered]@{ AuthorizedGroups = @($script:PocOperatorGroups) }
         }
     }
 }

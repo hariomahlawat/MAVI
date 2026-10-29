@@ -31,6 +31,13 @@ const poc: DeploymentDisclosure = {
     verifyOnly: false,
   },
   packs: [],
+  identity: {
+    mode: 'disabled',
+    attributable: false,
+    operatorsConfigured: false,
+    statement: 'Operator identity is not configured: attributable actions are unavailable.',
+    installedMode: null,
+  },
 };
 
 function renderBanner() {

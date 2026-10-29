@@ -17,6 +17,7 @@
         "Pgvector.EntityFrameworkCore": "0.3.0"
       },
       "src/platform/Mavi.Api/Mavi.Api.csproj": {
+        "Microsoft.AspNetCore.Authentication.Negotiate": "10.0.14",
         "Microsoft.AspNetCore.SpaProxy": "10.0.11",
         "Microsoft.EntityFrameworkCore.Design": "10.0.11",
         "Microsoft.EntityFrameworkCore.Relational": "10.0.11"

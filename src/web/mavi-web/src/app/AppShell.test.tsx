@@ -30,6 +30,13 @@ vi.mock('../api/deployment', async (importOriginal) => ({
     deviceStatus: 'not-reported',
     device: null,
     packs: [],
+    identity: {
+      mode: 'disabled',
+      attributable: false,
+      operatorsConfigured: false,
+      statement: 'Operator identity is not configured: attributable actions are unavailable.',
+      installedMode: null,
+    },
   })),
 }));
 vi.mock('../features/system/SystemPage', () => ({ default: () => <h2>About route</h2> }));

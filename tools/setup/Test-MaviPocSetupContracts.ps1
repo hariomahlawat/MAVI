@@ -70,6 +70,10 @@ try {
     if ($config.Kestrel.Endpoints.Http.Url -ne "http://127.0.0.1:8090") { throw "The PoC platform must listen on loopback only." }
     if ($config.Deployment.Profile -ne "poc-single-host" -or $config.Deployment.ReleaseMetadataPath -ne $layout.ReleaseMetadataPath) { throw "The machine configuration must declare the PoC profile and its metadata." }
     if (@($config.Deployment.Keys) -join "," -ne "Profile,ReleaseMetadataPath,DeviceResolutionPath") { throw "The Deployment section carries a key the platform does not define." }
+    if ($config.Identity.Mode -ne "windows-negotiate" -or (@($config.Identity.Operators.AuthorizedGroups) -join ",") -ne "BUILTIN\Users") { throw "The PoC platform must identify operators by Windows account (ADR-010)." }
+    if ($metadata.identityMode -ne $config.Identity.Mode) { throw "The release metadata must record the identity mode the machine configuration sets." }
+    $serialised = ConvertTo-Json -InputObject $config -Depth 8 | ConvertFrom-Json
+    if (@($serialised.Identity.Operators.AuthorizedGroups).Count -ne 1 -or $serialised.Identity.Operators.AuthorizedGroups -isnot [array]) { throw "The operator groups must serialise as a JSON array." }
 
     # --- Demo cameras: the S2 demo-corpus manifest (copied byte-identical), unique codes. ---
     $cameras = Read-MaviPocDemoCameras -Path (Join-Path $repoRoot "config\poc\demo-cameras-v1.json")
