@@ -152,6 +152,8 @@ The generated kit contains no MAVI application build. It contains the external W
 - the repository-owned binary/version catalog; and
 - SHA-256 identity for every installer and retained payload byte.
 
+For a `poc-single-host` kit, `-VisionCudaRuntimePack <pack>[,<pack>]` adds the Windows CUDA Runtime Packs (only the component binding's `windows-x86_64-cuda` pin and its declared Development builds are accepted, each re-hashed against its manifest) under `vendor/vision/runtime/<build>`, and `-OnnxRuntimeGpuWheel <wheel>` adds the catalogue-pinned `onnxruntime-gpu` wheel under `vendor/vision/onnxruntime-gpu`; the kit manifest records them under its top-level `pocVision` (null when none were given). Both are Development grade (ADR-020) and never Production payloads.
+
 Keep this ZIP with release/development media. Do not commit it to ordinary Git.
 
 ### 5. Publish MAVI with app-local FFmpeg
@@ -312,17 +314,17 @@ powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviPocSetupBundle.ps1 
   -VisionRuntimeCpuSource "<Windows CPU Runtime Pack bundle>" `
   -ModelPackSource "<built Model Pack>" `
   -PlatesCache "<cache with python-plates-pilot-wheelhouse\ and plates-pilot-payloads\>" `
-  [-VisionRuntimeCudaSource "<Windows CUDA Runtime Pack bundle>"] [-SmokeClip <clip.mp4> -SmokeClipLicence "<CC0/CC-BY attribution>"]
+  [-VisionRuntimeCudaSource "<v1 sm_75 Windows CUDA Runtime Pack>"] [-VisionRuntimeCudaSm89Source "<sm_75;sm_89 Windows CUDA Runtime Pack>"] [-SmokeClip <clip.mp4> -SmokeClipLicence "<CC0/CC-BY attribution>"]
 ~~~
 
-The builder exports the exact commit first (`git archive`; uncommitted changes never ship) and reads the component binding and the binary catalogue from that export, not from the preparer's checkout; it publishes the platform from it, writes the **application overlay** (the repository subset the setup scripts and workers read, with `mavi-application-overlay.json`: revision + per-file SHA-256), copies the PostgreSQL runtime pack, FFmpeg and the Hosting Bundle from the kit, copies the Runtime and Model Packs the component binding names (and refuses any other), copies the plates cache, and hashes every file into `mavi-poc-bundle.json`. The kit's catalogue entries for PostgreSQL, pgvector, FFmpeg and the Hosting Bundle must equal the repository's; the kit's developer caches are not shipped, so their freshness does not apply. The plates payloads may come from `plates_pilot_packs.py fetch` or, verified by SHA-256, from the Stage-4 controlled candidate store.
+The builder exports the exact commit first (`git archive`; uncommitted changes never ship) and reads the component binding and the binary catalogue from that export, not from the preparer's checkout; it publishes the platform from it, writes the **application overlay** (the repository subset the setup scripts and workers read, with `mavi-application-overlay.json`: revision + per-file SHA-256), copies the PostgreSQL runtime pack, FFmpeg and the Hosting Bundle from the kit, copies the Runtime and Model Packs the component binding names, including a declared Development build of a variant (ADR-014 amendment 2026-10-29), and refuses any other, copies the plates cache, and hashes every file into `mavi-poc-bundle.json`. The kit's catalogue entries for PostgreSQL, pgvector, FFmpeg and the Hosting Bundle must equal the repository's; the kit's developer caches are not shipped, so their freshness does not apply. The plates payloads may come from `plates_pilot_packs.py fetch` or, verified by SHA-256, from the Stage-4 controlled candidate store.
 
 ### Installing (target, network disconnected)
 
 Double-click `Install-MAVI-PoC.cmd` in the bundle and approve elevation, or from an elevated prompt:
 
 ~~~powershell
-Install-MAVI-PoC.cmd -InstallRoot "E:\MAVI-PoC\Program" -DataRoot "E:\MAVI-PoC\Data" [-DevicePolicy Auto|CUDA|CPU] [-AdoptCudaRuntimeRoot <installed CUDA pack>] [-PlanOnly]
+Install-MAVI-PoC.cmd -InstallRoot "E:\MAVI-PoC\Program" -DataRoot "E:\MAVI-PoC\Data" [-DevicePolicy Auto|CUDA|CPU] [-PlatesDevicePolicy Auto|CPU] [-CudaRuntimePack Auto|sm75|sm75-sm89] [-AdoptCudaRuntimeRoot <installed CUDA pack>] [-PlanOnly]
 ~~~
 
 | Item | Value |
@@ -330,11 +332,11 @@ Install-MAVI-PoC.cmd -InstallRoot "E:\MAVI-PoC\Program" -DataRoot "E:\MAVI-PoC\D
 | Roots | `%ProgramFiles%\MAVI\PoC` and `%ProgramData%\MAVI\PoC` by default; every PoC file is under the two roots |
 | PostgreSQL | `MAVI-PoC-PostgreSQL-18`, port 55434, database `mavi_poc`, DPAPI-protected generated credentials |
 | Platform | Kestrel on `http://127.0.0.1:8090` (loopback only: no IIS, no firewall rule); ASP.NET Core 10 from the kit's Hosting Bundle when absent |
-| Vision | CPU Runtime Pack always; the `sm_75` CUDA Runtime Pack when `nvidia-smi` reports compute capability 7.5 and the bundle carries it (or `-AdoptCudaRuntimeRoot` names an installed one, which must pass the launcher's integrity preflight); every bound Model Pack |
-| Plates | `plates-onnx-v1` runtime and its Model Packs, installed and **not bound** (S3 binds them) |
+| Vision | CPU Runtime Pack always; a CUDA Runtime Pack when `nvidia-smi` reports a compute capability a build contract targets and the bundle carries that build: the v1 `sm_75` pack on 7.5, the PoC `sm_75;sm_89` pack (S1b, build contract v2, `built-hashed-locked`) on 8.9; `-CudaRuntimePack` names a build, which must target the GPU (or `-AdoptCudaRuntimeRoot` names an installed one, which must pass the launcher's integrity preflight); every bound Model Pack. The `sm_75;sm_89` pack is the binding's Development build `sm75-sm89`: the launcher and resolver accept it in Development only, on compute capability 7.5 or 8.9 (`docs/runbooks/poc-windows-cuda-sm89-variant.md`) |
+| Plates | **Bound** (PoC S3, plan D4): PD5 (PP-OCRv5 mobile det, Apache-2.0) + OC1-S (fast-plate-ocr cct-s-v2, MIT) on the `plates-onnx-v1` runtime, through `src/vision/config/components/development-plates-onnx-pilot-v1.json`; CPU only (see "Plates role" below) |
 | Machine environment | none written; the launchers are given every root explicitly |
 
-Steps, all offline and idempotent (a rerun verifies and repairs): verify the bundle → PostgreSQL + pgvector + pg_trgm → ASP.NET Core 10 runtime → platform and overlay → Vision Runtime Pack(s) → Model Packs → plates runtime → machine configuration (`<DataRoot>\config\appsettings.poc.machine.json`) → release metadata (`<DataRoot>\release\mavi-release-metadata.json`) → launcher readiness check with the chosen device policy, which writes the device record (`<DataRoot>\run\device-resolution.json`) → start, migrate, seed the demo cameras (`config/poc/demo-cameras-v1.json`: the twelve S2 demo-corpus cameras `POC-S2-01`…`POC-S2-12`, a byte-identical copy of `tools/poc/demo-corpus/demo-cameras-v1.json`; names and time zones only, no scene) → stop. `-PlanOnly` prints the plan and changes nothing; explicit `-DevicePolicy CUDA` without an installable CUDA pack fails closed, in plan-only too. Result: `<DataRoot>\setup\last-install-result.json`; log: `<DataRoot>\logs\install-*.log`.
+Steps, all offline and idempotent (a rerun verifies and repairs): verify the bundle → PostgreSQL + pgvector + pg_trgm → ASP.NET Core 10 runtime → platform and overlay → Vision Runtime Pack(s) → Model Packs → plates runtime and Model Packs → machine configuration (`<DataRoot>\config\appsettings.poc.machine.json`, including the `Plates` section that binds the role) → release metadata (`<DataRoot>\release\mavi-release-metadata.json`, each plate Model Pack with the licence read from its own LICENSE) → launcher readiness check with the chosen device policy, which writes the device record (`<DataRoot>\run\device-resolution.json`) → plates readiness check (the worker composes the release and loads both Model Packs without leasing; its record is `<DataRoot>\run\plates-device-resolution.json`) → start, migrate, seed the demo cameras (`config/poc/demo-cameras-v1.json`: the twelve S2 demo-corpus cameras `POC-S2-01`…`POC-S2-12`, a byte-identical copy of `tools/poc/demo-corpus/demo-cameras-v1.json`; names and time zones only, no scene) → stop. `-PlanOnly` prints the plan and changes nothing; explicit `-DevicePolicy CUDA` without an installable CUDA pack fails closed, in plan-only too. Result: `<DataRoot>\setup\last-install-result.json`; log: `<DataRoot>\logs\install-*.log`.
 
 ### Protections and known limits
 
@@ -355,6 +357,14 @@ Test-MAVI-PoC.cmd -ClipPath "<small .mp4>" [-EvidenceDirectory <dir>]
 ~~~
 
 The smoke test checks health and the disclosure, imports the clip to `POC-S2-01` (`-CameraCode` picks another seeded camera) (a re-import reuses the existing video), waits for processing, requires `GET /api/tracks?videoAssetId=…` to return Tracks and reads the first Track's detail back. It exits 0 only when every step passed and always retains `smoke-result.json` and a transcript.
+
+### Plates role (PoC S3)
+
+- **Binding.** The machine configuration sets `Plates:Enabled=true` and points `Plates:ComponentBindingPath` / `Plates:PipelineProfilePath` at the overlay's PD5 + OC1-S release. The profile is Development-only; a platform **built** for `poc-single-host` (the bundle's `MaviDeploymentProfile`; a `Deployment:Profile` setting alone does not count) accepts it, and only this release (analysis identity `c86c930b…`, never the fixture); every other non-Development host refuses it (`plate_development_definition_forbidden`). `Start-MAVI-PoC.cmd` starts the plates worker (`Start-MaviPlatesPilotWorker.ps1`, worker `poc-plates-01`) after the Vision worker and `Stop-MAVI-PoC.cmd` stops it first.
+- **Device.** The role resolves its own device. `plates-onnx-v1` is a CPU-only runtime (graph `onnxruntime-cpu-v1`; the adapters use the CPU execution provider), so `Auto` resolves CPU with reason `plates_runtime_cpu_only`, `CPU` gives `explicit_cpu`, and `CUDA` fails closed (installer, plan-only and launcher). GPU plates need a CUDA variant of the runtime family (S1b's `onnxruntime-gpu`) and adapter support; until then the About page says CPU and why. `Start-MAVI-PoC.cmd -PlatesDevicePolicy Auto|CPU` overrides the installed choice for one start.
+- **Re-analysis.** `POST /api/plates/reanalysis` is refused (403 `plate_reanalysis_authorisation_not_configured`) until an owner configures an operator key; it then requires that key in the `X-Mavi-Operator-Key` header (401 `plate_reanalysis_unauthorised` otherwise). The platform stores only the key's SHA-256. To enable it, generate a random key (at least 32 random bytes; a short or memorable key can be recovered from its digest, which every signed-in user can read in the machine configuration), for example `$k = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))`, record it for the operator, and in an elevated prompt add `"ReanalysisOperatorKeySha256": "<lowercase SHA-256 of the key's UTF-8 bytes>"` to the `Plates` section of the machine configuration, then restart. Never put the key itself in the machine configuration. This is an interim gate; S11-min replaces it with ADR-010 operator identity.
+- **Disabling plates.** `Plates:Enabled=false` stops new activation and queueing, including explicit re-analysis (409 `plate_analysis_disabled`); the authority loop keeps failing overdue or exhausted units and reclaiming plate staging. This holds on every host: a platform with plates disabled or not configured still runs the (cheap) sweep and staging janitor on its reconcile interval.
+- **Known limits.** The About page carries the plate known limits (H3 proxy measurement 52/110 and 45/79; no Indian plates; candidate readings). See `docs/qualification/poc/known-limits.md`.
 
 ### Device policy (ADR-008, unchanged)
 

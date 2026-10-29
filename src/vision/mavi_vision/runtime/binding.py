@@ -41,6 +41,7 @@ __all__ = [
     "KNOWN_READINESS_CONTRACTS",
     "CapabilityBindingV2",
     "ComponentBindingV2",
+    "DevelopmentBuildV2",
     "RoleV2",
     "RuntimePackVariantV2",
     "load_component_binding",
@@ -90,9 +91,47 @@ class _RuntimePackVariantSchema(StrictModel):
         return require_text(value, code="component_binding_invalid:nativeAbi")
 
 
+_COMPUTE_CAPABILITY_RE = re.compile(r"^[0-9]+\.[0-9]+$")
+# Only a CUDA variant may carry Development builds (ADR-014 amendment 2026-10-29).
+_DEVELOPMENT_BUILD_VARIANTS = frozenset({"windows-x86_64-cuda", "linux-x86_64-cuda"})
+
+
+class _DevelopmentBuildSchema(_RuntimePackVariantSchema):
+    """An alternative, Development-only build of a declared CUDA variant (ADR-014 amendment 2026-10-29)."""
+
+    build_id: str = Field(alias="buildId")
+    compute_capabilities: tuple[str, ...] = Field(alias="computeCapabilities")
+
+    @field_validator("build_id")
+    @classmethod
+    def validate_build_id(cls, value: str) -> str:
+        return require_kebab_id(value, code="component_binding_invalid:buildId")
+
+    @field_validator("compute_capabilities")
+    @classmethod
+    def validate_compute_capabilities(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or any(_COMPUTE_CAPABILITY_RE.fullmatch(item) is None for item in value):
+            raise ValueError("component_binding_invalid:computeCapabilities")
+        ordered = sorted(set(value), key=lambda item: tuple(int(part) for part in item.split(".")))
+        if list(value) != ordered:
+            raise ValueError("component_binding_invalid:computeCapabilities")
+        return value
+
+    @model_validator(mode="after")
+    def validate_native_abi_spells_targets(self) -> "_DevelopmentBuildSchema":
+        suffix = "".join("-sm" + item.replace(".", "") for item in self.compute_capabilities)
+        if not self.native_abi.endswith(suffix):
+            raise ValueError("development_build_native_abi_mismatch:" + self.build_id)
+        return self
+
+
 class _RuntimePackFamilySchema(StrictModel):
     runtime_pack_family_id: str = Field(alias="runtimePackFamilyId")
     variants: dict[str, _RuntimePackVariantSchema]
+    # Additive (ADR-014 amendment 2026-10-29): absent in a binding that declares none.
+    development_builds: dict[str, tuple[_DevelopmentBuildSchema, ...]] = Field(
+        default_factory=dict, alias="developmentBuilds"
+    )
 
     @field_validator("runtime_pack_family_id")
     @classmethod
@@ -110,6 +149,19 @@ class _RuntimePackFamilySchema(StrictModel):
             if variant not in RUNTIME_VARIANTS:
                 raise ValueError(f"binding_variant_unknown:{variant}")
         return value
+
+    @model_validator(mode="after")
+    def validate_development_builds(self) -> "_RuntimePackFamilySchema":
+        for variant, builds in self.development_builds.items():
+            if variant not in _DEVELOPMENT_BUILD_VARIANTS or variant not in self.variants:
+                raise ValueError(f"development_build_variant_invalid:{variant}")
+            if not builds:
+                raise ValueError(f"development_build_variant_invalid:{variant}")
+            ids = [build.build_id for build in builds]
+            pack_ids = [build.runtime_pack_id for build in builds] + [self.variants[variant].runtime_pack_id]
+            if len(set(ids)) != len(ids) or len(set(pack_ids)) != len(pack_ids):
+                raise ValueError(f"development_build_duplicate:{variant}")
+        return self
 
 
 class _RoleSchema(StrictModel):
@@ -247,6 +299,15 @@ class RuntimePackVariantV2:
 
 
 @dataclass(frozen=True, slots=True)
+class DevelopmentBuildV2:
+    """A Development-only build of a variant, used only on a listed compute capability."""
+
+    build_id: str
+    compute_capabilities: tuple[str, ...]
+    entry: RuntimePackVariantV2
+
+
+@dataclass(frozen=True, slots=True)
 class RoleV2:
     role_id: str
     runtime_pack_family_id: str
@@ -272,6 +333,12 @@ class ComponentBindingV2:
     roles: Mapping[str, RoleV2]
     capability_bindings: tuple[CapabilityBindingV2, ...]
     component_binding_sha256: str
+    # family id -> variant -> Development builds (ADR-014 amendment 2026-10-29).
+    development_builds: Mapping[str, Mapping[str, tuple[DevelopmentBuildV2, ...]]] = MappingProxyType({})
+
+    def family_development_builds(self, runtime_pack_family_id: str) -> Mapping[str, tuple[DevelopmentBuildV2, ...]]:
+        self.family_variants(runtime_pack_family_id)
+        return self.development_builds.get(runtime_pack_family_id, MappingProxyType({}))
 
     def family_variants(self, runtime_pack_family_id: str) -> Mapping[str, RuntimePackVariantV2]:
         variants = self.runtime_pack_families.get(runtime_pack_family_id)
@@ -343,6 +410,30 @@ def parse_component_binding(raw: object, *, component_binding_sha256: str) -> Co
             for binding in parsed.capability_bindings
         ),
         component_binding_sha256=component_binding_sha256,
+        development_builds=MappingProxyType(
+            {
+                family.runtime_pack_family_id: MappingProxyType(
+                    {
+                        variant: tuple(
+                            DevelopmentBuildV2(
+                                build_id=build.build_id,
+                                compute_capabilities=build.compute_capabilities,
+                                entry=RuntimePackVariantV2(
+                                    runtime_pack_id=build.runtime_pack_id,
+                                    third_party_lock_sha256=build.third_party_lock_sha256,
+                                    runtime_requirements_sha256=build.runtime_requirements_sha256,
+                                    native_abi=build.native_abi,
+                                ),
+                            )
+                            for build in builds
+                        )
+                        for variant, builds in family.development_builds.items()
+                    }
+                )
+                for family in parsed.runtime_packs
+                if family.development_builds
+            }
+        ),
     )
 
 

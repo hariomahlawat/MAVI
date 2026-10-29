@@ -959,3 +959,18 @@ def test_provenance_has_no_default_component_identity() -> None:
     defaults = {field.name: field.default for field in fields(RuntimeProvenance)}
     for name in ("capability_id", "model_pack_id", "runtime_pack_id", "runtime_pack_source", "component_binding_sha256"):
         assert defaults[name] is MISSING, name
+
+
+def test_a_development_build_is_never_labelled_verified() -> None:
+    """ADR-014 amendment 2026-10-29: a passed record qualifies the release pin, never a build."""
+    selection = _selection(verified=True)
+    build_pack = replace(selection.resolved_role.runtime_pack, runtime_pack_id="mavi-runtime-v2-" + "8" * 64)
+    build = replace(selection, resolved_role=replace(selection.resolved_role, runtime_pack=build_pack))
+
+    provenance = _build(build)
+    assert provenance.verification_status == "unverified"
+    assert provenance.platform_lock_sha256 is None
+    with pytest.raises(ValueError, match="runtime_pack_development_build_forbidden"):
+        _build(build, production_mode=True)
+    # The release pin itself keeps its label.
+    assert _build(selection).verification_status == "verified"
