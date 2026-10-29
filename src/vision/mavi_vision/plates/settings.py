@@ -49,6 +49,9 @@ class PlateWorkerSettings(BaseSettings):
     device_policy: Literal["cpu", "cuda", "auto"] = "cpu"
     device_index: int = Field(default=0, ge=0, le=255)
     production_mode: bool = False
+    # Compose and start the runtime (binding, packs, adapters, sessions), report READY and exit 0 without leasing:
+    # the readiness boundary an installer checks (PoC S3), never a running worker.
+    verify_only: bool = False
 
     @model_validator(mode="before")
     @classmethod

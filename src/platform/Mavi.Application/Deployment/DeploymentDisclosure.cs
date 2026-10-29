@@ -21,6 +21,13 @@ public sealed class DeploymentOptions
 
     /// <summary>The launcher's device-resolution record (<c>mavi-device-resolution-v1</c>).</summary>
     public string? DeviceResolutionPath { get; set; }
+
+    /// <summary>
+    /// Each post-Track role's own device-resolution record, by role id (PoC S3: <c>plates</c>). A role runtime
+    /// resolves its device on its own (ADR-008 per runtime), so its device and reason are disclosed beside the
+    /// Vision worker's, never folded into it.
+    /// </summary>
+    public Dictionary<string, string> RoleDeviceResolutionPaths { get; set; } = new(StringComparer.Ordinal);
 }
 
 public static class DeploymentProfiles
@@ -63,7 +70,11 @@ public sealed record DeploymentPack(
     string PackId,
     string? Variant,
     string VerificationStatus,
-    string? Note);
+    string? Note,
+    string? Licence = null);
+
+/// <summary>One role runtime's resolved device (<see cref="DeploymentOptions.RoleDeviceResolutionPaths"/>).</summary>
+public sealed record DeploymentRoleDevice(string Role, string DeviceStatus, DeploymentDevice? Device);
 
 public sealed record DeploymentDisclosure(
     string SchemaVersion,
@@ -77,7 +88,8 @@ public sealed record DeploymentDisclosure(
     string DeviceStatus,
     DeploymentDevice? Device,
     IReadOnlyList<DeploymentPack> Packs,
-    OperatorIdentityDisclosure Identity);
+    OperatorIdentityDisclosure Identity,
+    IReadOnlyList<DeploymentRoleDevice>? RoleDevices = null);
 
 public sealed class DeploymentDisclosureException(string message) : Exception(message);
 
@@ -118,10 +130,18 @@ public static class DeploymentDisclosureReader
         identity ??= new OperatorIdentityOptions();
         var profile = EffectiveProfile(options.Profile, buildProfile);
         var (deviceStatus, device) = ReadDevice(options.DeviceResolutionPath);
+        var roleDevices = options.RoleDeviceResolutionPaths
+            .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+            .Select(entry =>
+            {
+                var (status, roleDevice) = ReadDevice(entry.Value, entry.Key);
+                return new DeploymentRoleDevice(entry.Key, status, roleDevice);
+            })
+            .ToList();
         if (profile != DeploymentProfiles.PocSingleHost)
         {
             return new DeploymentDisclosure(SchemaVersion, profile, ProductionQualified: false, null, null,
-                "not-configured", null, null, deviceStatus, device, [], OperatorIdentityPolicy.Disclose(identity, null));
+                "not-configured", null, null, deviceStatus, device, [], OperatorIdentityPolicy.Disclose(identity, null), roleDevices);
         }
 
         string metadataStatus;
@@ -150,7 +170,7 @@ public static class DeploymentDisclosureReader
             deviceStatus,
             device,
             metadata?.Packs ?? [],
-            OperatorIdentityPolicy.Disclose(identity, metadata?.IdentityMode));
+            OperatorIdentityPolicy.Disclose(identity, metadata?.IdentityMode), roleDevices);
     }
 
     /// <summary>The profile in effect: the build's, confirmed (never changed) by configuration.</summary>
@@ -228,7 +248,7 @@ public static class DeploymentDisclosureReader
                             !string.IsNullOrWhiteSpace(packId) && !string.IsNullOrWhiteSpace(status),
                         path, "every pack needs kind, role, packId and verificationStatus");
                     packs.Add(new DeploymentPack(kind!, role!, Text(pack, "capabilityId"), packId!,
-                        Text(pack, "variant"), status!, Text(pack, "note")));
+                        Text(pack, "variant"), status!, Text(pack, "note"), Text(pack, "licence")));
                 }
             }
 
@@ -237,7 +257,8 @@ public static class DeploymentDisclosureReader
         }
     }
 
-    private static (string Status, DeploymentDevice? Device) ReadDevice(string? path)
+    /// <param name="role">For a role record: the role it must name (<c>role</c>); a record of another role is unavailable.</param>
+    private static (string Status, DeploymentDevice? Device) ReadDevice(string? path, string? role = null)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             return ("not-reported", null);
@@ -246,6 +267,8 @@ public static class DeploymentDisclosureReader
             using var document = JsonDocument.Parse(File.ReadAllBytes(path));
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || Text(root, "schemaVersion") != PocDisclosure.DeviceResolutionSchema)
+                return ("unavailable", null);
+            if (role is not null && Text(root, "role") != role)
                 return ("unavailable", null);
             var requested = Text(root, "requestedDevicePolicy");
             var resolved = Text(root, "resolvedDevicePolicy");

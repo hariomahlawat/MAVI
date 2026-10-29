@@ -12,6 +12,7 @@ Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "Mavi.VisionRuntime.Common.psm1") -Force
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("mavi-poc-contracts-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
@@ -69,7 +70,7 @@ try {
     $config = New-MaviPocMachineConfig -Layout $layout -ConnectionString "Host=127.0.0.1" -CursorSigningKey (New-MaviCursorSigningKey) -HttpPort 8090
     if ($config.Kestrel.Endpoints.Http.Url -ne "http://127.0.0.1:8090") { throw "The PoC platform must listen on loopback only." }
     if ($config.Deployment.Profile -ne "poc-single-host" -or $config.Deployment.ReleaseMetadataPath -ne $layout.ReleaseMetadataPath) { throw "The machine configuration must declare the PoC profile and its metadata." }
-    if (@($config.Deployment.Keys) -join "," -ne "Profile,ReleaseMetadataPath,DeviceResolutionPath") { throw "The Deployment section carries a key the platform does not define." }
+    if (@($config.Deployment.Keys) -join "," -ne "Profile,ReleaseMetadataPath,DeviceResolutionPath,RoleDeviceResolutionPaths") { throw "The Deployment section carries a key the platform does not define." }
     if ($config.Identity.Mode -ne "windows-negotiate" -or (@($config.Identity.Operators.AuthorizedGroups) -join ",") -ne "BUILTIN\Users") { throw "The PoC platform must identify operators by Windows account (ADR-010)." }
     if ($metadata.identityMode -ne $config.Identity.Mode) { throw "The release metadata must record the identity mode the machine configuration sets." }
     if ((Get-MaviPocOperatorUrl -HttpPort 8090) -ne "http://localhost:8090") { throw "Operators must open the PoC at localhost, where browsers negotiate Windows identity (ADR-010)." }
@@ -82,6 +83,70 @@ try {
     if ($config.AllowedHosts -ne "localhost;127.0.0.1") { throw "The PoC platform must accept only loopback host names." }
     $serialised = ConvertTo-Json -InputObject $config -Depth 8 | ConvertFrom-Json
     if (@($serialised.Identity.Operators.AuthorizedGroups).Count -ne 1 -or $serialised.Identity.Operators.AuthorizedGroups -isnot [array]) { throw "The operator groups must serialise as a JSON array." }
+    # PoC S3 (C4.1): the plates role is bound by the machine configuration, its device record disclosed beside the
+    # Vision worker's; re-analysis stays refused (no operator key) until an owner configures one.
+    if ($config.Deployment.RoleDeviceResolutionPaths.plates -ne $layout.PlatesDeviceResolutionPath) { throw "The plates device record is not disclosed." }
+    if ($config.Plates.Enabled -ne $true -or $config.Plates.ComponentBindingPath -ne $layout.PlatesComponentBindingPath -or $config.Plates.PipelineProfilePath -ne $layout.PlatesPipelineProfilePath) {
+        throw "The machine configuration must bind the plates role to the overlay's PD5 + OC1-S release."
+    }
+    if (@($config.Plates.Keys) -contains "ReanalysisOperatorKeySha256") { throw "The installer must not configure a re-analysis operator key (it fails closed until an owner does)." }
+    if (-not $layout.PlatesComponentBindingPath.EndsWith("development-plates-onnx-pilot-v1.json") -or -not (Test-Path -LiteralPath (Join-Path $repoRoot "src\vision\config\components\development-plates-onnx-pilot-v1.json"))) {
+        throw "The PoC plates binding must be the committed PD5 + OC1-S binding."
+    }
+
+    # --- Plates device (ADR-008 per runtime; PoC S3): CPU only, reason recorded, CUDA fails closed. ---
+    $platesBinding = Join-Path $repoRoot "src\vision\config\components\development-plates-onnx-pilot-v1.json"
+    $auto = Resolve-MaviPlatesDevicePolicy -DevicePolicy auto -ComponentBindingPath $platesBinding
+    if ($auto.ResolvedDevicePolicy -ne "cpu" -or $auto.DeviceResolutionReason -ne "plates_runtime_cpu_only" -or $auto.RuntimeVariant -ne "windows-x86_64-cpu" -or -not $auto.RuntimePackId.StartsWith("mavi-runtime-v2-")) {
+        throw "Plates Auto must resolve CPU with the reason plates_runtime_cpu_only."
+    }
+    if ((@($auto.ModelPacks | ForEach-Object { $_.capabilityId }) -join ",") -ne "ocr,plate-detector") { throw "The plates device record must name both bound Model Packs." }
+    $explicitCpu = Resolve-MaviPlatesDevicePolicy -DevicePolicy cpu -ComponentBindingPath $platesBinding
+    if ($explicitCpu.ResolvedDevicePolicy -ne "cpu" -or $explicitCpu.DeviceResolutionReason -ne "explicit_cpu") { throw "Plates CPU must resolve explicit_cpu." }
+    Assert-Throws { Resolve-MaviPlatesDevicePolicy -DevicePolicy cuda -ComponentBindingPath $platesBinding } "plates_device_unsupported:plates_runtime_cpu_only" "Explicit plates CUDA"
+    # A binding that declared a CUDA variant would still run on CPU (the adapters use the CPU provider only), and says so.
+    $cudaDeclared = Get-Content -LiteralPath $platesBinding -Raw | ConvertFrom-Json
+    $cudaDeclared.runtimePacks[0].variants | Add-Member -NotePropertyName "windows-x86_64-cuda" -NotePropertyValue ([pscustomobject]@{ runtimePackId = "mavi-runtime-v2-x" })
+    $cudaDeclaredPath = Join-Path $tempRoot "plates-cuda-declared.json"
+    $cudaDeclared | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $cudaDeclaredPath -Encoding UTF8
+    if ((Resolve-MaviPlatesDevicePolicy -DevicePolicy auto -ComponentBindingPath $cudaDeclaredPath).DeviceResolutionReason -ne "plates_worker_cpu_only") { throw "A declared but unusable CUDA variant must be named as such." }
+    Assert-Throws { Resolve-MaviPlatesDevicePolicy -DevicePolicy cuda -ComponentBindingPath $cudaDeclaredPath } "plates_device_unsupported" "Explicit plates CUDA with an unusable variant"
+    $noRole = Join-Path $tempRoot "plates-no-role.json"
+    '{"roles":[],"runtimePacks":[],"capabilityBindings":[]}' | Set-Content -LiteralPath $noRole -Encoding UTF8
+    Assert-Throws { Resolve-MaviPlatesDevicePolicy -DevicePolicy auto -ComponentBindingPath $noRole } "plates_binding_invalid:no_plates_role" "A binding without the plates role"
+
+    # --- Plates Model Pack licences: read from each pack's own notice, pinned and matching its manifest. ---
+    $apache = Join-Path $tempRoot "LICENSE-apache"
+    [IO.File]::WriteAllText($apache, "                                 Apache License`n                           Version 2.0, January 2004`n")
+    $mit = Join-Path $tempRoot "LICENSE-mit"
+    [IO.File]::WriteAllText($mit, "MIT License`n`nPermission is hereby granted, free of charge, to any person`n")
+    $apacheSha = Get-MaviSha256 -Path $apache
+    $mitSha = Get-MaviSha256 -Path $mit
+    if ((Get-MaviPocNoticeLicence -Path $apache -ExpectedSha256 $apacheSha -DeclaredSpdxId "Apache-2.0").SpdxId -ne "Apache-2.0") { throw "An Apache-2.0 notice was not read as Apache-2.0." }
+    if ((Get-MaviPocNoticeLicence -Path $mit -ExpectedSha256 $mitSha -DeclaredSpdxId "MIT").SpdxId -ne "MIT") { throw "An MIT notice was not read as MIT." }
+    Assert-Throws { Get-MaviPocNoticeLicence -Path $mit -ExpectedSha256 $mitSha -DeclaredSpdxId "Apache-2.0" } "states MIT, but its manifest declares Apache-2.0" "A notice contradicting its manifest"
+    Assert-Throws { Get-MaviPocNoticeLicence -Path $mit -ExpectedSha256 $apacheSha -DeclaredSpdxId "MIT" } "not the one its manifest pins" "A notice other than the pinned one"
+    $unknown = Join-Path $tempRoot "LICENSE-gpl"
+    [IO.File]::WriteAllText($unknown, "GNU GENERAL PUBLIC LICENSE`nVersion 3`n")
+    Assert-Throws { Get-MaviPocNoticeLicence -Path $unknown -ExpectedSha256 (Get-MaviSha256 -Path $unknown) -DeclaredSpdxId "GPL-3.0" } "states no licence this installer recognises" "An unrecognised notice"
+    # The committed plates manifests pin the notices the packs ship: one Apache-2.0 detector, one MIT recogniser.
+    $platesManifests = @("plates-pd5-ppocrv5-mobile-det-dev-v1", "plates-oc1-fast-plate-ocr-cct-s-v2-dev-v1") | ForEach-Object { Get-Content -LiteralPath (Join-Path $repoRoot "models\manifests\$_.json") -Raw | ConvertFrom-Json }
+    if ((@($platesManifests | ForEach-Object { $_.licence.spdxId }) -join ",") -ne "Apache-2.0,MIT") { throw "The plates manifests must declare Apache-2.0 (PD5) and MIT (OC1-S)." }
+
+    # --- Plates launcher, start and stop: device policy, record, the worker started and stopped with the stack. ---
+    $platesLauncher = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviPlatesPilotWorker.ps1") -Raw
+    foreach ($fragment in @('[ValidateSet("cpu", "cuda", "auto")][string]$DevicePolicy', 'Resolve-MaviPlatesDevicePolicy', '[string]$DeviceReportPath', '[switch]$VerifyOnly', '$env:MAVI_VERIFY_ONLY', 'role = "plates"')) {
+        if (-not $platesLauncher.Contains($fragment)) { throw "Start-MaviPlatesPilotWorker.ps1 lost '$fragment'." }
+    }
+    if ($platesLauncher.IndexOf("Resolve-MaviPlatesDevicePolicy -DevicePolicy") -gt $platesLauncher.IndexOf("& `$Python -m mavi_vision.plates.main")) { throw "The plates device must be resolved before the worker starts." }
+    $startScript = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviPoc.ps1") -Raw
+    $stopScript = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Stop-MaviPoc.ps1") -Raw
+    foreach ($fragment in @('"plates-worker"', 'Start-MaviPlatesPilotWorker.ps1', '$layout.PlatesDeviceResolutionPath')) {
+        if (-not $startScript.Contains($fragment)) { throw "Start-MaviPoc.ps1 does not start the plates worker ('$fragment')." }
+    }
+    foreach ($fragment in @('"plates-worker" = "Start-MaviPlatesPilotWorker.ps1"', 'plates-device-resolution.json')) {
+        if (-not $stopScript.Contains($fragment)) { throw "Stop-MaviPoc.ps1 does not stop the plates worker ('$fragment')." }
+    }
 
     # --- Demo cameras: the S2 demo-corpus manifest (copied byte-identical), unique codes. ---
     $cameras = Read-MaviPocDemoCameras -Path (Join-Path $repoRoot "config\poc\demo-cameras-v1.json")
@@ -270,7 +335,7 @@ try {
     $plan = $planJson.Substring($planJson.IndexOf("{")) | ConvertFrom-Json
     if ($plan.profile -ne "poc-single-host" -or $plan.productionQualified -ne $false -or $plan.evidenceClass -ne "Development") { throw "The plan does not disclose the PoC profile." }
     if ($plan.postgresql.serviceName -ne "MAVI-PoC-PostgreSQL-18" -or $plan.postgresql.port -ne 55434) { throw "The PoC must own its own PostgreSQL service and port." }
-    if ($plan.platform.url -ne "http://localhost:8090" -or $plan.plates.bound -ne $false) { throw "Plan defaults changed: $($plan.platform.url), plates bound $($plan.plates.bound)." }
+    if ($plan.platform.url -ne "http://localhost:8090" -or $plan.plates.bound -ne $true -or $plan.plates.devicePolicy -ne "Auto") { throw "Plan defaults changed: $($plan.platform.url), plates bound $($plan.plates.bound), plates device $($plan.plates.devicePolicy)." }
     if (Test-Path -LiteralPath $installRoot) { throw "Plan-only created the install root." }
     if (Test-Path -LiteralPath $dataRoot) { throw "Plan-only created the data root." }
     # Windows PowerShell turns a native command's stderr into a terminating error under Stop.
@@ -278,6 +343,10 @@ try {
     $cudaOutput = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -BundleRoot $bundle -InstallRoot $installRoot -DataRoot $dataRoot -DevicePolicy CUDA -PlanOnly 2>&1 | Out-String)
     $ErrorActionPreference = "Stop"
     if ($LASTEXITCODE -eq 0 -or $cudaOutput -notmatch "Device policy CUDA requested") { throw "Explicit CUDA without an installable CUDA pack must fail closed, also in plan-only." }
+    $ErrorActionPreference = "Continue"
+    $platesCudaOutput = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -BundleRoot $bundle -InstallRoot $installRoot -DataRoot $dataRoot -PlatesDevicePolicy CUDA -PlanOnly 2>&1 | Out-String)
+    $ErrorActionPreference = "Stop"
+    if ($LASTEXITCODE -eq 0 -or $platesCudaOutput -notmatch "Plates device policy CUDA requested") { throw "Explicit plates CUDA must fail closed, also in plan-only." }
 
     # The plan-only CUDA case above exits 1 by design; the caller's shell reports this
     # script's last exit code.

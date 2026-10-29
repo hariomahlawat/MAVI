@@ -10,6 +10,9 @@ param(
     # GPU answers, otherwise CPU with the reason recorded; CUDA fails closed; CPU never
     # uses the GPU. Recorded for Start-MAVI-PoC.
     [ValidateSet("Auto", "CUDA", "CPU")][string]$DevicePolicy = "Auto",
+    # ADR-008 for the plates role, which resolves its own device (PoC S3): plates-onnx-v1 runs on CPU only, so Auto
+    # resolves CPU with that reason recorded and CUDA fails closed. Recorded for Start-MAVI-PoC.
+    [ValidateSet("Auto", "CUDA", "CPU")][string]$PlatesDevicePolicy = "Auto",
     # An already-installed Windows CUDA Runtime Pack to use instead of one from the bundle
     # (the bundle carries none until S1b). It must pass the launcher's integrity preflight;
     # it is referenced, never copied or modified.
@@ -119,7 +122,7 @@ $plan = [ordered]@{
     postgresql = [ordered]@{ serviceName = $serviceName; port = $postgresPort; database = $databaseName; installRoot = $layout.PostgreSqlInstallRoot; dataRoot = $layout.PostgreSqlDataRoot }
     platform = [ordered]@{ url = (Get-MaviPocOperatorUrl -HttpPort $HttpPort); applicationRoot = $layout.ApplicationRoot; machineConfig = $layout.MachineConfigPath }
     vision = [ordered]@{ cpuRuntimeRoot = $layout.VisionRuntimeCpuRoot; cudaRuntimeRoot = $(if ($cudaSource -eq "none") { $null } else { $cudaRuntimeRoot }); modelStore = $layout.VisionModelRoot; devicePolicy = $DevicePolicy; cuda = $cudaDecision }
-    plates = [ordered]@{ environment = $layout.PlatesEnvironmentRoot; modelStore = $layout.PlatesModelRoot; bound = $false }
+    plates = [ordered]@{ environment = $layout.PlatesEnvironmentRoot; modelStore = $layout.PlatesModelRoot; bound = $true; componentBinding = $layout.PlatesComponentBindingPath; devicePolicy = $PlatesDevicePolicy }
     releaseMetadata = $layout.ReleaseMetadataPath
 }
 
@@ -127,6 +130,10 @@ Write-MaviPocDisclosure
 if ($DevicePolicy -eq "CUDA" -and $cudaSource -eq "none") {
     # Explicit CUDA fails closed (ADR-008): no CUDA Runtime Pack will be installed here; plan-only refuses it too.
     throw "Device policy CUDA requested, but no Windows CUDA Runtime Pack can be installed ($($gpu.Reason); CUDA pack source: $cudaSource). Use Auto or CPU."
+}
+if ($PlatesDevicePolicy -eq "CUDA") {
+    # Explicit CUDA fails closed for the plates role too: its runtime family runs on CPU only (ADR-008; PoC S3).
+    throw "Plates device policy CUDA requested, but the plates role (plates-onnx-v1) runs on CPU only (plates_runtime_cpu_only). Use Auto or CPU."
 }
 if ($PlanOnly) {
     $plan | ConvertTo-Json -Depth 8
@@ -257,14 +264,14 @@ try {
     }
     Write-MaviSetupStatus -Name "Vision Model Packs" -Status "OK" -Detail "$($modelPacks.Count) installed into $($layout.VisionModelRoot)"
 
-    # Plates runtime (Issue #225 pilot family) and its Model Packs: installed, not bound.
-    # S3 binds the plates role; until then the platform's plate loop stays NotConfigured.
+    # Plates role (PoC S3, plan D4): the plates-onnx-v1 environment and the PD5 + OC1-S Model Packs, staged and
+    # SHA-256 verified offline; bound below through the machine configuration and verified READY before the start.
     $platesPython = Join-Path $layout.VisionRuntimeBase "Python312\python.exe"
     if (-not (Test-Path -LiteralPath $platesPython -PathType Leaf)) {
         $platesPython = (& (Join-Path $layout.VisionRuntimeCpuRoot "venv\Scripts\python.exe") -c "import sys; print(sys._base_executable)" | Out-String).Trim()
     }
     & (Join-Path $layout.OverlayRoot "tools\setup\Install-MaviPlatesPilotRuntime.ps1") -Python $platesPython -Destination $layout.PlatesEnvironmentRoot -ModelRoot $layout.PlatesModelRoot -Cache $platesCache -ReuseVerified
-    Write-MaviSetupStatus -Name "Plates runtime" -Status "OK" -Detail "installed, not bound (S3)"
+    Write-MaviSetupStatus -Name "Plates runtime" -Status "OK" -Detail "$($layout.PlatesEnvironmentRoot) (PD5 + OC1-S Model Packs verified)"
 
     # Machine configuration (connection string, roots, cursor key, loopback URL, profile).
     $cursorSigningKey = Get-MaviExistingCursorSigningKey -MachineConfigPath $layout.MachineConfigPath
@@ -293,12 +300,8 @@ try {
         $manifest = Read-MaviJson -Path (Join-Path $pack.FullName "model-pack-manifest.json")
         $packs += [ordered]@{ kind = "model"; role = "vision"; capabilityId = (@($manifest.capabilityIds) -join ","); packId = [string]$manifest.modelPackId; variant = $null; verificationStatus = (Get-MaviPocModelVerificationStatus -ManifestDirectory $manifestDirectory -ModelId ([string]$manifest.modelId) -ModelVersion ([string]$manifest.modelVersion)); note = "$($manifest.modelId) $($manifest.modelVersion)" }
     }
-    $platesLockSha = Get-MaviSha256 -Path (Join-Path $layout.OverlayRoot "src\vision\runtime\plates-onnx-v1\windows-x86_64-cpu.lock")
-    $packs += [ordered]@{ kind = "runtime"; role = "plates"; capabilityId = $null; packId = "plates-onnx-v1@lock-sha256:$platesLockSha"; variant = "windows-x86_64-cpu"; verificationStatus = "development-pilot"; note = "installed, not bound (S3)" }
-    foreach ($payloadManifest in @("plates-pd5-ppocrv5-mobile-det-dev-v1.json", "plates-oc1-fast-plate-ocr-cct-s-v2-dev-v1.json")) {
-        $manifest = Read-MaviJson -Path (Join-Path $manifestDirectory $payloadManifest)
-        $packs += [ordered]@{ kind = "model"; role = "plates"; capabilityId = $null; packId = "$($manifest.modelId)@$($manifest.modelVersion)"; variant = $null; verificationStatus = [string]$manifest.verificationStatus; note = "installed, not bound (S3)" }
-    }
+    # The plates role's packs as the binding names them, each Model Pack's licence read from its installed LICENSE.
+    $packs += Get-MaviPocPlatesPacks -ComponentBindingPath $layout.PlatesComponentBindingPath -ManifestDirectory $manifestDirectory -ModelRoot $layout.PlatesModelRoot -RuntimeProfilePath (Join-Path $layout.OverlayRoot "src\vision\runtime\plates-onnx-v1\runtime.json")
     $metadata = New-MaviPocReleaseMetadata -ApplicationRevision $revision -BundleSha256 $bundleSha256 -DevicePolicy $DevicePolicy -CudaDecision $cudaDecision -Packs $packs -InstalledAtUtc ([DateTimeOffset]::UtcNow.ToString("O"))
     Write-MaviJson -Value $metadata -Path $layout.ReleaseMetadataPath -Depth 8
     Write-MaviSetupStatus -Name "Release metadata" -Status "OK" -Detail $layout.ReleaseMetadataPath
@@ -312,6 +315,7 @@ try {
         apiBaseUrl = "http://127.0.0.1:$HttpPort"
         operatorUrl = Get-MaviPocOperatorUrl -HttpPort $HttpPort
         devicePolicy = $DevicePolicy
+        platesDevicePolicy = $PlatesDevicePolicy
         cudaRuntimeRoot = $(if ($cudaSource -eq "none") { $null } else { $cudaRuntimeRoot })
         postgresqlServiceName = $serviceName
         applicationRevision = $revision
@@ -328,6 +332,15 @@ try {
     & $launcher @launchArguments
     $device = Read-MaviJson -Path $layout.DeviceResolutionPath
     Write-MaviSetupStatus -Name "Vision composition" -Status "OK" -Detail "READY; device $($device.resolvedDevicePolicy) ($($device.deviceResolutionReason))"
+
+    # The plates role's readiness: the worker composes the bound release and loads both Model Packs, then exits
+    # without leasing; the launcher records the role's device and reason only after that succeeded. A child process,
+    # so the launcher's MAVI_* worker environment never reaches the start below.
+    Remove-Item -LiteralPath $layout.PlatesDeviceResolutionPath -Force -ErrorAction SilentlyContinue
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $layout.OverlayRoot "tools\setup\Start-MaviPlatesPilotWorker.ps1") -RepositoryRoot $layout.OverlayRoot -Python (Join-Path $layout.PlatesEnvironmentRoot "Scripts\python.exe") -ModelRoot $layout.PlatesModelRoot -DevicePolicy $PlatesDevicePolicy.ToLowerInvariant() -DeviceReportPath $layout.PlatesDeviceResolutionPath -VerifyOnly
+    if ($LASTEXITCODE -ne 0) { throw "The plates role did not compose READY (exit $LASTEXITCODE); see the log above." }
+    $platesDevice = Read-MaviJson -Path $layout.PlatesDeviceResolutionPath
+    Write-MaviSetupStatus -Name "Plates composition" -Status "OK" -Detail "READY; device $($platesDevice.resolvedDevicePolicy) ($($platesDevice.deviceResolutionReason))"
 
     # Start once: migrations run, the disclosure is checked by the platform, the demo
     # cameras are seeded. Always stopped afterwards: processes started here run elevated, and
@@ -354,6 +367,7 @@ try {
         applicationRevision = $revision
         bundleSha256 = $bundleSha256
         device = [ordered]@{ requested = $DevicePolicy.ToLowerInvariant(); resolved = [string]$device.resolvedDevicePolicy; reason = [string]$device.deviceResolutionReason }
+        platesDevice = [ordered]@{ requested = $PlatesDevicePolicy.ToLowerInvariant(); resolved = [string]$platesDevice.resolvedDevicePolicy; reason = [string]$platesDevice.deviceResolutionReason }
         cuda = $cudaDecision
         logPath = $logPath
     }

@@ -42,6 +42,9 @@ async def run_worker(
         # Never lease without a runtime: an attempt would be consumed for nothing.
         return RUNTIME_UNAVAILABLE_EXIT
     runtime = supervisor.runtime
+    if settings.verify_only:
+        logger.info("MAVI plates composition verified (READY); not leasing (verify only)")
+        return 0
     client = client_factory(
         api_base_url=settings.api_base_url,
         worker_id=settings.worker_id,

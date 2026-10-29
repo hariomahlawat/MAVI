@@ -82,7 +82,7 @@ internal static class PlateReleaseFixture
 internal sealed class PlateApiHost : IAsyncDisposable
 {
     private readonly string _releaseDirectory = Path.Combine(Path.GetTempPath(), $"mavi-plate-release-{Guid.NewGuid():N}");
-    private readonly IReadOnlyDictionary<string, string?>? _configuration;
+    private IReadOnlyDictionary<string, string?>? _configuration;
     private readonly bool _kestrel;
     private readonly Action<Microsoft.EntityFrameworkCore.DbContextOptionsBuilder>? _configureDbContext;
 
@@ -109,9 +109,13 @@ internal sealed class PlateApiHost : IAsyncDisposable
         return host;
     }
 
-    /// <summary>A platform restart with another enabled binding: same database, storage and clock.</summary>
-    public async Task RestartWithAsync(bool identityB, bool configured = true)
+    /// <summary>
+    /// A platform restart with another enabled binding: same database, storage and clock. Given, <paramref name="configuration"/>
+    /// replaces the additional configuration for this and later starts.
+    /// </summary>
+    public async Task RestartWithAsync(bool identityB, bool configured = true, IReadOnlyDictionary<string, string?>? configuration = null)
     {
+        if (configuration is not null) _configuration = configuration;
         Client.Dispose();
         await Factory.DisposeAsync();
         Start(identityB, configured);
@@ -225,7 +229,16 @@ internal sealed class PlateApiHost : IAsyncDisposable
         return await CompleteAsync(unit, completion.Request);
     }
 
-    public Task<HttpResponseMessage> ReanalysisAsync(object body) => Client.PostAsJsonAsync("/api/plates/reanalysis", body);
+    /// <summary>An authorised re-analysis request: it presents the test platform's operator key (PoC S3, C4.2).</summary>
+    public Task<HttpResponseMessage> ReanalysisAsync(object body) => ReanalysisAsync(body, ApiTestFactory.TestReanalysisOperatorKey);
+
+    public async Task<HttpResponseMessage> ReanalysisAsync(object body, string? operatorKey)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/plates/reanalysis") { Content = JsonContent.Create(body) };
+        if (operatorKey is not null)
+            request.Headers.Add(PlateOptions.ReanalysisOperatorKeyHeader, operatorKey);
+        return await Client.SendAsync(request);
+    }
 
     public async Task<JsonElement> ReadinessAsync(Guid runId) => await Client.GetFromJsonAsync<JsonElement>($"/api/processing/runs/{runId}/plates");
 
