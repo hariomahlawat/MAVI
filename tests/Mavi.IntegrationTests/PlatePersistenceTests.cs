@@ -17,6 +17,8 @@ public sealed class PlatePersistenceTests(PostgresFixture fixture)
 {
     private const string Preceding = "20261002120000_AddTrackObjectSubclass";
     private const string Lifecycle = "20261013022604_AddPlateAnalysisLifecycle";
+    // The last Stage-4 plate migration: the round trip covers every plate migration and no later, unrelated one.
+    private const string LastPlateMigration = "20261016120000_LockTrackForPlateTextTrackStart";
     private static readonly DateTimeOffset Now = new(2026, 10, 13, 12, 0, 0, TimeSpan.Zero);
     private static readonly PlateLeasePolicy Policy = new(TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2), 3, TimeSpan.FromHours(1));
 
@@ -42,7 +44,7 @@ public sealed class PlatePersistenceTests(PostgresFixture fixture)
         var before = await ColumnSignatureAsync();
         Assert.All(PlateTables, table => Assert.False(TableExistsAsync(table).GetAwaiter().GetResult(), table));
 
-        await db.Database.MigrateAsync();
+        await db.GetService<IMigrator>().MigrateAsync(LastPlateMigration);
         Assert.Contains(Lifecycle, await db.Database.GetAppliedMigrationsAsync());
         Assert.All(PlateTables, table => Assert.True(TableExistsAsync(table).GetAwaiter().GetResult(), table));
         // No existing column changed: the pre-existing tables' columns are exactly as before.
