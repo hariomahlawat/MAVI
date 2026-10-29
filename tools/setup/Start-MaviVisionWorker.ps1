@@ -16,7 +16,18 @@ param(
     # Run every launch check (Runtime Pack, overlay, Model Pack store, component
     # compatibility) and stop before the worker environment is prepared or the
     # worker starts. Setup-MAVI uses this as its readiness boundary.
-    [switch]$VerifyOnly
+    [switch]$VerifyOnly,
+    # Explicit installation roots (PoC S1, ADR-020). Omitted, the launcher reads the
+    # Machine environment variables and the Development defaults exactly as before;
+    # given, no Machine variable is read, so a second installation on the same host
+    # never borrows the Development one's packs.
+    [string]$RuntimeCpuRoot,
+    [string]$RuntimeCudaRoot,
+    [string]$ModelRoot,
+    # Write the device-resolution record (requested policy, resolved device, reason,
+    # Runtime Pack, bound Model Packs) to this JSON file once every launch check has
+    # passed, for -VerifyOnly and for a real launch alike.
+    [string]$DeviceReportPath
 )
 
 Set-StrictMode -Version Latest
@@ -62,10 +73,17 @@ function Invoke-MaviLaunchStep {
 }
 
 $RepositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot.Trim().Trim('"'))
-$git = Get-Command git.exe -ErrorAction SilentlyContinue
-if (-not $git) { Stop-MaviLaunch launch_git_unavailable "git.exe is required to identify the application revision." }
-$head = (& $git.Source -C $RepositoryRoot rev-parse HEAD 2>$null | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') { Stop-MaviLaunch launch_repository_head_unknown "Unable to determine repository HEAD." }
+# An installed application overlay (PoC S1) records its exact revision in a verified
+# manifest; only a repository checkout needs git.
+if (Test-Path -LiteralPath (Join-Path $RepositoryRoot "mavi-application-overlay.json") -PathType Leaf) {
+    $head = (Invoke-MaviLaunchStep launch_application_overlay_invalid { Resolve-MaviApplicationRevision -Root $RepositoryRoot }).Revision
+}
+else {
+    $git = Get-Command git.exe -ErrorAction SilentlyContinue
+    if (-not $git) { Stop-MaviLaunch launch_git_unavailable "git.exe is required to identify the application revision." }
+    $head = (& $git.Source -C $RepositoryRoot rev-parse HEAD 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') { Stop-MaviLaunch launch_repository_head_unknown "Unable to determine repository HEAD." }
+}
 
 # Application/Release Overlay: component binding v2 is the one composition
 # source (ADR-014; S2a plan P-9). The launcher reads role `vision` from it, and
@@ -96,14 +114,14 @@ $modelManifestRoot = Join-Path $RepositoryRoot "models\manifests"
 # the Python worker starts. Auto selection belongs here because CPU and CUDA are
 # separate immutable Runtime Packs/venvs and cannot be safely swapped in-process.
 $runtimeBase = "C:\ProgramData\MAVI\Development\VisionRuntime"
-$runtimeCpuRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_RUNTIME_WINDOWS_CPU_ROOT", "Machine")
+$runtimeCpuRoot = if ($RuntimeCpuRoot) { $RuntimeCpuRoot } else { [Environment]::GetEnvironmentVariable("MAVI_VISION_RUNTIME_WINDOWS_CPU_ROOT", "Machine") }
 if ([string]::IsNullOrWhiteSpace($runtimeCpuRoot)) {
     $legacyRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_RUNTIME_ROOT", "Machine")
     $runtimeCpuRoot = if ([string]::IsNullOrWhiteSpace($legacyRoot)) {
         Join-Path $runtimeBase "windows-x86_64-cpu"
     } else { $legacyRoot }
 }
-$runtimeCudaRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_RUNTIME_WINDOWS_CUDA_ROOT", "Machine")
+$runtimeCudaRoot = if ($RuntimeCudaRoot) { $RuntimeCudaRoot } else { [Environment]::GetEnvironmentVariable("MAVI_VISION_RUNTIME_WINDOWS_CUDA_ROOT", "Machine") }
 if ([string]::IsNullOrWhiteSpace($runtimeCudaRoot)) {
     $runtimeCudaRoot = Join-Path $runtimeBase "windows-x86_64-cuda"
 }
@@ -207,7 +225,7 @@ foreach ($capabilityBinding in @($bindingRole.CapabilityBindings)) {
 # carried by exactly one <store>\*\model-pack-manifest.json, which fixes its
 # pack directory. Installation-time state is not trusted alone: every declared
 # artefact is re-hashed at startup and undeclared files are refused.
-$modelRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_MODEL_ROOT", "Machine")
+$modelRoot = if ($ModelRoot) { $ModelRoot } else { [Environment]::GetEnvironmentVariable("MAVI_VISION_MODEL_ROOT", "Machine") }
 if ([string]::IsNullOrWhiteSpace($modelRoot)) { $modelRoot = "C:\ProgramData\MAVI\Development\VisionModels" }
 $modelRoot = [IO.Path]::GetFullPath($modelRoot.Trim().Trim('"'))
 $storeResolution = Invoke-MaviLaunchStep launch_model_metadata_unreadable { Resolve-MaviVisionBoundModelPacks -StoreRoot $modelRoot -CapabilityBindings @($bindingRole.CapabilityBindings) }
@@ -229,8 +247,32 @@ if ($resolvedDevicePolicy -eq "cuda" -and $runtimeVariant -ne "windows-x86_64-cu
 if ($resolvedDevicePolicy -eq "cpu" -and $runtimeVariant -ne "windows-x86_64-cpu") { Stop-MaviLaunch launch_cpu_policy_requires_cpu_pack "Resolved CPU device policy requires the Windows CPU Runtime Pack." }
 [void](Invoke-MaviLaunchStep launch_component_compatibility_failed { Assert-MaviVisionWorkerComponentCompatibility -RuntimeState $runtimeState -RuntimeManifest $runtimeManifest -RequiredRuntimePackId ([string]$runtimeRequirement.runtimePackId) -RequiredThirdPartyLockSha256 ([string]$runtimeRequirement.thirdPartyLockSha256) -RequiredRuntimeRequirementsSha256 ([string]$runtimeRequirement.runtimeRequirementsSha256) -RequiredModelPacks @($storeResolution.ModelPacks) })
 
+# The device-resolution record (ADR-008 reason vocabulary; ADR-020 §3 disclosure).
+# Written only after every launch check has passed -- for -VerifyOnly at its
+# boundary, for a launch after the source-overlay probe, immediately before the
+# worker starts -- so it never describes a launch the launcher refused.
+function Write-MaviDeviceReport {
+    if (-not $DeviceReportPath) { return }
+    $deviceReport = [ordered]@{
+        schemaVersion = "mavi-device-resolution-v1"
+        requestedDevicePolicy = $DevicePolicy
+        resolvedDevicePolicy = $resolvedDevicePolicy
+        deviceResolutionReason = $deviceResolutionReason
+        deviceIndex = $DeviceIndex
+        runtimePackId = [string]$runtimeManifest.runtimePackId
+        runtimeVariant = $runtimeVariant
+        modelPacks = @(@($storeResolution.ModelPacks) | ForEach-Object { [ordered]@{ capabilityId = [string]$_.CapabilityId; modelPackId = [string]$_.ModelPackId } })
+        applicationRevision = $head
+        verifyOnly = [bool]$VerifyOnly
+        resolvedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
+    }
+    Invoke-MaviLaunchStep launch_device_report_unwritable { Write-MaviJson -Value $deviceReport -Path $DeviceReportPath -Depth 6 }
+}
+
 if ($VerifyOnly) {
+    Write-MaviDeviceReport
     Write-Host "MAVI Vision composition verified for launch." -ForegroundColor Green
+    Write-Host "  Device       : requested=$DevicePolicy resolved=$resolvedDevicePolicy reason=$deviceResolutionReason"
     Write-Host "  Runtime Pack : $($runtimeManifest.runtimePackId) ($runtimeVariant)"
     foreach ($bound in @($storeResolution.ModelPacks)) { Write-Host "  Model Pack   : $($bound.ModelPackId) ($($bound.CapabilityId))" }
     Write-Host "  Binding      : $componentBindingPath (role vision)"
@@ -267,6 +309,7 @@ if ($LASTEXITCODE -ne 0 -or -not $sourceProbe) { Stop-MaviLaunch launch_vision_s
 $expectedSourcePrefix = [IO.Path]::GetFullPath($visionSourceRoot).TrimEnd("\") + "\"
 $resolvedSource = [IO.Path]::GetFullPath($sourceProbe)
 if (-not $resolvedSource.StartsWith($expectedSourcePrefix,[StringComparison]::OrdinalIgnoreCase)) { Stop-MaviLaunch launch_vision_source_overlay_foreign "Vision worker resolved MAVI source from '$resolvedSource' instead of repository '$visionSourceRoot'." }
+Write-MaviDeviceReport
 
 Push-Location $RepositoryRoot
 try {

@@ -30,6 +30,7 @@ export function createMaviQueryClient(): QueryClient {
 }
 
 export const queryKeys = {
+  deployment: ['system', 'deployment'] as const,
   cameras: ['cameras'] as const,
   camera: (id: string) => ['camera', id] as const,
   videos: ['videos'] as const,

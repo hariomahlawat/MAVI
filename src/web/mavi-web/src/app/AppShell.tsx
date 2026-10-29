@@ -17,6 +17,7 @@ import {
   type SurfaceId,
 } from '../shared/workspace';
 import { queryKeys } from './queryClient';
+import DeploymentBanner from './DeploymentBanner';
 import ShortcutSheet from './ShortcutSheet';
 import { useGlobalShortcuts } from './useGlobalShortcuts';
 
@@ -340,6 +341,9 @@ export default function AppShell() {
         {({ attachContextBar, claimed, tone, title, scroll }) => (
           <main className="content" id="main" tabIndex={-1} ref={mainRef}>
             <DocumentTitle title={title ?? documentTitleFor(crumbsFor(surface))} />
+            {/* ADR-020 §3: the PoC disclosure, on every surface, above the
+                Context Bar. Renders nothing on a host that is not a PoC. */}
+            <DeploymentBanner />
             {/* Section 5: the topbar *is* the Context Bar. One band, filled by
                 the surface through <ContextBar>; a surface that publishes
                 nothing — a terminal state rendered without one — shows its

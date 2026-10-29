@@ -97,6 +97,22 @@
       "dependencyPolicyId": "dotnet-hosting-win-x64"
     },
     {
+      "id": "vcredist-win-x64",
+      "role": "native-runtime-prerequisite",
+      "profiles": [
+        "poc-single-host"
+      ],
+      "versionPolicy": "same-major-minimum-build",
+      "baselineVersion": "14.44",
+      "exactVersionSource": "installer ProductVersion recorded in the PoC bundle manifest (contains.vcRedist)",
+      "binaryKitPath": "vendor/installers/win-x64/vc_redist.x64.exe",
+      "releasePath": "prerequisites/vcredist/win-x64/vc_redist.x64.exe",
+      "verification": "Authenticode signature valid and signed by Microsoft Corporation, 14.x ProductVersion at least 14.44, SHA-256 in the PoC bundle manifest; installed runtime read from HKLM\\SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64; torch and mmcv native-op import after installation",
+      "licence": "Microsoft Visual C++ Redistributable licence terms (redistribution with an application permitted); retained by release preparation",
+      "dependencyPolicyId": "vcredist-win-x64",
+      "purpose": "Visual C++ 2015-2022 x64 runtime loaded by the Vision Runtime Packs' native code (torch, mmcv ops; built with MSVC 14.44). PoC S1 ships it in the PoC setup bundle and installs it when absent or older."
+    },
+    {
       "id": "dotnet-sdk-win-x64",
       "role": "development-sdk",
       "profiles": [

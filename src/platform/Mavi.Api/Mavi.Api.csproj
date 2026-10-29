@@ -5,10 +5,13 @@
     <AssemblyName>Mavi.Api</AssemblyName>
     <MaviBuild Condition="'$(MaviBuild)' == ''">unknown-development</MaviBuild>
     <MaviCommit Condition="'$(MaviCommit)' == ''">unknown-development</MaviCommit>
+    <!-- ADR-020: the PoC bundle builds with poc-single-host, anchoring the disclosure in the build. Empty otherwise. -->
+    <MaviDeploymentProfile Condition="'$(MaviDeploymentProfile)' == ''"></MaviDeploymentProfile>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="MaviBuild" Value="$(MaviBuild)" />
     <AssemblyMetadata Include="MaviCommit" Value="$(MaviCommit)" />
+    <AssemblyMetadata Include="MaviDeploymentProfile" Value="$(MaviDeploymentProfile)" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">

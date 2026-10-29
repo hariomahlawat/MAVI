@@ -1332,3 +1332,9 @@
 .shell--narrow .scene-context__revision { white-space: nowrap; }
 /* With nothing unsaved, "Active" says what the summary below says. */
 .shell--narrow .scene-context__revision:is(.is-clean, .is-saved) .scene-context__revision-state { display: none; }
+
+/* System / About (ADR-020 §3). */
+.system-page { display: grid; gap: var(--s-4); align-content: start; }
+.system-page__none { margin: 0; padding: var(--s-3); }
+.system-page__note { color: var(--text-secondary); }
+.system-page code { overflow-wrap: anywhere; }
