@@ -204,6 +204,43 @@ _WINDOWS_SDK_SHAPE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 _COMPUTE_CAPABILITY_SHAPE = re.compile(r"^\d+\.\d+$")
 
 
+_CONTRACT_V1_SCHEMA = "mavi-windows-cuda-development-build-v1"
+_CONTRACT_V2_SCHEMA = "mavi-windows-cuda-development-build-v2"
+
+
+def contract_target_capabilities(contract: dict) -> tuple[str, ...]:
+    """The compute capabilities a build contract compiles native ops for.
+
+    The v1 contract names exactly one ``targetGpu``. The v2 contract (PoC D9,
+    ADR-020) names an ordered ``targetGpus`` list; the order is ascending and
+    each entry's ``architecture`` must spell its capability, so the derived
+    identity cannot depend on how the list happened to be typed.
+    """
+    if contract.get("schemaVersion") == _CONTRACT_V2_SCHEMA:
+        targets = contract.get("targetGpus")
+        if not isinstance(targets, list) or not targets:
+            raise NativeAbiDerivationError("native_abi_contract_target_missing")
+    else:
+        target = contract.get("targetGpu")
+        if not isinstance(target, dict):
+            raise NativeAbiDerivationError("native_abi_contract_target_missing")
+        targets = [target]
+    capabilities: list[str] = []
+    for target in targets:
+        value = target.get("computeCapability") if isinstance(target, dict) else None
+        if not isinstance(value, str) or _COMPUTE_CAPABILITY_SHAPE.fullmatch(value) is None:
+            raise NativeAbiDerivationError(
+                "native_abi_contract_field_invalid:computeCapability"
+            )
+        if len(targets) > 1 and target.get("architecture") != "sm" + value.replace(".", ""):
+            raise NativeAbiDerivationError("native_abi_contract_target_inconsistent")
+        capabilities.append(value)
+    ordered = sorted(capabilities, key=lambda item: tuple(int(part) for part in item.split(".")))
+    if capabilities != ordered or len(set(capabilities)) != len(capabilities):
+        raise NativeAbiDerivationError("native_abi_contract_targets_unordered")
+    return tuple(capabilities)
+
+
 def derive_native_abi(contract: dict) -> str:
     """Derive the CUDA Runtime Pack's native ABI from the frozen build contract.
 
@@ -225,15 +262,12 @@ def derive_native_abi(contract: dict) -> str:
         # An unverified toolchain has no proven identity to name.
         raise NativeAbiDerivationError("native_abi_toolchain_not_verified")
 
-    target = contract.get("targetGpu")
-    if not isinstance(target, dict):
-        raise NativeAbiDerivationError("native_abi_contract_target_missing")
+    capabilities = contract_target_capabilities(contract)
 
     fields = {
         "cudaToolkitVersion": (toolchain.get("cudaToolkitVersion"), _CUDA_TOOLKIT_SHAPE),
         "msvcToolset": (toolchain.get("msvcToolset"), _MSVC_TOOLSET_SHAPE),
         "windowsSdkVersion": (toolchain.get("windowsSdkVersion"), _WINDOWS_SDK_SHAPE),
-        "computeCapability": (target.get("computeCapability"), _COMPUTE_CAPABILITY_SHAPE),
     }
     for name, (value, shape) in fields.items():
         if not isinstance(value, str) or shape.fullmatch(value) is None:
@@ -243,13 +277,15 @@ def derive_native_abi(contract: dict) -> str:
     if platform_variant != "windows-x86_64-cuda":
         raise NativeAbiDerivationError("native_abi_platform_variant_unsupported")
 
-    major, minor = fields["computeCapability"][0].split(".")
+    architectures = "".join(
+        "-sm" + capability.replace(".", "") for capability in capabilities
+    )
     native_abi = (
         "win_amd64"
         f"-msvc-{fields['msvcToolset'][0]}"
         f"-sdk-{fields['windowsSdkVersion'][0]}"
         f"-cuda{fields['cudaToolkitVersion'][0]}"
-        f"-sm{major}{minor}"
+        f"{architectures}"
     )
     # The derived string must satisfy the same rule any supplied one does.
     _validate_native_abi_for_variant(native_abi, platform_variant)

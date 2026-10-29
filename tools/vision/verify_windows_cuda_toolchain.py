@@ -111,6 +111,49 @@ def _nvcc_architecture_flag(contract: dict[str, object]) -> str:
     return f"-arch=sm_{major}{minor}"
 
 
+_CONTRACT_SCHEMAS = (
+    "mavi-windows-cuda-development-build-v1",
+    "mavi-windows-cuda-development-build-v2",
+)
+
+
+def _contract_architectures(contract: dict[str, object]) -> tuple[str, ...]:
+    """Every architecture the contract compiles for, ascending (``sm75``...)."""
+    if contract.get("schemaVersion") != _CONTRACT_SCHEMAS[1]:
+        targets = [contract.get("targetGpu")]
+    else:
+        targets = contract.get("targetGpus")
+        if not isinstance(targets, list) or not targets:
+            raise ToolchainVerificationError("cuda_build_contract_target_invalid")
+    architectures: list[str] = []
+    for target in targets:
+        # _nvcc_architecture_flag validates the entry and returns "-arch=sm_XY".
+        flag = _nvcc_architecture_flag({"targetGpu": target})
+        architectures.append("sm" + flag.removeprefix("-arch=sm_"))
+    ascending = sorted(architectures, key=lambda item: int(item[2:]))
+    if architectures != ascending or len(set(architectures)) != len(architectures):
+        raise ToolchainVerificationError("cuda_build_contract_target_inconsistent")
+    return tuple(architectures)
+
+
+def _nvcc_architecture_flags(contract: dict[str, object]) -> tuple[str, ...]:
+    """The probe's architecture flags, derived from the contract's targets.
+
+    A v1 contract keeps its single ``-arch=sm_XY`` probe. A v2 contract
+    probes every target in one compile, exactly as TORCH_CUDA_ARCH_LIST asks
+    the MMCV build to: SASS for each target, plus PTX for the last when the
+    list ends in ``+PTX``.
+    """
+    if contract.get("schemaVersion") != _CONTRACT_SCHEMAS[1]:
+        return (_nvcc_architecture_flag(contract),)
+    architectures = _contract_architectures(contract)
+    flags = [f"-gencode=arch=compute_{item[2:]},code=sm_{item[2:]}" for item in architectures]
+    if _required_build_environment(contract)["TORCH_CUDA_ARCH_LIST"].endswith("+PTX"):
+        last = architectures[-1][2:]
+        flags.append(f"-gencode=arch=compute_{last},code=compute_{last}")
+    return tuple(flags)
+
+
 # The correctness-bearing build variables. MAX_JOBS and any other tuning knob in
 # the contract's build environment do not decide whether CUDA ops are produced,
 # so the preflight does not demand them.
@@ -159,9 +202,7 @@ def _load_contract(path: Path) -> dict[str, object]:
         raise ToolchainVerificationError(
             "cuda_build_contract_invalid"
         ) from exc
-    if value.get("schemaVersion") != (
-        "mavi-windows-cuda-development-build-v1"
-    ):
+    if not isinstance(value, dict) or value.get("schemaVersion") not in _CONTRACT_SCHEMAS:
         raise ToolchainVerificationError(
             "cuda_build_contract_schema_invalid"
         )
@@ -197,6 +238,14 @@ def _resolve_source_head_sha(explicit: str | None) -> str:
     return candidate
 
 
+def _target_architecture_evidence(contract: dict[str, object]) -> dict[str, object]:
+    if contract.get("schemaVersion") != _CONTRACT_SCHEMAS[1]:
+        return {"targetArchitecture": str(contract["targetGpu"]["architecture"])}
+    architectures = _contract_architectures(contract)
+    # targetArchitecture keeps its v1 meaning of one architecture: the highest.
+    return {"targetArchitecture": architectures[-1], "targetArchitectures": list(architectures)}
+
+
 def verify_toolchain(
     contract_path: Path,
     *,
@@ -213,7 +262,8 @@ def verify_toolchain(
 
     contract = _load_contract(contract_path)
     resolved_head_sha = _resolve_source_head_sha(source_head_sha)
-    architecture_flag = _nvcc_architecture_flag(contract)
+    architecture_flags = _nvcc_architecture_flags(contract)
+    architecture_flag = " ".join(architecture_flags)
     required_env = _required_build_environment(contract)
     for name, expected in required_env.items():
         observed = os.environ.get(name)
@@ -331,7 +381,7 @@ def verify_toolchain(
             str(source),
             "-o",
             str(obj),
-            architecture_flag,
+            *architecture_flags,
         )
         compile_result = _run(
             command,
@@ -387,7 +437,7 @@ def verify_toolchain(
         "msvcCompilerVersion": msvc_compiler,
         "vcToolsVersion": vc_tools,
         "windowsSdkVersion": sdk,
-        "targetArchitecture": str(contract["targetGpu"]["architecture"]),
+        **_target_architecture_evidence(contract),
         "nvccArchitectureFlag": architecture_flag,
         "buildEnvironment": required_env,
         "compile": compile_evidence,

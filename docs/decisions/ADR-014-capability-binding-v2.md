@@ -427,3 +427,60 @@ No qualification-record schema field changes; the gate-set configuration gains c
 **Unchanged:** the release binding, the vision family, the replacement-binding rules, the plate identity, the platform's Development-only refusal (`plate_development_definition_forbidden`), and the absence of any qualified plate component. This note qualifies nothing: the pilot packs are unverified, their records pending, and the `plates-development-v1` gate set is a Development diagnostic, not the PR-6 gate set.
 
 *Trade-off:* the registry and `verify_repo` carry a second kind of Development binding, and the runtime profile a small graph registry and two statuses that exist only to be refused in Production. In exchange, a real plate model runs through the product's own resolver, provenance and lease path in Development, without widening the vision lock or creating a path by which an unqualified family or pack could start in Production.
+
+## Amendment 2026-10-29 (PoC S1b): Development builds of a variant, selected by compute capability
+
+**Status: Accepted (2026-10-29).** Ratified by the owner as written (decision D-S1b-1, register `docs/reviews/2026-10-28-poc-acceptance.md`); introduced in the PoC S1b PR (hariomahlawat/MAVI#243).
+
+**Context.** PoC decision D9 and ADR-020 §1 let the `poc-single-host` profile use a second Windows CUDA Runtime Pack built for the RTX 4090 demonstration host: the same `windows-x86_64-cuda` platform variant, MMCV native ops compiled for `sm_75;sm_89` under build contract v2. The binding pins one Runtime Pack per variant (§4a, P-17), and three layers enforce that pin: the PoC bundle builder, the launcher's Development Auto decision (`cuda_pack_id_mismatch`) and the Python resolver (`runtime_pack_manifest_mismatch:binding`). A pack that every layer refuses does not satisfy the accepted plan.
+
+**Decision.** A Runtime Pack family entry in the binding may carry an additive `developmentBuilds` map: per declared variant, a list of alternative builds of that variant.
+
+- **Shape.** Each build has:
+  - `buildId` (kebab);
+  - `computeCapabilities` (non-empty, ascending, unique; for example `["7.5", "8.9"]`);
+  - the four identity fields of a variant entry: `runtimePackId`, `thirdPartyLockSha256`, `runtimeRequirementsSha256`, `nativeAbi`.
+  - Only a CUDA variant that the family's `variants` map already declares may have builds.
+- **Identity.**
+  - A build's lock is the tracked `<variant>-<buildId>.lock` beside the runtime profile.
+  - Its requirements projection is the variant's own `<variant>.requirements.txt`.
+  - Its `runtimePackId` must derive from that lock, that projection, the variant's Python identity and the build's `nativeAbi`. The same P-17 derivation applies as for the primary entry.
+  - The `nativeAbi` must end in the `-smXY` spelling of `computeCapabilities`.
+- **Selection.** The installed Runtime Pack's id selects the entry:
+  - **Primary entry.** The variant's `variants` entry, when the ids match, resolves exactly as before this amendment, with no compute-capability check. The release pin on `sm_75` hardware is therefore unchanged.
+  - **Declared build.** A build, when the ids match, is used only if:
+    1. the mode is Development, which includes `poc-single-host`; and
+    2. the GPU at the selected device index reports a compute capability in the build's `computeCapabilities`.
+  - **Anything else** fails closed as before.
+- **Enforcement at the three layers.**
+  - **Bundle builder:** accepts a pack whose id is the primary entry's or a declared build's.
+  - **Launcher:**
+    - Development Auto picks a build only when the device's `nvidia-smi` compute capability is listed. Otherwise it resolves CPU with the existing reason `cuda_device_unavailable`.
+    - Explicit CUDA on such a device refuses with `launch_component_compatibility_failed`.
+    - No new reason or launch-failure code is added: the device-resolution vocabulary is part of frozen completion contracts (v2–v3.3) and the platform parser.
+  - **Python resolver:**
+    - Accepts a build's pack with the same manifest, lock, requirements, ABI, Python and running-environment checks as the primary entry.
+    - Uses the build's lock.
+    - Refuses any build in Production (`runtime_pack_development_build_forbidden`).
+    - Never labels a build's output `verified`, whatever the record says about the variant: a record qualifies the release pin.
+  - **The compute-capability gate is the launcher's.** It owns device policy (ADR-008) and is the supported way to start a worker. The resolver does not import torch, and does not query the device.
+    - A Development worker started outside the launcher therefore runs a build unchecked against compute capability.
+    - On an unlisted GPU it fails at the first MMCV kernel; it does not resolve to another pack.
+- **What every resolution now reads.** The resolver derives every declared build's identity from its lock on every role load, including CPU and Production loads. A missing or changed build lock therefore fails closed everywhere.
+  - The Task-12 offline bundle carries that lock.
+  - The lock enters that bundle's identity map, which is historically named `releaseLocks`; that does not make it a release lock.
+- **Fence.**
+  - A build never satisfies a Production profile and never becomes `verified`.
+  - Qualification records, the runtime profile and the variant classes (§4a) are unchanged: a build is not a fifth variant.
+  - Development replacement bindings must carry the release binding's `developmentBuilds` unchanged.
+- **First use.** The release binding declares `developmentBuilds.windows-x86_64-cuda = [sm75-sm89]`:
+  - build contract `config/vision/windows-cuda-development-build-v2.json`;
+  - pack `mavi-runtime-v2-7807ca24…`;
+  - catalogue status `built-hashed-locked` until register row A7.
+
+**Alternatives considered.**
+- **A second Development registry kind** (a whole PoC binding selected by the launcher). It needs a new registry entry, a second complete binding that must stay byte-equal to the release binding as S3/S4/S6 add roles, launcher binding selection, and the same three-layer changes anyway.
+- **Making the `sm_75;sm_89` pack the primary entry.** This changes what `sm_75` hardware resolves to and discards the v1 pack's `qualified-development-hardware` evidence.
+- **A new device-resolution reason.** This changes frozen completion contracts.
+
+*Trade-off:* the binding schema gains an optional field, and every enforcement layer gains a second accepted identity for one variant. A binding no longer names exactly one pack per variant. It names one release pack, plus Development-only builds gated by compute capability. In exchange, the demonstration host runs native `sm_89` MMCV kernels through the product's own launcher and resolver, without touching v1, the frozen contracts or any Production claim.

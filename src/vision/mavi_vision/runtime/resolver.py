@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Collection, Literal, Mapping
 from mavi_vision.runtime.binding import (
     CapabilityBindingV2,
     ComponentBindingV2,
+    DevelopmentBuildV2,
     RoleV2,
     RuntimePackVariantV2,
     load_component_binding,
@@ -410,6 +411,7 @@ def load_role_family(*, binding: ComponentBindingV2, role_id: str, overlay_root:
         profile=profile,
         runtime_dir=runtime_profile_path.parent,
         binding_variants=binding_variants,
+        development_builds=binding.family_development_builds(family_id),
     )
     return RoleFamily(
         role=role,
@@ -428,16 +430,25 @@ def _check_binding_runtime_pack_ids(
     profile: RuntimeProfileV2,
     runtime_dir: Path,
     binding_variants: Mapping[str, RuntimePackVariantV2],
+    development_builds: Mapping[str, tuple[DevelopmentBuildV2, ...]] = MappingProxyType({}),
 ) -> None:
     """Every pinned Runtime Pack id is the one its tracked lock derives (P-17 class B).
 
     Checked for every declared variant, not only the observed one, so a binding
-    that pins an id no lock produces never loads, installed pack or not.
+    that pins an id no lock produces never loads, installed pack or not. A
+    Development build of a variant (ADR-014 amendment 2026-10-29) is checked the
+    same way against its own ``<variant>-<buildId>.lock``.
     """
-    for variant in sorted(binding_variants):
-        entry = binding_variants[variant]
+    pinned = [(variant, f"{variant}.lock", binding_variants[variant]) for variant in sorted(binding_variants)]
+    for variant in sorted(development_builds):
+        if variant not in binding_variants:
+            raise _fail(f"development_build_variant_invalid:{variant}")
+        pinned.extend(
+            (variant, _development_build_lock_name(variant, build), build.entry) for build in development_builds[variant]
+        )
+    for variant, lock_name, entry in pinned:
         try:
-            lock_sha256 = sha256_release_file(runtime_dir / f"{variant}.lock")
+            lock_sha256 = sha256_release_file(runtime_dir / lock_name)
             requirements_sha256 = sha256_release_file(runtime_dir / f"{variant}.requirements.txt")
         except ReleaseMetadataError as exc:
             raise _fail(f"runtime_lock_binding_mismatch:{variant}") from exc
@@ -464,6 +475,10 @@ def _check_binding_runtime_pack_ids(
             raise _fail(f"runtime_pack_binding_id_mismatch:{variant}")
 
 
+def _development_build_lock_name(variant: str, build: DevelopmentBuildV2) -> str:
+    return f"{variant}-{build.build_id}.lock"
+
+
 # --------------------------------------------------------------------------- Runtime Pack
 
 
@@ -475,6 +490,7 @@ def _resolve_runtime_pack(
     runtime_pack_manifest_path: Path | None,
     python_version: str,
     interpreter_prefix: Path,
+    production_mode: bool = False,
 ) -> ResolvedRuntimePack:
     family_id = family.role.runtime_pack_family_id
     # The resolver never consults the qualification record to find a Runtime Pack:
@@ -524,6 +540,23 @@ def _resolve_runtime_pack(
         raise _fail("runtime_pack_manifest_mismatch:id")
     if manifest["platformVariant"] != runtime_variant:
         raise _fail("runtime_pack_variant_mismatch")
+    if derived != entry.runtime_pack_id:
+        # A declared Development build of this variant (ADR-014 amendment 2026-10-29):
+        # identical checks against the build's own entry and lock, never in Production.
+        # The primary entry above is matched first, so its resolution is unchanged.
+        builds = binding.family_development_builds(family_id).get(runtime_variant, ())
+        build = next((item for item in builds if item.entry.runtime_pack_id == derived), None)
+        if build is not None:
+            if production_mode:
+                raise _fail("runtime_pack_development_build_forbidden")
+            entry = build.entry
+            lock_path = runtime_dir / _development_build_lock_name(runtime_variant, build)
+            try:
+                lock_sha256 = sha256_release_file(lock_path)
+            except ReleaseMetadataError as exc:
+                raise _fail(f"runtime_lock_binding_mismatch:{runtime_variant}") from exc
+            if lock_sha256 != entry.third_party_lock_sha256:
+                raise _fail(f"runtime_lock_binding_mismatch:{runtime_variant}")
     if derived != entry.runtime_pack_id:
         raise _fail("runtime_pack_manifest_mismatch:binding")
     if manifest["thirdPartyLockSha256"] != entry.third_party_lock_sha256:
@@ -938,6 +971,7 @@ def resolve_role(
         python_version=python_version,
         # The running interpreter unless a caller verifying another environment names it.
         interpreter_prefix=Path(sys.prefix) if interpreter_prefix is None else interpreter_prefix,
+        production_mode=production_mode,
     )
 
     pipeline_profile: PipelineProfile | AttributePipelineProfile | PlatePipelineProfile

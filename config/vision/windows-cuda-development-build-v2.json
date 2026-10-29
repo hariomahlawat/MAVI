@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "mavi-windows-cuda-development-build-v2",
+  "contractId": "windows-cuda-development-build-v2",
+  "status": "built-hashed-locked",
+  "deploymentProfileScope": {
+    "profiles": [
+      "poc-single-host"
+    ],
+    "rule": "This contract serves the poc-single-host profile (ADR-020) only. It does not qualify, and no evidence produced under it satisfies, P1, P2 or P3 (ADR-008, ADR-009). The frozen v1 contract (windows-cuda-development-build-v1.json) is unchanged and remains the contract of the sm_75 Windows CUDA Runtime Pack."
+  },
+  "platformVariant": "windows-x86_64-cuda",
+  "pythonVersion": "3.12.10",
+  "torchBinaryVersion": "2.6.0+cu124",
+  "torchvisionBinaryVersion": "0.21.0+cu124",
+  "pytorchIndex": "https://download.pytorch.org/whl/cu124",
+  "cudaRuntimeFamily": "12.4",
+  "targetGpus": [
+    {
+      "computeCapability": "7.5",
+      "architecture": "sm75"
+    },
+    {
+      "computeCapability": "8.9",
+      "architecture": "sm89"
+    }
+  ],
+  "torchCudaArchList": "7.5;8.9+PTX",
+  "mmcv": {
+    "version": "2.1.0",
+    "sourceRepository": "https://github.com/open-mmlab/mmcv.git",
+    "sourceCommit": "57c4e25e06e2d4f8a9357c84bcd24089a284dc88",
+    "buildEnvironment": {
+      "MMCV_WITH_OPS": "1",
+      "FORCE_CUDA": "1",
+      "TORCH_CUDA_ARCH_LIST": "7.5;8.9+PTX",
+      "MAX_JOBS": "2"
+    }
+  },
+  "toolchain": {
+    "cudaToolkitVersion": "12.4",
+    "msvcToolset": "14.44.35207",
+    "windowsSdkVersion": "10.0.26100.0",
+    "verificationStatus": "verified",
+    "rule": "No Windows CUDA lock or Runtime Pack may be frozen under this contract until nvcc successfully compiles a trivial .cu file for every target GPU with the selected MSVC toolset and Windows SDK.",
+    "cudaToolkitBuild": "V12.4.99",
+    "cudaCompilerBuild": "cuda_12.4.r12.4/compiler.33961263_0",
+    "msvcCompilerVersion": "19.44.35229",
+    "evidence": {
+      "observationSchema": "mavi-windows-cuda-toolchain-observation-v1",
+      "observationSha256": "1a17a9bda7af89ad61cd4911b03eeba245e6df670995efc9de56c8afed7c3261",
+      "verifiedAtSourceHeadSha": "4dc3757bc0b7170970383228da50de26f721511c",
+      "probeArchitectures": [
+        "-gencode=arch=compute_75,code=sm_75",
+        "-gencode=arch=compute_89,code=sm_89",
+        "-gencode=arch=compute_89,code=compute_89"
+      ],
+      "probeExitCode": 0,
+      "probeObjectBytes": 42613,
+      "hostHardware": "NVIDIA GeForce GTX 1650 Ti",
+      "hostDriverVersion": "576.83",
+      "torchWheelFilename": "torch-2.6.0+cu124-cp312-cp312-win_amd64.whl",
+      "torchWheelSha256": "3313061c1fec4c7310cf47944e84513dcd27b6173b72a349bb7ca68d0ee6e9c0",
+      "compilerNote": "cl.exe reports 19.44.35229 on this host (toolset directory 14.44.35207 unchanged); the v1 contract recorded 19.44.35222 at R1, before a Visual Studio servicing update. v1 is unchanged; this contract records what compiled the v2 wheel.",
+      "note": "Development engineering evidence only, retained at E:\\MAVI-Controlled\\PoC\\S1b. It verifies the native build toolchain for both targets; it does not qualify any CUDA Runtime Pack, Development hardware state or Production profile."
+    }
+  },
+  "buildHost": {
+    "policy": "development-laptop-poc-only",
+    "authoritativeBuildLocation": "the Development laptop (GTX 1650 Ti, sm_75), accepted by the owner as this contract's build host for the poc-single-host profile only (plan 2026-10-28 decision D9, ADR-020 Consequences)",
+    "developmentLaptopRole": "build host, sm_75 load verification and sm_75 execution; sm_89 execution is not observable here and waits for the demonstration host (register row A7, slice S12)",
+    "gpuRequiredForBuild": false
+  },
+  "runtimePolicy": {
+    "cudaToolkitRequiredAtRuntime": false,
+    "compilerRequiredAtRuntime": false,
+    "inductorEnabled": false,
+    "explicitCudaMayFallbackToCpu": false
+  },
+  "qualification": {
+    "status": "unqualified",
+    "rule": "A Runtime Pack built under this contract is 'built, hashed, locked' until a bound host observation on the RTX 4090 demonstration host earns it qualified-development-hardware for that host under ADR-009 (register row A7). Nothing here is Production evidence."
+  },
+  "statusNote": "status is a human-readable phase label and is never proof of anything. The authoritative machine-checked proof is toolchain.verificationStatus together with the frozen toolchain identities, which tools/verify_repo.py validates by shape and cross-checks against the offline catalogue.",
+  "nativeAbi": "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75-sm89",
+  "nativeAbiNote": "Derived from toolchain and targetGpus by tools/vision/build_runtime_pack.py:derive_native_abi, never hand-typed."
+}

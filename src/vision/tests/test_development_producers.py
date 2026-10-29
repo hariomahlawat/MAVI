@@ -51,9 +51,10 @@ RECORD_640 = REPOSITORY / "models/qualifications/rtmdet-m-coco-phase1-a2-scale64
 RECORD_1280 = REPOSITORY / "models/qualifications/rtmdet-m-coco-phase1-a2-scale1280-dev-v1.json"
 GATE_SETS = REPOSITORY / "config/acceptance/capability-gate-sets-v1.json"
 
-# The release identity this slice must not move (PR #173 baseline, main@864ddfe4).
+# The release identity this slice must not move (PR #173 baseline, main@864ddfe4; the binding
+# re-issued by PoC S1b for its additive developmentBuilds entry, ADR-014 amendment 2026-10-29).
 RELEASE_SHA256 = {
-    RELEASE_BINDING: "7ef226193232b90b0a20f8648a95f21e0bbc9416b353605c9be6d81262abe205",
+    RELEASE_BINDING: "48c6f10d7ad959a3d1430b2a4e5535e9b2c1c361028d99ced54ed7d88702ae8e",
     RELEASE_PROFILE: "afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf",
     RELEASE_MANIFEST: "bc8127c1c00513a90f1b00325dcae3d4f31243ef1ce04ebe38350f945cb79c90",
     RELEASE_RECORD: "2c2ba3d674cebf18955af1b224ef41c8c1a1fbc189cc28a6d605436c46c2a224",
