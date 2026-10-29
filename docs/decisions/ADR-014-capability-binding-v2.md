@@ -462,6 +462,13 @@ No qualification-record schema field changes; the gate-set configuration gains c
     - Accepts a build's pack with the same manifest, lock, requirements, ABI, Python and running-environment checks as the primary entry.
     - Uses the build's lock.
     - Refuses any build in Production (`runtime_pack_development_build_forbidden`).
+    - Never labels a build's output `verified`, whatever the record says about the variant: a record qualifies the release pin.
+  - **The compute-capability gate is the launcher's.** It owns device policy (ADR-008) and is the supported way to start a worker. The resolver does not import torch, and does not query the device.
+    - A Development worker started outside the launcher therefore runs a build unchecked against compute capability.
+    - On an unlisted GPU it fails at the first MMCV kernel; it does not resolve to another pack.
+- **What every resolution now reads.** The resolver derives every declared build's identity from its lock on every role load, including CPU and Production loads. A missing or changed build lock therefore fails closed everywhere.
+  - The Task-12 offline bundle carries that lock.
+  - The lock enters that bundle's identity map, which is historically named `releaseLocks`; that does not make it a release lock.
 - **Fence.**
   - A build never satisfies a Production profile and never becomes `verified`.
   - Qualification records, the runtime profile and the variant classes (§4a) are unchanged: a build is not a fifth variant.

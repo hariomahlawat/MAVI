@@ -595,6 +595,22 @@ def check_poc_cuda_build_contract(errors: list[str]) -> None:
     lock_bytes = lock_path.read_bytes()
     if candidate.get("lock") != POC_CUDA_LOCK or candidate.get("lockSha256") != hashlib.sha256(lock_bytes).hexdigest():
         fail("Offline catalogue windowsCudaPocSm89Candidate does not pin the committed PoC CUDA lock.", errors)
+    # The dependency policy moves with the dependency (CLAUDE.md): its PoC entries must
+    # pin the same lock and the same onnxruntime-gpu wheel as the catalogue.
+    policy = _read_json_or_none(ROOT / "config/dependencies/offline-dependency-policy-v1.json")
+    python_policy = ((policy or {}).get("ecosystemStrategies") or {}).get("python") or {} if isinstance(policy, dict) else {}
+    policy_variant = (python_policy.get("pocCudaRuntimeVariants") or {}).get("windows-x86_64-cuda-sm75-sm89") or {}
+    if policy_variant.get("lock") != POC_CUDA_LOCK or policy_variant.get("lockSha256") != hashlib.sha256(lock_bytes).hexdigest():
+        fail("Offline dependency policy pocCudaRuntimeVariants does not pin the committed PoC CUDA lock.", errors)
+    policy_ort = python_policy.get("pocOnnxRuntimeGpu") or {}
+    catalogue_ort = ((catalog or {}).get("visionRuntime") or {}).get("onnxruntimeGpuDevelopmentCandidate") or {}
+    catalogue_wheels = [item for item in catalogue_ort.get("wheels") or [] if isinstance(item, dict)]
+    if (
+        len(catalogue_wheels) != 1
+        or policy_ort.get("requirement") != f"onnxruntime-gpu=={catalogue_ort.get('version')}"
+        or policy_ort.get("wheelSha256") != catalogue_wheels[0].get("sha256")
+    ):
+        fail("Offline dependency policy pocOnnxRuntimeGpu and the catalogue's onnxruntime-gpu pin disagree.", errors)
     v1_lock = (ROOT / "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.lock").read_text(encoding="utf-8")
 
     def _without_mmcv(text: str) -> list[str]:

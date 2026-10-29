@@ -708,6 +708,7 @@ _POC_FILES = (
     "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda-sm75-sm89.lock",
     "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.requirements.txt",
     "src/vision/config/components/phase1-bindings-v2.json",
+    "config/dependencies/offline-dependency-policy-v1.json",
 )
 
 
@@ -842,3 +843,25 @@ def test_poc_pack_must_be_the_binding_declared_development_build(tmp_path, monke
 
     errors = _run_poc(root, monkeypatch)
     assert any("Development build sm75-sm89" in error for error in errors)
+
+
+def test_poc_policy_must_pin_the_committed_lock(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(
+        root / "config/dependencies/offline-dependency-policy-v1.json",
+        lambda p: p["ecosystemStrategies"]["python"]["pocCudaRuntimeVariants"]["windows-x86_64-cuda-sm75-sm89"].update(lockSha256="0" * 64),
+    )
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("pocCudaRuntimeVariants does not pin the committed PoC CUDA lock" in error for error in errors)
+
+
+def test_poc_policy_and_catalogue_must_pin_one_onnxruntime_gpu(tmp_path, monkeypatch) -> None:
+    root = _stage_poc(tmp_path)
+    _edit_json(
+        root / "config/dependencies/offline-dependency-policy-v1.json",
+        lambda p: p["ecosystemStrategies"]["python"]["pocOnnxRuntimeGpu"].update(requirement="onnxruntime-gpu==1.31.0"),
+    )
+
+    errors = _run_poc(root, monkeypatch)
+    assert any("pocOnnxRuntimeGpu and the catalogue" in error for error in errors)

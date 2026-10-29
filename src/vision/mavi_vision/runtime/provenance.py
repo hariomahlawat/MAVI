@@ -493,6 +493,13 @@ def _effective_verification_status(
         if production_mode:
             raise ValueError("runtime_pack_required")
         return "unverified", None
+    # A Development build of the variant (ADR-014 amendment 2026-10-29) is never the
+    # release pack the record qualifies, whatever that record says about the variant.
+    primary = resolved.binding.family_variants(resolved.runtime_pack.runtime_pack_family_id).get(runtime_variant)
+    if primary is None or resolved.runtime_pack.runtime_pack_id != primary.runtime_pack_id:
+        if production_mode:
+            raise ValueError("runtime_pack_development_build_forbidden")
+        return "unverified", None
     # ...and a record that passed on exactly the observed variant.
     record_variant = selection.capability.qualification.variants.get(runtime_variant)
     if record_variant is None or record_variant.status != "passed":
