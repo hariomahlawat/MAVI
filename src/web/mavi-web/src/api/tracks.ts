@@ -73,8 +73,32 @@ export type TrackSearchFilters = {
   motionDirection?: MotionDirection;
   minStationaryMs?: number;
   loitering?: true;
+  /**
+   * ADR-021 §4: a free-text appearance description. It ranks the base
+   * candidates by text→image similarity in one page; it cannot be combined
+   * with plate or analytic predicates.
+   */
+  appearanceQuery?: string;
+  /** The opaque snapshot token of an earlier appearance response, for a stable replay. */
+  appearanceSnapshot?: string;
   cursor?: string;
   limit?: number;
+};
+
+/**
+ * The exact label every similarity surface carries (ADR-021 §5): results are
+ * similarity candidates from a Development model, never identity or a match.
+ */
+export const SIMILARITY_CANDIDATES_LABEL = 'Similarity candidates — Development';
+
+/** The appearance block of an appearance-ranked search response. */
+export type AppearanceSearchBlock = {
+  label: string;
+  identityFingerprint: string;
+  modelId: string;
+  modelVersion: string;
+  snapshot: string | null;
+  snapshotUtc: string | null;
 };
 
 /** Scope-wide plate readiness; never treat incomplete coverage as a definitive negative. */
@@ -148,6 +172,8 @@ export type TrackSearchResponse = {
   analyticsCoverage?: AnalyticsCoverage;
   /** Present on every plate-filtered search, including empty results. */
   plateCoverage?: PlateCoverage;
+  /** Present on an appearance-ranked search (`appearanceQuery`). */
+  appearance?: AppearanceSearchBlock;
 };
 
 export type TrackSearchItem = {
@@ -176,6 +202,8 @@ export type TrackSearchItem = {
   analytics?: TrackItemAnalytics;
   /** The reading that matched the plate predicate, not a verified registration. */
   plate?: TrackItemPlate;
+  /** Cosine similarity in [-1, 1] on an appearance-ranked search; a score, never a verdict. */
+  appearanceScore?: number;
 };
 
 export type TrackCamera = {
@@ -468,6 +496,8 @@ const orderedFilterKeys: ReadonlyArray<keyof TrackSearchFilters> = [
   'motionDirection',
   'minStationaryMs',
   'loitering',
+  'appearanceQuery',
+  'appearanceSnapshot',
   'cursor',
   'limit',
 ];
@@ -494,4 +524,68 @@ export function getTrack(trackId: string, signal?: AbortSignal, identity?: Track
   if (identity?.analyticsAlgorithmVersion) params.set('analyticsAlgorithmVersion', identity.analyticsAlgorithmVersion);
   const query = params.toString();
   return apiRequest<TrackDetail>('/api/tracks/' + encodeURIComponent(trackId) + (query ? '?' + query : ''), { signal });
+}
+
+/** `GET /api/tracks/{id}/similar` (ADR-021 §4). */
+export type SimilarTracksState = 'ready' | 'pending' | 'unavailable' | 'notConfigured';
+
+export type SimilarityUnavailableReason = 'evidence_too_small' | 'no_evidence' | 'evidence_unavailable';
+
+export type EmbeddingIdentity = {
+  fingerprint: string;
+  modelId: string;
+  modelVersion: string;
+};
+
+export type SimilarTrackCandidate = {
+  rank: number;
+  /** Cosine similarity in [-1, 1]. A ranking score, never a match probability. */
+  score: number;
+  sourceObservationId: string | null;
+  track: TrackSearchItem;
+};
+
+export type SimilarTracksResponse = {
+  state: SimilarTracksState;
+  /** Set when `state` is `unavailable`; an open string so a new reason degrades to a generic sentence. */
+  reason: SimilarityUnavailableReason | (string & {}) | null;
+  label: string;
+  queryTrackId: string;
+  identity: EmbeddingIdentity | null;
+  snapshot: string | null;
+  snapshotUtc: string | null;
+  candidates: SimilarTrackCandidate[];
+};
+
+export const SIMILAR_TRACKS_K_MAX = 50;
+export const SIMILAR_TRACKS_K_DEFAULT = 20;
+
+export type SimilarTracksParams = {
+  k?: number;
+  cameraId?: string;
+  fromUtc?: string;
+  toUtc?: string;
+  objectClass?: TrackObjectClass;
+  /** The opaque token of an earlier response; replays its ranked list unchanged. */
+  snapshot?: string;
+};
+
+const similarParamKeys: ReadonlyArray<keyof SimilarTracksParams> = ['k', 'cameraId', 'fromUtc', 'toUtc', 'objectClass', 'snapshot'];
+
+export function serializeSimilarTracksParams(params: SimilarTracksParams): string {
+  const query = new URLSearchParams();
+  for (const key of similarParamKeys) {
+    const value = params[key];
+    if (value === undefined || value === null || value === '') continue;
+    query.set(key, String(value));
+  }
+  return query.toString();
+}
+
+export function getSimilarTracks(trackId: string, params: SimilarTracksParams = {}, signal?: AbortSignal): Promise<SimilarTracksResponse> {
+  const query = serializeSimilarTracksParams(params);
+  return apiRequest<SimilarTracksResponse>(
+    '/api/tracks/' + encodeURIComponent(trackId) + '/similar' + (query ? '?' + query : ''),
+    { signal },
+  );
 }

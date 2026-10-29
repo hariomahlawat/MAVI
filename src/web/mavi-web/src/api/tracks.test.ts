@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { searchTracks, serializeTrackSearchFilters, getTrack } from './tracks';
+import { getSimilarTracks, searchTracks, serializeTrackSearchFilters, getTrack } from './tracks';
 
 describe('Track API client', () => {
   it('serializes the analytic keys after the ordinary filters and before the cursor', () => {
@@ -177,5 +177,23 @@ describe('Track API client', () => {
     await getTrack(id);
 
     expect(fetch).toHaveBeenCalledWith('/api/tracks/' + id, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+});
+
+describe('PoC S4 similarity client', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('serialises the appearance keys in the search query', () => {
+    expect(serializeTrackSearchFilters({ appearanceQuery: 'white van', appearanceSnapshot: 'tok', limit: 50 }))
+      .toBe('appearanceQuery=white+van&appearanceSnapshot=tok&limit=50');
+  });
+
+  it('asks the similar endpoint with only its whitelisted keys', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ state: 'pending', candidates: [] }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    await getSimilarTracks('abc', { k: 10, cameraId: 'cam', snapshot: 'tok' });
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tracks/abc/similar?k=10&cameraId=cam&snapshot=tok');
   });
 });

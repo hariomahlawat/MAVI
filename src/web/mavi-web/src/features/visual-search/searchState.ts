@@ -64,6 +64,31 @@ export function isAnalyticSearch(filters: CommittedTrackSearch): boolean {
   return ANALYTICS_KEYS.some((key) => filters[key] !== undefined);
 }
 
+/**
+ * ADR-021 §4: an appearance query is 1 to 200 characters once trimmed and its
+ * inner whitespace collapsed. Case is kept for display; the server lowercases.
+ */
+export const APPEARANCE_QUERY_MAX_LENGTH = 200;
+
+export function normaliseAppearanceQuery(raw: string): string | null {
+  const text = raw.trim().replace(/\s+/g, ' ');
+  return text.length >= 1 && text.length <= APPEARANCE_QUERY_MAX_LENGTH ? text : null;
+}
+
+export function isAppearanceSearch(filters: CommittedTrackSearch): boolean {
+  return filters.appearanceQuery !== undefined;
+}
+
+/**
+ * Whether the search carries a predicate an appearance query cannot be combined
+ * with in this slice (`appearance_query_combination_unsupported`).
+ */
+export function hasAppearanceConflict(filters: CommittedTrackSearch): boolean {
+  return filters.plateText !== undefined || filters.plateMatch !== undefined || isAnalyticSearch(filters);
+}
+
+export const APPEARANCE_CONFLICT_MESSAGE = 'Appearance search cannot be combined with plate text or analytics filters.';
+
 export function hasCameraScope(filters: CommittedTrackSearch): boolean {
   return CAMERA_SCOPE_KEYS.some((key) => filters[key] !== undefined);
 }
@@ -85,6 +110,8 @@ const supportedKeys = [
   'minimumDurationMs',
   'minimumConfidence',
   ...ANALYTICS_KEYS,
+  'appearanceQuery',
+  'appearanceSnapshot',
 ] as const;
 
 type SupportedKey = typeof supportedKeys[number];
@@ -215,6 +242,9 @@ export function canonicalSearchParams(filters: CommittedTrackSearch): URLSearchP
   if (filters.motionDirection) params.set('motionDirection', filters.motionDirection);
   if (filters.minStationaryMs !== undefined) params.set('minStationaryMs', String(filters.minStationaryMs));
   if (filters.loitering) params.set('loitering', 'true');
+  if (filters.appearanceQuery) params.set('appearanceQuery', filters.appearanceQuery);
+  // A snapshot replays one appearance query; it cannot stand without it.
+  if (filters.appearanceQuery && filters.appearanceSnapshot) params.set('appearanceSnapshot', filters.appearanceSnapshot);
   return params;
 }
 
@@ -233,6 +263,10 @@ export function canonicalSearchParams(filters: CommittedTrackSearch): URLSearchP
 export function removeCriteria(filters: CommittedTrackSearch, keys: ReadonlyArray<keyof CommittedTrackSearch>): CommittedTrackSearch {
   const next: CommittedTrackSearch = { ...filters };
   for (const key of keys) delete next[key];
+  // An appearance snapshot pins the exact filters it was taken under (ADR-021
+  // §4: a token presented with different filters is refused), so any removal
+  // makes it a new query.
+  if (keys.length > 0) delete next.appearanceSnapshot;
   return settleDependencies(next, filters);
 }
 
@@ -255,7 +289,10 @@ export function withCameraScope(
     if (value) next[key] = value;
     else delete next[key];
   }
-  if (changed) for (const key of SCENE_LOCAL_KEYS) delete next[key];
+  if (changed) {
+    for (const key of SCENE_LOCAL_KEYS) delete next[key];
+    delete next.appearanceSnapshot;
+  }
   return settleDependencies(next, filters);
 }
 
@@ -280,6 +317,7 @@ function settleDependencies(next: CommittedTrackSearch, previous: CommittedTrack
   }
   if (next.lineId === undefined) delete next.crossingDirection;
   if (next.sceneRevisionId === undefined) delete next.analyticsAlgorithmVersion;
+  if (next.appearanceQuery === undefined) delete next.appearanceSnapshot;
   if (!hasCameraScope(next)) {
     for (const key of ANALYTICS_KEYS) delete next[key];
   } else {
@@ -415,6 +453,20 @@ export function parseCommittedSearch(params: URLSearchParams): SearchParseResult
 
   const analytics = parseAnalytics(raw, filters);
   if (analytics !== null) return { isValid: false, filters: {}, canonicalQuery: '', error: analytics };
+
+  if (raw.appearanceQuery !== undefined) {
+    const text = normaliseAppearanceQuery(raw.appearanceQuery);
+    if (!text) {
+      return { isValid: false, filters: {}, canonicalQuery: '', error: 'An appearance description must be 1 to 200 characters.' };
+    }
+    filters.appearanceQuery = text;
+    if (hasAppearanceConflict(filters)) {
+      return { isValid: false, filters: {}, canonicalQuery: '', error: APPEARANCE_CONFLICT_MESSAGE };
+    }
+    if (raw.appearanceSnapshot !== undefined) filters.appearanceSnapshot = raw.appearanceSnapshot;
+  } else if (raw.appearanceSnapshot !== undefined) {
+    return { isValid: false, filters: {}, canonicalQuery: '', error: 'An appearance snapshot requires an appearance description.' };
+  }
 
   return {
     isValid: true,

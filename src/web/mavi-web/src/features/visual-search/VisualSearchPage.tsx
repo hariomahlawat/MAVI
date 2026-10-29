@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
-import { searchTracks } from '../../api/tracks';
+import { SIMILARITY_CANDIDATES_LABEL, searchTracks } from '../../api/tracks';
 import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { describeError, fromInfiniteQuery, fromQuery } from '../../shared/async/fromQuery';
@@ -37,6 +37,7 @@ import {
   canonicalSearchParams,
   confidenceFractionToPercentText,
   isAnalyticSearch,
+  isAppearanceSearch,
   millisecondsToSecondsText,
   parseCommittedSearch,
   removeCriteria,
@@ -46,6 +47,20 @@ import { commitDraft, type SearchFieldErrors, type SearchFieldKey } from './sear
 import { useSceneGeometry } from './useSceneGeometry';
 
 const PAGE_SIZE = 24;
+/**
+ * An appearance search is one ranked page with no continuation (ADR-021 §4),
+ * so it asks for more than a browse page does, within the API's 1–100 bound.
+ */
+const APPEARANCE_LIMIT = 50;
+/**
+ * While the server computes the text embedding it answers 503
+ * `appearance_query_pending` with `Retry-After`. The page waits that long and
+ * asks again, at most this many times (about 12 s at the usual 2 s), then says
+ * so with a Retry rather than waiting without bound.
+ */
+export const APPEARANCE_PENDING_RETRIES = 6;
+const APPEARANCE_PENDING_DEFAULT_DELAY_S = 2;
+const APPEARANCE_PENDING_MAX_DELAY_S = 10;
 const SELECTION_PARAM = 'track';
 const VIEW_STORAGE_KEY = 'mavi.search.view';
 
@@ -107,6 +122,7 @@ function draftFromFilters(filters: CommittedTrackSearch, timeZoneId: string | un
     motionDirection: filters.motionDirection ?? '',
     minStationarySeconds: millisecondsToSecondsText(filters.minStationaryMs),
     loitering: filters.loitering ? 'true' : '',
+    appearanceQuery: filters.appearanceQuery ?? '',
   };
 }
 
@@ -158,6 +174,41 @@ function rebase(state: DraftState, baseline: SearchDraft): DraftState {
 function shouldRetryQuery(failureCount: number, error: unknown): boolean {
   if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false;
   return failureCount < 1;
+}
+
+function isAppearancePending(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 503 && error.code === 'appearance_query_pending';
+}
+
+function retrySearch(failureCount: number, error: unknown): boolean {
+  if (isAppearancePending(error)) return failureCount < APPEARANCE_PENDING_RETRIES;
+  return shouldRetryQuery(failureCount, error);
+}
+
+function searchRetryDelay(failureCount: number, error: unknown): number {
+  if (isAppearancePending(error)) {
+    const seconds = error.retryAfterSeconds ?? APPEARANCE_PENDING_DEFAULT_DELAY_S;
+    return Math.min(Math.max(seconds, 1), APPEARANCE_PENDING_MAX_DELAY_S) * 1000;
+  }
+  // TanStack Query's own default.
+  return Math.min(1000 * 2 ** failureCount, 30_000);
+}
+
+/** The operator sentence for a refused or failed appearance search. */
+function appearanceErrorMessage(error: unknown): string | undefined {
+  if (!(error instanceof ApiError)) return undefined;
+  switch (error.code) {
+    case 'appearance_query_pending':
+      return 'The appearance query is still being prepared. Retry in a moment.';
+    case 'embeddings_not_configured':
+      return 'Appearance search is not configured in this installation.';
+    case 'appearance_query_invalid':
+      return 'The appearance description must be 1 to 200 characters.';
+    case 'appearance_query_combination_unsupported':
+      return 'Appearance search cannot be combined with plate text or analytics filters.';
+    default:
+      return undefined;
+  }
 }
 
 function readView(): ResultView {
@@ -242,6 +293,7 @@ export default function VisualSearchPage() {
 
   const committedFilters = committed.isValid ? committed.filters : {};
   const analytic = committed.isValid && isAnalyticSearch(committed.filters);
+  const appearanceSearch = committed.isValid && isAppearanceSearch(committed.filters);
 
   useEffect(() => {
     try {
@@ -283,13 +335,19 @@ export default function VisualSearchPage() {
     queryFn: ({ pageParam, signal }) => searchTracks({
       ...activeFilters,
       cursor: pageParam ?? undefined,
-      limit: PAGE_SIZE,
+      limit: appearanceSearch ? APPEARANCE_LIMIT : PAGE_SIZE,
     }, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: committed.isValid,
-    retry: shouldRetryQuery,
+    retry: retrySearch,
+    retryDelay: searchRetryDelay,
   });
+  // The first page is waiting on the server to prepare the text embedding:
+  // said as its own state, not as a search that is merely slow.
+  const preparingAppearance = appearanceSearch && tracks.data === undefined
+    && tracks.isFetching && isAppearancePending(tracks.failureReason);
+  const appearanceBlock = appearanceSearch ? tracks.data?.pages[0]?.appearance : undefined;
 
   const items = useMemo(() => tracks.data?.pages.flatMap((page) => page.items) ?? [], [tracks.data]);
   const position = selectedIndex(items, selectedId);
@@ -791,11 +849,21 @@ export default function VisualSearchPage() {
                   ? `${formatCount(items.length)} Track${items.length === 1 ? '' : 's'}`
                   : 'Results'}
               </strong>
+              {appearanceSearch ? (
+                // ADR-021 §5: ranked by a score, labelled as candidates, never
+                // as matches; the model the scores came from is named.
+                <span>
+                  <strong>{SIMILARITY_CANDIDATES_LABEL}</strong>
+                  {' · Ranked by similarity score · Visual similarity only, not identity'}
+                  {appearanceBlock ? ` · Model ${appearanceBlock.modelId} ${appearanceBlock.modelVersion}` : ''}
+                </span>
+              ) : (
               <span>
                 {items.length > 0
                   ? hasMore ? 'Newest first · more to load' : 'Newest first · all loaded'
                   : 'Newest first'}
               </span>
+              )}
             </div>
             {/* §25 Tier B (768-1100): the filters are a drawer opened from
                 here, the results header; nothing where the rail is in place. */}
@@ -836,12 +904,18 @@ export default function VisualSearchPage() {
             kind="column"
             state={fromInfiniteQuery(tracks, (pages) => pages.flatMap((page) => page.items))}
             label="results"
-            loadingLabel="Searching…"
+            loadingLabel={preparingAppearance ? 'Preparing appearance query…' : 'Searching…'}
             // Either view loads as its own skeleton, never a spinner (§38).
             skeleton={{ rows: 'default', pitch: shownView === 'list' ? 'list' : 'grid' }}
             isEmpty={(found) => found.length === 0}
-            empty={resultsEmpty(coverage, plateCoverage, activeFilters.plateText)}
-            unavailableMessage={(error) => describeError(error, 'The search could not be completed.')}
+            empty={appearanceSearch ? APPEARANCE_EMPTY : resultsEmpty(coverage, plateCoverage, activeFilters.plateText)}
+            unavailableMessage={(error) => (appearanceSearch ? appearanceErrorMessage(error) : undefined)
+              ?? describeError(error, 'The search could not be completed.')}
+            // A refused query or a missing configuration is not cured by asking
+            // again; a pending text embedding and a transient failure are.
+            retryable={appearanceSearch
+              ? (error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500)
+              : undefined}
             degradedMessage="Showing the results that arrived last; refreshing them failed."
             onRetry={() => void tracks.refetch()}
           >
@@ -927,6 +1001,12 @@ export default function VisualSearchPage() {
     </section>
   );
 }
+
+const APPEARANCE_EMPTY: EmptySpec = {
+  icon: 'search',
+  title: 'No similarity candidates in this scope.',
+  body: 'Only Tracks with an appearance embedding are ranked. Widen the committed scope or describe the appearance differently.',
+};
 
 /**
  * The empty presentation of the results column. An analytic search's empty
