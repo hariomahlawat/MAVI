@@ -291,6 +291,21 @@
       "verification": "tools/vision/embeddings_packs.py collect/stage SHA-256 verification against the manifest; the worker re-verifies every artefact before loading; offline staging only",
       "licence": "Apache-2.0 (SigLIP 2 base; LICENSE from google-research/big_vision @ 0127fb6b and the model card shipped in the pack). Development-grade PoC pack (ADR-020, ADR-021); not a Production release",
       "dependencyPolicyId": "developer-offline-caches"
+    },
+    {
+      "id": "developer-faces-payloads",
+      "role": "development-offline-cache",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "exact-pinned",
+      "baselineVersion": "models/manifests/faces-yunet-adaface-ir50-dev-v1.json",
+      "exactVersionSource": "the manifest's artefact SHA-256 values (detector.onnx, embedder.onnx, LICENSE, LICENSE-yunet, README.md, README-yunet.md); YuNet face_detection_yunet_2026may.onnx from opencv_zoo @ 48b10fa5 (byte copy) and AdaFace IR-50 WebFace4M from minchul/cvlface_adaface_ir50_webface4m @ 60a65bef (model.safetensors, exported to ONNX opset 17) by tools/vision/build_face_packs.py",
+      "binaryKitPath": "vendor/developer-cache/win-x64/faces-payloads",
+      "releasePath": "prerequisites/developer/win-x64/faces-payloads",
+      "verification": "tools/vision/faces_packs.py collect/stage SHA-256 verification against the manifest; the faces worker re-verifies every artefact before loading; Install-MAVI-PoC reads both component licences from their installed LICENSE files; offline staging only",
+      "licence": "MIT (YuNet, LICENSE-yunet from opencv_zoo models/face_detection_yunet); MIT for the AdaFace/CVLface code (LICENSE from mk-minchul/CVLface @ 308142aa). The AdaFace checkpoint ships no licence file and follows WebFace4M's non-commercial research terms: Development-only, non-commercial demonstration only (ADR-022 §2); SFace (Apache-2.0) is the built fallback. Model bytes only: no face crop, embedding, gallery or query image is ever cached, kitted or bundled. Not a Production release",
+      "dependencyPolicyId": "developer-offline-caches"
     }
   ],
   "visionRuntime": {
