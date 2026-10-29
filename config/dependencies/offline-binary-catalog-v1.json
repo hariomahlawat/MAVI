@@ -367,6 +367,97 @@
         "msvc-cuda-build-toolchain-win-x64"
       ],
       "qualificationBoundary": "Development engineering candidate only; not a Production-supported runtime."
+    },
+    "windowsCudaPocSm89Candidate": {
+      "status": "built-hashed-locked",
+      "deploymentProfileScope": [
+        "poc-single-host"
+      ],
+      "buildContract": "config/vision/windows-cuda-development-build-v2.json",
+      "platformVariant": "windows-x86_64-cuda",
+      "bundleDirectory": "windows-x86_64-cuda-sm75-sm89",
+      "pythonVersion": "3.12.10",
+      "torchBinary": "2.6.0+cu124",
+      "torchvisionBinary": "0.21.0+cu124",
+      "cudaRuntimeFamily": "12.4",
+      "targetComputeCapabilities": [
+        "7.5",
+        "8.9"
+      ],
+      "mmcvBuildFlags": {
+        "MMCV_WITH_OPS": "1",
+        "FORCE_CUDA": "1",
+        "TORCH_CUDA_ARCH_LIST": "7.5;8.9+PTX"
+      },
+      "buildToolchain": {
+        "cudaToolkit": "12.4",
+        "msvcToolset": "14.44.35207",
+        "windowsSdk": "10.0.26100.0",
+        "msvcCompilerVersion": "19.44.35229",
+        "policyId": "msvc-cuda-build-toolchain-win-x64"
+      },
+      "nativeAbi": "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75-sm89",
+      "lock": "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda-sm75-sm89.lock",
+      "lockSha256": "e208c79a1a3b09339022132bd597a99996518d6e09677cbd2915c50845ccb46a",
+      "runtimeRequirementsSha256": "aef75d1960c0fc07483b5ffba4b6ba1471efde8fdf06d4bae3d0e3275b30b981",
+      "runtimePackId": "mavi-runtime-v2-7807ca241ad292adfc7815f3e1d09078e98ab48756071c0ef8aa0acc8269488d",
+      "runtimePackManifestSha256": "a75e2430d3bc9f34a03c7b50e6bd35daa51605d390c72f778e6b943ae3976810",
+      "mmcvWheelSha256": "a699e65f01af4e712e300decb6c28dde6950593ec2ba41dd75aa19f12f453f9c",
+      "mmcvWheelSizeBytes": 12641546,
+      "mmcvCompiledArchitectures": {
+        "sass": [
+          "sm_75",
+          "sm_89"
+        ],
+        "ptx": [
+          "compute_89"
+        ],
+        "cudaObjects": 58,
+        "source": "cuobjdump 12.4 --list-elf/--list-ptx on mmcv/_ext.cp312-win_amd64.pyd (SHA-256 5c039f5827e0ea73a925cb41ca9a54863414426123854f560dca2da1910c5213)"
+      },
+      "torchCudaArchList": [
+        "sm_50",
+        "sm_60",
+        "sm_61",
+        "sm_70",
+        "sm_75",
+        "sm_80",
+        "sm_86",
+        "sm_90"
+      ],
+      "retainedAt": "E:\\MAVI-Controlled\\PoC\\S1b (owner-controlled; SHA256SUMS)",
+      "runtimePrerequisites": [
+        "nvidia-driver-win-x64",
+        "vcredist-win-x64"
+      ],
+      "buildOnlyPrerequisites": [
+        "cuda-toolkit-12.4-win-x64-build",
+        "msvc-cuda-build-toolchain-win-x64"
+      ],
+      "workerBinding": "declared by the release component binding as Development build sm75-sm89 of windows-x86_64-cuda (developmentBuilds; ADR-014 amendment 2026-10-29, owner decision to ratify): the launcher and resolver accept it in Development only, on a GPU whose compute capability is 7.5 or 8.9; Production refuses it (runtime_pack_development_build_forbidden)",
+      "qualificationBoundary": "Development-grade PoC pack (ADR-020). built-hashed-locked until a bound RTX 4090 host observation (register row A7) earns qualified-development-hardware under ADR-009; never Production."
+    },
+    "onnxruntimeGpuDevelopmentCandidate": {
+      "status": "pinned-not-bound",
+      "deploymentProfileScope": [
+        "poc-single-host"
+      ],
+      "package": "onnxruntime-gpu",
+      "version": "1.26.0",
+      "licence": "MIT",
+      "wheels": [
+        {
+          "fileName": "onnxruntime_gpu-1.26.0-cp312-cp312-win_amd64.whl",
+          "sha256": "5f49c44689894650990e4c8a857d2edafc276fbd79bba57ceb224bd18d25d491",
+          "sizeBytes": 226548963,
+          "index": "https://pypi.org/simple"
+        }
+      ],
+      "cudaFamily": "12.x (CUDA 12 build; 1.27.0 and later on PyPI are CUDA 13 builds requiring driver >= 580)",
+      "cudnnFamily": "9.x",
+      "cudaLibrarySource": "not bundled; verified with the CUDA 12.4 / cuDNN 9.1 DLLs of the torch 2.6.0+cu124 wheel (import torch or onnxruntime.preload_dlls(directory=<torch>/lib))",
+      "pythonDependencies": "flatbuffers, numpy>=1.21.6, packaging, protobuf (resolved by the consuming runtime family's lock)",
+      "qualificationBoundary": "Development-grade pin for S3/S4/S6 (plan D9); no runtime family binds it yet; the consuming slice adds it to its lock and adds any CUDA/cuDNN DLL payload it needs."
     }
   }
 }

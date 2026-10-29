@@ -540,9 +540,16 @@ def _family_files(resolved: ResolvedRole) -> dict[str, Path]:
     """Every lock and requirements file the binding pins for the role's family."""
     runtime_dir = resolved.family.runtime_profile_path.parent
     files: dict[str, Path] = {}
-    for variant in sorted(resolved.binding.family_variants(resolved.role.runtime_pack_family_id)):
+    family_id = resolved.role.runtime_pack_family_id
+    for variant in sorted(resolved.binding.family_variants(family_id)):
         files[f"{variant}.lock"] = runtime_dir / f"{variant}.lock"
         files[f"{variant}.requirements.txt"] = runtime_dir / f"{variant}.requirements.txt"
+    # A Development build's own lock (ADR-014 amendment 2026-10-29): the bundled binding
+    # declares it, so the bundled overlay must carry it to resolve.
+    builds = resolved.binding.family_development_builds(family_id)
+    for variant in sorted(builds):
+        for build in builds[variant]:
+            files[f"{variant}-{build.build_id}.lock"] = runtime_dir / f"{variant}-{build.build_id}.lock"
     return files
 
 
