@@ -92,6 +92,117 @@ function Test-MaviPocCudaCompatibleGpu {
     return [pscustomobject]@{ Compatible = $false; Reason = "compute_capability_unsupported"; Gpu = $gpus[0].Name; ComputeCapability = $gpus[0].ComputeCapability; Index = $gpus[0].Index }
 }
 
+# The Windows CUDA Runtime Pack builds a PoC bundle may carry (S1b; plan D9, ADR-020), in
+# preference order. Each is the windows-x86_64-cuda platform variant built under its own
+# build contract; the contract's target GPU list is what the pack serves. The frozen v1
+# (sm_75) pack comes first, so an sm_75 host keeps it unless the sm_75;sm_89 one is asked for.
+function Get-MaviPocCudaRuntimePackCandidates {
+    param(
+        # The bundle overlay (or repository) root holding config\vision\.
+        [Parameter(Mandatory = $true)][string]$OverlayRoot,
+        # The bundle root; a candidate is Available when its pack directory carries a manifest.
+        [AllowNull()][string]$BundleRoot
+    )
+    $candidates = @()
+    foreach ($spec in @(
+            @{ Key = "sm75"; Contract = "windows-cuda-development-build-v1.json"; Directory = "windows-x86_64-cuda" },
+            @{ Key = "sm75-sm89"; Contract = "windows-cuda-development-build-v2.json"; Directory = "windows-x86_64-cuda-sm75-sm89" })) {
+        $contractPath = Join-Path $OverlayRoot "config\vision\$($spec.Contract)"
+        if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf)) {
+            # The frozen v1 contract is required; only a later build's contract may be absent.
+            if ($spec.Key -eq "sm75") { throw "The Windows CUDA build contract '$contractPath' is missing." }
+            continue
+        }
+        $contract = Get-Content -LiteralPath $contractPath -Raw | ConvertFrom-Json
+        $targets = if ($contract.PSObject.Properties["targetGpus"]) { @($contract.targetGpus) } else { @($contract.targetGpu) }
+        $source = if ($BundleRoot) { Join-Path $BundleRoot "vision\runtime\$($spec.Directory)" } else { $null }
+        $candidates += [pscustomobject]@{
+            Key = $spec.Key
+            Contract = $spec.Contract
+            NativeAbi = [string]$contract.nativeAbi
+            ComputeCapabilities = @($targets | ForEach-Object { [string]$_.computeCapability })
+            Source = $source
+            Available = [bool]($source -and (Test-Path -LiteralPath (Join-Path $source "runtime-pack-manifest.json") -PathType Leaf))
+        }
+    }
+    return , $candidates
+}
+
+# Which CUDA Runtime Pack build serves this host. Auto takes the first candidate (in
+# preference order) whose contract targets the GPU's exact compute capability, whether or
+# not the bundle carries it (an sm_75 host never drifts onto the sm_75;sm_89 build because
+# the sm_75 one is missing); a named pack must target the GPU or nothing is chosen. No
+# capability is served by a pack that does not list it: compute_89 PTX would not run on an
+# older GPU, and a newer GPU is not claimed until a build contract names it.
+function Select-MaviPocCudaRuntimePack {
+    param(
+        # nvidia-smi --query-gpu=index,name,compute_cap --format=csv,noheader output lines;
+        # $null when nvidia-smi is absent.
+        [AllowNull()][string[]]$NvidiaSmiLines,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Candidates,
+        [string]$Requested = "Auto"
+    )
+    $gpu = Test-MaviPocCudaCompatibleGpu -NvidiaSmiLines $NvidiaSmiLines -RequiredComputeCapability "none"
+    $none = [pscustomobject]@{ Compatible = $false; Reason = $gpu.Reason; Gpu = $gpu.Gpu; ComputeCapability = $gpu.ComputeCapability; Index = $gpu.Index; Pack = $null }
+    if ($gpu.Reason -in @("nvidia_smi_absent", "no_nvidia_gpu")) { return $none }
+    $pool = @($Candidates)
+    if ($Requested -ne "Auto") {
+        $pool = @($Candidates | Where-Object { $_.Key -eq $Requested })
+        if ($pool.Count -eq 0) { throw "CUDA Runtime Pack '$Requested' is not declared by this bundle's build contracts." }
+    }
+    foreach ($line in @($NvidiaSmiLines)) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $parts = @($line.Split(",") | ForEach-Object { $_.Trim() })
+        if ($parts.Count -lt 3) { continue }
+        foreach ($candidate in $pool) {
+            if (@($candidate.ComputeCapabilities) -contains $parts[2]) {
+                return [pscustomobject]@{ Compatible = $true; Reason = "compute_capability_match"; Gpu = $parts[1]; ComputeCapability = $parts[2]; Index = $parts[0]; Pack = $candidate }
+            }
+        }
+    }
+    $none.Reason = "compute_capability_unsupported"
+    return $none
+}
+
+# Which declared Windows CUDA build a Runtime Pack id is, from the component binding (ADR-014
+# amendment 2026-10-29): "sm75" for the release pin (variants.windows-x86_64-cuda), a build id
+# for one of its developmentBuilds, $null for anything else. The binding is the one source the
+# bundle builder, the kit builder and the installer all consult.
+function Get-MaviPocCudaBuildKey {
+    param(
+        [Parameter(Mandatory = $true)]$Binding,
+        [Parameter(Mandatory = $true)][string]$RuntimePackId
+    )
+    $family = @($Binding.runtimePacks | Where-Object { [string]$_.runtimePackFamilyId -eq "mmdetection-phase1-v1" })
+    if ($family.Count -ne 1) { return $null }
+    $variants = $family[0].PSObject.Properties["variants"]
+    $primary = if ($variants) { $variants.Value.PSObject.Properties["windows-x86_64-cuda"] } else { $null }
+    if ($primary -and [string]$primary.Value.runtimePackId -ceq $RuntimePackId) { return "sm75" }
+    $builds = $family[0].PSObject.Properties["developmentBuilds"]
+    if (-not $builds) { return $null }
+    $cudaBuilds = $builds.Value.PSObject.Properties["windows-x86_64-cuda"]
+    if (-not $cudaBuilds) { return $null }
+    foreach ($build in @($cudaBuilds.Value)) {
+        if ([string]$build.runtimePackId -ceq $RuntimePackId) { return [string]$build.buildId }
+    }
+    return $null
+}
+
+# The status the offline catalogue records for the PoC sm_75;sm_89 CUDA build
+# (visionRuntime.windowsCudaPocSm89Candidate), for the pack it names; "unrecorded" otherwise.
+function Get-MaviPocCudaBuildStatus {
+    param(
+        [Parameter(Mandatory = $true)][string]$OverlayRoot,
+        [Parameter(Mandatory = $true)][string]$RuntimePackId
+    )
+    $catalogPath = Join-Path $OverlayRoot "config\dependencies\offline-binary-catalog-v1.json"
+    if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) { return "unrecorded" }
+    $vision = (Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json).visionRuntime
+    $entry = $vision.PSObject.Properties["windowsCudaPocSm89Candidate"]
+    if (-not $entry -or [string]$entry.Value.runtimePackId -ne $RuntimePackId) { return "unrecorded" }
+    return [string]$entry.Value.status
+}
+
 # The verification status the repository records for a Runtime Pack variant
 # (runtime.json platformVariants.<variant>.status).
 function Get-MaviPocRuntimeVerificationStatus {
@@ -466,4 +577,4 @@ function Get-MaviPocRecordedProcess {
     return $process
 }
 
-Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks
+Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks

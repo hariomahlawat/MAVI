@@ -2,7 +2,7 @@
   "schemaVersion": "mavi-vision-development-producers-v1",
   "releaseBinding": {
     "path": "src/vision/config/components/phase1-bindings-v2.json",
-    "sha256": "7ef226193232b90b0a20f8648a95f21e0bbc9416b353605c9be6d81262abe205"
+    "sha256": "48c6f10d7ad959a3d1430b2a4e5535e9b2c1c361028d99ced54ed7d88702ae8e"
   },
   "producers": [
     {

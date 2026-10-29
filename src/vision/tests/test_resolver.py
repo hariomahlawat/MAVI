@@ -228,6 +228,8 @@ def test_class_a_cannot_be_declared_in_the_binding(overlay: Overlay) -> None:
 
 def test_class_b_must_be_declared_in_the_binding(overlay: Overlay) -> None:
     del overlay.binding["runtimePacks"][0]["variants"]["windows-x86_64-cuda"]
+    # Its Development build goes with it (a build of an undeclared variant is refused on parse).
+    del overlay.binding["runtimePacks"][0]["developmentBuilds"]
     overlay.write()
     assert _code(overlay.resolve) == "binding_variant_missing:windows-x86_64-cuda"
 
@@ -707,6 +709,8 @@ def test_p17_class_a_with_development_evidence_but_no_lock_is_refused(overlay: O
 def test_the_family_itself_refuses_a_binding_that_omits_a_class_b_variant(overlay: Overlay) -> None:
     """The family check alone, not the record's: a binding is refused before any record is read."""
     del overlay.binding["runtimePacks"][0]["variants"]["windows-x86_64-cuda"]
+    # Its Development build goes with it (a build of an undeclared variant is refused on parse).
+    del overlay.binding["runtimePacks"][0]["developmentBuilds"]
     overlay.write()
     binding = load_component_binding(overlay.binding_path)
     assert _code(lambda: load_role_family(binding=binding, role_id="vision", overlay_root=overlay.root)) == (
@@ -733,3 +737,72 @@ def test_the_worker_checks_its_own_interpreter_by_default(overlay: Overlay) -> N
     assert _code(
         lambda: composition.resolve(runtime_variant="linux-x86_64-cpu", python_version="3.12.14")
     ) == "runtime_pack_not_running_environment"
+
+
+# ------------------------------------------- Development builds (ADR-014 amendment 2026-10-29)
+
+CUDA = "windows-x86_64-cuda"
+
+
+def _build_manifest(overlay: Overlay) -> dict:
+    build = overlay.binding["runtimePacks"][0]["developmentBuilds"][CUDA][0]
+    document = overlay.pack_manifest_for(CUDA)
+    for name in ("runtimePackId", "nativeAbi", "thirdPartyLockSha256", "runtimeRequirementsSha256"):
+        document[name] = build[name]
+    return document
+
+
+def test_the_release_cuda_pin_resolves_exactly_as_before_the_builds(overlay: Overlay) -> None:
+    """The primary sm_75 entry is matched first: same pack id, same lock, no capability check."""
+    overlay.install_pack(CUDA)
+    resolved = overlay.resolve(CUDA, installed=True)
+
+    primary = overlay.binding["runtimePacks"][0]["variants"][CUDA]
+    assert resolved.runtime_pack.runtime_pack_id == primary["runtimePackId"]
+    assert resolved.runtime_pack.lock_path.name == f"{CUDA}.lock"
+    assert resolved.runtime_pack.binding_entry.native_abi.endswith("-sm75")
+
+
+def test_a_declared_development_build_resolves_in_development(overlay: Overlay) -> None:
+    document = overlay.install_pack(CUDA, **_build_manifest(overlay))
+    resolved = overlay.resolve(CUDA, installed=True)
+
+    assert resolved.runtime_pack.runtime_pack_source == INSTALLED_PACK
+    assert resolved.runtime_pack.runtime_pack_id == document["runtimePackId"]
+    assert resolved.runtime_pack.lock_path.name == f"{CUDA}-sm75-sm89.lock"
+    assert resolved.runtime_pack.binding_entry.native_abi.endswith("-sm75-sm89")
+
+
+def test_a_development_build_never_starts_in_production(overlay: Overlay) -> None:
+    overlay.install_pack(CUDA, **_build_manifest(overlay))
+    assert _code(lambda: overlay.resolve(CUDA, installed=True, production_mode=True)) == (
+        "runtime_pack_development_build_forbidden"
+    )
+
+
+def test_a_development_build_whose_lock_changed_never_loads(overlay: Overlay) -> None:
+    lock = overlay.root / "src/vision/runtime" / "mmdetection-phase1-v1" / f"{CUDA}-sm75-sm89.lock"
+    lock.write_bytes(lock.read_bytes() + b"# drift\n")
+    assert _code(lambda: overlay.resolve()) == f"runtime_lock_binding_mismatch:{CUDA}"
+
+
+def test_a_development_build_with_an_underived_id_never_loads(overlay: Overlay) -> None:
+    overlay.binding["runtimePacks"][0]["developmentBuilds"][CUDA][0]["runtimePackId"] = "mavi-runtime-v2-" + "2" * 64
+    overlay.write()
+    assert _code(lambda: overlay.resolve()) == f"runtime_pack_binding_id_mismatch:{CUDA}"
+
+
+@pytest.mark.parametrize(
+    ("edit", "code"),
+    [
+        (lambda builds: builds.update({"windows-x86_64-cpu": builds.pop(CUDA)}), "development_build_variant_invalid"),
+        (lambda builds: builds[CUDA][0].update(nativeAbi=builds[CUDA][0]["nativeAbi"].replace("-sm89", "")), "development_build_native_abi_mismatch"),
+        (lambda builds: builds[CUDA][0].update(computeCapabilities=["8.9", "7.5"]), "component_binding_invalid"),
+        (lambda builds: builds[CUDA].append(dict(builds[CUDA][0])), "development_build_duplicate"),
+        (lambda builds: builds.update({CUDA: []}), "development_build_variant_invalid"),
+    ],
+)
+def test_an_unusable_development_build_declaration_is_refused(overlay: Overlay, edit, code: str) -> None:
+    edit(overlay.binding["runtimePacks"][0]["developmentBuilds"])
+    overlay.write()
+    assert _code(lambda: load_component_binding(overlay.binding_path)).startswith(code)
