@@ -73,12 +73,6 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     /// </summary>
     public bool EnablePlateHostedLoop { get; init; }
 
-    /// <summary>The re-analysis operator key whose SHA-256 the test platform is configured with (PoC S3, C4.2).</summary>
-    public const string TestReanalysisOperatorKey = "mavi-test-reanalysis-operator-key-not-a-secret";
-
-    public static readonly string TestReanalysisOperatorKeySha256 = Convert.ToHexStringLower(
-        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(TestReanalysisOperatorKey)));
-
     /// <summary>Use an existing media root instead of a fresh temporary one.</summary>
     public string? MediaRootOverride { get; init; }
 
@@ -145,7 +139,6 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 // Plate analysis is on; its hosted loop is removed below unless a test opts in, so plate tests drive
                 // RunCycleAsync themselves.
                 ["Plates:Enabled"] = "true",
-                ["Plates:ReanalysisOperatorKeySha256"] = TestReanalysisOperatorKeySha256,
                 ["Plates:ComponentBindingPath"] = PlateComponentBindingPath ?? string.Empty,
                 ["Plates:PipelineProfilePath"] = PlatePipelineProfilePath ?? string.Empty,
                 ["DatabaseMigrations:LockTimeoutSeconds"] =

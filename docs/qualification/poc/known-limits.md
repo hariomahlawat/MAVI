@@ -11,7 +11,7 @@ This page is the PoC's record of what each capability does not do. The operator 
 - **No Indian plates.** No Indian plate data exists in MAVI's evidence, and no accuracy is claimed for Indian plates or for any data beyond the numbers above. An Indian plate corpus is post-PoC work (plan §7, O1B).
 - **Demo-corpus behaviour is not a measurement.** The PoC demo clips carry no plate ground truth (register B5); a plate read on a demo clip shows the pipeline working, not its accuracy.
 - **Candidates, not identifications.** A reading is a model output with a confidence. Check it against the plate crop and the source frame before acting on it. The Stage-4 acceptance register (`docs/reviews/2026-10-12-stage4-anpr-ocr-acceptance.md`, frozen) is unchanged: evidence adequacy INADEQUATE (53/79), no model selection, no Production claim.
-- **Re-analysis authorisation is interim.** `POST /api/plates/reanalysis` needs an owner-configured operator key until ADR-010 operator identity (S11-min) replaces it; with no key it is refused. The key is shared (anyone holding it is authorised, nobody is attributed), and its strength is the owner's: the platform stores only its unsalted SHA-256, which local users can read.
+- **Re-analysis is authorised by Windows identity on a trusted host.** `POST /api/plates/reanalysis` requires an ADR-010 operator and records the request against the operator's Windows account. On a PoC install every local user is an operator (`BUILTIN\Users`, owner decision S1-T1), so attribution names the account but does not restrict who may ask; a browser opened at `127.0.0.1` instead of `localhost` sends no Windows credentials and is refused (401).
 
 ## Events (Stage 7; slice S8, register rows C7.1–C7.2)
 
