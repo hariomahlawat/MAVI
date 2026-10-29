@@ -105,3 +105,6 @@ Code head `d86826e34143c465db625cb753ae345e8462cef6`. Evidence location `E:\MAVI
 |---|---|---|
 | D1–D9 | Accepted as recommended in the plan §2 | 2026-10-28 |
 | S1-T1 | Option A: `poc-single-host` only on dedicated demonstration hosts with trusted local users; residual local-user directory-redirection risk of the elevated installer accepted for the Development PoC only; hardening retained; not extended to Production, shared multi-user hosts or untrusted local users | 2026-10-28 |
+| S3-1 | Option (1): C4.1 is closed by the owner's elevated A2 install (`Install-MAVI-PoC`, network disconnected) from a bundle rebuilt at the merged head; until then C4.1 stays IN PROGRESS | 2026-10-29 |
+| S3-2 | Option (1): plate re-analysis stays refused on PoC installs (no operator key configured) until S11-min's ADR-010 operator identity replaces the interim key gate (`PlateReanalysisAuthorisation`) | 2026-10-29 |
+| S3-3 | Option (1): CPU-only plates accepted for the PoC with the recorded reason `plates_runtime_cpu_only`; a CUDA variant of `plates-onnx-v1` (with the CUDA execution provider in the adapters) is a follow-up after #243 | 2026-10-29 |
