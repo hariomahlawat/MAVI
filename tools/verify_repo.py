@@ -860,16 +860,19 @@ _WINDOWS_CPU_BUILD_TOOLCHAIN_SHAPES = {
     "linkerVersion": re.compile(r"^14\.\d+\.\d+\.\d+$"),
     "msvcToolset": re.compile(r"^\d+\.\d+$"),
     "windowsSdk": re.compile(r"^\d+\.\d+\.\d+\.\d+$"),
+    "windowsSdkBuild": re.compile(r"^10\.0\.\d+\.\d+$"),
 }
+_WINDOWS_CPU_BUILD_SDK_PACKAGES = ("microsoft.windows.sdk.cpp", "microsoft.windows.sdk.cpp.x64")
 
 
 def check_windows_cpu_build_toolchain(errors: list[str]) -> None:
     """Keep the pinned Windows CPU MMCV build toolchain identical across its three records.
 
     The offline binary catalogue, the dependency policy and the Task 12 workflow
-    each state the fixed-version Build Tools bootstrapper and the exact compiler
-    and linker builds. The committed Windows CPU lock is reproducible only under
-    that compiler, so any one record drifting from the others fails closed.
+    each state the fixed-version Build Tools bootstrapper, the exact compiler
+    and linker builds and the exact Windows SDK build packages. The committed
+    Windows CPU lock is reproducible only under that compiler and SDK, so any
+    one record drifting from the others fails closed.
     """
     catalog = _read_json_or_none(ROOT / "config/dependencies/offline-binary-catalog-v1.json")
     policy = _read_json_or_none(ROOT / "config/dependencies/offline-dependency-policy-v1.json")
@@ -896,6 +899,26 @@ def check_windows_cpu_build_toolchain(errors: list[str]) -> None:
         return
     if toolchain.get("platformVariant") != "windows-x86_64-cpu":
         fail("Windows CPU build toolchain names the wrong platform variant.", errors)
+    sdk_build = toolchain["windowsSdkBuild"]
+    if not sdk_build.startswith(toolchain["windowsSdk"].rsplit(".", 1)[0] + "."):
+        fail("Windows CPU build toolchain SDK build is not a build of its windowsSdk.", errors)
+        return
+    packages = toolchain.get("windowsSdkPackages")
+    sdk_hashes: list[str] = []
+    for package_id in _WINDOWS_CPU_BUILD_SDK_PACKAGES:
+        package = next(
+            (item for item in packages if isinstance(item, dict) and item.get("id") == package_id),
+            None,
+        ) if isinstance(packages, list) else None
+        package_sha = package.get("sha256") if package else None
+        expected_url = (
+            f"https://api.nuget.org/v3-flatcontainer/{package_id}/{sdk_build}/{package_id}.{sdk_build}.nupkg"
+        )
+        if not isinstance(package_sha, str) or re.fullmatch(r"[0-9a-f]{64}", package_sha) is None \
+                or package.get("url") != expected_url:
+            fail(f"Windows CPU build toolchain SDK package {package_id} is not a pinned NuGet payload.", errors)
+            return
+        sdk_hashes.append(package_sha)
     policy_id = toolchain.get("policyId")
     entries = policy.get("nativeAndToolchain", []) if isinstance(policy, dict) else []
     entry = next((item for item in entries if isinstance(item, dict) and item.get("id") == policy_id), None)
@@ -903,7 +926,7 @@ def check_windows_cpu_build_toolchain(errors: list[str]) -> None:
         fail(f"Windows CPU build toolchain references unknown policy {policy_id!r}.", errors)
     else:
         verification = str(entry.get("verification", ""))
-        for value in (sha256, toolchain["compilerVersion"], toolchain["linkerVersion"]):
+        for value in (sha256, toolchain["compilerVersion"], toolchain["linkerVersion"], sdk_build, *sdk_hashes):
             if value not in verification:
                 fail(f"Dependency policy {policy_id} does not state the pinned {value}.", errors)
     # The workflow is where the pin takes effect.
@@ -913,6 +936,10 @@ def check_windows_cpu_build_toolchain(errors: list[str]) -> None:
         f'if ($clVersion -ne "{toolchain["compilerVersion"]}")',
         f'if ($linkVersion -ne "{toolchain["linkerVersion"]}")',
         f"x64 {toolchain['windowsSdk']} -vcvars_ver={toolchain['msvcToolset']}",
+        f"MAVI_WINSDK_VERSION: {sdk_build}",
+        f"MAVI_WINSDK_CPP_SHA256: {sdk_hashes[0]}",
+        f"MAVI_WINSDK_CPP_X64_SHA256: {sdk_hashes[1]}",
+        "unpinned_windows_sdk_in_",
     ):
         if required not in workflow:
             fail(f"Task 12 workflow does not carry the catalogued Windows CPU toolchain pin: {required}", errors)
