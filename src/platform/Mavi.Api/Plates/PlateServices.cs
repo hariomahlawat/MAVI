@@ -191,6 +191,8 @@ public static class PlateReanalysisAuthorisation
                 "Plate re-analysis is not authorised on this installation (no operator identity is configured).");
         if ((await authorization.AuthorizeAsync(context.User, context, OperatorPolicy.Name)).Succeeded)
             return null;
+        // An authenticated principal that fails the policy is refused 403. In practice that is a non-operator: a
+        // non-JSON body (the policy's other rule) is already refused 415 by the endpoint's JSON binding.
         return context.User.Identity is { IsAuthenticated: true }
             ? new RefusalResult(StatusCodes.Status403Forbidden, ForbiddenCode, "This account is not a MAVI operator.")
             : new RefusalResult(StatusCodes.Status401Unauthorized, UnauthorisedCode, "An operator identity is required.", Challenge: true);

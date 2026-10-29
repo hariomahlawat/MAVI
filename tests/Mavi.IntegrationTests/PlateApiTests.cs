@@ -662,8 +662,9 @@ public sealed class PlateApiTests(PostgresFixture fixture)
     public async Task ReanalysisRequiresAnOperatorAndEveryRefusalIsAudited()
     {
         // ADR-010 (owner decision S3-2): the operator policy replaced the interim operator key. An anonymous request is
-        // challenged, a Windows account that is not an operator is forbidden, and a form-shaped request never binds;
-        // each refusal reaches the handler's audit (event 2126) and queues nothing.
+        // challenged and a Windows account that is not an operator is forbidden; each refusal reaches the handler's
+        // audit (event 2126) and queues nothing. A form-shaped request never binds: the framework refuses it (415)
+        // before the handler, so it is neither queued nor audited.
         await using var host = await PlateApiHost.CreateAsync(fixture, T0);
         var run = await host.World.SeedRunAsync(0, 1, 1, completedAtUtc: T0.AddMinutes(-10));
         host.World.Clock.Advance(TimeSpan.FromSeconds(1));
@@ -679,6 +680,16 @@ public sealed class PlateApiTests(PostgresFixture fixture)
         {
             Assert.Equal(HttpStatusCode.Forbidden, outsider.StatusCode);
             Assert.Equal(PlateReanalysisAuthorisation.ForbiddenCode, await CodeAsync(outsider));
+        }
+
+        using (var form = new HttpRequestMessage(HttpMethod.Post, "/api/plates/reanalysis")
+               {
+                   Content = new FormUrlEncodedContent([new KeyValuePair<string, string>("processingRunIds", run.RunId.ToString())]),
+               })
+        {
+            TestOperatorIdentity.As(form, TestOperatorIdentity.Operator, TestOperatorIdentity.OperatorSid);
+            using var formShaped = await host.Client.SendAsync(form);
+            Assert.Equal(HttpStatusCode.UnsupportedMediaType, formShaped.StatusCode);
         }
 
         await using (var db = host.World.Read())
@@ -722,6 +733,61 @@ public sealed class PlateApiTests(PostgresFixture fixture)
         Assert.Equal(0, await db.AuditEntries.CountAsync());
         Assert.Equal(1, host.Logs.Entries.Count(entry =>
             entry.EventId.Id == 2126 && entry.Message.Contains("processing_run_not_found", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task OverlappingRequestsForOneRunQueueItOnceAndBothAreRecorded()
+    {
+        // Each request queues inside its audit transaction, so the second insert of a run waits on the first request's
+        // uncommitted row and then meets the unique index. The gate holds both requests at their first save until both
+        // have passed the "already queued?" check, so the conflict is certain: it must roll back to its savepoint
+        // (not abort the transaction), count the run as already queued and still commit the request's audit entry.
+        var gate = new SaveGate(2);
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0, configureDbContext: options => options.AddInterceptors(gate));
+        var run = await host.World.SeedRunAsync(0, 1, 1, completedAtUtc: T0.AddMinutes(-10));
+
+        var responses = await Task.WhenAll(
+            host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }),
+            host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }));
+        try
+        {
+            Assert.All(responses, response => Assert.Equal(HttpStatusCode.Accepted, response.StatusCode));
+            var bodies = await Task.WhenAll(responses.Select(response => response.Content.ReadFromJsonAsync<JsonElement>()));
+            Assert.Equal(1, bodies.Sum(body => body.GetProperty("queued").GetInt32()));
+            Assert.Equal(1, bodies.Sum(body => body.GetProperty("alreadyQueued").GetInt32()));
+        }
+        finally
+        {
+            foreach (var response in responses)
+                response.Dispose();
+        }
+
+        await using var db = host.World.Read();
+        Assert.Equal(1, await db.PlateAnalyses.CountAsync());
+        Assert.Equal(2, await db.AuditEntries.CountAsync(entry => entry.Action == "plates.reanalysis-requested"));
+    }
+
+    /// <summary>Holds the first plate-analysis insert of each of <c>parties</c> requests until all of them reach it.</summary>
+    private sealed class SaveGate(int parties) : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        private readonly TaskCompletionSource _all = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrived;
+
+        public override async ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+            Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            var inserting = eventData.Context!.ChangeTracker.Entries<Mavi.Domain.Plates.PlateAnalysis>()
+                .Any(entry => entry.State == EntityState.Added);
+            if (inserting && !_all.Task.IsCompleted)
+            {
+                if (Interlocked.Increment(ref _arrived) >= parties)
+                    _all.TrySetResult();
+                await _all.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            }
+
+            return result;
+        }
     }
 
     [Theory]
@@ -771,6 +837,11 @@ public sealed class PlateApiTests(PostgresFixture fixture)
         // Disabled analysis queues nothing on request either.
         using (var disabled = await host.ReanalysisAsync(new { processingRunIds = new[] { unit.Lease.ProcessingRunId } }))
             Assert.Equal((HttpStatusCode.Conflict, "plate_analysis_disabled"), (disabled.StatusCode, await CodeAsync(disabled)));
+        // The refusal is audited (event 2126) and records no attributable action.
+        Assert.Equal(1, host.Logs.Entries.Count(entry =>
+            entry.EventId.Id == 2126 && entry.Message.Contains("plate_analysis_disabled", StringComparison.Ordinal)));
+        await using (var audited = host.World.Read())
+            Assert.Equal(0, await audited.AuditEntries.CountAsync());
         // A run that would be queued automatically if analysis were enabled.
         var eligible = await host.World.SeedRunAsync(0, 1, 1, completedAtUtc: host.World.Clock.GetUtcNow().AddSeconds(1));
         host.World.Clock.Advance(TimeSpan.FromHours(6) + TimeSpan.FromMinutes(5));
