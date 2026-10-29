@@ -5,7 +5,7 @@
 > **Note (2026-10-28, after the cold review).** Both purpose-approval JSON files (`s2-purpose-approvals-batch{1,2}.json`, and the copies in the controlled store) carry an earlier wording in their `reviewedBy` and `approvedBy` fields: "owner acceptance of the attribution file, register B2, ratifies". **That wording is superseded:** ratifying the two determinations is a separate owner act and a condition of B1. The JSON files are left byte-identical on purpose, because the receipts bind their SHA-256.
 
 **Governing records:**
-- scope declaration and amendments: `s2-demo-corpus-scope-declaration.md`, committed before each pass (`82e04c05`, A1 `bd7ccce3`, A2 `041513da`, A3 `9bde864d`);
+- scope declaration and amendments: `s2-demo-corpus-scope-declaration.md`, committed before each pass (`82e04c05`, A1 `bd7ccce3`, A2 `041513da`, A3 `9bde864d`, A4 `45a34026`, A5 `4223bd3b`);
 - plan D3 and register rows B1–B5;
 - ADR-017 §7;
 - the source-acquisition helper README.
@@ -84,7 +84,7 @@ The full hashes are in the receipts, `E:\MAVI-Controlled\PoC\Corpus\source-store
 **Privacy and faces (B3).** All eight clips show public streets, squares, a level crossing or a gate passage.
 - **People are incidental.** People appear distant or from above, are not identifiable at close range and are not the subject.
 - **Damascus Gate is overhead.** s2-08 shows heads from above.
-- **No face-bearing clip.** None of the eight is a face-bearing clip in the sense of rule 4. The three CC0 clips (s2-01, s2-06, s2-08) would satisfy B3 even if a face were recognisable.
+- **No face-bearing clip.** None of the eight is a face-bearing clip in the sense of rule 4. The three CC0 clips (s2-01, s2-06, s2-08) would satisfy B3 even if a face were recognisable. *(As of pass 4. After A5, s2-08 is MEVA G331 and the Commons clips are s2-01 to s2-07, two of them CC0; see §11.)*
 - **Plates.** Vehicle registration plates may be legible in s2-03, s2-05 and s2-06. They are published by the uploaders under open licences, and the demo neither looks them up nor links them to any person.
 - **Audio removed.** Audio is stripped from every derivative.
 
@@ -121,9 +121,9 @@ Both have purposes `development`, rights `PERMITTED_FOR_ENGINEERING_USE` and pri
 | Class | Target (rule 5) | Selected |
 |---|---|---|
 | Junction / gate / road | ≥ 3 | 6: s2-01 Düsseldorf junction, s2-02 Sofia junction, s2-03 Crest Hill road, s2-04 night highway, s2-05 archway gate, s2-06 level-crossing barrier |
-| Pedestrian | ≥ 2 | 2: s2-07 Shibuya scramble crossing, s2-08 Damascus Gate overhead |
+| Pedestrian | ≥ 2 | 2 until A5: s2-07 Shibuya scramble crossing, s2-08 Damascus Gate overhead. **After A5, 1 (s2-07): a shortfall against rule 5.** It follows from owner decision 5(b), and neither A5 nor the decision stated it. The indoor MEVA views (s2-08 bus stop, s2-11 hallway, s2-12 stairwell) show people walking but are classed lobby, so they are **not** counted here. The owner accepted one pedestrian clip, disclosed (decision 11(a), 2026-10-29) |
 | Car park | ≥ 1 | 1 after A4: s2-09 (MEVA G424). **GAP** in Commons, closed by MEVA (§7) |
-| Lobby / close-range faces | ≥ 1 | 3 after A4: s2-10 cafe, s2-11 hallway, s2-12 stairwell (MEVA; consent is owner decision 3). **GAP** in Commons, closed by MEVA (§7) |
+| Lobby / close-range faces | ≥ 1 | 3 after A4: s2-10 cafe, s2-11 hallway, s2-12 stairwell; 4 after A5, adding the s2-08 bus-stop waiting room. All are MEVA. The owner accepted consent for s2-10, s2-11 and s2-12 (decision 3(a)), and confirmed it for s2-08 (decision 13(a), 2026-10-29). **GAP** in Commons, closed by MEVA (§7) |
 
 **Car park gap.** No kit-licensed fixed-camera car-park clip of at least 60 s was found in 964 described files. What is available instead:
 - Two clips carry a "Restricted" bay zone: s2-03, over the roadside lot, and s2-05, over the parked cars beside the gate. They support dwell and restricted-area demos, but they are not car-park scenes.
@@ -214,7 +214,7 @@ The duplicate path now also checks each asset's recording start, against the ser
 
 **Cross-camera repeat appearances.**
 - **By design.** The same paper (§3.2, p. 4) says activities "were scripted to be performed by the same individual in different, singular cameras with the goal of associating the same individual across different cameras".
-- **The selected clips.** The four clips come from one real 5-minute slot in one school building, all fixed cameras. Their demo start times keep the real offsets between cameras (09:40:00–09:40:02).
+- **The selected clips.** The four A4 clips come from one real 5-minute slot in one school building, all fixed cameras. Their demo start times keep the real offsets between cameras (09:40:00–09:40:02). After A5, G331 (s2-08) is a fifth clip from the same slot, in the bus-stop building, at 09:40:00.
 
 **MEVID identity labels: ADR-017 reuse record, added after the cold review.**
 - **What MEVID is.** MEVID (Kitware, WACV 2023, `github.com/Kitware/mevid`) labels 158 actors and 598 person-outfits. Per its paper, it covers 33 MEVA views; the annotation files themselves contain 25 camera ids.
@@ -230,10 +230,11 @@ The duplicate path now also checks each asset's recording start, against the ser
 - **132** of the 598 person-outfits have tracklets in at least two of the four selected cameras;
 - by camera pair: G419–G421 68, G419–G424 61, G419–G423 54, G421–G424 42, G421–G423 28, G423–G424 24;
 - **11** appear in all four.
+- **After A5, G331** (same method and files, same read-only reuse under decision 9): 37 person-outfits have G331 tracklets, and 18 of them also appear in at least one of the four school cameras (G331–G421 11, G331–G419 10, G331–G424 7, G331–G423 7). Across all five cameras, 138 person-outfits appear in at least two, and none in all five.
 
 MEVID's files carry no clip or time stamp, so S2 does **not** claim which actors repeat inside the selected slot. Any ReID result on these clips is a *candidate*. It is not identity evidence and not a ReID performance measure (D3, C6).
 
-**Files.** Slot 2018-03-11 16:20; all four are school-building cameras, fixed, 1920×1072/1080 at 30 fps, 300 s:
+**Files.** Slot 2018-03-11 16:20; fixed cameras, 1920×1072/1080 at 30 fps, 300 s. The four A4 files are school-building cameras; G331 (added by A5) is the bus-stop building:
 
 | Clip | Camera / view | Object (`drops-123-r13/2018-03-11/16/…`) | Bytes | Original SHA-256 |
 |---|---|---|---|---|
@@ -241,6 +242,7 @@ MEVID's files carry no clip or time stamp, so S2 does **not** claim which actors
 | s2-10 | G421 cafe | `2018-03-11.16-20-00.16-25-00.school.G421.r13.avi` | 103 000 564 | `bba8290ef6e8f9c81516b15eb6fa36372bbe4346f9d8acb0360c3a6cfdd6d28c` |
 | s2-11 | G423 hallway | `2018-03-11.16-20-00.16-25-01.school.G423.r13.avi` | 80 699 352 | `443bce856d638f002fcfb19d6da9212bfce58814ed6bd1f36520151c0fb37d91` |
 | s2-12 | G419 stairwell | `2018-03-11.16-20-01.16-25-01.school.G419.r13.avi` | 88 315 936 | `93ec12fafcb0ee166c71ec7a46061223e4257de9404d9992f118de275bfc416a` |
+| s2-08 (A5) | G331 bus-stop waiting room | `2018-03-11.16-20-00.16-25-00.bus.G331.r13.avi` | 87 225 020 | `e9428729f0ef403fa8676d6bd7c7b9f274cbdb6b1b5a1f7b0bbe658154f2995c` |
 
 **Transfer.**
 - **Method.** Resumable HTTPS `curl`, with no credentials, into `source-store\media\meva\…`.
@@ -315,20 +317,22 @@ An event is *demonstrable* only when both sets are non-empty. The numbers are pi
 - **No usable event** on s2-08 (overhead, 0 Tracks) or s2-11 (hallway). On s2-11 the 20 person Tracks stay far down the corridor, and the near zone and line are never reached. The geometry was **not** moved after reading the output; see decision 6.
 - **No demonstrable crossing** on s2-05, s2-06, s2-09 or s2-10: Tracks are few, or none crosses in both directions.
 
-## 9. Owner decisions required (none is taken by the operator)
+## 9. Owner decisions (all decided 2026-10-29)
 
-| # | Decision | Row | Operator recommendation |
-|---|---|---|---|
-| 1 | **Ratify** the operator-signed Commons determinations `poc-s2-commons-cc0-2026-10` and `poc-s2-commons-cc-by-2026-10`. This is separate from accepting the attribution file. The hash-bound approval JSONs stay unchanged. | B1 | Ratify |
-| 2 | **MEVA acquisition path.** It uses a release-level ADR-017 record and an HTTPS transfer with SHA-256, not `tools/qualification/source_acquisition`, against B1's wording. Options:<br>(a) accept it;<br>(b) the non-relaxing alternative: extend the helper with a MEVA provider and re-acquire through it. | B1 | (a), or (b) if the literal wording is to hold |
-| 3 | **MEVA consent and B3.** Options:<br>(a) accept MEVA's IRB-overseen informed consent, with its CC BY 4.0 release, as satisfying B3's "model-released" for the face-bearing clips s2-10, s2-11 and s2-12;<br>(b) the non-relaxing alternative: keep those three clips **owner-machine-only**, out of the kit, so the kit has no face-bearing clip. | B3 | (a) |
-| 4 | **Accept `demo-corpus-attribution.md`** (12 clips; MEVA notice). | B2 | Accept |
-| 5 | **Person loitering** is demonstrated once, weakly (s2-09, 1 / 1). Options:<br>(a) accept that;<br>(b) replace s2-08 (0 Tracks) with MEVA G331, the bus-stop interior in the same slot, where actors wait. That keeps the cap of 12 and needs a recorded amendment;<br>(c) set a disclosed post-hoc threshold of 15 s on s2-01's corner. The retained profile shows 2 persons ≥ 15 s. | B1 | (b) |
-| 6 | **s2-11 (hallway) has no usable event.** Options:<br>(a) allow one disclosed geometry redraw over the far corridor;<br>(b) keep it as a face and cross-camera view only. | B1 | (b) for S2, revisit in S6 |
-| 7 | **The car-park class is met by s2-09** (MEVA G424), which has little through-traffic. Accept it, or ask for a busier lot slot. | B1 | Accept |
-| 8 | **B4 closes only after the S2 import runs on a kit install** (`Install-MAVI-PoC`, S1). S1 must also seed `config/poc/demo-cameras-v1.json` equal to `tools/poc/demo-corpus/demo-cameras-v1.json`. The hand-over has been sent, and a test enforces it once both files are on one branch. | B4 | — |
-| 9 | **MEVID label reuse**, recorded after the files were read (§7). Keep the read-only cross-camera statistics, or drop them and cite only the paper's design statement. B5 is unaffected either way, because reuse creates no label. | B1 | Keep |
-| 10 | **Accept the post-hoc 30 s value** for the stationary-vehicle demonstration (§8), or choose another value before any further reading. | B1 | Accept, disclosed |
+The owner decided all ten on 2026-10-29 ("Accept all"), each as the operator recommended. The options are kept as they were put to the owner.
+
+| # | Decision | Row | Operator recommendation | Owner decision |
+|---|---|---|---|---|
+| 1 | **Ratify** the operator-signed Commons determinations `poc-s2-commons-cc0-2026-10` and `poc-s2-commons-cc-by-2026-10`. This is separate from accepting the attribution file. The hash-bound approval JSONs stay unchanged. | B1 | Ratify | **Ratified** (2026-10-29). |
+| 2 | **MEVA acquisition path.** It uses a release-level ADR-017 record and an HTTPS transfer with SHA-256, not `tools/qualification/source_acquisition`, against B1's wording. Options:<br>(a) accept it;<br>(b) the non-relaxing alternative: extend the helper with a MEVA provider and re-acquire through it. | B1 | (a), or (b) if the literal wording is to hold | **(a) accepted** (2026-10-29). The operator applied it to G331 as a consequence of 5(b). That is an inference, not a separate owner act. |
+| 3 | **MEVA consent and B3.** Options:<br>(a) accept MEVA's IRB-overseen informed consent, with its CC BY 4.0 release, as satisfying B3's "model-released" for the face-bearing clips s2-10, s2-11 and s2-12;<br>(b) the non-relaxing alternative: keep those three clips **owner-machine-only**, out of the kit, so the kit has no face-bearing clip. | B3 | (a) | **(a) accepted** (2026-10-29). MEVA consent satisfies B3; s2-10, s2-11 and s2-12 ship in the kit. The operator applied it to G331 (s2-08) as a consequence of 5(b). That is an inference, not a separate owner act. |
+| 4 | **Accept `demo-corpus-attribution.md`** (12 clips; MEVA notice). | B2 | Accept | **Accepted** (2026-10-29), as the text in `main@8a03ce8d` (blob `db2b0278`). The text was then changed for A5 (§12), and the owner is asked to reconfirm it (decision 12). |
+| 5 | **Person loitering** is demonstrated once, weakly (s2-09, 1 / 1). Options:<br>(a) accept that;<br>(b) replace s2-08 (0 Tracks) with MEVA G331, the bus-stop interior in the same slot, where actors wait. That keeps the cap of 12 and needs a recorded amendment;<br>(c) set a disclosed post-hoc threshold of 15 s on s2-01's corner. The retained profile shows 2 persons ≥ 15 s. | B1 | (b) | **(b)** (2026-10-29). s2-08 replaced by MEVA G331 under amendment A5; the cap stays 12. Result in §11. |
+| 6 | **s2-11 (hallway) has no usable event.** Options:<br>(a) allow one disclosed geometry redraw over the far corridor;<br>(b) keep it as a face and cross-camera view only. | B1 | (b) for S2, revisit in S6 | **(b)** (2026-10-29). s2-11 stays a face and cross-camera view; geometry unchanged. |
+| 7 | **The car-park class is met by s2-09** (MEVA G424), which has little through-traffic. Accept it, or ask for a busier lot slot. | B1 | Accept | **Accepted** (2026-10-29). |
+| 8 | **B4 closes only after the S2 import runs on a kit install** (`Install-MAVI-PoC`, S1). S1 must also seed `config/poc/demo-cameras-v1.json` equal to `tools/poc/demo-corpus/demo-cameras-v1.json`. The hand-over has been sent, and a test enforces it once both files are on one branch. | B4 | — | **Noted** (2026-10-29). B4 waits for the kit install. |
+| 9 | **MEVID label reuse**, recorded after the files were read (§7). Keep the read-only cross-camera statistics, or drop them and cite only the paper's design statement. B5 is unaffected either way, because reuse creates no label. | B1 | Keep | **Keep** (2026-10-29). |
+| 10 | **Accept the post-hoc 30 s value** for the stationary-vehicle demonstration (§8), or choose another value before any further reading. | B1 | Accept, disclosed | **Accepted, disclosed** (2026-10-29). |
 
 ## 10. Evidence for the MEVA addition and the audit (retained outside Git)
 
@@ -372,3 +376,55 @@ The mutation extract counts:
 | 4 process | 202 |
 
 Run 7 is pinned by the definition SHA-256 `6a4e2c9bb74385011f3d02d1af040d51afd311ad49f76f8084328b7925ad0c97`. The s2-09 threshold change touched scene configuration only; every derivative SHA-256 is unchanged.
+
+## 11. Owner decisions applied (2026-10-29): A5 replacement and clean re-import
+
+**Order of events.** Each step happened in this order:
+1. Amendment A5 was committed (`4223bd3b`) and pushed before any G331 request.
+2. G331 was then fetched over HTTPS. Its size matched the bucket's `Content-Length` (87 225 020), and its SHA-256 `e9428729f0ef403fa8676d6bd7c7b9f274cbdb6b1b5a1f7b0bbe658154f2995c` was added to `approvals\meva-originals.sha256`.
+3. A diagnostic look at three frames (5, 90 and 170 s) confirmed a fixed view with people waiting.
+4. The geometry was drawn on the 5 s frame, with the 60 s threshold fixed in A5, before any pipeline output for G331 was read. This order is the operator's own statement. The file times are consistent with it, but they do not prove it, and the retained frames are later copies.
+
+**Retired, not deleted.** The old s2-08 derivative (Damascus Gate) moved to `E:\MAVI-Controlled\PoC\Corpus\retired\`, so it cannot be packaged by mistake. Its original, receipt and admissibility record are unchanged (§2–§3).
+
+**Trims.**
+- Pass 5 derived the new s2-08 (`02ed784a35626ea7aee87d6c8fd6c7ccb484f9cffc83e7c6f97a9bf71df30517`) and reproduced the other eleven.
+- Pass 6 reproduced all **12** byte for byte, s2-08 included, with the same pinned FFmpeg.
+
+**Clean re-import.** This run used a fresh, empty database `mavi_poc_s2_20261029` and `Mavi.Api` built at `4223bd3b`: this branch's A5 commit, based on `main@8a03ce8d`, before the later merge of `main@051b846a`. The worker was `Start-MaviVisionWorker.ps1`, which resolved `cuda_selected`, `windows-x86_64-cuda`. The run is pinned by the definition SHA-256 `2527ee6b0ce87c320301cf16b703c3e37579a4b63e6a1416646e3b711778b676` and the tool SHA-256 `618954f7f98f7888fcbeba411a7879aba11764da9e8f5e904621bee458c222e8`.
+- **Run 1** created 12 cameras, 12 assets, 12 scene revisions (r1) and 12 runs, all `Completed` with analytics `Ready`. It exited `0`.
+- **Run 2** changed nothing: 12 × `409 video_duplicate`, the same ids, and no scene or process call.
+- **API mutation extract:** 12 cameras 201, 12 imports 201, 12 scene saves 201, 12 process 202, 12 duplicate imports 409.
+- **Same output on the unchanged clips.** The eleven unchanged clips produced the same Track counts as the 2026-10-28 runs. Their audit results equal `audit-4.json` (`evidence-2026-10-29-r2`) event for event.
+
+**Audit of s2-08 (G331)** (`audit-1.json`):
+- **Tracks.** 3 Person Tracks. All three start inside the waiting area, so zone entry is 0 / 0.
+- **Person loitering ≥ 60 s.** 3 / 0. Every person in the zone dwelled at least 60 s (the dwell profile shows all three ≥ 30 s). Loitering fires on all three, but no person in that zone dwelled below the threshold.
+- **Hall midline.** No crossing.
+
+**What this shows for person loitering.** Under the audit's same-zone rule (§8), s2-08 is **not demonstrable on its own**, because its negative set is empty. Across the corpus:
+- **Positives.** Loitering fires on 4 persons in 2 clips: s2-08 3 and s2-09 1.
+- **Contrast in the same zone.** Only s2-09 has one (1 / 1).
+- **Persons below a threshold.** They occur in other zones, for example s2-10 entrance 0 / 8 and s2-12 landing 0 / 6.
+
+The threshold was **not** changed after the audit (A5).
+
+**Evidence.** `E:\MAVI-Controlled\PoC\Corpus\evidence-2026-10-29-a5\`, `SHA256SUMS` = `1df3384b2e4d88c4ae26eb8f552b04059229ba4e28fe392faa049ca5c06d7d52`. It holds:
+- both import logs and the audit;
+- trim passes 5 and 6, with their derivation records;
+- the manifests, the MEVA originals manifest and the fetch log;
+- the API mutation extract;
+- the worker identity and the device report;
+- the three G331 diagnostic frames.
+
+## 12. After the cold review of the decisions PR (2026-10-29)
+
+**Further owner decisions.** The cold reviews found three consequences of applying the decisions that the owner had not seen. The operator decided none of them. The owner decided all three on 2026-10-29 ("Yes, all").
+
+| # | Decision | Row | Operator recommendation | Owner decision |
+|---|---|---|---|---|
+| 11 | **Pedestrian coverage after A5.** Rule 5 targets at least 2 pedestrian clips. Replacing s2-08 (decision 5(b)) leaves 1 (s2-07); the old s2-08 had 0 Tracks. Options:<br>(a) accept 1 pedestrian clip, disclosed;<br>(b) the non-relaxing alternative: run a recorded discovery pass for one more fixed-camera pedestrian clip, replacing one of the six junction/gate clips (the target there is 3). | B1 | (a) | **(a)** (2026-10-29). One pedestrian clip, disclosed. |
+| 12 | **Reconfirm the attribution text.** The owner accepted the file as it stood in `main@8a03ce8d` (blob `db2b0278`). For A5 the operator then changed: the status line; the clip ranges (Commons 1–7, MEVA 8–12); the table header ("Wikimedia Commons or MEVA"); row 8; the scope of the MEVA notice ("clips 8–12"); the simultaneity note ("five cameras"); and the clip ranges in the biometric note. No licence, credit or other row changed. | B2 | Reconfirm | **Reconfirmed** (2026-10-29). The updated text is accepted. |
+| 13 | **Confirm decisions 2(a) and 3(a) for G331.** Decision 2(a) accepted the MEVA transfer path, and 3(a) accepted MEVA consent for s2-10, s2-11 and s2-12. The operator applied both to G331 (s2-08) as a consequence of 5(b), but the owner has not said so. Options:<br>(a) confirm both for G331;<br>(b) the non-relaxing alternative: keep s2-08 owner-machine-only, out of the kit. It enters the kit only after the owner separately confirms both its consent (3(a)) and its acquisition path (2(a), or re-acquisition through an extended helper). | B1, B3 | (a) | **(a)** (2026-10-29). Decisions 2(a) and 3(a) are confirmed for G331 (s2-08). |
+
+**Person loitering, stated plainly.** Under the audit's same-zone rule it is still demonstrable **once** (s2-09, 1 / 1). On s2-08 it fires on 3 persons, but that zone has no same-zone negative.
