@@ -334,3 +334,26 @@ def test_calibration_decides_tracks_exactly_as_the_runtime_aggregates() -> None:
     assert spike.track_decision({"crops": [confident]}, vehicle, 0.8, profile.aggregation) == "red"
     assert spike.track_decision({"crops": [confident, small]}, vehicle, 0.8, profile.aggregation) is None
     assert spike.track_decision({"crops": [confident]}, vehicle, 0.95, profile.aggregation) is None
+
+
+def test_upar_rows_map_to_the_frozen_vocabulary_as_protocol_v3_states() -> None:
+    sys.path.insert(0, str(REPOSITORY / "tools" / "poc"))
+    sys.path.insert(0, str(REPOSITORY / "tools" / "qualification"))
+    try:
+        import attributes_zero_shot_upar as upar_tool
+    finally:
+        sys.path.pop(0)
+        sys.path.pop(0)
+    from attributes.datasets.adapters.upar import COLUMNS
+
+    row = {column: 0 for column in COLUMNS}
+    row.update({"UpperBody-Color-Red": 1, "LowerBody-Color-Black": 1, "LowerBody-Color-Blue": 1, "Accessory-Backpack": 1})
+    assert upar_tool.map_labels(row) == {
+        "person-upper-colour": "red",          # exactly one named colour
+        "person-lower-colour": "unscorable",   # two colours
+        "person-carried-bag": "present",       # backpack or bag
+        "person-headwear": "absent",
+    }
+    row.update({"UpperBody-Color-Other": 1, "Accessory-Hat": 1})
+    labels = upar_tool.map_labels(row)
+    assert labels["person-upper-colour"] == "unscorable" and labels["person-headwear"] == "present"
