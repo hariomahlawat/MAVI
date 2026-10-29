@@ -1,0 +1,123 @@
+{
+  "approvals": [
+    {
+      "b0Decision": null,
+      "determinationId": "poc-s2-commons-cc-by-2026-10",
+      "fileSha1": "53fc56b2e6c053243f9ef377ada946abce4dcf63",
+      "fileTitle": "File:Cars driving at night.webm",
+      "pageRevisionId": 1274270458,
+      "purposes": [
+        "development"
+      ]
+    },
+    {
+      "b0Decision": null,
+      "determinationId": "poc-s2-commons-cc-by-2026-10",
+      "fileSha1": "9a7d1ce86635d2c9bc53f0de30cb541ae42cae47",
+      "fileTitle": "File:Road traffic – cobblestone road.webm",
+      "pageRevisionId": 1035455639,
+      "purposes": [
+        "development"
+      ]
+    },
+    {
+      "b0Decision": null,
+      "determinationId": "poc-s2-commons-cc-by-2026-10",
+      "fileSha1": "2ef3c927d5c5e5ccd7c537e4bad0e4b7c074cd55",
+      "fileTitle": "File:Shibuya Crossing.ogv",
+      "pageRevisionId": 1048146516,
+      "purposes": [
+        "development"
+      ]
+    },
+    {
+      "b0Decision": null,
+      "determinationId": "poc-s2-commons-cc0-2026-10",
+      "fileSha1": "1b834e34bb25624de11ddd5ce4ea211c293a8a62",
+      "fileTitle": "File:Straßenverkehr in Düsseldorf.ogv",
+      "pageRevisionId": 1227822546,
+      "purposes": [
+        "development"
+      ]
+    },
+    {
+      "b0Decision": null,
+      "determinationId": "poc-s2-commons-cc0-2026-10",
+      "fileSha1": "8ec674205cff86c3c07ea697fcfd1660518af62c",
+      "fileTitle": "File:Three Minutes of Damascus Gate.webm",
+      "pageRevisionId": 689333972,
+      "purposes": [
+        "development"
+      ]
+    },
+    {
+      "b0Decision": null,
+      "determinationId": "poc-s2-commons-cc-by-2026-10",
+      "fileSha1": "6c2562d63a6265dbc3dc58d17d19634fbd56c339",
+      "fileTitle": "File:Trams and road cars at Macedonia square in Sofia.webm",
+      "pageRevisionId": 1035020995,
+      "purposes": [
+        "development"
+      ]
+    },
+    {
+      "b0Decision": null,
+      "determinationId": "poc-s2-commons-cc-by-2026-10",
+      "fileSha1": "186c93582ee722504738943890766131fa2b3547",
+      "fileTitle": "File:Views of Caton Farm Road in Crest Hill, Illinois 04.webm",
+      "pageRevisionId": 1292261971,
+      "purposes": [
+        "development"
+      ]
+    }
+  ],
+  "approvedBy": "Claude Code session operating PoC slice S2 on the owner's instruction of 2026-10-28 (not an independent reviewer; owner acceptance of the attribution file, register B2, ratifies)",
+  "approvedOn": "2026-10-28",
+  "determinations": [
+    {
+      "determinationId": "poc-s2-commons-cc0-2026-10",
+      "licenceCodes": [
+        "cc0"
+      ],
+      "privacy": {
+        "basis": "Recorded footage of public streets, squares and transport places, published by the uploader under an open licence for reuse. Persons and vehicles appear incidentally; no person is identified, named or targeted. Close-range recognisable faces are admitted only for CC0 or model-released files (scope declaration rule 4). Demo use is a local offline PoC; no biometric derivative is created in S2 and none enters the kit (D3). Audio is stripped from every derivative.",
+        "disposition": "PERMITTED",
+        "reviewedBy": "Claude Code session operating PoC slice S2 on the owner's instruction of 2026-10-28 (not an independent reviewer; owner acceptance of the attribution file, register B2, ratifies)"
+      },
+      "purposes": [
+        "development"
+      ],
+      "r5Ruling": null,
+      "reviewedOn": "2026-10-28",
+      "rights": {
+        "determination": "PERMITTED_FOR_ENGINEERING_USE",
+        "evidence": "Each file page's own extmetadata licence is CC0 1.0 (public-domain dedication); the retained metadata response for each file is content-addressed in the controlled store (metadataEvidenceSha256 in each receipt). CC0 permits copying, modification and redistribution without conditions; attribution is still given in docs/qualification/poc/demo-corpus-attribution.md. Purpose: PoC demonstration media, redistributable in the PoC kit (plan D3).",
+        "reviewedBy": "Claude Code session operating PoC slice S2 on the owner's instruction of 2026-10-28 (not an independent reviewer; owner acceptance of the attribution file, register B2, ratifies)"
+      }
+    },
+    {
+      "determinationId": "poc-s2-commons-cc-by-2026-10",
+      "licenceCodes": [
+        "cc-by-2.0",
+        "cc-by-3.0",
+        "cc-by-4.0"
+      ],
+      "privacy": {
+        "basis": "Recorded footage of public streets, squares and transport places, published by the uploader under an open licence for reuse. Persons and vehicles appear incidentally; no person is identified, named or targeted. Close-range recognisable faces are admitted only for CC0 or model-released files (scope declaration rule 4). Demo use is a local offline PoC; no biometric derivative is created in S2 and none enters the kit (D3). Audio is stripped from every derivative.",
+        "disposition": "PERMITTED",
+        "reviewedBy": "Claude Code session operating PoC slice S2 on the owner's instruction of 2026-10-28 (not an independent reviewer; owner acceptance of the attribution file, register B2, ratifies)"
+      },
+      "purposes": [
+        "development"
+      ],
+      "r5Ruling": null,
+      "reviewedOn": "2026-10-28",
+      "rights": {
+        "determination": "PERMITTED_FOR_ENGINEERING_USE",
+        "evidence": "Each file page's own extmetadata licence is CC BY 2.0, 3.0 or 4.0 (no ShareAlike, NonCommercial or NoDerivatives term); the retained metadata response is content-addressed in the controlled store. CC BY permits copying, adaptation (trimming, re-encoding) and redistribution with attribution, licence notice and indication of changes; these are given per file in docs/qualification/poc/demo-corpus-attribution.md. Purpose: PoC demonstration media, redistributable in the PoC kit (plan D3).",
+        "reviewedBy": "Claude Code session operating PoC slice S2 on the owner's instruction of 2026-10-28 (not an independent reviewer; owner acceptance of the attribution file, register B2, ratifies)"
+      }
+    }
+  ],
+  "schemaVersion": "mavi-s2c-source-purpose-approvals-v1"
+}

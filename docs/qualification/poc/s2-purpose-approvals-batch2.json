@@ -1,0 +1,63 @@
+{
+  "approvals": [
+    {
+      "b0Decision": null,
+      "determinationId": "poc-s2-commons-cc0-2026-10",
+      "fileSha1": "63a9a9d549b4ac964dcaeb7cf68d642491cba4ec",
+      "fileTitle": "File:Passage à niveaux Beynost 2016.webm",
+      "pageRevisionId": 993905209,
+      "purposes": [
+        "development"
+      ]
+    }
+  ],
+  "approvedBy": "Claude Code session operating PoC slice S2 on the owner's instruction of 2026-10-28 (not an independent reviewer; owner acceptance of the attribution file, register B2, ratifies)",
+  "approvedOn": "2026-10-28",
+  "determinations": [
+    {
+      "determinationId": "poc-s2-commons-cc0-2026-10",
+      "licenceCodes": [
+        "cc0"
+      ],
+      "privacy": {
+        "basis": "Recorded footage of public streets, squares and transport places, published by the uploader under an open licence for reuse. Persons and vehicles appear incidentally; no person is identified, named or targeted. Close-range recognisable faces are admitted only for CC0 or model-released files (scope declaration rule 4). Demo use is a local offline PoC; no biometric derivative is created in S2 and none enters the kit (D3). Audio is stripped from every derivative.",
+        "disposition": "PERMITTED",
+        "reviewedBy": "Claude Code session operating PoC slice S2 on the owner's instruction of 2026-10-28 (not an independent reviewer; owner acceptance of the attribution file, register B2, ratifies)"
+      },
+      "purposes": [
+        "development"
+      ],
+      "r5Ruling": null,
+      "reviewedOn": "2026-10-28",
+      "rights": {
+        "determination": "PERMITTED_FOR_ENGINEERING_USE",
+        "evidence": "Each file page's own extmetadata licence is CC0 1.0 (public-domain dedication); the retained metadata response for each file is content-addressed in the controlled store (metadataEvidenceSha256 in each receipt). CC0 permits copying, modification and redistribution without conditions; attribution is still given in docs/qualification/poc/demo-corpus-attribution.md. Purpose: PoC demonstration media, redistributable in the PoC kit (plan D3).",
+        "reviewedBy": "Claude Code session operating PoC slice S2 on the owner's instruction of 2026-10-28 (not an independent reviewer; owner acceptance of the attribution file, register B2, ratifies)"
+      }
+    },
+    {
+      "determinationId": "poc-s2-commons-cc-by-2026-10",
+      "licenceCodes": [
+        "cc-by-2.0",
+        "cc-by-3.0",
+        "cc-by-4.0"
+      ],
+      "privacy": {
+        "basis": "Recorded footage of public streets, squares and transport places, published by the uploader under an open licence for reuse. Persons and vehicles appear incidentally; no person is identified, named or targeted. Close-range recognisable faces are admitted only for CC0 or model-released files (scope declaration rule 4). Demo use is a local offline PoC; no biometric derivative is created in S2 and none enters the kit (D3). Audio is stripped from every derivative.",
+        "disposition": "PERMITTED",
+        "reviewedBy": "Claude Code session operating PoC slice S2 on the owner's instruction of 2026-10-28 (not an independent reviewer; owner acceptance of the attribution file, register B2, ratifies)"
+      },
+      "purposes": [
+        "development"
+      ],
+      "r5Ruling": null,
+      "reviewedOn": "2026-10-28",
+      "rights": {
+        "determination": "PERMITTED_FOR_ENGINEERING_USE",
+        "evidence": "Each file page's own extmetadata licence is CC BY 2.0, 3.0 or 4.0 (no ShareAlike, NonCommercial or NoDerivatives term); the retained metadata response is content-addressed in the controlled store. CC BY permits copying, adaptation (trimming, re-encoding) and redistribution with attribution, licence notice and indication of changes; these are given per file in docs/qualification/poc/demo-corpus-attribution.md. Purpose: PoC demonstration media, redistributable in the PoC kit (plan D3).",
+        "reviewedBy": "Claude Code session operating PoC slice S2 on the owner's instruction of 2026-10-28 (not an independent reviewer; owner acceptance of the attribution file, register B2, ratifies)"
+      }
+    }
+  ],
+  "schemaVersion": "mavi-s2c-source-purpose-approvals-v1"
+}
