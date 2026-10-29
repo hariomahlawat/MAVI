@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { PERFORMANCE_BUDGETS } from '../performance-budgets.mjs';
-import { DECISIONS, deriveBudgets } from '../performance-calibrate.mjs';
+import { DECISIONS, deriveBudgets, longTaskModule, recalibrateLongTasks } from '../performance-calibrate.mjs';
 import {
   caseKey, clsUnits, evaluatePerformance, GATE_REQUEST_ADMISSION, GATE_RESPONSE_ORDER, longTaskLimit, navigationLimit, ordinaryPlan, preparationLimit,
   registerBlock, registerDisagreements, REGISTER_MARKERS, validateBudgets,
@@ -293,6 +293,54 @@ describe('the calibration (performance-calibrate.mjs)', () => {
     assert.throws(() => deriveBudgets(args({ linuxLongTasks: [run('h'), run('old')] })), /Linux long-task run 2 old/);
     assert.throws(() => deriveBudgets(args({ windowsLongTasks: [run(null)] })), /Windows long-task run 1 names no head/);
     assert.doesNotThrow(() => deriveBudgets(args()));
+  });
+});
+
+describe('the long-task recalibration (performance-calibrate.mjs --long-tasks-only)', () => {
+  const ltCase = (state, interaction, count = 0, maxMs = 0) => ({ state, viewport: '1366x768', kind: 'anchor', perf: { longTasks: { status: 'measured', interaction, count, maxMs, totalMs: maxMs } } });
+  const run = (head, cases = [ltCase('s1', 'press it'), ltCase('s2', 'type it')]) => ({ head, workers: 1, longTaskLane: true, cases });
+  const decisions = { ...DECISIONS, longTasks: { default: { name: 'no long task', count: 0, maxMs: 0, why: 't' }, classes: [{ name: 'typing', interactions: ['type it'], count: 1, maxMs: 100, why: 't' }] } };
+  const current = { ...BUDGETS, calibration: { head: 'old' }, measured: { navigation: ['n|1|anchor'], preparation: ['p|1|anchor'], longTasks: ['s1|1366x768|anchor', 's2|1366x768|anchor'] } };
+
+  it('refuses anything but two single-lane Linux runs of one head', () => {
+    assert.throws(() => recalibrateLongTasks(current, { linuxLongTasks: [run('h')], decisions }), /two single-lane Linux runs/);
+    assert.throws(() => recalibrateLongTasks(current, { linuxLongTasks: [run('h'), run('g')], decisions }), /mixes heads/);
+    assert.throws(() => recalibrateLongTasks(current, { linuxLongTasks: [run('h'), run('h')], windowsLongTasks: [run('g')], decisions }), /mixes heads/);
+    assert.ok(recalibrateLongTasks(current, { linuxLongTasks: [run('h'), { ...run('h'), workers: 3 }], decisions }).problems.some((p) => /not the single-lane run/.test(p)));
+  });
+
+  it('checks the runs against the decided classes: a task over its class is a finding, never a budget input', () => {
+    const within = recalibrateLongTasks(current, { linuxLongTasks: [run('h', [ltCase('s1', 'press it'), ltCase('s2', 'type it', 1, 100)]), run('h')], decisions });
+    assert.deepEqual(within.problems, []);
+    const over = recalibrateLongTasks(current, { linuxLongTasks: [run('h', [ltCase('s1', 'press it', 1, 50), ltCase('s2', 'type it', 1, 101)]), run('h')], decisions });
+    assert.equal(over.problems.filter((p) => /a finding to investigate/.test(p)).length, 2);
+  });
+
+  it('refuses a recalibration in which an interaction case the table measured is no longer measured', () => {
+    const r = recalibrateLongTasks(current, { linuxLongTasks: [run('h', [ltCase('s1', 'press it')]), run('h', [ltCase('s1', 'press it')])], decisions });
+    assert.ok(r.problems.some((p) => /s2\|1366x768\|anchor: measured at calibration and not by these runs/.test(p)));
+  });
+
+  it('carries every CLS class, its calibration and measured sets unchanged, and replaces only the long-task table', async () => {
+    const derived = recalibrateLongTasks(current, { linuxLongTasks: [run('h'), run('h')], decisions });
+    const source = longTaskModule(current, derived, { decisions, calibration: { head: 'h', scope: 'long tasks only' } });
+    const table = JSON.parse(source.slice(source.indexOf('Object.freeze(') + 'Object.freeze('.length, source.lastIndexOf(');')));
+    assert.deepEqual(table.cls, current.cls);
+    assert.deepEqual(table.baseline, current.baseline);
+    assert.deepEqual({ ...table.calibration, longTasks: undefined }, { ...current.calibration, longTasks: undefined });
+    assert.deepEqual(table.calibration.longTasks, { head: 'h', scope: 'long tasks only' });
+    assert.deepEqual(table.measured, { ...current.measured, longTasks: ['s1|1366x768|anchor', 's2|1366x768|anchor'] });
+    assert.deepEqual(table.longTasks.classes, decisions.longTasks.classes);
+    assert.deepEqual(table.longTasks.default, decisions.longTasks.default);
+    assert.equal(table.longTasks.evidence.linux.length, 2);
+  });
+
+  it('reproduces the frozen table byte for byte when nothing about long tasks changes', () => {
+    const same = { ...DECISIONS, longTasks: { default: PERFORMANCE_BUDGETS.longTasks.default, classes: PERFORMANCE_BUDGETS.longTasks.classes } };
+    const { longTasks: lt, ...rest } = PERFORMANCE_BUDGETS.calibration;
+    const source = longTaskModule({ ...PERFORMANCE_BUDGETS, calibration: rest }, { longTasks: PERFORMANCE_BUDGETS.longTasks.evidence, measured: PERFORMANCE_BUDGETS.measured.longTasks }, { decisions: same, calibration: lt });
+    const committed = readFileSync(new URL('../performance-budgets.mjs', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    assert.equal(source, committed);
   });
 });
 

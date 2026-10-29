@@ -27,6 +27,15 @@
  *     --linux a/results.json,b/results.json --windows w/results.json \
  *     --linux-long-tasks x.json,y.json --windows-long-tasks p.json,q.json \
  *     [--write] [--table out.md]
+ *
+ * A long-task recalibration re-decides only the long-task classes (an owner
+ * decision in DECISIONS.longTasks, checked against two single-lane Linux runs
+ * of one head) and carries every CLS class, its calibration and its measured
+ * sets from the current table unchanged; it never re-derives CLS:
+ *
+ *   node tools/web-visual-qa/performance-calibrate.mjs --long-tasks-only \
+ *     --linux-long-tasks x.json,y.json [--windows-long-tasks p.json] \
+ *     [--linux-runs "<provenance>"] [--write] [--table out.md]
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -241,7 +250,35 @@ export function deriveBudgets({ linux, windows, p1, stateSurface, linuxLongTasks
     if (cls) preparation.push(cls);
   }
 
-  // Long tasks: what the runs raised, against the decided classes.
+  const lt = deriveLongTasks({ linuxLongTasks, windowsLongTasks, decisions });
+  problems.push(...lt.problems);
+  const measured = {
+    navigation: bothMeasured(L1, L2, nav, problems),
+    preparation: bothMeasured(L1, L2, prep, problems),
+    longTasks: lt.measured,
+  };
+  return { head: linux[0].head, navigation, preparation, longTasks: lt.longTasks, measured, problems };
+}
+
+// What the calibration measured, in both Linux samples: a case that stops
+// being measured (a loading presentation renamed or removed, an interaction
+// that no longer applies) is a fault at the gate, never a silent pass. Both
+// samples agree on this set exactly (and six samples across three heads did).
+function bothMeasured(rows1, rows2, f, problems) {
+  const second = new Set(rows2.filter((c) => f(c) !== null).map(key));
+  const firstSet = new Set(rows1.filter((c) => f(c) !== null).map(key));
+  for (const k of second) if (!firstSet.has(k)) problems.push(`${k}: measured in one Linux sample and not the other`);
+  return [...firstSet].filter((k) => second.has(k)).sort();
+}
+
+/**
+ * Long tasks: what the single-lane runs raised, against the decided classes
+ * (DECISIONS.longTasks), and the interaction cases both Linux runs measured.
+ * A task over its class is a finding to investigate, never a budget input:
+ * the classes are the owner's, set on evidence, and the runs only check them.
+ */
+export function deriveLongTasks({ linuxLongTasks = [], windowsLongTasks = [], decisions = DECISIONS }) {
+  const problems = [];
   const lt = (runs, env) => runs.map((r) => {
     if (r.workers !== 1 || r.longTaskLane !== true) problems.push(`a ${env} long-task run is not the single-lane run`);
     const tasks = ord(r).filter((c) => c.perf?.longTasks?.status === 'measured' && c.perf.longTasks.count > 0);
@@ -252,24 +289,50 @@ export function deriveBudgets({ linux, windows, p1, stateSurface, linuxLongTasks
     return { head: r.head, measured: ord(r).filter((c) => c.perf?.longTasks?.status === 'measured').length, tasks: tasks.map((c) => ({ at: where(c), interaction: c.perf.longTasks.interaction, count: c.perf.longTasks.count, maxMs: c.perf.longTasks.maxMs })) };
   });
   const longTasks = { linux: lt(linuxLongTasks, 'Linux'), windows: lt(windowsLongTasks, 'Windows') };
-  // What the calibration measured, in both Linux samples: a case that stops
-  // being measured (a loading presentation renamed or removed, an interaction
-  // that no longer applies) is a fault at the gate, never a silent pass. Both
-  // samples agree on this set exactly (and six samples across three heads did).
-  const both = (rows1, rows2, f) => {
-    const second = new Set(rows2.filter((c) => f(c) !== null).map(key));
-    const firstSet = new Set(rows1.filter((c) => f(c) !== null).map(key));
-    for (const k of second) if (!firstSet.has(k)) problems.push(`${k}: measured in one Linux sample and not the other`);
-    return [...firstSet].filter((k) => second.has(k)).sort();
-  };
   const ltMeasured = (c) => (c?.perf?.longTasks?.status === 'measured' ? c.perf.longTasks.count : null);
-  const measured = {
-    navigation: both(L1, L2, nav),
-    preparation: both(L1, L2, prep),
-    longTasks: linuxLongTasks.length === 2 ? both(ord(linuxLongTasks[0]), ord(linuxLongTasks[1]), ltMeasured) : [],
-  };
-  if (!measured.longTasks.length) problems.push('the calibration has no two single-lane Linux long-task runs');
-  return { head: linux[0].head, navigation, preparation, longTasks, measured, problems };
+  const measured = linuxLongTasks.length === 2 ? bothMeasured(ord(linuxLongTasks[0]), ord(linuxLongTasks[1]), ltMeasured, problems) : [];
+  if (!measured.length) problems.push('the calibration has no two single-lane Linux long-task runs');
+  return { longTasks, measured, problems };
+}
+
+/**
+ * A long-task recalibration (--long-tasks-only): the long-task classes
+ * re-decided on new evidence while every CLS class stays exactly as its own
+ * calibration derived it. Its inputs are two single-lane Linux runs of one
+ * head (and any Windows long-task runs of that head); the current table
+ * supplies everything else, unchanged. An interaction case the table measured
+ * that these runs no longer measure is a requalification, not this.
+ */
+export function recalibrateLongTasks(current, { linuxLongTasks, windowsLongTasks = [], decisions = DECISIONS }) {
+  if (linuxLongTasks?.length !== 2) throw new HarnessError('a long-task recalibration is two single-lane Linux runs of one head');
+  const inputs = [...linuxLongTasks.map((r, i) => [`Linux long-task run ${i + 1}`, r]), ...windowsLongTasks.map((r, i) => [`Windows long-task run ${i + 1}`, r])];
+  for (const [what, r] of inputs) if (!r?.head) throw new HarnessError(`${what} names no head`);
+  if (new Set(inputs.map(([, r]) => r.head)).size !== 1) throw new HarnessError(`the recalibration mixes heads: ${inputs.map(([what, r]) => `${what} ${r.head.slice(0, 8)}`).join(', ')}`);
+  const derived = deriveLongTasks({ linuxLongTasks, windowsLongTasks, decisions });
+  const now = new Set(derived.measured);
+  for (const k of current.measured.longTasks) if (!now.has(k)) derived.problems.push(`${k}: measured at calibration and not by these runs — a requalification, not a long-task recalibration`);
+  return { head: linuxLongTasks[0].head, ...derived };
+}
+
+/** The module source for a recalibrated long-task table: the CLS classes, their calibration and measured sets carried byte for byte. */
+export function longTaskModule(current, derived, { decisions = DECISIONS, calibration }) {
+  return moduleSource({
+    ...current,
+    calibration: { ...current.calibration, longTasks: calibration },
+    longTasks: { default: decisions.longTasks.default, classes: decisions.longTasks.classes, evidence: derived.longTasks },
+    measured: { ...current.measured, longTasks: derived.measured },
+  });
+}
+
+/** The long-task review table: per run, what it measured and raised, against each class's limit. */
+export function longTaskTable(derived, decisions = DECISIONS) {
+  const out = ['| Class | Interactions | Permitted |', '|---|---|---|'];
+  for (const k of [...decisions.longTasks.classes, decisions.longTasks.default]) out.push(`| ${k.name} | ${k.interactions ? k.interactions.join('; ') : 'every other declared interaction'} | ${k.count} x <= ${k.maxMs}ms |`);
+  out.push('', '| Run | Head | Interaction cases measured | Long tasks (case, interaction, count x longest) |', '|---|---|---|---|');
+  for (const [env, runs] of [['Linux', derived.longTasks.linux], ['Windows', derived.longTasks.windows]]) {
+    runs.forEach((r, i) => out.push(`| ${env} ${i + 1} | ${r.head.slice(0, 8)} | ${r.measured} | ${r.tasks.length ? r.tasks.map((t) => `${t.at} "${t.interaction}" ${t.count} x ${t.maxMs}ms`).join('<br>') : 'none'} |`));
+  }
+  return out.join('\n');
 }
 
 /** The budget module's source: the one canonical table. */
@@ -294,6 +357,10 @@ export function budgetModule(derived, { decisions = DECISIONS, calibration }) {
     fonts: decisions.fonts,
     measured: derived.measured,
   };
+  return moduleSource(table);
+}
+
+function moduleSource(table) {
   return `/**
  * Stage 3.5 S6/X3 (§38): the performance budgets — the one canonical source.
  *
@@ -329,6 +396,7 @@ function arg(name, fallback = null) {
 const list = (name) => (arg(name) ?? '').split(',').filter(Boolean).map((f) => JSON.parse(readFileSync(resolve(f), 'utf8')));
 
 async function main() {
+  if (process.argv.includes('--long-tasks-only')) return mainLongTasks();
   const { STATES } = await import('./states.mjs');
   const stateSurface = Object.fromEntries(STATES.map((s) => [s.name, surfaceOf(s.path)]));
   const p1 = JSON.parse(readFileSync(join(REPO, DECISIONS.baseline.file), 'utf8'));
@@ -345,6 +413,27 @@ async function main() {
     const calibration = { head: derived.head, linux: arg('linux-runs') ?? 'two CI samples of the head', windows: 'one uncontended sweep and two single-lane long-task runs of the head' };
     writeFileSync(join(HERE, 'performance-budgets.mjs'), budgetModule(derived, { calibration }));
     process.stdout.write(`wrote performance-budgets.mjs (${derived.navigation.length} navigation and ${derived.preparation.length} preparation classes, calibrated on ${derived.head})\n`);
+  }
+  process.exitCode = derived.problems.length ? 1 : 0;
+}
+
+async function mainLongTasks() {
+  const { PERFORMANCE_BUDGETS } = await import('./performance-budgets.mjs');
+  const derived = recalibrateLongTasks(PERFORMANCE_BUDGETS, { linuxLongTasks: list('linux-long-tasks'), windowsLongTasks: list('windows-long-tasks') });
+  const table = longTaskTable(derived);
+  if (arg('table')) writeFileSync(resolve(arg('table')), table + '\n');
+  else process.stdout.write(table + '\n');
+  for (const p of derived.problems) process.stdout.write(`PROBLEM: ${p}\n`);
+  if (process.argv.includes('--write')) {
+    if (derived.problems.length) throw new HarnessError('the long-task recalibration has problems; nothing written');
+    const calibration = {
+      head: derived.head,
+      linux: arg('linux-runs') ?? 'two single-lane CI runs of the head',
+      windows: derived.longTasks.windows.length ? `${derived.longTasks.windows.length} single-lane long-task run(s) of the head` : 'none: the recalibration answers the enforcement environment',
+      scope: `long tasks only: every CLS class and measured CLS set is carried unchanged from the calibration of ${PERFORMANCE_BUDGETS.calibration.head}`,
+    };
+    writeFileSync(join(HERE, 'performance-budgets.mjs'), longTaskModule(PERFORMANCE_BUDGETS, derived, { calibration }));
+    process.stdout.write(`wrote performance-budgets.mjs (long tasks recalibrated on ${derived.head}; CLS classes unchanged)\n`);
   }
   process.exitCode = derived.problems.length ? 1 : 0;
 }
