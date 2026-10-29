@@ -79,6 +79,7 @@ $modelSourceRoot = Join-Path $BundleRoot "vision\models"
 $platesCache = Join-Path $BundleRoot "plates"
 $cudaCandidates = Get-MaviPocCudaRuntimePackCandidates -OverlayRoot $bundleOverlay -BundleRoot $BundleRoot
 $embeddingsCache = Join-Path $BundleRoot "embeddings"
+$facesCache = Join-Path $BundleRoot "faces"
 $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
 $smiLines = $null
 if ($nvidiaSmi) {
@@ -148,6 +149,8 @@ $plan = [ordered]@{
     vision = [ordered]@{ cpuRuntimeRoot = $layout.VisionRuntimeCpuRoot; cudaRuntimeRoot = $(if ($cudaSource -eq "none") { $null } else { $cudaRuntimeRoot }); modelStore = $layout.VisionModelRoot; devicePolicy = $DevicePolicy; cuda = $cudaDecision }
     plates = [ordered]@{ environment = $layout.PlatesEnvironmentRoot; modelStore = $layout.PlatesModelRoot; bound = $true; componentBinding = $layout.PlatesComponentBindingPath; devicePolicy = $PlatesDevicePolicy }
     embeddings = [ordered]@{ environment = $layout.EmbeddingsEnvironmentRoot; modelStore = $layout.EmbeddingsModelRoot; bound = $true; devicePolicy = "cpu" }
+    # PoC S6 (ADR-022): the faces worker shares the embeddings-onnx-v1 environment; analysis is opt-in per camera.
+    faces = [ordered]@{ environment = $layout.EmbeddingsEnvironmentRoot; modelStore = $layout.FacesModelRoot; bound = $true; devicePolicy = "cpu"; optInPerCamera = $true }
     releaseMetadata = $layout.ReleaseMetadataPath
 }
 
@@ -313,6 +316,15 @@ try {
     & (Join-Path $layout.OverlayRoot "tools\setup\Install-MaviEmbeddingsRuntime.ps1") -Python $platesPython -Destination $layout.EmbeddingsEnvironmentRoot -ModelRoot $layout.EmbeddingsModelRoot -Cache $embeddingsCache -ReuseVerified
     Write-MaviSetupStatus -Name "Embeddings runtime" -Status "OK" -Detail "installed and bound (SigLIP 2, Development)"
 
+    # Faces role (PoC S6, ADR-022): the YuNet + AdaFace IR-50 Model Pack, staged and SHA-256 verified offline into its
+    # own model store. The worker runs on the embeddings-onnx-v1 environment (no further library). Bound through the
+    # machine configuration; nothing is analysed until an operator opts a camera in.
+    $facesPayloads = Join-Path $facesCache "faces-payloads"
+    if (-not (Test-Path -LiteralPath $facesPayloads -PathType Container)) { throw "The PoC bundle carries no face Model Pack payloads ('$facesPayloads')." }
+    & (Join-Path $layout.EmbeddingsEnvironmentRoot "Scripts\python.exe") (Join-Path $layout.OverlayRoot "tools\vision\faces_packs.py") stage --source $facesPayloads --model-root $layout.FacesModelRoot
+    if ($LASTEXITCODE -ne 0) { throw "Face Model Pack staging failed." }
+    Write-MaviSetupStatus -Name "Faces Model Pack" -Status "OK" -Detail "installed and bound (YuNet + AdaFace IR-50, Development-only; opt-in per camera)"
+
     # Machine configuration (connection string, roots, cursor key, loopback URL, profile).
     $cursorSigningKey = Get-MaviExistingCursorSigningKey -MachineConfigPath $layout.MachineConfigPath
     if (-not $cursorSigningKey) { $cursorSigningKey = New-MaviCursorSigningKey }
@@ -355,6 +367,8 @@ try {
     if ($embeddingsNotice.Count -ne 1) { throw "The embeddings manifest names no single licence notice." }
     $embeddingsLicence = Get-MaviPocNoticeLicence -Path (Join-Path $layout.EmbeddingsModelRoot ([string]$embeddingsNotice[0].relativePath)) -ExpectedSha256 ([string]$embeddingsNotice[0].sha256) -DeclaredSpdxId ([string]$embeddingsManifest.licence.spdxId)
     $packs += [ordered]@{ kind = "model"; role = "embeddings"; capabilityId = "embedding"; packId = "$($embeddingsManifest.modelId)@$($embeddingsManifest.modelVersion)"; variant = $null; verificationStatus = [string]$embeddingsManifest.verificationStatus; note = "$($embeddingsManifest.modelId) $($embeddingsManifest.modelVersion) (PoC S4, bound)"; licence = "$($embeddingsLicence.SpdxId), read from its LICENSE (SHA-256 $($embeddingsLicence.Sha256)); licence review $($embeddingsManifest.licence.reviewStatus)" }
+    # The face Model Pack (ADR-022): both component licences read from their own installed LICENSE files.
+    $packs += Get-MaviPocFacesPack -ManifestPath (Join-Path $manifestDirectory "faces-yunet-adaface-ir50-dev-v1.json") -ModelRoot $layout.FacesModelRoot
     $metadata = New-MaviPocReleaseMetadata -ApplicationRevision $revision -BundleSha256 $bundleSha256 -DevicePolicy $DevicePolicy -CudaDecision $cudaDecision -Packs $packs -InstalledAtUtc ([DateTimeOffset]::UtcNow.ToString("O"))
     Write-MaviJson -Value $metadata -Path $layout.ReleaseMetadataPath -Depth 8
     Write-MaviSetupStatus -Name "Release metadata" -Status "OK" -Detail $layout.ReleaseMetadataPath
@@ -374,6 +388,8 @@ try {
         applicationRevision = $revision
         # PoC S4: Start-MAVI-PoC starts the embeddings worker for an installation that bound it.
         embeddingsBound = $true
+        # PoC S6: Start-MAVI-PoC starts the faces worker for an installation that bound it.
+        facesBound = $true
     }
     Write-MaviJson -Value $state -Path $layout.InstallationStatePath -Depth 6
 

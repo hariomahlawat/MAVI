@@ -45,6 +45,8 @@ function Get-MaviPocLayout {
         PlatesPipelineProfilePath = Join-Path $install "overlay\src\vision\config\plates\development-plates-onnx-pilot-v1.json"
         EmbeddingsEnvironmentRoot = Join-Path $install "embeddings\venv"
         EmbeddingsModelRoot = Join-Path $install "embeddings\models"
+        # PoC S6 (ADR-022): the face Model Pack's store; the faces worker runs on the embeddings environment.
+        FacesModelRoot = Join-Path $install "faces\models"
         PostgreSqlDataRoot = Join-Path $data "PostgreSQL\18\data"
         MediaRoot = Join-Path $data "Media"
         EvidenceRoot = Join-Path $data "Evidence"
@@ -321,6 +323,12 @@ function New-MaviPocMachineConfig {
             ModelManifestPath = Join-Path $Layout.OverlayRoot "models\manifests\embeddings-siglip2-base-p16-224-dev-v1.json"
             PipelineProfilePath = Join-Path $Layout.OverlayRoot "src\vision\config\embeddings\development-embeddings-siglip2-v1.json"
         }
+        # PoC S6 (ADR-022): the faces role is bound; its loop queues only runs of cameras an operator opted in.
+        Faces = [ordered]@{
+            Enabled = $true
+            ModelManifestPath = Join-Path $Layout.OverlayRoot "models\manifests\faces-yunet-adaface-ir50-dev-v1.json"
+            PipelineProfilePath = Join-Path $Layout.OverlayRoot "src\vision\config\faces\development-faces-adaface-v1.json"
+        }
         Identity = [ordered]@{
             Mode = $script:PocIdentityMode
             Operators = [ordered]@{ AuthorizedGroups = @($script:PocOperatorGroups) }
@@ -347,6 +355,34 @@ function Get-MaviPocNoticeLicence {
     if (-not $stated) { throw "The licence notice '$Path' states no licence this installer recognises." }
     if ($stated -ne $DeclaredSpdxId) { throw "The licence notice '$Path' states $stated, but its manifest declares $DeclaredSpdxId." }
     [pscustomobject]@{ SpdxId = $stated; Sha256 = $sha256 }
+}
+
+# The faces role's Model Pack as a release metadata entry (PoC S6, ADR-022, C5A.3): one pack per face pipeline,
+# each component's licence read from its own installed LICENSE file (the embedder's LICENSE, YuNet's LICENSE-yunet).
+# The AdaFace checkpoint's terms are not in its code licence, so the entry states them.
+function Get-MaviPocFacesPack {
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$ModelRoot
+    )
+    $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    if (@($manifest.capabilityIds) -join "," -ne "embedding" -or [string]$manifest.verificationStatus -ne "unverified") {
+        throw "'$ManifestPath' is not an unverified face embedding pack."
+    }
+    $licences = @()
+    foreach ($role in @([string]$manifest.licence.noticeArtifactRole, "licence-notice-detector")) {
+        $notice = @(@($manifest.artifacts) | Where-Object { [string]$_.artifactRole -eq $role })
+        if ($notice.Count -ne 1) { throw "'$ManifestPath' names no single '$role' artefact." }
+        # Both components are MIT (AdaFace/CVLface code; YuNet); a notice stating anything else refuses the pack.
+        $licences += Get-MaviPocNoticeLicence -Path (Join-Path $ModelRoot ([string]$notice[0].relativePath)) -ExpectedSha256 ([string]$notice[0].sha256) -DeclaredSpdxId ([string]$manifest.licence.spdxId)
+    }
+    [ordered]@{
+        kind = "model"; role = "faces"; capabilityId = "embedding"
+        packId = "$($manifest.modelId)@$($manifest.modelVersion)"; variant = $null
+        verificationStatus = [string]$manifest.verificationStatus
+        note = "$($manifest.modelId) $($manifest.modelVersion) (PoC S6, bound; checkpoint research-only, Development-only; results are candidates, never identification)"
+        licence = "embedder $($licences[0].SpdxId), read from its LICENSE (SHA-256 $($licences[0].Sha256)); detector $($licences[1].SpdxId), read from its LICENSE-yunet (SHA-256 $($licences[1].Sha256)); AdaFace checkpoint: WebFace4M non-commercial research terms; licence review $($manifest.licence.reviewStatus)"
+    }
 }
 
 # The plates role's packs as release metadata entries (PoC S3, C4.1): the Runtime Pack and both Model Packs the
@@ -705,4 +741,4 @@ function New-MaviPocUninstallPlan {
     }
 }
 
-Export-ModuleMember -Function Assert-MaviPocRemovableRoot, ConvertFrom-MaviPocConnectionString, New-MaviPocUninstallPlan, Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks
+Export-ModuleMember -Function Assert-MaviPocRemovableRoot, ConvertFrom-MaviPocConnectionString, New-MaviPocUninstallPlan, Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks, Get-MaviPocFacesPack

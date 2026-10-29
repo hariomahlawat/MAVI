@@ -203,6 +203,52 @@ try {
         if (-not $stopScript.Contains($fragment)) { throw "Stop-MaviPoc.ps1 does not stop the plates worker ('$fragment')." }
     }
 
+    # --- Faces role (PoC S6, ADR-022, C5A.3/C5A.5): bound, opt-in per camera, on the embeddings environment, both
+    #     component licences read from their own LICENSE files, the worker started and stopped with the stack. ---
+    if ($config.Faces.Enabled -ne $true -or -not $config.Faces.ModelManifestPath.EndsWith("models\manifests\faces-yunet-adaface-ir50-dev-v1.json") -or
+        -not $config.Faces.PipelineProfilePath.EndsWith("src\vision\config\faces\development-faces-adaface-v1.json")) {
+        throw "The machine configuration must bind the faces role to the overlay's committed manifest and profile."
+    }
+    if (@($config.Faces.Keys) -join "," -ne "Enabled,ModelManifestPath,PipelineProfilePath") { throw "The Faces section carries a key the installer does not own." }
+    if (-not $layout.FacesModelRoot.EndsWith("faces\models") -or -not $layout.FacesModelRoot.StartsWith($layout.InstallRoot)) { throw "The face Model Pack store must live under the install root." }
+    $facesManifestPath = Join-Path $repoRoot "models\manifests\faces-yunet-adaface-ir50-dev-v1.json"
+    $facesManifest = Get-Content -LiteralPath $facesManifestPath -Raw | ConvertFrom-Json
+    if ($facesManifest.licence.spdxId -ne "MIT" -or $facesManifest.verificationStatus -ne "unverified" -or (@($facesManifest.capabilityIds) -join ",") -ne "embedding") { throw "The face manifest must be an unverified MIT embedding pack." }
+    # A staged face pack built from fixture notices: both licences are read, and a detector notice stating another
+    # licence refuses the pack.
+    $facesRoot = Join-Path $tempRoot "faces-models"
+    $facesPackDir = Join-Path $facesRoot "faces-yunet-adaface-ir50-dev-v1"
+    New-Item -ItemType Directory -Path $facesPackDir -Force | Out-Null
+    Copy-Item -LiteralPath $mit -Destination (Join-Path $facesPackDir "LICENSE")
+    Copy-Item -LiteralPath $mit -Destination (Join-Path $facesPackDir "LICENSE-yunet")
+    $fixtureManifest = Get-Content -LiteralPath $facesManifestPath -Raw | ConvertFrom-Json
+    foreach ($artifact in @($fixtureManifest.artifacts)) { if ([string]$artifact.artifactRole -like "licence-notice*") { $artifact.sha256 = $mitSha } }
+    $fixtureManifestPath = Join-Path $tempRoot "faces-manifest.json"
+    $fixtureManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $fixtureManifestPath -Encoding UTF8
+    $facesEntry = Get-MaviPocFacesPack -ManifestPath $fixtureManifestPath -ModelRoot $facesRoot
+    if ($facesEntry.role -ne "faces" -or $facesEntry.capabilityId -ne "embedding" -or $facesEntry.verificationStatus -ne "unverified" -or
+        $facesEntry.licence -notmatch "^embedder MIT, read from its LICENSE .*; detector MIT, read from its LICENSE-yunet" -or $facesEntry.licence -notmatch "non-commercial research" -or
+        $facesEntry.note -notmatch "Development-only" -or $facesEntry.note -notmatch "candidates, never identification") {
+        throw "The face pack disclosure must read both licences and state the research-only, candidate-only scope: $($facesEntry.licence) / $($facesEntry.note)"
+    }
+    Copy-Item -LiteralPath $apache -Destination (Join-Path $facesPackDir "LICENSE-yunet") -Force
+    foreach ($artifact in @($fixtureManifest.artifacts)) { if ([string]$artifact.artifactRole -eq "licence-notice-detector") { $artifact.sha256 = $apacheSha } }
+    $fixtureManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $fixtureManifestPath -Encoding UTF8
+    Assert-Throws { Get-MaviPocFacesPack -ManifestPath $fixtureManifestPath -ModelRoot $facesRoot } "states Apache-2.0, but its manifest declares MIT" "A detector notice contradicting the face manifest"
+    $facesLauncher = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviFacesWorker.ps1") -Raw
+    foreach ($fragment in @('$env:MAVI_FACE_MANIFEST_PATH', '$env:MAVI_FACE_PIPELINE_PROFILE_PATH', '$env:MAVI_MODEL_ROOT', '$env:MAVI_PRODUCTION_MODE = "false"', '-m mavi_vision.faces.main', 'faces-yunet-adaface-ir50-dev-v1.json', 'development-faces-adaface-v1.json')) {
+        if (-not $facesLauncher.Contains($fragment)) { throw "Start-MaviFacesWorker.ps1 lost '$fragment'." }
+    }
+    foreach ($fragment in @('"faces-worker"', 'Start-MaviFacesWorker.ps1', '$state.facesBound', '$layout.FacesModelRoot', '$layout.EmbeddingsEnvironmentRoot "Scripts\python.exe"')) {
+        if (-not $startScript.Contains($fragment)) { throw "Start-MaviPoc.ps1 does not start the faces worker ('$fragment')." }
+    }
+    # Stop-MaviPoc stops the faces worker first: Uninstall-MAVI-PoC drops the database only after it.
+    if (-not $stopScript.Contains('"faces-worker" = "Start-MaviFacesWorker.ps1"') -or -not $stopScript.Contains('foreach ($name in @("faces-worker", "embeddings-worker"')) { throw "Stop-MaviPoc.ps1 does not stop the faces worker first." }
+    foreach ($fragment in @('tools\vision\faces_packs.py") stage', 'facesBound = $true', 'Get-MaviPocFacesPack -ManifestPath', '"faces-payloads"')) {
+        if (-not $installText.Contains($fragment)) { throw "Install-MAVI-PoC.ps1 does not install and disclose the face pack ('$fragment')." }
+    }
+    $bundleText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "New-MaviPocSetupBundle.ps1") -Raw
+    if (-not $bundleText.Contains('(Join-Path $PlatesCache "faces-payloads") -Target (Join-Path $destination "faces\faces-payloads")')) { throw "The PoC bundle must carry the face pack payloads." }
     # --- Demo cameras: the S2 demo-corpus manifest (copied byte-identical), unique codes. ---
     $cameras = Read-MaviPocDemoCameras -Path (Join-Path $repoRoot "config\poc\demo-cameras-v1.json")
     $expectedCodes = @(1..12 | ForEach-Object { "POC-S2-{0:D2}" -f $_ })
@@ -392,7 +438,7 @@ try {
     if ($plan.profile -ne "poc-single-host" -or $plan.productionQualified -ne $false -or $plan.evidenceClass -ne "Development") { throw "The plan does not disclose the PoC profile." }
     if ($plan.postgresql.serviceName -ne "MAVI-PoC-PostgreSQL-18" -or $plan.postgresql.port -ne 55434) { throw "The PoC must own its own PostgreSQL service and port." }
     if ($plan.platform.url -ne "http://localhost:8090" -or $plan.plates.bound -ne $true -or $plan.plates.devicePolicy -ne "Auto") { throw "Plan defaults changed: $($plan.platform.url), plates bound $($plan.plates.bound), plates device $($plan.plates.devicePolicy)." }
-    if (Test-Path -LiteralPath $installRoot) { throw "Plan-only created the install root." }
+    if ($plan.faces.bound -ne $true -or $plan.faces.optInPerCamera -ne $true -or $plan.faces.devicePolicy -ne "cpu" -or $plan.faces.environment -ne $plan.embeddings.environment) { throw "The plan must bind the faces role, opt-in per camera, on the embeddings environment." }    if (Test-Path -LiteralPath $installRoot) { throw "Plan-only created the install root." }
     if (Test-Path -LiteralPath $dataRoot) { throw "Plan-only created the data root." }
     # Windows PowerShell turns a native command's stderr into a terminating error under Stop.
     $ErrorActionPreference = "Continue"
