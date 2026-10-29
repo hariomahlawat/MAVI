@@ -1,4 +1,5 @@
 using System.Reflection;
+using Mavi.Api.Deployment;
 using Mavi.Api.Endpoints;
 using Mavi.Api.Finalization;
 using Mavi.Api.Middleware;
@@ -24,6 +25,10 @@ builder.AddMaviMachineConfiguration();
 builder.Services.AddMaviInfrastructure(builder.Configuration);
 builder.Services.AddDatabaseMigrationStartup(builder.Configuration);
 builder.Services.AddHealthChecks();
+// Deployment profile disclosure (ADR-020 §3): the installer declares the profile; under
+// poc-single-host the disclosure is fixed by code and the host refuses inconsistent metadata.
+builder.Services.Configure<Mavi.Application.Deployment.DeploymentOptions>(
+    builder.Configuration.GetSection(Mavi.Application.Deployment.DeploymentOptions.SectionName));
 // The platform's first background service. It shares this process deliberately (ADR-008
 // puts the API host on the operational plane) and is bounded so it cannot compete with
 // serving requests; SceneAnalytics:Enabled turns it off entirely.
@@ -67,6 +72,7 @@ await app.VerifyNativeMediaToolsAsync();
 app.VerifyTrackCursorSigning();
 app.VerifyVisualAttributeRelease();
 app.VerifyPlateRelease();
+app.VerifyDeploymentDisclosure();
 await app.ApplyDatabaseMigrationsAsync();
 // Sanitised request start/finish telemetry in place of the framework's raw-URL lines (Stage 4 §5.5).
 app.UseSafeRequestTelemetry();
@@ -112,6 +118,7 @@ app.MapAnalyticsEndpoints();
 app.MapArtifactEndpoints();
 app.MapSceneEndpoints();
 app.MapSceneAnalyticsEndpoints();
+app.MapDeploymentEndpoints();
 app.MapGet("/api/system/config", (Microsoft.Extensions.Options.IOptions<LocalizationOptions> options) =>
     Results.Ok(new { displayTimeZoneId = options.Value.DefaultDisplayTimeZoneId }));
 

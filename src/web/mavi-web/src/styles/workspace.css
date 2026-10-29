@@ -645,3 +645,18 @@
   margin-bottom: var(--s-3);
 }
 .workspace__rail-head h2 { font-size: var(--fs-3); }
+
+/* PoC deployment disclosure (ADR-020 §3): a persistent band across the top of
+   the workspace, above the Context Bar. Warning tone, text and icon both carry
+   the state (never colour alone); it wraps rather than truncates, because every
+   clause is part of the disclosure. */
+.deployment-banner {
+  display: flex; gap: var(--s-2); align-items: flex-start;
+  padding: var(--s-2) var(--s-3);
+  border-bottom: var(--stroke-hair) solid var(--status-warn-border);
+  background: var(--status-warn-soft); color: var(--text-primary);
+  font-size: var(--fs-2); line-height: var(--lh);
+}
+.deployment-banner > .icon { flex: 0 0 auto; margin-top: var(--s-hair); color: var(--status-warn); }
+.deployment-banner__text { flex: 1; min-width: 0; margin: 0; display: flex; flex-wrap: wrap; column-gap: var(--s-3); row-gap: var(--s-1); }
+.deployment-banner__link { flex: 0 0 auto; }

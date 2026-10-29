@@ -21,9 +21,10 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
 $RepositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot)
-$head = (& git -C $RepositoryRoot rev-parse HEAD 2>$null | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') { throw "Unable to determine repository HEAD." }
+# A repository checkout (git) or an installed application overlay (its verified manifest).
+$head = (Resolve-MaviApplicationRevision -Root $RepositoryRoot).Revision
 
 $env:MAVI_API_BASE_URL = $ApiBaseUrl
 $env:MAVI_WORKER_ID = $WorkerId

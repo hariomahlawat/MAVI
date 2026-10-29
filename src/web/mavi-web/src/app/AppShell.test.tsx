@@ -14,6 +14,25 @@ import { appRoutes } from './router';
 import { CHORD_TIMEOUT_MS } from './useGlobalShortcuts';
 
 vi.mock('../api/platform', () => ({ getPlatformHealth: vi.fn() }));
+// The PoC disclosure banner has its own test (DeploymentBanner.test.tsx); here
+// the host is unprofiled, so the shell renders no banner.
+vi.mock('../api/deployment', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/deployment')>()),
+  getDeploymentDisclosure: vi.fn(async () => ({
+    schemaVersion: 'mavi-deployment-disclosure-v1',
+    profile: 'unspecified',
+    productionQualified: false,
+    evidenceClass: null,
+    statement: null,
+    metadataStatus: 'not-configured',
+    applicationRevision: null,
+    installedAtUtc: null,
+    deviceStatus: 'not-reported',
+    device: null,
+    packs: [],
+  })),
+}));
+vi.mock('../features/system/SystemPage', () => ({ default: () => <h2>About route</h2> }));
 
 // Pages are stand-ins: the shell is under test. Most publish nothing, so the
 // shell's own IA-derived crumb and title are what is asserted; Scene publishes
@@ -131,11 +150,11 @@ describe('the shell derives its IA from one map (§5)', () => {
     }
   });
 
-  it('lists the rail in the map order, grouped Operate and Investigate', async () => {
+  it('lists the rail in the map order, grouped Operate, Investigate and Administer', async () => {
     renderAt('/');
     await screen.findByRole('heading', { name: 'Overview route' });
     expect(within(rail()).getAllByRole('link').map((link) => link.textContent)).toEqual(DESTINATIONS.map((entry) => entry.label));
-    expect(within(rail()).getAllByRole('group').map((group) => group.getAttribute('aria-label'))).toEqual(['Operate', 'Investigate']);
+    expect(within(rail()).getAllByRole('group').map((group) => group.getAttribute('aria-label'))).toEqual(['Operate', 'Investigate', 'Administer']);
   });
 });
 

@@ -190,6 +190,15 @@ jobs:
             "tools/setup/Mavi.VisionRuntime.Integrity.psm1",
             "tools/setup/Mavi.Setup.Common.psm1",
             "tools/setup/Mavi.Setup.Windows.psm1",
+            "tools/setup/Install-MAVI-PoC.ps1",
+            "tools/setup/New-MaviPocSetupBundle.ps1",
+            "tools/setup/Start-MaviPoc.ps1",
+            "tools/setup/Stop-MaviPoc.ps1",
+            "tools/setup/Test-MaviPocSmoke.ps1",
+            "tools/setup/Test-MaviPocSetupContracts.ps1",
+            "tools/setup/Install-MaviPlatesPilotRuntime.ps1",
+            "tools/setup/Start-MaviPlatesPilotWorker.ps1",
+            "tools/setup/Mavi.Poc.psm1",
             "Prepare-MAVI-Offline-Binary-Kit.ps1"
           )
           foreach ($script in $scripts) {
@@ -228,3 +237,4 @@ jobs:
           .\tools\setup\Test-MaviVisionModelPackStateContracts.ps1
           .\tools\setup\Test-MaviVisionWorkerComponentContracts.ps1
           .\tools\setup\Test-MaviVisionSetupContracts.ps1 -Python (Get-Command python).Source
+          .\tools\setup\Test-MaviPocSetupContracts.ps1

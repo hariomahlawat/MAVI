@@ -1,0 +1,13 @@
+{
+ "schemaVersion": "mavi-deployment-disclosure-v1",
+ "profile": "unspecified",
+ "productionQualified": false,
+ "evidenceClass": null,
+ "statement": null,
+ "metadataStatus": "not-configured",
+ "applicationRevision": null,
+ "installedAtUtc": null,
+ "deviceStatus": "not-reported",
+ "device": null,
+ "packs": []
+}
