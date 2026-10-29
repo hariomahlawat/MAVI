@@ -261,6 +261,36 @@
       "verification": "tools/vision/plates_pilot_packs.py fetch/stage SHA-256 verification against the manifests; the resolver re-verifies every artefact at startup; offline staging only",
       "licence": "Apache-2.0 (PP-OCRv5_mobile_det, PaddleOCR LICENSE shipped as the pack's licence notice); MIT (fast-plate-ocr cct-s-v2-global, maintainer statement for the weights retained in the controlled store). Development pilot only; no redistribution or release",
       "dependencyPolicyId": "developer-offline-caches"
+    },
+    {
+      "id": "developer-embeddings-wheelhouse",
+      "role": "development-offline-cache",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "exact-pinned",
+      "baselineVersion": "src/vision/runtime/embeddings-onnx-v1/windows-x86_64-cpu.lock (CPython 3.12.10, win_amd64 binary wheels)",
+      "exactVersionSource": "the lock's --hash=sha256 pins; developer-cache-manifest.json embeddingsArtifacts (file names, SHA-256, sizes)",
+      "binaryKitPath": "vendor/developer-cache/win-x64/python-embeddings-wheelhouse",
+      "releasePath": "prerequisites/developer/win-x64/python-embeddings-wheelhouse",
+      "verification": "Install-MaviEmbeddingsRuntime.ps1 (pip --no-index --require-hashes from the lock, pip check); PoC S4 Development only (ADR-021), never a qualified Runtime Pack",
+      "licence": "package licences governed by dependency policy developmentRuntimeFamilies.embeddings-onnx-v1 (onnxruntime MIT, sentencepiece Apache-2.0, numpy BSD-3-Clause, pillow MIT-CMU)",
+      "dependencyPolicyId": "developer-offline-caches"
+    },
+    {
+      "id": "developer-embeddings-payloads",
+      "role": "development-offline-cache",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "exact-pinned",
+      "baselineVersion": "models/manifests/embeddings-siglip2-base-p16-224-dev-v1.json",
+      "exactVersionSource": "the manifest's artefact SHA-256 values (vision.onnx, text.onnx, tokenizer.model, README.md, LICENSE); exported from google/siglip2-base-patch16-224 @ 75de2d55 by tools/vision/build_siglip2_pack.py",
+      "binaryKitPath": "vendor/developer-cache/win-x64/embeddings-payloads",
+      "releasePath": "prerequisites/developer/win-x64/embeddings-payloads",
+      "verification": "tools/vision/embeddings_packs.py collect/stage SHA-256 verification against the manifest; the worker re-verifies every artefact before loading; offline staging only",
+      "licence": "Apache-2.0 (SigLIP 2 base; LICENSE from google-research/big_vision @ 0127fb6b and the model card shipped in the pack). Development-grade PoC pack (ADR-020, ADR-021); not a Production release",
+      "dependencyPolicyId": "developer-offline-caches"
     }
   ],
   "visionRuntime": {

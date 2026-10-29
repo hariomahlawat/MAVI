@@ -71,6 +71,7 @@ $cpuRuntimeSource = Join-Path $BundleRoot "vision\runtime\windows-x86_64-cpu"
 $cudaRuntimeSource = Join-Path $BundleRoot "vision\runtime\windows-x86_64-cuda"
 $modelSourceRoot = Join-Path $BundleRoot "vision\models"
 $platesCache = Join-Path $BundleRoot "plates"
+$embeddingsCache = Join-Path $BundleRoot "embeddings"
 $buildContract = Read-MaviJson -Path (Join-Path $bundleOverlay "config\vision\windows-cuda-development-build-v1.json")
 $requiredComputeCapability = [string]$buildContract.targetGpu.computeCapability
 $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
@@ -120,6 +121,7 @@ $plan = [ordered]@{
     platform = [ordered]@{ url = "http://127.0.0.1:$HttpPort"; applicationRoot = $layout.ApplicationRoot; machineConfig = $layout.MachineConfigPath }
     vision = [ordered]@{ cpuRuntimeRoot = $layout.VisionRuntimeCpuRoot; cudaRuntimeRoot = $(if ($cudaSource -eq "none") { $null } else { $cudaRuntimeRoot }); modelStore = $layout.VisionModelRoot; devicePolicy = $DevicePolicy; cuda = $cudaDecision }
     plates = [ordered]@{ environment = $layout.PlatesEnvironmentRoot; modelStore = $layout.PlatesModelRoot; bound = $false }
+    embeddings = [ordered]@{ environment = $layout.EmbeddingsEnvironmentRoot; modelStore = $layout.EmbeddingsModelRoot; bound = $true; devicePolicy = "cpu" }
     releaseMetadata = $layout.ReleaseMetadataPath
 }
 
@@ -266,6 +268,11 @@ try {
     & (Join-Path $layout.OverlayRoot "tools\setup\Install-MaviPlatesPilotRuntime.ps1") -Python $platesPython -Destination $layout.PlatesEnvironmentRoot -ModelRoot $layout.PlatesModelRoot -Cache $platesCache -ReuseVerified
     Write-MaviSetupStatus -Name "Plates runtime" -Status "OK" -Detail "installed, not bound (S3)"
 
+    # Embeddings runtime (PoC S4, ADR-021) and the SigLIP 2 Model Pack: installed and bound (machine configuration
+    # Embeddings section; Start-MAVI-PoC starts its worker). CPU ONNX Runtime; the CUDA build is S1b's pin.
+    & (Join-Path $layout.OverlayRoot "tools\setup\Install-MaviEmbeddingsRuntime.ps1") -Python $platesPython -Destination $layout.EmbeddingsEnvironmentRoot -ModelRoot $layout.EmbeddingsModelRoot -Cache $embeddingsCache -ReuseVerified
+    Write-MaviSetupStatus -Name "Embeddings runtime" -Status "OK" -Detail "installed and bound (SigLIP 2, Development)"
+
     # Machine configuration (connection string, roots, cursor key, loopback URL, profile).
     $cursorSigningKey = Get-MaviExistingCursorSigningKey -MachineConfigPath $layout.MachineConfigPath
     if (-not $cursorSigningKey) { $cursorSigningKey = New-MaviCursorSigningKey }
@@ -295,6 +302,10 @@ try {
     }
     $platesLockSha = Get-MaviSha256 -Path (Join-Path $layout.OverlayRoot "src\vision\runtime\plates-onnx-v1\windows-x86_64-cpu.lock")
     $packs += [ordered]@{ kind = "runtime"; role = "plates"; capabilityId = $null; packId = "plates-onnx-v1@lock-sha256:$platesLockSha"; variant = "windows-x86_64-cpu"; verificationStatus = "development-pilot"; note = "installed, not bound (S3)" }
+    $embeddingsLockSha = Get-MaviSha256 -Path (Join-Path $layout.OverlayRoot "src\vision\runtime\embeddings-onnx-v1\windows-x86_64-cpu.lock")
+    $packs += [ordered]@{ kind = "runtime"; role = "embeddings"; capabilityId = $null; packId = "embeddings-onnx-v1@lock-sha256:$embeddingsLockSha"; variant = "windows-x86_64-cpu"; verificationStatus = "development-pilot"; note = "bound (PoC S4)" }
+    $embeddingsManifest = Read-MaviJson -Path (Join-Path $manifestDirectory "embeddings-siglip2-base-p16-224-dev-v1.json")
+    $packs += [ordered]@{ kind = "model"; role = "embeddings"; capabilityId = "embedding"; packId = "$($embeddingsManifest.modelId)@$($embeddingsManifest.modelVersion)"; variant = $null; verificationStatus = [string]$embeddingsManifest.verificationStatus; note = "bound (PoC S4); Apache-2.0" }
     foreach ($payloadManifest in @("plates-pd5-ppocrv5-mobile-det-dev-v1.json", "plates-oc1-fast-plate-ocr-cct-s-v2-dev-v1.json")) {
         $manifest = Read-MaviJson -Path (Join-Path $manifestDirectory $payloadManifest)
         $packs += [ordered]@{ kind = "model"; role = "plates"; capabilityId = $null; packId = "$($manifest.modelId)@$($manifest.modelVersion)"; variant = $null; verificationStatus = [string]$manifest.verificationStatus; note = "installed, not bound (S3)" }
@@ -314,6 +325,8 @@ try {
         cudaRuntimeRoot = $(if ($cudaSource -eq "none") { $null } else { $cudaRuntimeRoot })
         postgresqlServiceName = $serviceName
         applicationRevision = $revision
+        # PoC S4: Start-MAVI-PoC starts the embeddings worker for an installation that bound it.
+        embeddingsBound = $true
     }
     Write-MaviJson -Value $state -Path $layout.InstallationStatePath -Depth 6
 

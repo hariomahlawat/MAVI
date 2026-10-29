@@ -40,6 +40,8 @@ function Get-MaviPocLayout {
         VisionModelRoot = Join-Path $install "vision\models"
         PlatesEnvironmentRoot = Join-Path $install "plates\venv"
         PlatesModelRoot = Join-Path $install "plates\models"
+        EmbeddingsEnvironmentRoot = Join-Path $install "embeddings\venv"
+        EmbeddingsModelRoot = Join-Path $install "embeddings\models"
         PostgreSqlDataRoot = Join-Path $data "PostgreSQL\18\data"
         MediaRoot = Join-Path $data "Media"
         EvidenceRoot = Join-Path $data "Evidence"
@@ -173,6 +175,12 @@ function New-MaviPocMachineConfig {
             Profile = $script:PocProfile
             ReleaseMetadataPath = $Layout.ReleaseMetadataPath
             DeviceResolutionPath = $Layout.DeviceResolutionPath
+        }
+        # PoC S4 (ADR-021): the embeddings role is bound; the platform's loop queues runs for the SigLIP 2 identity.
+        Embeddings = [ordered]@{
+            Enabled = $true
+            ModelManifestPath = Join-Path $Layout.OverlayRoot "models\manifests\embeddings-siglip2-base-p16-224-dev-v1.json"
+            PipelineProfilePath = Join-Path $Layout.OverlayRoot "src\vision\config\embeddings\development-embeddings-siglip2-v1.json"
         }
     }
 }

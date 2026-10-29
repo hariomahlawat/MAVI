@@ -2,7 +2,7 @@
 param(
     [string]$DataRoot = (Join-Path $env:ProgramData "MAVI\PoC"),
     # Stop only these (Start-MaviPoc's rollback stops only what it started). Default: both.
-    [ValidateSet("vision-worker", "api")][string[]]$Only = @("vision-worker", "api")
+    [ValidateSet("embeddings-worker", "vision-worker", "api")][string[]]$Only = @("embeddings-worker", "vision-worker", "api")
 )
 
 # Stops what Start-MaviPoc.ps1 started (the Vision worker, then the platform), each with
@@ -17,10 +17,10 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
 
 $runRoot = Join-Path ([IO.Path]::GetFullPath($DataRoot)) "run"
-$images = @{ "vision-worker" = "powershell"; "api" = "Mavi.Api" }
-$commands = @{ "vision-worker" = "Start-MaviVisionWorker.ps1"; "api" = "Mavi.Api.exe" }
+$images = @{ "embeddings-worker" = "powershell"; "vision-worker" = "powershell"; "api" = "Mavi.Api" }
+$commands = @{ "embeddings-worker" = "Start-MaviEmbeddingsWorker.ps1"; "vision-worker" = "Start-MaviVisionWorker.ps1"; "api" = "Mavi.Api.exe" }
 $failures = @()
-foreach ($name in @("vision-worker", "api")) {
+foreach ($name in @("embeddings-worker", "vision-worker", "api")) {
     if ($Only -notcontains $name) { continue }
     $recordPath = Join-Path $runRoot "$name.pid"
     $process = Get-MaviPocRecordedProcess -Path $recordPath -ExpectedImageName $images[$name] -ExpectedCommandFragment $commands[$name]

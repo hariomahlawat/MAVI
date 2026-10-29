@@ -111,6 +111,9 @@ The role follows ADR-013 §8–§12 and the plate role's control plane (`mavi-em
 - **Exact search.** It costs O(N) per query. It is chosen for determinism and is acceptable to roughly 10⁵ Tracks; the ANN trigger is explicit.
 - **No sealed artefact.** No raw per-crop vectors are kept, so forensic replay re-embeds the sealed crops instead of reading a sealed vector file.
 - **Bounded, pull-based text queries.** The first use of a new appearance text waits up to about 10 s for the worker; repeated texts are immediate.
+- **Explicit composition, not a Component Binding.** The role is composed from explicit paths (model manifest, pipeline profile, Model Pack root) rather than an ADR-014 Component Binding with a Runtime Pack id. ADR-014's Development role-binding path is plate-specific today. Generalising it is not needed for the PoC claim, and doing it now would have reworked the plate binding code that slice S3 is changing in parallel.
+  - The same guarantees are enforced instead: the worker verifies every artefact SHA-256 before loading; the identity is pinned by the manifest and profile bytes; `tools/verify_repo.py` (`check_embedding_profiles`) requires a developmentOnly profile, an unverified, unqualified `embedding` manifest of the same dimension, and a declared Development runtime family.
+  - Moving the role into the binding machinery is the promotion path.
 - **A large text tower.** `text.onnx` is about 1.13 GB, mostly the 256k-token embedding table. The pack is about 1.5 GB. This is accepted for one pack that serves Stages 2, 5 and 6 (D5).
 
 ## Owner decision (to ratify)

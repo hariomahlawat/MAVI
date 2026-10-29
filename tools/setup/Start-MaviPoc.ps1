@@ -42,7 +42,7 @@ Write-Host ""
 function Get-MaviPocRunningProcess {
     param([Parameter(Mandatory = $true)][string]$Name)
     $image = if ($Name -eq "api") { "Mavi.Api" } else { "powershell" }
-    $command = if ($Name -eq "api") { "Mavi.Api.exe" } else { "Start-MaviVisionWorker.ps1" }
+    $command = switch ($Name) { "api" { "Mavi.Api.exe" } "embeddings-worker" { "Start-MaviEmbeddingsWorker.ps1" } default { "Start-MaviVisionWorker.ps1" } }
     Get-MaviPocRecordedProcess -Path (Join-Path $layout.RunRoot "$Name.pid") -ExpectedImageName $image -ExpectedCommandFragment $command
 }
 
@@ -128,6 +128,40 @@ else {
         Start-Sleep -Seconds 2
     }
     Write-MaviSetupStatus -Name "Vision worker" -Status "OK" -Detail "device $($report.resolvedDevicePolicy) ($($report.deviceResolutionReason)); requested $($report.requestedDevicePolicy)"
+}
+
+# Embeddings worker (PoC S4, ADR-021): bound by the installer; CPU ONNX Runtime. It verifies its pack and leases only
+# the platform's embedding identity; a failure there never touches a ProcessingRun.
+if ($state.PSObject.Properties["embeddingsBound"] -and [bool]$state.embeddingsBound) {
+    if (Get-MaviPocRunningProcess -Name "embeddings-worker") {
+        Write-MaviSetupStatus -Name "Embeddings worker" -Status "OK" -Detail "already running"
+    }
+    else {
+        $embeddingsLauncher = Join-Path $layout.OverlayRoot "tools\setup\Start-MaviEmbeddingsWorker.ps1"
+        $embeddingsArguments = @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $embeddingsLauncher,
+            "-RepositoryRoot", $layout.OverlayRoot,
+            "-ApiBaseUrl", $apiBaseUrl,
+            "-WorkerId", "poc-embeddings-01",
+            "-Python", (Join-Path $layout.EmbeddingsEnvironmentRoot "Scripts\python.exe"),
+            "-ModelRoot", $layout.EmbeddingsModelRoot,
+            "-DevicePolicy", "cpu"
+        )
+        $quotedEmbeddings = @($embeddingsArguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
+        $embeddingsWorker = Start-Process -FilePath "powershell.exe" -ArgumentList $quotedEmbeddings -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput (Join-Path $layout.LogRoot "embeddings-worker-$stamp.out.log") -RedirectStandardError (Join-Path $layout.LogRoot "embeddings-worker-$stamp.err.log")
+        [void]$embeddingsWorker.Handle
+        $startedHere += "embeddings-worker"
+        Write-MaviPocProcessRecord -Path (Join-Path $layout.RunRoot "embeddings-worker.pid") -Process $embeddingsWorker
+        $settleUntil = [DateTime]::UtcNow.AddSeconds($WorkerSettleSeconds)
+        while ([DateTime]::UtcNow -lt $settleUntil) {
+            if ($embeddingsWorker.HasExited) {
+                throw "The embeddings worker exited with code $($embeddingsWorker.ExitCode) during start-up. See $(Join-Path $layout.LogRoot "embeddings-worker-$stamp.err.log")."
+            }
+            Start-Sleep -Seconds 2
+        }
+        Write-MaviSetupStatus -Name "Embeddings worker" -Status "OK" -Detail "SigLIP 2 on CPU (Development)"
+    }
 }
 
 if ($Seed) {

@@ -147,7 +147,7 @@ try {
 
     if ([string]::IsNullOrWhiteSpace($PlatesCache)) { $PlatesCache = Join-Path $BinaryKitRoot "vendor\developer-cache\win-x64" }
     $PlatesCache = [IO.Path]::GetFullPath($PlatesCache)
-    foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads")) {
+    foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads", "python-embeddings-wheelhouse", "embeddings-payloads")) {
         if (-not (Test-Path -LiteralPath (Join-Path $PlatesCache $name) -PathType Container)) { throw "The plates cache '$PlatesCache' has no $name\ (Prepare-MaviDeveloperOfflineCache.ps1)." }
     }
     if ($SmokeClip -and [string]::IsNullOrWhiteSpace($SmokeClipLicence)) { throw "A shipped smoke clip needs -SmokeClipLicence (CC0 / CC-BY attribution text)." }
@@ -186,6 +186,10 @@ try {
         $manifest = Read-MaviJson -Path (Join-Path $entry.Value "model-pack-manifest.json")
         $packDirectory = @($manifest.artifacts)[0].relativePath.Split("/")[0]
         Copy-MaviPocTree -Source $entry.Value -Target (Join-Path $destination "vision\models\$packDirectory")
+    }
+    # PoC S4 (ADR-021): the embeddings runtime wheels and the SigLIP 2 pack payloads, from the same developer cache.
+    foreach ($name in @("python-embeddings-wheelhouse", "embeddings-payloads")) {
+        Copy-MaviPocTree -Source (Join-Path $PlatesCache $name) -Target (Join-Path $destination "embeddings\$name")
     }
     foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads")) {
         Copy-MaviPocTree -Source (Join-Path $PlatesCache $name) -Target (Join-Path $destination "plates\$name")
