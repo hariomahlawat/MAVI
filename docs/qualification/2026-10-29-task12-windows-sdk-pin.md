@@ -38,7 +38,7 @@ Task 12 was run with every input identical except the SDK. The headers, import l
 | 40879191577 | `Microsoft.Windows.SDK.CPP{,.x64}` 10.0.26100.8249 | `f1f0a6c9…` = committed lock | pass |
 | 40879197128 (control, branch not merged) | `Microsoft.Windows.SDK.CPP{,.x64}` 10.0.26100.9457 | `f522bd08…` = failing image | fail |
 
-The 9457 packages reproduce the failing image's bytes exactly, so the NuGet payloads are equivalent to the image SDK of the same build. The SDK build is the only input that moved. In each run, a clean rebuild reproduced the wheel byte for byte.
+The 9457 packages reproduce the failing image's bytes exactly, so the NuGet payloads are equivalent to the image SDK of the same build. These runs prove the SDK build is sufficient to explain the changed wheel bytes. That no other image change contributes is an inference: the SDK swap alone moves the bytes between both known hashes. In each run, a clean rebuild reproduced the wheel byte for byte.
 
 ## Resolution: restore the deterministic build
 
@@ -46,13 +46,14 @@ On Windows, Task 12 now has a step *Install pinned Windows SDK headers and libra
 
 - downloads `microsoft.windows.sdk.cpp` and `microsoft.windows.sdk.cpp.x64` version 10.0.26100.8249 from `api.nuget.org`;
 - pins them by SHA-256: `f8787b2f6678164ae789bdca6247e696c2a0f529a39ceb969d6ef3d69a987131` and `dba411916afdd47c99fecdf7d5558df7679d291dc338746590ae9adf5fd0511b`;
-- verifies them with `dotnet nuget verify --all`;
+- verifies them with `dotnet nuget verify --all`. This accepts any trusted NuGet signer, so it is defence in depth; the SHA-256 pin is the integrity control;
 - extracts only `Include\10.0.26100.0\{ucrt,um,shared,winrt,cppwinrt}`, `bin\10.0.26100.0\x64`, `ucrt\x64` and `um\x64` to `C:\MaviBuildTools\winsdk-10.0.26100.8249`;
-- rewrites `INCLUDE`, `LIB`, `LIBPATH` and `PATH`, so every `Windows Kits` entry is removed and the pinned roots replace them.
+- rewrites `INCLUDE`, `LIB`, `LIBPATH` and `PATH`, removing their `Windows Kits` entries and adding the pinned roots;
+- points `EXTERNAL_INCLUDE` at the pinned headers, and removes `Windows Kits` paths from every other variable vcvars exported (`WindowsSdkDir`, `UniversalCRTSdkDir`, `WindowsLibPath`, `WindowsSdkBinPath`, `WindowsSdkVerBinPath`), so no environment variable names the image SDK.
 
 *Verify qualified Windows native build identity* now fails closed in each of these cases:
 
-- any `\Windows Kits\` path remains in `INCLUDE`, `LIB`, `LIBPATH` or `PATH`;
+- any environment variable still contains a `\Windows Kits\` path;
 - the pinned include and library roots are not all present;
 - `rc.exe` or `mt.exe` resolves outside the pinned SDK.
 

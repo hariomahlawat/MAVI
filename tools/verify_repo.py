@@ -1106,6 +1106,9 @@ def check_windows_cpu_build_toolchain(errors: list[str]) -> None:
             fail(f"Windows CPU build toolchain SDK package {package_id} is not a pinned NuGet payload.", errors)
             return
         sdk_hashes.append(package_sha)
+    sdk_path = f"C:\\MaviBuildTools\\winsdk-{sdk_build}"
+    if sdk_path not in str(toolchain.get("placement", "")):
+        fail(f"Windows CPU build toolchain placement does not name the pinned SDK path {sdk_path}.", errors)
     policy_id = toolchain.get("policyId")
     entries = policy.get("nativeAndToolchain", []) if isinstance(policy, dict) else []
     entry = next((item for item in entries if isinstance(item, dict) and item.get("id") == policy_id), None)
@@ -1126,7 +1129,12 @@ def check_windows_cpu_build_toolchain(errors: list[str]) -> None:
         f"MAVI_WINSDK_VERSION: {sdk_build}",
         f"MAVI_WINSDK_CPP_SHA256: {sdk_hashes[0]}",
         f"MAVI_WINSDK_CPP_X64_SHA256: {sdk_hashes[1]}",
-        "unpinned_windows_sdk_in_",
+        f"MAVI_WINSDK_PATH: {sdk_path}",
+        "dotnet nuget verify --all $file",
+        '"LIB={0}" -f ((@(& $keep $env:LIB) + $lib) -join ";")',
+        '"INCLUDE={0}" -f ((@(& $keep $env:INCLUDE) + $include) -join ";")',
+        "foreach ($entry in Get-ChildItem Env:) {",
+        'throw "unpinned_windows_sdk_in_$($entry.Name)"',
     ):
         if required not in workflow:
             fail(f"Task 12 workflow does not carry the catalogued Windows CPU toolchain pin: {required}", errors)

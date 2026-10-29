@@ -280,6 +280,10 @@ def test_windows_cpu_build_toolchain_records_agree(tmp_path, monkeypatch) -> Non
         (_TOOLCHAIN_RECORDS[1], "Microsoft.Windows.SDK.CPP (SHA-256 f8787b2f", "Microsoft.Windows.SDK.CPP (SHA-256 08787b2f", "does not state the pinned f8787b2f"),
         (_TOOLCHAIN_RECORDS[2], "MAVI_WINSDK_VERSION: 10.0.26100.8249", "MAVI_WINSDK_VERSION: 10.0.26100.9457", "does not carry the catalogued"),
         (_TOOLCHAIN_RECORDS[2], "MAVI_WINSDK_CPP_SHA256: f8787b2f", "MAVI_WINSDK_CPP_SHA256: 08787b2f", "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], "foreach ($entry in Get-ChildItem Env:) {", "foreach ($entry in @()) {", "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], '"LIB={0}" -f ((@(& $keep $env:LIB) + $lib)', '"LIB={0}" -f ((@($env:LIB) + $lib)', "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], "dotnet nuget verify --all $file", "Write-Output $file", "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[0], "C:\\\\MaviBuildTools\\\\winsdk-10.0.26100.8249", "C:\\\\MaviBuildTools\\\\winsdk", "does not name the pinned SDK path"),
     ],
 )
 def test_windows_cpu_build_toolchain_drift_fails_closed(tmp_path, monkeypatch, relative, old, new, expected) -> None:

@@ -347,7 +347,7 @@
         }
       ],
       "placement": "CI build host only (C:\\MaviBuildTools\\vs-17.14.40, C:\\MaviBuildTools\\winsdk-10.0.26100.8249); never packaged into a Runtime Pack, Model Pack, Offline Binary Kit or Production media",
-      "licence": "Microsoft Visual Studio Build Tools licence terms apply to the CI build environment; no compiler payload is redistributed",
+      "licence": "Microsoft Visual Studio Build Tools and Windows SDK licence terms apply to the CI build environment; no compiler or SDK payload is redistributed",
       "policyId": "msvc-cpu-build-toolchain-win-x64"
     },
     "windowsCudaDevelopmentCandidate": {

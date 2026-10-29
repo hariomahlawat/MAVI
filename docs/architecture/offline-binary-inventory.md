@@ -69,7 +69,7 @@ The Task 12 `windows-x86_64-cpu` MMCV wheel is reproducible only under one exact
 | Bootstrapper SHA-256 | `aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7`, Microsoft Authenticode-signed |
 | Components | `VC.Tools.x86.x64`, `Windows11SDK.26100` |
 | `cl.exe` / `link.exe` | 19.44.35228.0 / 14.44.35228.0 (toolset 14.44, SDK 10.0.26100.0) |
-| Windows SDK build | 10.0.26100.8249 from the fixed-version NuGet packages `Microsoft.Windows.SDK.CPP` (`f8787b2f6678164ae789bdca6247e696c2a0f529a39ceb969d6ef3d69a987131`) and `Microsoft.Windows.SDK.CPP.x64` (`dba411916afdd47c99fecdf7d5558df7679d291dc338746590ae9adf5fd0511b`), signature-verified; the image's Windows Kits are removed from `INCLUDE`, `LIB`, `LIBPATH` and `PATH` |
+| Windows SDK build | 10.0.26100.8249 from the fixed-version NuGet packages `Microsoft.Windows.SDK.CPP` (`f8787b2f6678164ae789bdca6247e696c2a0f529a39ceb969d6ef3d69a987131`) and `Microsoft.Windows.SDK.CPP.x64` (`dba411916afdd47c99fecdf7d5558df7679d291dc338746590ae9adf5fd0511b`), signature-verified; the image's Windows Kits are removed from every build environment variable |
 | Placement | CI build host only; never in a Runtime Pack, Model Pack, Offline Binary Kit or Production media |
 
 The authoritative records are `visionRuntime.windowsCpuBuildToolchain` in `config/dependencies/offline-binary-catalog-v1.json` and policy entry `msvc-cpu-build-toolchain-win-x64`. `verify_repo` fails if either record, or the Task 12 workflow, drifts from the others. The evidence is in `docs/qualification/2026-09-27-task12-windows-mmcv-toolchain-pin.md` (compiler) and `docs/qualification/2026-10-29-task12-windows-sdk-pin.md` (SDK).
