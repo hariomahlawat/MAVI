@@ -236,7 +236,7 @@
         },
         "embeddings-onnx-v1": {
           "scope": "development-only",
-          "purpose": "PoC S4 (ADR-021): the embeddings role on CPU ONNX Runtime with the SigLIP 2 base Model Pack (two ONNX towers plus a SentencePiece tokenizer). Development-grade under the poc-single-host profile (ADR-020); never part of the vision lock or a qualified Runtime Pack; Production refuses it (developmentOnly embedding profile, unverified Model Pack). The CUDA variant uses S1b's single PoC GPU pin, onnxruntime-gpu 1.26.0 (the last CUDA 12 build; 1.27+ need CUDA 13), with the CUDA 12.4/cuDNN 9.1 DLLs of the vision CUDA Runtime Pack's torch/lib; it becomes a locked variant here when S1b's pin merges (PR #243).",
+          "purpose": "PoC S4 (ADR-021): the embeddings role on CPU ONNX Runtime with the SigLIP 2 base Model Pack (two ONNX towers plus a SentencePiece tokenizer). PoC S5 (ADR-021 amendment 2026-10-29): the attributes role's SigLIP 2 zero-shot inferencer runs on this same environment and Model Pack (tools/setup/Start-MaviAttributesWorker.ps1); no package, model or payload is added for it. Development-grade under the poc-single-host profile (ADR-020); never part of the vision lock or a qualified Runtime Pack; Production refuses it (developmentOnly embedding profile, unverified Model Pack). The CUDA variant uses S1b's single PoC GPU pin, onnxruntime-gpu 1.26.0 (the last CUDA 12 build; 1.27+ need CUDA 13), with the CUDA 12.4/cuDNN 9.1 DLLs of the vision CUDA Runtime Pack's torch/lib; it becomes a locked variant here when S1b's pin merges (PR #243).",
           "runtimeProfile": "src/vision/runtime/embeddings-onnx-v1/runtime.json",
           "variants": {
             "windows-x86_64-cpu": {
@@ -256,7 +256,7 @@
           },
           "packagedBy": "tools/setup/Prepare-MaviDeveloperOfflineCache.ps1 (python-embeddings-wheelhouse: the lock's win_amd64 wheels, hash-checked; embeddings-payloads: tools/vision/embeddings_packs.py collect from the PoC controlled store, SHA-256 verified against models/manifests/embeddings-siglip2-base-p16-224-dev-v1.json); tools/setup/New-MaviPocSetupBundle.ps1 copies both into the bundle's embeddings\\",
           "installedBy": "tools/setup/Install-MaviEmbeddingsRuntime.ps1 (pip --no-index --require-hashes from the lock into a new venv; Model Pack staged by tools/vision/embeddings_packs.py), called by tools/setup/Install-MAVI-PoC.ps1",
-          "verification": "the embeddings worker verifies every manifest artefact SHA-256 before loading and derives its identity from the manifest and profile bytes (contracts/test-vectors/embedding-identity-v1.json); the platform leases only its configured identity; tools/verify_repo.py holds this entry equal to the lock",
+          "verification": "the embeddings and zero-shot attributes workers verify every manifest artefact SHA-256 before loading and derives its identity from the manifest and profile bytes (contracts/test-vectors/embedding-identity-v1.json); the platform leases only its configured identity; tools/verify_repo.py holds this entry equal to the lock",
           "licences": {
             "onnxruntime": "MIT",
             "numpy": "BSD-3-Clause",

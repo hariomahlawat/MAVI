@@ -321,6 +321,13 @@ function New-MaviPocMachineConfig {
             ModelManifestPath = Join-Path $Layout.OverlayRoot "models\manifests\embeddings-siglip2-base-p16-224-dev-v1.json"
             PipelineProfilePath = Join-Path $Layout.OverlayRoot "src\vision\config\embeddings\development-embeddings-siglip2-v1.json"
         }
+        # PoC S5: the attributes role with the SigLIP 2 zero-shot inferencer over the same Model Pack (zero-shot,
+        # Development); the platform queues an attribute analysis per completed run for the release identity.
+        VisualAttributes = [ordered]@{
+            Enabled = $true
+            ComponentBindingPath = Join-Path $Layout.OverlayRoot "src\vision\config\attributes\development-attributes-siglip2-binding-v1.json"
+            PipelineProfilePath = Join-Path $Layout.OverlayRoot "src\vision\config\attributes\development-attributes-siglip2-zero-shot-v1.json"
+        }
         Identity = [ordered]@{
             Mode = $script:PocIdentityMode
             Operators = [ordered]@{ AuthorizedGroups = @($script:PocOperatorGroups) }

@@ -47,7 +47,7 @@ Write-Host ""
 function Get-MaviPocRunningProcess {
     param([Parameter(Mandatory = $true)][string]$Name)
     $image = if ($Name -eq "api") { "Mavi.Api" } else { "powershell" }
-    $command = switch ($Name) { "api" { "Mavi.Api.exe" } "plates-worker" { "Start-MaviPlatesPilotWorker.ps1" } "embeddings-worker" { "Start-MaviEmbeddingsWorker.ps1" } default { "Start-MaviVisionWorker.ps1" } }
+    $command = switch ($Name) { "api" { "Mavi.Api.exe" } "plates-worker" { "Start-MaviPlatesPilotWorker.ps1" } "embeddings-worker" { "Start-MaviEmbeddingsWorker.ps1" } "attributes-worker" { "Start-MaviAttributesWorker.ps1" } default { "Start-MaviVisionWorker.ps1" } }
     Get-MaviPocRecordedProcess -Path (Join-Path $layout.RunRoot "$Name.pid") -ExpectedImageName $image -ExpectedCommandFragment $command
 }
 
@@ -209,6 +209,38 @@ if ($state.PSObject.Properties["embeddingsBound"] -and [bool]$state.embeddingsBo
             Start-Sleep -Seconds 2
         }
         Write-MaviSetupStatus -Name "Embeddings worker" -Status "OK" -Detail "SigLIP 2 on CPU (Development)"
+    }
+
+    # Attributes worker (PoC S5): the SigLIP 2 zero-shot inferencer on the same runtime and Model Pack, bound with the
+    # embeddings role. Zero-shot, Development; a failure leaves the attribute plane Pending and never touches a run.
+    if (Get-MaviPocRunningProcess -Name "attributes-worker") {
+        Write-MaviSetupStatus -Name "Attributes worker" -Status "OK" -Detail "already running"
+    }
+    else {
+        $attributesLauncher = Join-Path $layout.OverlayRoot "tools\setup\Start-MaviAttributesWorker.ps1"
+        $attributesArguments = @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $attributesLauncher,
+            "-RepositoryRoot", $layout.OverlayRoot,
+            "-ApiBaseUrl", $apiBaseUrl,
+            "-WorkerId", "poc-attributes-01",
+            "-Python", (Join-Path $layout.EmbeddingsEnvironmentRoot "Scripts\python.exe"),
+            "-ModelRoot", $layout.EmbeddingsModelRoot,
+            "-DevicePolicy", "cpu"
+        )
+        $quotedAttributes = @($attributesArguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
+        $attributesWorker = Start-Process -FilePath "powershell.exe" -ArgumentList $quotedAttributes -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput (Join-Path $layout.LogRoot "attributes-worker-$stamp.out.log") -RedirectStandardError (Join-Path $layout.LogRoot "attributes-worker-$stamp.err.log")
+        [void]$attributesWorker.Handle
+        $startedHere += "attributes-worker"
+        Write-MaviPocProcessRecord -Path (Join-Path $layout.RunRoot "attributes-worker.pid") -Process $attributesWorker
+        $settleUntil = [DateTime]::UtcNow.AddSeconds($WorkerSettleSeconds)
+        while ([DateTime]::UtcNow -lt $settleUntil) {
+            if ($attributesWorker.HasExited) {
+                throw "The attributes worker exited with code $($attributesWorker.ExitCode) during start-up. See $(Join-Path $layout.LogRoot "attributes-worker-$stamp.err.log")."
+            }
+            Start-Sleep -Seconds 2
+        }
+        Write-MaviSetupStatus -Name "Attributes worker" -Status "OK" -Detail "SigLIP 2 zero-shot on CPU (zero-shot, Development)"
     }
 }
 
