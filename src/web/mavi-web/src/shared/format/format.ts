@@ -100,3 +100,12 @@ export function frameRateText(numerator: number, denominator: number): string {
   const fps = numerator / denominator;
   return (Number.isInteger(fps) ? String(fps) : fps.toFixed(2)) + ' fps';
 }
+
+/**
+ * A similarity score (ADR-021 §5): the raw cosine to three decimals. Never a
+ * percentage, because a percentage reads as a probability of a match and the
+ * score is neither calibrated nor thresholded.
+ */
+export function formatSimilarityScore(score: number): string {
+  return Number.isFinite(score) ? score.toFixed(3) : '—';
+}

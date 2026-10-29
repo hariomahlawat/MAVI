@@ -1334,6 +1334,8 @@ def check_contracts(errors: list[str]) -> None:
         "benchmark-vehicle-subclass-result-v1",
         # Stage 4 PR-3 plate control plane (ADR-013 implementation amendment 2026-10-13).
         "plate-lease-v1", "plate-complete-v1", "plate-predictions-v1",
+        # PoC S4 embedding control plane (ADR-021).
+        "embedding-lease-v1", "embedding-complete-v1", "embedding-text-query-lease-v1", "embedding-text-query-complete-v1",
     ]
     pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:
@@ -1357,6 +1359,99 @@ def check_contracts(errors: list[str]) -> None:
     check_completion_v32_contract(errors)
     check_completion_v33_contract(errors)
     check_plate_contract(errors)
+    check_embedding_contract(errors)
+
+
+def embedding_identity(manifest_path: Path, profile_path: Path) -> tuple[str, str]:
+    """ADR-021 identity: canonical JSON (sorted keys, compact, trailing LF) of the manifest and profile, and its SHA-256."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    identity = {
+        "schemaVersion": "mavi-embedding-identity-v1",
+        "model": {
+            "id": manifest["modelId"],
+            "version": manifest["modelVersion"],
+            "manifestSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            "dimension": profile["dimension"],
+        },
+        "pipeline": {
+            "id": profile["pipelineId"],
+            "version": profile["pipelineVersion"],
+            "sha256": hashlib.sha256(profile_path.read_bytes()).hexdigest(),
+        },
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":")) + "\n"
+    return canonical, hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def check_embedding_contract(errors: list[str]) -> None:
+    """The embedding identity vectors re-derive from the committed files, and the examples agree with them."""
+    vectors = json.loads((ROOT / "contracts/test-vectors/embedding-identity-v1.json").read_text(encoding="utf-8"))
+    for vector in vectors["vectors"]:
+        manifest_path, profile_path = ROOT / vector["modelManifest"], ROOT / vector["pipelineProfile"]
+        if not (ROOT / "models").is_dir() and not (ROOT / "src").is_dir():
+            # A contracts-only tree (the contract drift tests) has no manifests or profiles to re-derive from.
+            continue
+        if not (manifest_path.is_file() and profile_path.is_file()):
+            # In a full tree a missing or renamed file fails closed rather than silently disabling the check.
+            fail(f"Embedding identity vector {vector['name']} names a missing manifest or profile.", errors)
+            continue
+        canonical, fingerprint = embedding_identity(manifest_path, profile_path)
+        if canonical != vector["canonicalIdentity"] or fingerprint != vector["fingerprint"]:
+            fail(f"Embedding identity vector {vector['name']} no longer matches its manifest and profile.", errors)
+    lease = json.loads((ROOT / "contracts/examples/embedding-lease-v1.example.json").read_text(encoding="utf-8"))
+    complete = json.loads((ROOT / "contracts/examples/embedding-complete-v1.example.json").read_text(encoding="utf-8"))
+    development = vectors["vectors"][0]
+    if lease["identity"]["fingerprint"] != development["fingerprint"] or \
+            complete["provenance"]["identityFingerprint"] != development["fingerprint"]:
+        fail("Embedding contract examples do not carry the development identity fingerprint.", errors)
+    if [track["trackId"] for track in lease["tracks"]] != [track["trackId"] for track in complete["tracks"]]:
+        fail("The embedding completion example does not describe the lease example's Tracks in order.", errors)
+
+
+def check_embedding_profiles(tracked: list[Path], manifests: dict, errors: list[str], root: Path = ROOT) -> set[str]:
+    """PoC S4 (ADR-021 §2-§3): the embeddings role is composed from explicit paths, not a Component Binding.
+
+    Every tracked embedding pipeline profile is developmentOnly and names a tracked, unverified ``embedding``
+    manifest with no qualification ID, whose dimension it repeats and whose runtime family is a declared
+    Development runtime family. Returns the Model Pack ids those profiles bind.
+    """
+    bound: set[str] = set()
+    by_path = {manifest_path.resolve(): (pack_id, manifest) for pack_id, (manifest_path, manifest, _hash) in manifests.items()}
+    families: dict | None = None
+    tracked_set = {path.resolve() for path in tracked}
+    for path in tracked:
+        relative = path.relative_to(root).as_posix()
+        if not (relative.startswith("src/vision/config/embeddings/") and relative.endswith(".json")):
+            continue
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            fail(f"Embedding pipeline profile {relative} is not valid JSON.", errors)
+            continue
+        if profile.get("schemaVersion") != "mavi-embedding-pipeline-v1" or profile.get("developmentOnly") is not True:
+            fail(f"Embedding pipeline profile {relative} must be mavi-embedding-pipeline-v1 and developmentOnly.", errors)
+            continue
+        manifest_path = (root / str(profile.get("modelManifest"))).resolve()
+        if manifest_path not in tracked_set or manifest_path not in by_path:
+            fail(f"Embedding pipeline profile {relative} names no tracked model manifest.", errors)
+            continue
+        pack_id, manifest = by_path[manifest_path]
+        if families is None:
+            policy_path = root / "config/dependencies/offline-dependency-policy-v1.json"
+            policy = json.loads(policy_path.read_text(encoding="utf-8")) if policy_path.is_file() else {}
+            families = ((policy.get("ecosystemStrategies") or {}).get("python") or {}).get("developmentRuntimeFamilies") or {}
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        family_ids = (document.get("runtimeCompatibility") or {}).get("runtimePackFamilyIds") or []
+        if (document.get("capabilityIds") != ["embedding"] or manifest.verification_status != "unverified"
+                or manifest.qualification_id is not None
+                or ((document.get("capabilitySpecific") or {}).get("embedding") or {}).get("dimension") != profile.get("dimension")
+                or not family_ids or any(family not in families for family in family_ids)):
+            fail(f"Embedding pipeline profile {relative} binds a manifest that is not an unverified, unqualified embedding "
+                 "pack of its dimension on a declared Development runtime family.", errors)
+            continue
+        bound.add(pack_id)
+    return bound
 
 
 def check_plate_contract(errors: list[str]) -> None:
@@ -2428,6 +2523,7 @@ def check_vision_release_metadata(
     for qualification_id, (record_path, _record, _hash) in records.items():
         if qualification_id not in bound_records:
             fail(f"Qualification record {rel(record_path)} is bound by no capability binding.", errors)
+    bound_packs |= check_embedding_profiles(tracked, manifests, errors, root)
     for model_pack_id, (manifest_path, _manifest, _hash) in manifests.items():
         if model_pack_id not in bound_packs:
             fail(f"Model manifest {rel(manifest_path)} is bound by no capability binding.", errors)
@@ -2477,7 +2573,7 @@ def main() -> int:
     print(" - direct dependency/offline packaging policy: synchronized")
     print(" - offline binary/version catalog: synchronized")
     print(" - ordinary Git executable/archive/large-file gate: clean")
-    print(" - contract examples: 36 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors, the S3.2 measurement, media, derivation and T9 artefacts, the S3.2d-1 benchmark harness contracts, and the Stage-4 plate control plane)")
+    print(" - contract examples: 40 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors, the S3.2 measurement, media, derivation and T9 artefacts, the S3.2d-1 benchmark harness contracts, the Stage-4 plate control plane and the PoC S4 embedding control plane)")
     print(" - Task-17 acceptance schemas/configuration: validated")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret/wheel scan: clean")

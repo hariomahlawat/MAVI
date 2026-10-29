@@ -233,6 +233,17 @@ export function committedChips(
     });
   }
 
+  // ADR-021 §4. A pinned snapshot is part of what is in force, so the chip says
+  // so; it goes with the description it replays.
+  if (filters.appearanceQuery) {
+    chips.push({
+      key: 'appearanceQuery',
+      label: 'Appearance',
+      value: filters.appearanceQuery + (filters.appearanceSnapshot ? ' · pinned snapshot' : ''),
+      removes: ['appearanceQuery', 'appearanceSnapshot'],
+    });
+  }
+
   return chips;
 }
 

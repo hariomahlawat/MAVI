@@ -43,6 +43,8 @@ function Get-MaviPocLayout {
         # The plates role's release (PoC S3, plan D4): PD5 + OC1-S on the plates-onnx-v1 family, read from the overlay.
         PlatesComponentBindingPath = Join-Path $install "overlay\src\vision\config\components\development-plates-onnx-pilot-v1.json"
         PlatesPipelineProfilePath = Join-Path $install "overlay\src\vision\config\plates\development-plates-onnx-pilot-v1.json"
+        EmbeddingsEnvironmentRoot = Join-Path $install "embeddings\venv"
+        EmbeddingsModelRoot = Join-Path $install "embeddings\models"
         PostgreSqlDataRoot = Join-Path $data "PostgreSQL\18\data"
         MediaRoot = Join-Path $data "Media"
         EvidenceRoot = Join-Path $data "Evidence"
@@ -312,6 +314,12 @@ function New-MaviPocMachineConfig {
             Enabled = $true
             ComponentBindingPath = $Layout.PlatesComponentBindingPath
             PipelineProfilePath = $Layout.PlatesPipelineProfilePath
+        }
+        # PoC S4 (ADR-021): the embeddings role is bound; the platform's loop queues runs for the SigLIP 2 identity.
+        Embeddings = [ordered]@{
+            Enabled = $true
+            ModelManifestPath = Join-Path $Layout.OverlayRoot "models\manifests\embeddings-siglip2-base-p16-224-dev-v1.json"
+            PipelineProfilePath = Join-Path $Layout.OverlayRoot "src\vision\config\embeddings\development-embeddings-siglip2-v1.json"
         }
         Identity = [ordered]@{
             Mode = $script:PocIdentityMode

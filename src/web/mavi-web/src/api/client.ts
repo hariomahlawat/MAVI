@@ -12,6 +12,12 @@ export type ApiErrorShape = {
    * to have the shape a caller hopes for.
    */
   extensions?: Readonly<Record<string, unknown>>;
+  /**
+   * The `Retry-After` header in whole seconds, when the server sent one in its
+   * delta-seconds form. Only a refusal that names a wait (503 while a derived
+   * value is being prepared) carries it; an HTTP-date form is not honoured.
+   */
+  retryAfterSeconds?: number;
 };
 
 const standardProblemMembers = new Set(['type', 'title', 'status', 'detail', 'instance', 'code']);
@@ -61,6 +67,7 @@ export class ApiError extends Error implements ApiErrorShape {
   readonly detail: string;
   readonly videoAssetId?: string;
   readonly extensions: Readonly<Record<string, unknown>>;
+  readonly retryAfterSeconds?: number;
 
   constructor(shape: ApiErrorShape) {
     super(shape.detail);
@@ -70,6 +77,7 @@ export class ApiError extends Error implements ApiErrorShape {
     this.detail = shape.detail;
     this.videoAssetId = shape.videoAssetId;
     this.extensions = shape.extensions ?? {};
+    this.retryAfterSeconds = shape.retryAfterSeconds;
   }
 }
 
@@ -91,7 +99,10 @@ async function readError(response: Response): Promise<ApiError> {
     if (!standardProblemMembers.has(key)) extensions[key] = value;
   }
 
-  return new ApiError({ status: response.status, code, detail, videoAssetId, extensions });
+  const retryAfterHeader = response.headers?.get('retry-after')?.trim() ?? '';
+  const retryAfterSeconds = /^\d{1,5}$/.test(retryAfterHeader) ? Number(retryAfterHeader) : undefined;
+
+  return new ApiError({ status: response.status, code, detail, videoAssetId, extensions, retryAfterSeconds });
 }
 
 function isReadRequest(init: RequestInit): boolean {

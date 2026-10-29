@@ -1,4 +1,5 @@
 using System.Globalization;
+using Mavi.Application.Modules.Embeddings;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Contracts.Api.Analytics;
 using Mavi.Contracts.Api.Tracks;
@@ -14,17 +15,23 @@ public static partial class TrackEndpoints
         var tracks = endpoints.MapGroup("/api/tracks");
         tracks.MapGet("/", SearchAsync);
         tracks.MapGet("/{id:guid}", GetAsync);
+        tracks.MapGet("/{id:guid}/similar", SimilarAsync);
         return endpoints;
     }
 
     private static async Task<IResult> SearchAsync(
         HttpContext context,
         TrackSearchService service,
+        TrackSimilarityService similarity,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (!TryParseQuery(context.Request.Query, out var query))
             return Problem(400, "track_search_invalid", "Track search parameters are invalid.");
+
+        if (context.Request.Query.ContainsKey(TrackSimilarityContractRules.AppearanceQueryKey) ||
+            context.Request.Query.ContainsKey(TrackSimilarityContractRules.AppearanceSnapshotKey))
+            return await AppearanceSearchAsync(context, query!, similarity, cancellationToken);
 
         var result = await service.SearchAsync(query!, cancellationToken);
         if (query!.Plate is { } plate)
@@ -183,7 +190,81 @@ public static partial class TrackEndpoints
             // Stage 4 plate predicate (plan §5.4).
             TrackSearchContractRules.PlateTextKey,
             TrackSearchContractRules.PlateMatchKey,
+            // PoC Stage 5 appearance text query (ADR-021 §4): its own ranked branch.
+            TrackSimilarityContractRules.AppearanceQueryKey,
+            TrackSimilarityContractRules.AppearanceSnapshotKey,
         };
+
+    /// <summary>
+    /// <c>appearanceQuery</c> (ADR-021 §4): the base filters ranked by text→image cosine, one page of similarity
+    /// candidates with a snapshot token. Plate, analytic and cursor keys cannot be combined with it in this slice.
+    /// </summary>
+    private static async Task<IResult> AppearanceSearchAsync(
+        HttpContext context,
+        TrackSearchQuery query,
+        TrackSimilarityService similarity,
+        CancellationToken cancellationToken)
+    {
+        var values = context.Request.Query;
+        if (query.Plate is not null || query.Analytics is not null || query.Cursor is not null)
+            return Problem(400, "appearance_query_combination_unsupported",
+                "An appearance query cannot be combined with plate, analytics or cursor parameters.");
+        if (!SingleOrMissing(values, TrackSimilarityContractRules.AppearanceQueryKey, out var text) || text is null ||
+            !SingleOrMissing(values, TrackSimilarityContractRules.AppearanceSnapshotKey, out var snapshot))
+            return Problem(400, TrackSimilarityService.AppearanceInvalidCode, "An appearance query needs one appearanceQuery value.");
+
+        var limit = values.ContainsKey("limit") ? query.Limit : TrackSimilarityContractRules.DefaultAppearanceLimit;
+        var result = await similarity.SearchAppearanceAsync(query.Canonical with { Limit = limit }, text, snapshot, cancellationToken);
+        if (result.ErrorCode is { } code)
+        {
+            if (result.HttpStatus == 503)
+                context.Response.Headers.RetryAfter = "2";
+            return Problem(result.HttpStatus, code, "The appearance query could not be answered.");
+        }
+
+        return Results.Ok(new TrackSearchResponse(
+            result.Rows.Select(item => ToSearchItem(item.Row, null, null) with { AppearanceScore = item.Score }).ToArray(),
+            null,
+            Appearance: result.Appearance));
+    }
+
+    private static readonly HashSet<string> SupportedSimilarQueryKeys =
+        new(StringComparer.Ordinal) { "k", "cameraId", "fromUtc", "toUtc", "objectClass", "snapshot" };
+
+    /// <summary>
+    /// <c>GET /api/tracks/{id}/similar</c> (ADR-021 §4–§5): ranked similarity candidates of one Track. Never
+    /// identity, never grouped; the state says why there are none (pending, unavailable, not configured).
+    /// </summary>
+    private static async Task<IResult> SimilarAsync(
+        Guid id,
+        HttpContext context,
+        TrackSimilarityService similarity,
+        CancellationToken cancellationToken)
+    {
+        var values = context.Request.Query;
+        if (values.Keys.Any(key => !SupportedSimilarQueryKeys.Contains(key)) ||
+            !TryInt(values, "k", TrackSimilarityContractRules.DefaultSimilarK, out var k) ||
+            !TryGuid(values, "cameraId", out var cameraId) ||
+            !TryUtc(values, "fromUtc", out var fromUtc) ||
+            !TryUtc(values, "toUtc", out var toUtc) ||
+            !TryObjectClass(values, out var objectClass) ||
+            !SingleOrMissing(values, "snapshot", out var snapshot))
+            return Problem(400, TrackSimilarityService.InvalidCode, "Similarity parameters are invalid.");
+
+        var result = await similarity.FindSimilarAsync(id, new SimilarTracksQuery(k, cameraId, objectClass, fromUtc, toUtc, snapshot), cancellationToken);
+        if (!result.TrackFound) return Problem(404, "track_not_found", "Track was not found.");
+        if (result.ErrorCode is { } code) return Problem(400, code, "Similarity parameters are invalid.");
+        return Results.Ok(new SimilarTracksResponse(
+            result.State,
+            result.Reason,
+            TrackSimilarityContractRules.Label,
+            id,
+            result.Identity,
+            result.Snapshot,
+            result.SnapshotUtc,
+            result.Candidates.Select((item, index) => new SimilarTrackCandidateResponse(
+                index + 1, item.Score, item.SourceObservationId, ToSearchItem(item.Row, null, null))).ToArray()));
+    }
 
     private static bool TryParseQuery(
         IQueryCollection values,
