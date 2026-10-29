@@ -8,7 +8,7 @@
 - the five-camera note;
 - the clip ranges in the biometric note.
 
-No licence, credit or other row changed. **This updated text is pending owner reconfirmation** (decision 12). Once reconfirmed, it ships in the PoC kit next to the demo clips, unchanged.
+No licence, credit or other row changed. **The owner reconfirmed this updated text on 2026-10-29** (decision 12). It ships in the PoC kit next to the demo clips, unchanged.
 
 The MAVI PoC kit contains twelve short video clips, licensed under **CC0 1.0** or a **Creative Commons Attribution (CC BY)** licence. No ShareAlike, NonCommercial or NoDerivatives material is included.
 - **Clips 1–7** are derived from videos published on Wikimedia Commons. Each licence was read from the file's own Commons description page, at the exact page revision recorded in `tools/poc/demo-corpus/demo-corpus-v1.json`.
