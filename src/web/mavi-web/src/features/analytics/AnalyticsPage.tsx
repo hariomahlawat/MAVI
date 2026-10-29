@@ -244,12 +244,7 @@ export default function AnalyticsPage() {
             </>
           );
         })()}
-        actions={(
-          <>
-            <ButtonLink size="sm" variant="ghost" to={`/cameras/${cameraId}/events`}>Events</ButtonLink>
-            <ButtonLink size="sm" variant="ghost" to={`/cameras/${cameraId}/scene`}>Scene configuration</ButtonLink>
-          </>
-        )}
+        actions={<ButtonLink size="sm" variant="ghost" to={`/cameras/${cameraId}/scene`}>Scene configuration</ButtonLink>}
       />
 
       <WorkbenchLayout
@@ -316,16 +311,21 @@ export default function AnalyticsPage() {
               // Disabled while the query is refused, rather than left enabled
               // over a callback that silently declines: the reason is stated
               // in the window band, as an alert, on the field that repairs it
-              // (§23: a tooltip never carries an instruction).
-              <Button
-                size="sm"
-                variant="ghost"
-                icon="refresh"
-                onClick={refresh}
-                disabled={active.isFetching || !canRunQuery}
-              >
-                {active.isFetching ? 'Refreshing…' : 'Refresh'}
-              </Button>
+              // (§23: a tooltip never carries an instruction). The Events link
+              // sits here, not in the Context Bar, whose band has no room for a
+              // second action beside the coverage state at 768px.
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon="refresh"
+                  onClick={refresh}
+                  disabled={active.isFetching || !canRunQuery}
+                >
+                  {active.isFetching ? 'Refreshing…' : 'Refresh'}
+                </Button>
+                <ButtonLink size="sm" variant="ghost" to={`/cameras/${cameraId}/events`}>Events</ButtonLink>
+              </>
             )}
           >
             <Segmented<AnalyticsMode>
