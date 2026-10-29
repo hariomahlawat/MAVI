@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "mavi-poc-demo-cameras-v1",
+  "note": "Generated from tools/poc/demo-corpus/demo-corpus-v1.json by `python tools/poc/demo_corpus.py cameras`; do not edit. One camera per PoC S2 demo clip; its scene geometry and media are in the definition.",
+  "cameras": [
+    {
+      "code": "POC-S2-01",
+      "name": "PoC demo 01 - Worringer Platz junction",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-02",
+      "name": "PoC demo 02 - Macedonia Square junction",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-03",
+      "name": "PoC demo 03 - Caton Farm Road",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-04",
+      "name": "PoC demo 04 - Highway at night",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-05",
+      "name": "PoC demo 05 - Archway gate",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-06",
+      "name": "PoC demo 06 - Level crossing barrier",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-07",
+      "name": "PoC demo 07 - Scramble crossing",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-08",
+      "name": "PoC demo 08 - Gate passage overhead",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-09",
+      "name": "PoC demo 09 - School parking lot (MEVA G424)",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-10",
+      "name": "PoC demo 10 - School cafe lobby (MEVA G421)",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-11",
+      "name": "PoC demo 11 - School hallway (MEVA G423)",
+      "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-12",
+      "name": "PoC demo 12 - School stairwell (MEVA G419)",
+      "timeZoneId": "Asia/Kolkata"
+    }
+  ]
+}
