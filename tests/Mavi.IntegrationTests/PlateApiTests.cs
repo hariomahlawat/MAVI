@@ -659,47 +659,83 @@ public sealed class PlateApiTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task ReanalysisIsRefusedWithoutTheConfiguredOperatorKeyAndAuditedWithoutIt()
+    public async Task ReanalysisRequiresAnOperatorAndEveryRefusalIsAudited()
     {
-        // PoC S3, C4.2: the interim authorisation (until ADR-010 identity in S11-min). A request without the key, or
-        // with another, is refused before anything is selected or queued; the key never reaches a log.
+        // ADR-010 (owner decision S3-2): the operator policy replaced the interim operator key. An anonymous request is
+        // challenged, a Windows account that is not an operator is forbidden, and a form-shaped request never binds;
+        // each refusal reaches the handler's audit (event 2126) and queues nothing.
         await using var host = await PlateApiHost.CreateAsync(fixture, T0);
         var run = await host.World.SeedRunAsync(0, 1, 1, completedAtUtc: T0.AddMinutes(-10));
         host.World.Clock.Advance(TimeSpan.FromSeconds(1));
         Assert.Equal(0, (await host.RunCycleAsync()).Queued);
 
-        using (var missing = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }, operatorKey: null))
+        using (var anonymous = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }, user: null))
         {
-            Assert.Equal(HttpStatusCode.Unauthorized, missing.StatusCode);
-            Assert.Equal(PlateReanalysisAuthorisation.UnauthorisedCode, await CodeAsync(missing));
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+            Assert.Contains("Negotiate", anonymous.Headers.WwwAuthenticate.ToString(), StringComparison.Ordinal);
         }
 
-        const string wrongKey = "not-the-operator-key-0123456789";
-        using (var wrong = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }, wrongKey))
+        using (var outsider = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }, "HOST\\mallory", groups: "HOST\\Guests"))
         {
-            Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
-            Assert.Equal(PlateReanalysisAuthorisation.UnauthorisedCode, await CodeAsync(wrong));
+            Assert.Equal(HttpStatusCode.Forbidden, outsider.StatusCode);
+            Assert.Equal(PlateReanalysisAuthorisation.ForbiddenCode, await CodeAsync(outsider));
         }
 
         await using (var db = host.World.Read())
-            Assert.Equal(0, await db.PlateAnalyses.CountAsync());
-        Assert.Equal(2, host.Logs.Entries.Count(entry =>
-            entry.EventId.Id == 2126 && entry.Message.Contains(PlateReanalysisAuthorisation.UnauthorisedCode, StringComparison.Ordinal)));
-        Assert.DoesNotContain(host.Logs.Entries, entry => entry.Message.Contains(wrongKey, StringComparison.Ordinal) ||
-            entry.Message.Contains(ApiTestFactory.TestReanalysisOperatorKey, StringComparison.Ordinal));
-
-        using (var authorised = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }))
         {
-            Assert.Equal(HttpStatusCode.Accepted, authorised.StatusCode);
-            Assert.Equal(1, (await authorised.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("queued").GetInt32());
+            Assert.Equal(0, await db.PlateAnalyses.CountAsync());
+            Assert.Equal(0, await db.AuditEntries.CountAsync());
+        }
+        Assert.Equal(1, host.Logs.Entries.Count(entry =>
+            entry.EventId.Id == 2126 && entry.Message.Contains(PlateReanalysisAuthorisation.UnauthorisedCode, StringComparison.Ordinal)));
+        Assert.Equal(1, host.Logs.Entries.Count(entry =>
+            entry.EventId.Id == 2126 && entry.Message.Contains(PlateReanalysisAuthorisation.ForbiddenCode, StringComparison.Ordinal)));
+
+        // A member of the operator group is an operator; the accepted request is attributed to their account.
+        using (var member = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } }, "HOST\\bob",
+                   sid: "S-1-5-21-1-2-3-1002", groups: TestOperatorIdentity.OperatorGroup))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, member.StatusCode);
+            Assert.Equal(1, (await member.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("queued").GetInt32());
+        }
+
+        await using (var db = host.World.Read())
+        {
+            var entry = Assert.Single(await db.AuditEntries.ToListAsync());
+            Assert.Equal(("S-1-5-21-1-2-3-1002", "HOST\\bob", "windows-negotiate"),
+                (entry.OperatorId, entry.OperatorDisplayName, entry.IdentitySource));
+            Assert.Equal(("plates.reanalysis-requested", "plate-reanalysis", "runs"), (entry.Action, entry.SubjectType, entry.SubjectId));
+            Assert.Equal(host.World.Clock.GetUtcNow(), entry.RecordedAtUtc);
         }
     }
 
     [Fact]
-    public async Task ReanalysisFailsClosedWhenNoOperatorKeyIsConfigured()
+    public async Task AReanalysisTheLifecycleRefusesLeavesNoAuditEntry()
     {
-        await using var host = await PlateApiHost.CreateAsync(fixture, T0,
-            configuration: new Dictionary<string, string?> { ["Plates:ReanalysisOperatorKeySha256"] = string.Empty });
+        // The audit entry and the queueing commit together: a request that queues nothing records no attributable action.
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+
+        using (var unknown = await host.ReanalysisAsync(new { processingRunIds = new[] { Guid.NewGuid() } }))
+            Assert.Equal((HttpStatusCode.NotFound, "processing_run_not_found"), (unknown.StatusCode, await CodeAsync(unknown)));
+
+        await using var db = host.World.Read();
+        Assert.Equal(0, await db.AuditEntries.CountAsync());
+        Assert.Equal(1, host.Logs.Entries.Count(entry =>
+            entry.EventId.Id == 2126 && entry.Message.Contains("processing_run_not_found", StringComparison.Ordinal)));
+    }
+
+    [Theory]
+    [InlineData("disabled")]
+    [InlineData("windows-negotiate")]
+    public async Task ReanalysisFailsClosedWithoutAnOperatorIdentity(string mode)
+    {
+        // Identity:Mode disabled (the default outside the PoC), or Windows identity with no operator configured.
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0, configuration: new Dictionary<string, string?>
+        {
+            ["Identity:Mode"] = mode,
+            ["Identity:Operators:AuthorizedUsers:0"] = string.Empty,
+            ["Identity:Operators:AuthorizedGroups:0"] = string.Empty,
+        });
         var run = await host.World.SeedRunAsync(0, 1, 1, completedAtUtc: T0.AddMinutes(-10));
 
         using var refused = await host.ReanalysisAsync(new { processingRunIds = new[] { run.RunId } });
@@ -708,6 +744,8 @@ public sealed class PlateApiTests(PostgresFixture fixture)
         Assert.Equal(PlateReanalysisAuthorisation.NotConfiguredCode, await CodeAsync(refused));
         await using var db = host.World.Read();
         Assert.Equal(0, await db.PlateAnalyses.CountAsync());
+        Assert.Equal(1, host.Logs.Entries.Count(entry =>
+            entry.EventId.Id == 2126 && entry.Message.Contains(PlateReanalysisAuthorisation.NotConfiguredCode, StringComparison.Ordinal)));
     }
 
     [Fact]

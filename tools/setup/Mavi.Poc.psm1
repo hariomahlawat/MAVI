@@ -306,8 +306,8 @@ function New-MaviPocMachineConfig {
             DeviceResolutionPath = $Layout.DeviceResolutionPath
             RoleDeviceResolutionPaths = [ordered]@{ plates = $Layout.PlatesDeviceResolutionPath }
         }
-        # The plates role bound (PoC S3, C4.1). Re-analysis stays refused (no operator key is configured) until an
-        # owner configures one (runbook "poc-single-host"); S11-min replaces that gate with ADR-010 identity.
+        # The plates role bound (PoC S3, C4.1). Re-analysis is authorised by ADR-010 operator identity (the Identity
+        # section below); no plate-specific key is configured.
         Plates = [ordered]@{
             Enabled = $true
             ComponentBindingPath = $Layout.PlatesComponentBindingPath

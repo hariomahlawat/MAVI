@@ -1,8 +1,11 @@
 using Mavi.Api.VisualAttributes;
+using Mavi.Api.Identity;
 using Mavi.Application.Deployment;
+using Mavi.Application.Modules.Identity;
 using Mavi.Application.Modules.Plates;
 using Mavi.Application.Modules.Plates.Release;
 using Mavi.Contracts.Worker.Plates;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
 
@@ -161,38 +164,36 @@ public sealed partial class PlateHostedService(
 public sealed record PlateCycleResult(int Queued, int DeadlineFailed, int ExhaustedFailed, int StagingRemoved);
 
 /// <summary>
-/// The interim authorisation of <c>POST /api/plates/reanalysis</c> (PoC S3, register row C4.2). MAVI has no operator
-/// identity before ADR-010 (S11-min replaces this gate with it), so the request must present an operator key whose
-/// SHA-256 the installation configured (<see cref="PlateOptions.ReanalysisOperatorKeySha256"/>). Fails closed: with no
-/// key configured every request is refused. The key is compared by digest in constant time and never logged.
+/// The authorisation of <c>POST /api/plates/reanalysis</c>: the ADR-010 operator policy (owner decision S3-2 replaced
+/// the interim operator key of PoC S3 with it). The handler evaluates the policy itself rather than through
+/// <c>RequireAuthorization</c>, so a refused request still reaches it and is audited (event 2126). Fails closed: with no
+/// operator identity configured (<c>Identity:Mode</c> <c>disabled</c>, or no operator group or account) every request is
+/// refused.
 /// </summary>
 public static class PlateReanalysisAuthorisation
 {
     public const string NotConfiguredCode = "plate_reanalysis_authorisation_not_configured";
     public const string UnauthorisedCode = "plate_reanalysis_unauthorised";
+    public const string ForbiddenCode = "plate_reanalysis_forbidden";
 
-    public sealed record RefusalResult(int Status, string Code, string Detail);
+    /// <summary>A refusal; <see cref="Challenge"/> answers 401 with the identity scheme's challenge (Negotiate).</summary>
+    public sealed record RefusalResult(int Status, string Code, string Detail, bool Challenge = false);
 
-    /// <summary>The refusal for this request, or <see langword="null"/> when it is authorised.</summary>
-    public static RefusalResult? Refusal(IHeaderDictionary headers, PlateOptions options)
+    /// <summary>The refusal for this request, or <see langword="null"/> when its principal is an authorised operator.</summary>
+    public static async Task<RefusalResult?> RefusalAsync(HttpContext context, IAuthorizationService authorization,
+        OperatorIdentityOptions identity)
     {
-        ArgumentNullException.ThrowIfNull(headers);
-        ArgumentNullException.ThrowIfNull(options);
-        // Validate() refuses a malformed digest at start-up; one that still reaches here is treated as not configured.
-        if (!options.IsReanalysisAuthorisationConfigured || options.ReanalysisOperatorKeySha256.Length != 64 ||
-            !options.ReanalysisOperatorKeySha256.All(char.IsAsciiHexDigitLower))
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(authorization);
+        ArgumentNullException.ThrowIfNull(identity);
+        if (!OperatorIdentityPolicy.Disclose(identity, null).OperatorsConfigured)
             return new RefusalResult(StatusCodes.Status403Forbidden, NotConfiguredCode,
-                "Plate re-analysis is not authorised on this installation (no operator key is configured).");
-
-        if (!headers.TryGetValue(PlateOptions.ReanalysisOperatorKeyHeader, out var values) || values.Count != 1 ||
-            string.IsNullOrEmpty(values[0]) || values[0]!.Length > 256)
-            return new RefusalResult(StatusCodes.Status401Unauthorized, UnauthorisedCode, "A valid operator key is required.");
-
-        var expected = Convert.FromHexString(options.ReanalysisOperatorKeySha256);
-        var presented = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(values[0]!));
-        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(presented, expected)
-            ? null
-            : new RefusalResult(StatusCodes.Status401Unauthorized, UnauthorisedCode, "A valid operator key is required.");
+                "Plate re-analysis is not authorised on this installation (no operator identity is configured).");
+        if ((await authorization.AuthorizeAsync(context.User, context, OperatorPolicy.Name)).Succeeded)
+            return null;
+        return context.User.Identity is { IsAuthenticated: true }
+            ? new RefusalResult(StatusCodes.Status403Forbidden, ForbiddenCode, "This account is not a MAVI operator.")
+            : new RefusalResult(StatusCodes.Status401Unauthorized, UnauthorisedCode, "An operator identity is required.", Challenge: true);
     }
 }
 
