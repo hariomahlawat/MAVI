@@ -42,7 +42,8 @@ internal sealed class FaceApiHost : IAsyncDisposable
     public ApiTestFactory Factory { get; private set; } = null!;
     public HttpClient Client { get; private set; } = null!;
 
-    public static async Task<FaceApiHost> CreateAsync(PostgresFixture fixture, DateTimeOffset nowUtc, string identityMode = "development-unattributed")
+    public static async Task<FaceApiHost> CreateAsync(PostgresFixture fixture, DateTimeOffset nowUtc, string identityMode = "development-unattributed",
+        bool facesEnabled = true)
     {
         var host = new FaceApiHost(await VisualAttributeWorld.CreateAsync(fixture, nowUtc));
         Directory.CreateDirectory(host._root);
@@ -65,7 +66,7 @@ internal sealed class FaceApiHost : IAsyncDisposable
             EvidenceRootOverride = host.World.EvidenceRoot,
             AdditionalConfiguration = new Dictionary<string, string?>
             {
-                ["Faces:Enabled"] = "false",
+                ["Faces:Enabled"] = facesEnabled ? "true" : "false",
                 ["Faces:ModelManifestPath"] = ManifestPath,
                 ["Faces:PipelineProfilePath"] = ProfilePath,
                 ["Identity:Mode"] = identityMode,
@@ -639,8 +640,13 @@ public sealed class FaceApiTests(PostgresFixture fixture)
         Assert.Equal("query", template.GetProperty("sourceKind").GetString());
         Assert.NotEqual(JsonValueKind.Null, template.GetProperty("thumbnailDataUrl").ValueKind);
 
-        // An hour later the query, its faces and vectors are purged; the gallery template stays.
+        // An hour later the query, its faces and vectors are purged; the gallery template stays. Before the sweep
+        // deletes them, the expired query is already gone for reads and as a search source.
         host.World.Clock.Advance(TimeSpan.FromMinutes(61));
+        using (var expired = await host.Client.GetAsync($"/api/faces/queries/{queryId}"))
+            Assert.Equal(HttpStatusCode.NotFound, expired.StatusCode);
+        using (var expiredSearch = await host.Client.PostAsJsonAsync("/api/faces/search", new { source = new { queryId, faceIndex = 0 } }))
+            Assert.Equal(FaceSourceCodes.NotFound, await CodeAsync(expiredSearch));
         Assert.Equal(1, (await host.RunCycleAsync()).QueriesPurged);
         using (var gone = await host.Client.GetAsync($"/api/faces/queries/{queryId}"))
             Assert.Equal(HttpStatusCode.NotFound, gone.StatusCode);
@@ -649,6 +655,63 @@ public sealed class FaceApiTests(PostgresFixture fixture)
             Assert.Empty(await db.FaceQueryEmbeddings.ToListAsync());
             Assert.Single(await db.EnrolledPersonFaces.ToListAsync());
         }
+    }
+
+    [Fact]
+    public async Task AUnitQueuedBeforeAnOptOutCommittedIsNeverLeased()
+    {
+        await using var host = await FaceApiHost.CreateAsync(fixture, T0);
+        using (var optIn = await host.OptInAsync())
+            Assert.Equal(HttpStatusCode.OK, optIn.StatusCode);
+        await host.World.SeedRunAsync(3, 1, 2, completedAtUtc: host.World.Clock.GetUtcNow());
+        Assert.Equal(1, (await host.RunCycleAsync()).Queued);
+        // The race: the queueing read saw the camera on, the opt-out committed (deleting nothing yet queued), then the
+        // unit was inserted. Modelled by turning the flag off underneath the queued unit.
+        await using (var connection = new NpgsqlConnection(fixture.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("UPDATE cameras SET face_analysis_enabled = false WHERE id = @id", connection);
+            command.Parameters.AddWithValue("id", host.World.CameraId);
+            Assert.Equal(1, await command.ExecuteNonQueryAsync());
+        }
+
+        using var lease = await host.Client.PostAsJsonAsync($"{FaceContractRules.AnalysisRoutePrefix}/lease", new
+        {
+            schemaVersion = FaceContractRules.SchemaVersion,
+            workerId = "faces-01",
+            identityFingerprint = host.Definition.Identity.Fingerprint,
+        });
+        Assert.Equal(HttpStatusCode.NoContent, lease.StatusCode);
+        await using var db = host.World.Read();
+        Assert.Equal(0, await db.FaceObservations.CountAsync());
+    }
+
+    [Fact]
+    public async Task WithQueueingDisabledTheRetentionSweepStillRunsAndAnExpiredImageIsNotLeased()
+    {
+        await using var host = await FaceApiHost.CreateAsync(fixture, T0, facesEnabled: false);
+        using (var optIn = await host.OptInAsync())
+            Assert.Equal(HttpStatusCode.OK, optIn.StatusCode);
+        await host.World.SeedRunAsync(3, 1, 2, completedAtUtc: host.World.Clock.GetUtcNow());
+        var uploaded = await host.PostOkAsync("/api/faces/queries",
+            new { imageBase64 = Convert.ToBase64String(new byte[] { 0xFF, 0xD8, 0xFF, 1 }), mimeType = "image/jpeg" }, HttpStatusCode.Accepted);
+        var queryId = uploaded.GetProperty("queryId").GetGuid();
+        host.World.Clock.Advance(TimeSpan.FromMinutes(15));
+        using (var lease = await host.Client.PostAsJsonAsync($"{FaceContractRules.QueryWorkerRoutePrefix}/lease", new
+               {
+                   schemaVersion = FaceContractRules.SchemaVersion,
+                   workerId = "faces-01",
+                   identityFingerprint = host.Definition.Identity.Fingerprint,
+               }))
+            Assert.Equal(HttpStatusCode.NoContent, lease.StatusCode);
+        var cycle = await host.RunCycleAsync();
+        Assert.Equal(0, cycle.Queued);
+        Assert.Equal(1, cycle.QueryImagesErased);
+        host.World.Clock.Advance(TimeSpan.FromMinutes(46));
+        Assert.Equal(1, (await host.RunCycleAsync()).QueriesPurged);
+        await using var db = host.World.Read();
+        Assert.False(await db.FaceQueries.AnyAsync(x => x.Id == queryId));
+        Assert.Empty(await db.FaceAnalyses.ToListAsync());
     }
 
     [Fact]

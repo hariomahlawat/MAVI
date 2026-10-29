@@ -53,8 +53,9 @@ public sealed partial class FaceAudit(ILogger<FaceAudit> logger) : ILeaseEvidenc
 
 /// <summary>
 /// The face authority loop (ADR-022 §3, §5): queues the visible runs of opted-in cameras, fails units past their
-/// deadline or out of attempts, erases expired query images and purges expired queries. With <c>Faces:Enabled</c>
-/// off it does not run. Nothing here touches a ProcessingRun.
+/// deadline or out of attempts, erases expired query images and purges expired queries. <c>Faces:Enabled</c> gates
+/// only the queueing of new analyses: whenever a face release is configured the loop runs, so the retention sweep
+/// never stops while face data can exist. Nothing here touches a ProcessingRun.
 /// </summary>
 public sealed partial class FaceHostedService(
     IServiceScopeFactory scopeFactory,
@@ -66,11 +67,13 @@ public sealed partial class FaceHostedService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var configured = options.Value;
-        if (!configured.Enabled)
+        if (release.Resolution.Definition is null)
         {
-            LogIdle(logger, release.Resolution.Definition is null ? "not_configured" : "disabled");
+            LogIdle(logger, "not_configured");
             return;
         }
+
+        if (!configured.Enabled) LogIdle(logger, "queueing_disabled");
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(configured.ReconcileIntervalSeconds), timeProvider);
         do
@@ -100,7 +103,7 @@ public sealed partial class FaceHostedService(
         var configured = options.Value;
         await using var scope = scopeFactory.CreateAsyncScope();
         var lifecycle = scope.ServiceProvider.GetRequiredService<IFaceLifecycle>();
-        var queued = definition is null ? 0 : await lifecycle.QueueEligibleAsync(definition, configured.ReconcileBatchSize, cancellationToken);
+        var queued = definition is null || !configured.Enabled ? 0 : await lifecycle.QueueEligibleAsync(definition, configured.ReconcileBatchSize, cancellationToken);
         var sweep = await lifecycle.SweepAsync(configured.LeasePolicy, configured.ReconcileBatchSize, cancellationToken);
         if (queued + sweep.DeadlineFailed + sweep.ExhaustedFailed + sweep.QueriesExhausted + sweep.QueryImagesErased + sweep.QueriesPurged > 0)
             LogCycle(logger, queued, sweep.DeadlineFailed, sweep.ExhaustedFailed, sweep.QueryImagesErased, sweep.QueriesPurged);

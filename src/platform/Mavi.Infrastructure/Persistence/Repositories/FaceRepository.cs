@@ -82,8 +82,9 @@ public sealed class FaceRepository(MaviDbContext db, TimeProvider timeProvider) 
 
     public async Task<FaceQueryView?> GetQueryAsync(Guid queryId, CancellationToken cancellationToken)
     {
+        var nowUtc = timeProvider.GetUtcNow();
         var query = await db.FaceQueries.AsNoTracking()
-            .Where(x => x.Id == queryId)
+            .Where(x => x.Id == queryId && x.PurgeAfterUtc > nowUtc)
             .Select(x => new { x.Id, x.Status, x.FailureCode, x.FacesJson, x.CreatedAtUtc, x.PurgeAfterUtc })
             .SingleOrDefaultAsync(cancellationToken);
         if (query is null) return null;
@@ -114,8 +115,10 @@ public sealed class FaceRepository(MaviDbContext db, TimeProvider timeProvider) 
             return new(new ResolvedFace(face.Embedding.ToArray(), faceId, null), null);
         }
 
+        // A query past its purge time is gone even before the sweep deletes it (ADR-022 §5).
+        var nowUtc = timeProvider.GetUtcNow();
         var query = await db.FaceQueries.AsNoTracking()
-            .Where(x => x.Id == source.QueryId)
+            .Where(x => x.Id == source.QueryId && x.PurgeAfterUtc > nowUtc)
             .Select(x => new { x.IdentityFingerprint, x.Status, x.FacesJson })
             .SingleOrDefaultAsync(cancellationToken);
         if (query is null) return new(null, FaceSourceCodes.NotFound);

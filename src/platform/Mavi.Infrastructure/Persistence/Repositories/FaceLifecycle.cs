@@ -96,9 +96,13 @@ public sealed class FaceLifecycle(
         {
             var nowUtc = timeProvider.GetUtcNow();
             var deadlineCutoffUtc = nowUtc - policy.MaximumAnalysisDuration;
+            // The camera must still be opted in when the unit is claimed: a unit queued from a read taken before an
+            // opt-out committed is never leased while the camera stays off (ADR-022 §3). An opt-out that commits after
+            // the claim deletes the unit, and its completion then finds nothing to publish.
             var candidate = await db.FaceAnalyses.FromSqlInterpolated($"""
                 SELECT * FROM face_analyses
                 WHERE identity_fingerprint = {fingerprint}
+                  AND EXISTS (SELECT 1 FROM cameras c WHERE c.id = face_analyses.camera_id AND c.face_analysis_enabled)
                   AND attempt_count < {policy.MaximumAttempts}
                   AND (first_claimed_at_utc IS NULL OR first_claimed_at_utc > {deadlineCutoffUtc})
                   AND (status = 'Queued' OR (status = 'Running' AND lease_expires_at_utc <= {nowUtc}))
@@ -571,10 +575,13 @@ public sealed class FaceLifecycle(
     {
         await using var transaction = await BeginFreshAsync(cancellationToken);
         var nowUtc = timeProvider.GetUtcNow();
+        // An image past its lifetime is never leased, even before the sweep erases it (ADR-022 §5).
+        var imageCutoffUtc = nowUtc - FaceQuery.ImageLifetime;
         var candidate = await db.FaceQueries.FromSqlInterpolated($"""
             SELECT * FROM face_queries
             WHERE identity_fingerprint = {identityFingerprint}
               AND image IS NOT NULL
+              AND created_at_utc > {imageCutoffUtc}
               AND attempt_count < {FaceQuery.MaximumAttempts}
               AND (status = 'Pending' OR (status = 'Running' AND lease_expires_at_utc <= {nowUtc}))
             ORDER BY created_at_utc, id
