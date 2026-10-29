@@ -36,6 +36,35 @@ Rehearsed code head `b08e7c8b445dece6cbb64ce5dfccdd3bde6992db`. Later commits on
 - **Codex review** (requested by the owner, of `47511936`): P1, the PoC bundle did not deliver the Visual C++ x64 runtime the Vision runtimes need (AGENTS.md: machine prerequisites belong to Setup); P2, the bundle builder read the component binding and catalogue from the checkout rather than the packaged revision. Both fixed in the next commit: the bundle ships the Microsoft-signed `vc_redist.x64.exe` 14.44.35211 (SHA-256 `cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b`; new catalogue entry `vcredist-win-x64`), installed when absent or older before any Runtime Pack; the builder exports the revision first and reads its inputs from it. Codex's re-review of `f680ef05` found one more (P1): a caller-supplied `-WorkRoot` was deleted wholesale by the builder's cleanup; fixed in `7c1171c4` (the builder works in, and removes, only its own uniquely named subdirectory). Codex's review of `7c1171c4` found one more (P1): `Install-MaviVisionRuntime.ps1` passed the CPython installer's log path and `TargetDir` unquoted, so the default `%ProgramFiles%\MAVI\PoC` root split them; fixed in `f0750bf4` (verified by the argument vector a spaced path produces) with a contract assertion. Codex's review of `f0750bf4`: no findings.
 - **Honest limits.** The machine configuration, which holds the PoC database credentials, is readable by every signed-in user so that MAVI can be started unelevated. The About page is not yet in the visual harness. Running MAVI is operator-started, not a Windows service. `run\` is operator-writable (the unelevated start writes its process and device records), so a local user could forge the device record or point a process record at another `Mavi.Api`/`powershell` process; records are only acted on when the process has the image Start launched, the recorded creation time and (where readable) the expected command line, and a single-host PoC accepts this residual risk.
 
+## S4 evidence (2026-10-29)
+
+Evidence location `E:\MAVI-Controlled\PoC\S4\`, each folder with `SHA256SUMS`:
+
+| Folder | SHA256SUMS SHA-256 |
+|---|---|
+| `spike\` | `1050297208b13cd40d230d278a87d8b62ed53bfffe7038700e46dc58f620a4f5` |
+| `spike-confirm-80\` | `f44389c62f0963e910fa6af8facb050da7532200022832468ad4f78f956d515a` |
+| `pack\` | `0da8e20353e8cbbc48f07ded0f673c271a246589a1d23188144de92f69576edd` |
+| `e2e\` | `859e9f095fef69f5bbe1449a0661812c6d822155d0e22988574bb7d70c6fbf2a` |
+
+- **Model.** `google/siglip2-base-patch16-224` @ `75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2`; `model.safetensors` SHA-256 `612923381c76ec5a9bed335d1c48827e3f2e506ac31b044b63b2031fadee6a0b` (equals the Hub LFS oid). Exported by `tools/vision/build_siglip2_pack.py`: ONNX vs PyTorch min cosine 0.99999994 (both towers); SentencePiece tokenizer equals the reference tokenizer on the parity texts. Identity fingerprint `13bac41fa80540fd901008853baf5b958e31e1321c948936038d7e2e91646f12` (`contracts/test-vectors/embedding-identity-v1.json`).
+- **Spike** (`tools/poc/embeddings_spike.py`, read-only over `E:\MAVI-Controlled\Stage3\H3-attempt2\exec\exports`, 0 hash mismatches):
+  - `s4-sanity-v1` (min side 24 px) failed. A post-hoc diagnostic (labelled hypothesis) traced it to crops under ~80 px.
+  - The owner chose the confirmatory run. `s4-confirm-80-v1` was frozen and committed (`29edf153`) before it ran, and passed.
+  - CPU and CUDA embeddings agree to cosine ≥ 0.9997.
+- **End to end** (laptop, GTX 1650 Ti, Development PostgreSQL database `mavi_poc_s4`, media and evidence on E:):
+  - **Clips.** Demo clips s2-09, s2-10 and s2-11 (one MEVA slot, three cameras) were imported with `tools/poc/demo_corpus.py` and processed by the vision worker on `cuda:0`.
+  - **Analyses.** The `embeddings` role published three analyses: 18 Tracks embedded, 22 `evidence_too_small`.
+  - **CUDA run.** `onnxruntime-gpu 1.26.0` (S1b's pin, DLLs from the vision CUDA pack's `torch/lib`; the environment is not yet a locked variant, see ADR-021 §2).
+  - **CPU run.** The packaged `embeddings-onnx-v1` runtime, installed offline from its lock by `Install-MaviEmbeddingsRuntime.ps1`. It re-ran the same runs through the bounded re-analysis request, with identical outcomes and appearance rankings.
+  - **Cross-camera.** 11 of 18 similarity queries had a candidate from another camera in their top 10. On this corpus these are look-alikes of the same class, not verified identities.
+  - **Defect found and fixed.** The run found one contract defect: .NET wrote `DateTimeOffset` as `+00:00`, not `Z`. It is fixed in `37a19c5f` and now pinned by the API tests.
+- **Honest limits.**
+  - SigLIP 2 is a general image–text model, not ReID, and its margin over a trivial baseline on the sanity test is small.
+  - Tracks with no crop ≥ 80 px get "similarity unavailable" (55% of demo Tracks).
+  - Search is an exact scan (no ANN index; ADR-021 §4).
+  - The CUDA variant of the embeddings runtime is not yet locked (it waits for S1b's PR #243).
+
 ## B. Demo corpus (S2)
 
 | Id | Criterion | Slice | State | Evidence |
@@ -53,10 +82,10 @@ Rehearsed code head `b08e7c8b445dece6cbb64ce5dfccdd3bde6992db`. Later commits on
 | C4.1 | 4 | PD5 + OC1-S bound under the PoC profile; GPU-first where the runtime supports it, otherwise CPU with recorded reason | S3 | NOT STARTED | |
 | C4.2 | 4 | `POST /api/plates/reanalysis` requires authorisation; `Plates:Enabled=false` no longer halts the authority loop | S3 | NOT STARTED | |
 | C4.3 | 4 | Partial plate search on a demo clip returns Tracks with crop, source frame and player seek; H3 capability numbers (52/110, 45/79) cited verbatim on the known-limits page | S3 | NOT STARTED | |
-| C5.1 | 5 | ADR-021 accepted; SigLIP 2 Model Pack (Apache-2.0) hashed, licensed, in the kit | S4 | NOT STARTED | |
-| C5.2 | 5 | `embeddings` role runs post-Track over lease-scoped, hash-verified Evidence Set crops; its failure never changes a ProcessingRun | S4 | NOT STARTED | |
-| C5.3 | 5 | `GET /api/tracks/{id}/similar` and `appearanceQuery` are whitelisted, fingerprinted and snapshot-stable; results labelled *Similarity candidates*; no `EntityId` written | S4 | NOT STARTED | |
-| C5.4 | 5 | Retrieval sanity on 200 held H3 crops (spike) retained; latency at the demo-corpus scale recorded | S4 | NOT STARTED | |
+| C5.1 | 5 | ADR-021 accepted; SigLIP 2 Model Pack (Apache-2.0) hashed, licensed, in the kit | S4 | IN PROGRESS | ADR-021 written, "Accepted owner decision **pending**" (owner ratification text in its last section). Pack `embeddings-siglip2-base-p16-224-dev-v1` (`google/siglip2-base-patch16-224` @ `75de2d55`, Apache-2.0, `unverified`): manifest `models/manifests/embeddings-siglip2-base-p16-224-dev-v1.json` pins vision.onnx `7f25d563…302b5c`, text.onnx `ee05dba3…cbc47a9`, tokenizer.model `61a7b147…4c8e2`, LICENSE `43070e2d…79c1` (big_vision @ `0127fb6b`), model card `39ac3705…18d8`. In the developer cache, PoC bundle and `Install-MAVI-PoC` (bound); offline install from the lock rehearsed (S4 evidence below). PASS when the owner ratifies ADR-021 |
+| C5.2 | 5 | `embeddings` role runs post-Track over lease-scoped, hash-verified Evidence Set crops; its failure never changes a ProcessingRun | S4 | IN PROGRESS | `EmbeddingApiTests` (7: lease-scoped evidence read, completion validation and replay, crash/failure/exhaustion leaves run status, visibility, Tracks, Observations and the attribute unit unchanged); Python `test_embedding_role.py` (lease-lost, digest check of every crop, crop floor); E2E on demo clips s2-09/10/11: 3 analyses Completed, runs unchanged (S4 evidence below). PASS with exact-head CI ids |
+| C5.3 | 5 | `GET /api/tracks/{id}/similar` and `appearanceQuery` are whitelisted, fingerprinted and snapshot-stable; results labelled *Similarity candidates*; no `EntityId` written | S4 | IN PROGRESS | `EmbeddingApiTests` (unknown keys refused; snapshot replays the same ranking after a newer publication; other filters, a tampered or expired token and another Track refused; appearance snapshot keyed by the normalised text); `EmbeddingContractTests` (keyed fingerprint covers kind, target, k, scope, identity); UI `TrackSimilarCandidates.test.tsx`, `VisualSearchPage.appearance.test.tsx` (label on every surface); E2E: 18/18 replays identical, 0 of 40 Tracks with an `EntityId`, 0 Entities. PASS with exact-head CI ids |
+| C5.4 | 5 | Retrieval sanity on 200 held H3 crops (spike) retained; latency at the demo-corpus scale recorded | S4 | PASS | Frozen `s4-sanity-v1` **failed** its baseline clause (R@1 0.555 vs 16×16 thumbnail 0.675); owner chose a confirmatory run; frozen `s4-confirm-80-v1` (crops ≥ 80 px, 64 disjoint videos) **passed**: R@1 0.81 vs 0.785, MRR 0.849 vs 0.835 (narrow; scope ≥ 80 px is ADR-021 §1). Spike latency per crop: CPU 337 ms, CUDA 29.6 ms (median, batch 1). Demo scale: 3 clips, 40 Tracks, 131 crops (45 embedded); analyses CPU 10.1 s, CUDA 3.6 s; similar p50/p95 12.6/38.4 ms, appearance 13.7/21.6 ms. `E:\MAVI-Controlled\PoC\S4\` (S4 evidence below) |
 | C2.1 | 2 | Zero-shot SigLIP 2 inferencer replaces the fixture in the existing `attributes` role; Observed/Unknown rows per the S2b lifecycle; abstention calibrated on held crops | S5 | NOT STARTED | |
 | C2.2 | 2 | Attribute search (v4 cursor) and UI per spec; every surface says "zero-shot, Development"; Stage-2 F/G rows untouched | S5 | NOT STARTED | |
 | C5A.1 | 5A | ADR-022 (biometric handling, gallery and candidate-match semantics) accepted **before** any face code merges | S6 | NOT STARTED | |
