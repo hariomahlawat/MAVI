@@ -160,6 +160,56 @@ jobs:
           }
           "MAVI_VS_BUILDTOOLS_PATH=$env:MAVI_VS_BUILDTOOLS_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      # The Windows SDK is serviced in place in the same way: every 10.0.26100
+      # build installs to the shared "Windows Kits\10\...\10.0.26100.0" folders,
+      # and the image refreshes it (10.1.26100.8249 -> 10.1.26100.9457 between
+      # images 20261007 and 20261021), which changes the MMCV wheel bytes. The
+      # qualified wheel is reproduced only against the exact SDK build below,
+      # taken from Microsoft's fixed-version, signed NuGet packages and used in
+      # place of the image's Windows Kits headers, import libraries and tools.
+      - name: Install pinned Windows SDK headers and libraries
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MAVI_WINSDK_VERSION: 10.0.26100.8249
+          MAVI_WINSDK_CPP_SHA256: f8787b2f6678164ae789bdca6247e696c2a0f529a39ceb969d6ef3d69a987131
+          MAVI_WINSDK_CPP_X64_SHA256: dba411916afdd47c99fecdf7d5558df7679d291dc338746590ae9adf5fd0511b
+          MAVI_WINSDK_PATH: C:\MaviBuildTools\winsdk-10.0.26100.8249
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path .task12-prerequisites -Force | Out-Null
+          New-Item -ItemType Directory -Path $env:MAVI_WINSDK_PATH -Force | Out-Null
+          $packages = @(
+            @{ Id = "microsoft.windows.sdk.cpp"; Sha256 = $env:MAVI_WINSDK_CPP_SHA256; Members = @(
+              "c/Include/10.0.26100.0/ucrt", "c/Include/10.0.26100.0/um", "c/Include/10.0.26100.0/shared",
+              "c/Include/10.0.26100.0/winrt", "c/Include/10.0.26100.0/cppwinrt", "c/bin/10.0.26100.0/x64") },
+            @{ Id = "microsoft.windows.sdk.cpp.x64"; Sha256 = $env:MAVI_WINSDK_CPP_X64_SHA256; Members = @(
+              "c/ucrt/x64", "c/um/x64") }
+          )
+          foreach ($package in $packages) {
+            $file = ".task12-prerequisites/$($package.Id).$env:MAVI_WINSDK_VERSION.nupkg"
+            $url = "https://api.nuget.org/v3-flatcontainer/$($package.Id)/$env:MAVI_WINSDK_VERSION/$($package.Id).$env:MAVI_WINSDK_VERSION.nupkg"
+            & curl.exe --fail --location --retry 3 --retry-all-errors --output $file $url
+            if ($LASTEXITCODE -ne 0) { throw "winsdk_download_failed:$($package.Id)" }
+            $sha = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($sha -ne $package.Sha256) { throw "winsdk_sha256_mismatch:$($package.Id):$sha" }
+            $verify = & dotnet nuget verify --all $file 2>&1
+            if ($LASTEXITCODE -ne 0) { $verify; throw "winsdk_signature_invalid:$($package.Id)" }
+            & tar.exe -xf $file -C $env:MAVI_WINSDK_PATH @($package.Members)
+            if ($LASTEXITCODE -ne 0) { throw "winsdk_extract_failed:$($package.Id)" }
+          }
+          $sdk = Join-Path $env:MAVI_WINSDK_PATH "c"
+          $include = "10.0.26100.0\ucrt", "10.0.26100.0\um", "10.0.26100.0\shared", "10.0.26100.0\winrt", "10.0.26100.0\cppwinrt" |
+            ForEach-Object { Join-Path $sdk "Include\$_" }
+          $lib = (Join-Path $sdk "ucrt\x64"), (Join-Path $sdk "um\x64")
+          $kits = "\Windows Kits\"
+          $keep = { param($value) @("$value" -split ";" | Where-Object { $_ -and $_.IndexOf($kits, [System.StringComparison]::OrdinalIgnoreCase) -lt 0 }) }
+          "INCLUDE={0}" -f ((@(& $keep $env:INCLUDE) + $include) -join ";") | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LIB={0}" -f ((@(& $keep $env:LIB) + $lib) -join ";") | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LIBPATH={0}" -f (@(& $keep $env:LIBPATH) -join ";") | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PATH={0}" -f ((@(Join-Path $sdk "bin\10.0.26100.0\x64") + @(& $keep $env:PATH)) -join ";") | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MAVI_WINSDK_PATH=$env:MAVI_WINSDK_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Verify qualified Windows native build identity
         if: runner.os == 'Windows'
         shell: pwsh
@@ -190,6 +240,24 @@ jobs:
           $linkVersion = (Get-Item $link).VersionInfo.FileVersion
           if ($linkVersion -ne "14.44.35228.0") {
             throw "unexpected_msvc_linker_build:$linkVersion"
+          }
+          # The SDK folder name does not identify the SDK build either; only the
+          # pinned package roots may supply SDK headers, import libraries and tools.
+          $sdkRoot = Join-Path $env:MAVI_WINSDK_PATH "c"
+          foreach ($name in "INCLUDE", "LIB", "LIBPATH", "PATH") {
+            $value = "$([Environment]::GetEnvironmentVariable($name))"
+            if ($value.IndexOf("\Windows Kits\", [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              throw "unpinned_windows_sdk_in_${name}"
+            }
+          }
+          $sdkInclude = ($env:INCLUDE -split ";" | Where-Object { $_.StartsWith($sdkRoot + "\", [System.StringComparison]::OrdinalIgnoreCase) }).Count
+          $sdkLib = ($env:LIB -split ";" | Where-Object { $_.StartsWith($sdkRoot + "\", [System.StringComparison]::OrdinalIgnoreCase) }).Count
+          if ($sdkInclude -ne 5 -or $sdkLib -ne 2) { throw "unexpected_windows_sdk_roots:${sdkInclude}:${sdkLib}" }
+          foreach ($tool in "rc.exe", "mt.exe") {
+            $source = (Get-Command $tool).Source
+            if (-not $source.StartsWith($sdkRoot + "\", [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "unpinned_windows_sdk_tool:$source"
+            }
           }
           "DISTUTILS_USE_SDK=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MSSdk=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
