@@ -412,11 +412,11 @@
       "scope": [
         "production-vision-build"
       ],
-      "stagingPath": "ci-build-only:vs-buildtools-17.14.40-fixed-version",
+      "stagingPath": "ci-build-only:vs-buildtools-17.14.40-fixed-version+windows-sdk-10.0.26100.8249-nuget",
       "packagedAs": "build-only; excluded from Vision Runtime Pack, Model Pack and Production media",
       "setupIntegration": "Task 12 windows-x86_64-cpu MMCV wheel build only (.github/workflows/task12-offline-bundle.yml)",
-      "verification": "fixed-version Visual Studio 2022 17.14.40 Build Tools bootstrapper pinned by SHA-256 aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7 and a valid Microsoft Authenticode signature; cl.exe 19.44.35228.0 and link.exe 14.44.35228.0 asserted before compiling; a clean rebuild must reproduce the MMCV wheel byte for byte and the regenerated lock must equal the committed windows-x86_64-cpu.lock",
-      "licenceHandling": "Microsoft build-tool licensing applies to the CI build environment; no compiler payload is distributed with the Runtime Pack"
+      "verification": "fixed-version Visual Studio 2022 17.14.40 Build Tools bootstrapper pinned by SHA-256 aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7 and a valid Microsoft Authenticode signature; cl.exe 19.44.35228.0 and link.exe 14.44.35228.0 asserted before compiling; Windows SDK 10.0.26100.8249 headers, import libraries and tools taken only from the fixed-version NuGet packages Microsoft.Windows.SDK.CPP (SHA-256 f8787b2f6678164ae789bdca6247e696c2a0f529a39ceb969d6ef3d69a987131) and Microsoft.Windows.SDK.CPP.x64 (SHA-256 dba411916afdd47c99fecdf7d5558df7679d291dc338746590ae9adf5fd0511b), signature-verified with dotnet nuget verify, with the image's in-place-serviced Windows Kits removed from every build environment variable; a clean rebuild must reproduce the MMCV wheel byte for byte and the regenerated lock must equal the committed windows-x86_64-cpu.lock",
+      "licenceHandling": "Microsoft build-tool and Windows SDK licensing apply to the CI build environment; no compiler or SDK payload is distributed with the Runtime Pack"
     },
     {
       "id": "msvc-cuda-build-toolchain-win-x64",

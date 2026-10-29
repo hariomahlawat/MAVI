@@ -53,19 +53,6 @@ public sealed class PlateOptions
     /// <summary>The most runs one explicit re-analysis request may queue (plan §2.2: bounded, never automatic).</summary>
     public int MaximumRunsPerReanalysisRequest { get; init; } = 100;
 
-    /// <summary>
-    /// The interim authorisation of <c>POST /api/plates/reanalysis</c> (PoC S3; replaced by ADR-010 operator identity in
-    /// S11-min): the lowercase SHA-256 of the operator key a request must present in
-    /// <see cref="ReanalysisOperatorKeyHeader"/>. Empty — the default — refuses every request (fails closed); the key
-    /// itself is never configured, logged or stored by the platform.
-    /// </summary>
-    public string ReanalysisOperatorKeySha256 { get; init; } = string.Empty;
-
-    /// <summary>The request header carrying the re-analysis operator key.</summary>
-    public const string ReanalysisOperatorKeyHeader = "X-Mavi-Operator-Key";
-
-    public bool IsReanalysisAuthorisationConfigured => !string.IsNullOrEmpty(ReanalysisOperatorKeySha256);
-
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(ComponentBindingPath) || !string.IsNullOrWhiteSpace(PipelineProfilePath);
 
@@ -98,9 +85,6 @@ public sealed class PlateOptions
             problems.Add($"{SectionName}:MaximumRunsPerReanalysisRequest must be between 1 and {MaximumReanalysisRunsCeiling}.");
         if (string.IsNullOrWhiteSpace(ComponentBindingPath) != string.IsNullOrWhiteSpace(PipelineProfilePath))
             problems.Add($"{SectionName}:ComponentBindingPath and {SectionName}:PipelineProfilePath are configured together or not at all.");
-        if (IsReanalysisAuthorisationConfigured &&
-            (ReanalysisOperatorKeySha256.Length != 64 || !ReanalysisOperatorKeySha256.All(char.IsAsciiHexDigitLower)))
-            problems.Add($"{SectionName}:ReanalysisOperatorKeySha256 must be empty or a lowercase SHA-256 (64 hexadecimal characters).");
         return problems;
     }
 }

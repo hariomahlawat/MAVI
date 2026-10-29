@@ -3,12 +3,15 @@ using System.Text.Json;
 using Mavi.Api.Plates;
 using Mavi.Api.VisualAttributes;
 using Mavi.Application.Abstractions.Storage;
+using Mavi.Application.Modules.Audit;
+using Mavi.Application.Modules.Identity;
 using Mavi.Application.Modules.Plates;
 using Mavi.Application.Modules.Plates.Completion;
 using Mavi.Contracts.Api.Plates;
 using Mavi.Contracts.Worker;
 using Mavi.Contracts.Worker.Plates;
 using Mavi.Domain.Plates;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 
@@ -291,7 +294,9 @@ public static class PlateEndpoints
     /// <c>POST /api/plates/reanalysis</c>. Every request that reaches this handler is audited: accepted as event 2125
     /// with the exact selected run ids, refused as event 2126 with its scope and refusal code. A body that fails JSON
     /// binding is rejected by the framework before this handler runs and is not audited. The request is authorised
-    /// first, by <see cref="PlateReanalysisAuthorisation"/>, and is refused before anything else when it is not.
+    /// first, by the ADR-010 operator policy (<see cref="PlateReanalysisAuthorisation"/>), and is refused before anything
+    /// else when it is not. An accepted request is queued and recorded in <c>audit_entries</c> with its operator in one
+    /// transaction (<see cref="IAuditWriter.RecordAsync{T}"/>); a request the lifecycle refuses leaves no entry.
     /// </summary>
     private static async Task<IResult> ReanalysisAsync(
         HttpContext context,
@@ -299,14 +304,17 @@ public static class PlateEndpoints
         IPlateRelease release,
         IPlateLifecycle lifecycle,
         PlateAudit audit,
+        IAuditWriter auditWriter,
+        IAuthorizationService authorization,
         IOptions<PlateOptions> options,
+        IOptions<OperatorIdentityOptions> identity,
         CancellationToken cancellationToken)
     {
         var scope = request.ProcessingRunIds is not null ? "runs" : request.CameraId is not null ? "camera-window" : "unspecified";
-        if (PlateReanalysisAuthorisation.Refusal(context.Request.Headers, options.Value) is { } refusal)
+        if (await PlateReanalysisAuthorisation.RefusalAsync(context, authorization, identity.Value) is { } refusal)
         {
             audit.ReanalysisRefused(scope, refusal.Code);
-            return Problem(refusal.Status, refusal.Code, refusal.Detail);
+            return refusal.Challenge ? Results.Challenge() : Problem(refusal.Status, refusal.Code, refusal.Detail);
         }
 
         if (!options.Value.Enabled)
@@ -322,9 +330,24 @@ public static class PlateEndpoints
             return Problem(409, "plate_not_configured", "No plate analysis is configured in this release.");
         }
 
-        var result = await lifecycle.RequestReanalysisAsync(definition,
-            new PlateReanalysisRequest(request.ProcessingRunIds, request.CameraId, request.FromUtc, request.ToUtc),
-            options.Value.MaximumRunsPerReanalysisRequest, cancellationToken);
+        var reanalysis = new PlateReanalysisRequest(request.ProcessingRunIds, request.CameraId, request.FromUtc, request.ToUtc);
+        var record = new AuditRecord("plates.reanalysis-requested", "plate-reanalysis", scope,
+            new { request.ProcessingRunIds, request.CameraId, request.FromUtc, request.ToUtc });
+        PlateReanalysisResult result;
+        try
+        {
+            (result, _) = await auditWriter.RecordAsync(record, async ct =>
+            {
+                var outcome = await lifecycle.RequestReanalysisAsync(definition, reanalysis, options.Value.MaximumRunsPerReanalysisRequest, ct);
+                // A refused request queued nothing; throwing rolls the audit entry back with it.
+                return outcome.IsSuccess ? outcome : throw new ReanalysisRefusedException(outcome);
+            }, cancellationToken);
+        }
+        catch (ReanalysisRefusedException refused)
+        {
+            result = refused.Result;
+        }
+
         if (!result.IsSuccess)
         {
             var status = result.Refusal!.Code == "processing_run_not_found" ? 404 : result.Refusal.Code == "plate_reanalysis_too_many_runs" ? 422 : 400;
@@ -336,6 +359,11 @@ public static class PlateEndpoints
             result.AlreadyQueued, result.NotEligible, result.SelectedRunIds);
         return Results.Accepted(value: new PlateReanalysisResponseContract(result.IdentityFingerprint, result.RunsMatched, result.Queued,
             result.AlreadyQueued, result.NotEligible, result.SelectedRunIds));
+    }
+
+    private sealed class ReanalysisRefusedException(PlateReanalysisResult result) : Exception(result.Refusal?.Code)
+    {
+        public PlateReanalysisResult Result { get; } = result;
     }
 
     // --- Shared ------------------------------------------------------------------------------

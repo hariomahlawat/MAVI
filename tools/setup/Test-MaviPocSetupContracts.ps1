@@ -139,12 +139,12 @@ try {
     $serialised = ConvertTo-Json -InputObject $config -Depth 8 | ConvertFrom-Json
     if (@($serialised.Identity.Operators.AuthorizedGroups).Count -ne 1 -or $serialised.Identity.Operators.AuthorizedGroups -isnot [array]) { throw "The operator groups must serialise as a JSON array." }
     # PoC S3 (C4.1): the plates role is bound by the machine configuration, its device record disclosed beside the
-    # Vision worker's; re-analysis stays refused (no operator key) until an owner configures one.
+    # Vision worker's; re-analysis is authorised by ADR-010 operator identity, not a plate-specific key.
     if ($config.Deployment.RoleDeviceResolutionPaths.plates -ne $layout.PlatesDeviceResolutionPath) { throw "The plates device record is not disclosed." }
     if ($config.Plates.Enabled -ne $true -or $config.Plates.ComponentBindingPath -ne $layout.PlatesComponentBindingPath -or $config.Plates.PipelineProfilePath -ne $layout.PlatesPipelineProfilePath) {
         throw "The machine configuration must bind the plates role to the overlay's PD5 + OC1-S release."
     }
-    if (@($config.Plates.Keys) -contains "ReanalysisOperatorKeySha256") { throw "The installer must not configure a re-analysis operator key (it fails closed until an owner does)." }
+    if (@($config.Plates.Keys) -contains "ReanalysisOperatorKeySha256") { throw "Re-analysis is authorised by ADR-010 operator identity; the installer configures no operator key." }
     if (-not $layout.PlatesComponentBindingPath.EndsWith("development-plates-onnx-pilot-v1.json") -or -not (Test-Path -LiteralPath (Join-Path $repoRoot "src\vision\config\components\development-plates-onnx-pilot-v1.json"))) {
         throw "The PoC plates binding must be the committed PD5 + OC1-S binding."
     }

@@ -348,8 +348,21 @@
       "compilerVersion": "19.44.35228.0",
       "linkerVersion": "14.44.35228.0",
       "windowsSdk": "10.0.26100.0",
-      "placement": "CI build host only (C:\\MaviBuildTools\\vs-17.14.40); never packaged into a Runtime Pack, Model Pack, Offline Binary Kit or Production media",
-      "licence": "Microsoft Visual Studio Build Tools licence terms apply to the CI build environment; no compiler payload is redistributed",
+      "windowsSdkBuild": "10.0.26100.8249",
+      "windowsSdkPackages": [
+        {
+          "id": "microsoft.windows.sdk.cpp",
+          "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.cpp/10.0.26100.8249/microsoft.windows.sdk.cpp.10.0.26100.8249.nupkg",
+          "sha256": "f8787b2f6678164ae789bdca6247e696c2a0f529a39ceb969d6ef3d69a987131"
+        },
+        {
+          "id": "microsoft.windows.sdk.cpp.x64",
+          "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.cpp.x64/10.0.26100.8249/microsoft.windows.sdk.cpp.x64.10.0.26100.8249.nupkg",
+          "sha256": "dba411916afdd47c99fecdf7d5558df7679d291dc338746590ae9adf5fd0511b"
+        }
+      ],
+      "placement": "CI build host only (C:\\MaviBuildTools\\vs-17.14.40, C:\\MaviBuildTools\\winsdk-10.0.26100.8249); never packaged into a Runtime Pack, Model Pack, Offline Binary Kit or Production media",
+      "licence": "Microsoft Visual Studio Build Tools and Windows SDK licence terms apply to the CI build environment; no compiler or SDK payload is redistributed",
       "policyId": "msvc-cpu-build-toolchain-win-x64"
     },
     "windowsCudaDevelopmentCandidate": {
