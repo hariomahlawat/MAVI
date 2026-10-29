@@ -173,6 +173,8 @@ function New-MaviPocMachineConfig {
     )
     [ordered]@{
         ConnectionStrings = [ordered]@{ Mavi = $ConnectionString }
+        # Loopback names only: a page on another host name (DNS rebinding) is refused before any endpoint.
+        AllowedHosts = "localhost;127.0.0.1"
         MediaStorage = [ordered]@{ RootPath = $Layout.MediaRoot; EvidenceRootPath = $Layout.EvidenceRoot }
         TrackSearch = [ordered]@{ CursorSigningKey = $CursorSigningKey }
         Kestrel = [ordered]@{ Endpoints = [ordered]@{ Http = [ordered]@{ Url = "http://127.0.0.1:$HttpPort" } } }

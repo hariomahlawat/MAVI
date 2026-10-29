@@ -72,6 +72,7 @@ try {
     if (@($config.Deployment.Keys) -join "," -ne "Profile,ReleaseMetadataPath,DeviceResolutionPath") { throw "The Deployment section carries a key the platform does not define." }
     if ($config.Identity.Mode -ne "windows-negotiate" -or (@($config.Identity.Operators.AuthorizedGroups) -join ",") -ne "BUILTIN\Users") { throw "The PoC platform must identify operators by Windows account (ADR-010)." }
     if ($metadata.identityMode -ne $config.Identity.Mode) { throw "The release metadata must record the identity mode the machine configuration sets." }
+    if ($config.AllowedHosts -ne "localhost;127.0.0.1") { throw "The PoC platform must accept only loopback host names." }
     $serialised = ConvertTo-Json -InputObject $config -Depth 8 | ConvertFrom-Json
     if (@($serialised.Identity.Operators.AuthorizedGroups).Count -ne 1 -or $serialised.Identity.Operators.AuthorizedGroups -isnot [array]) { throw "The operator groups must serialise as a JSON array." }
 

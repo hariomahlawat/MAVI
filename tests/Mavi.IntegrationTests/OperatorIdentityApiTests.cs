@@ -51,7 +51,13 @@ public sealed class OperatorIdentityApiTests : IDisposable
         using var client = factory.CreateClient();
 
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/cameras")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/system/operator")).StatusCode);
+        using var challenged = await client.GetAsync("/api/system/operator");
+        Assert.Equal(HttpStatusCode.Unauthorized, challenged.StatusCode);
+        // Negotiate is never built in this mode (under IIS without Windows Authentication it would fail every request).
+        Assert.DoesNotContain("Negotiate", challenged.Headers.WwwAuthenticate.Select(header => header.Scheme));
+        var schemes = factory.Services.GetRequiredService<IAuthenticationSchemeProvider>();
+        Assert.Null(await schemes.GetSchemeAsync(NegotiateDefaults.AuthenticationScheme));
+        Assert.DoesNotContain(await schemes.GetRequestHandlerSchemesAsync(), scheme => scheme.Name == NegotiateDefaults.AuthenticationScheme);
         using var mutation = await client.PostAsJsonAsync("/api/system/disclosure-acknowledgements", new { statement = "x" });
         Assert.Equal(HttpStatusCode.Unauthorized, mutation.StatusCode);
 
@@ -84,7 +90,8 @@ public sealed class OperatorIdentityApiTests : IDisposable
             return;
         using var current = System.Security.Principal.WindowsIdentity.GetCurrent();
         var configuration = WindowsMode();
-        configuration["Identity:Operators:AuthorizedUsers:1"] = current.Name;
+        // Authorized through the group the PoC installer configures, so WindowsPrincipal.IsInRole is exercised.
+        configuration["Identity:Operators:AuthorizedGroups:1"] = "BUILTIN\\Users";
         using var factory = new ApiTestFactory { AdditionalConfiguration = configuration };
         factory.UseKestrel(0);
         await factory.ResetAndMigrateAsync();

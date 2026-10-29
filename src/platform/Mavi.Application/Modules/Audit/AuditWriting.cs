@@ -19,13 +19,20 @@ public sealed record AuditEntryReceipt(Guid AuditEntryId, DateTimeOffset Recorde
 public interface IAuditWriter
 {
     /// <summary>
-    /// Stages the entry on the request's unit of work. It is committed by the same <c>SaveChanges</c>
-    /// (or transaction) that commits the mutation, and rolled back with it; nothing is written here.
+    /// Runs <paramref name="mutation"/> and writes its audit entry in one database transaction: both commit
+    /// or neither does. The mutation may save several times or clear the change tracker; the entry is
+    /// inserted directly, not staged on the tracker. When a transaction is already open the mutation and
+    /// the entry join it and its owner commits. The operator is resolved first: without one the mutation
+    /// does not run.
     /// </summary>
-    AuditEntryReceipt Append(AuditRecord record);
+    Task<(T Result, AuditEntryReceipt Receipt)> RecordAsync<T>(AuditRecord record, Func<CancellationToken, Task<T>> mutation,
+        CancellationToken cancellationToken);
 
-    /// <summary>For an action whose only state is its audit entry: stages it and commits.</summary>
-    Task<AuditEntryReceipt> AppendAndCommitAsync(AuditRecord record, CancellationToken cancellationToken);
+    /// <summary>
+    /// Inserts the entry inside the transaction the caller has open (for a mutation that manages its own
+    /// transaction); refuses when none is open, so an entry can never commit apart from its mutation.
+    /// </summary>
+    Task<AuditEntryReceipt> AppendInTransactionAsync(AuditRecord record, CancellationToken cancellationToken);
 }
 
 /// <summary>The current request's correlation id (the API host's trace identifier).</summary>
@@ -40,7 +47,7 @@ public static class AuditPayload
 
     /// <summary>
     /// SHA-256 of the payload's UTF-8 JSON (System.Text.Json web defaults; <c>null</c> for no payload).
-    /// Deterministic for a given payload type and value.
+    /// Deterministic for a given payload type and value; not a canonical JSON form.
     /// </summary>
     public static string Sha256(object? payload)
     {

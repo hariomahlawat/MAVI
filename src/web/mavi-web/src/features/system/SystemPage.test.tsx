@@ -68,6 +68,7 @@ describe('the About page (ADR-020 §3)', () => {
     expect(rows[2]).toHaveTextContent('verified');
     expect(screen.getByText('Windows account (Negotiate)')).toBeInTheDocument();
     expect(screen.getByText('Attributed to a Windows account')).toBeInTheDocument();
+    expect(screen.queryByText(/differs from the mode recorded at install/)).not.toBeInTheDocument();
   });
 
   it('labels the development fallback identity as unattributed (ADR-010 §3)', async () => {
@@ -97,5 +98,6 @@ describe('the About page (ADR-020 §3)', () => {
     expect(screen.getByText('Not attributable')).toBeInTheDocument();
     expect(screen.getByText(/not attributable to a person/)).toBeInTheDocument();
     expect(screen.getByText('windows-negotiate')).toBeInTheDocument();
+    expect(screen.getByText(/differs from the mode recorded at install/)).toBeInTheDocument();
   });
 });

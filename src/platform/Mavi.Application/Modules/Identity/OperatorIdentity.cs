@@ -158,7 +158,7 @@ public static class OperatorIdentityPolicy
                 "Development fallback identity: actions are recorded as 'development-unattributed' and are not attributable to a person.",
             _ => "Operator identity is not configured: attributable actions are unavailable.",
         };
-        return new OperatorIdentityDisclosure(mode, mode == OperatorIdentityModes.WindowsNegotiate, configured, statement,
+        return new OperatorIdentityDisclosure(mode, mode == OperatorIdentityModes.WindowsNegotiate && configured, configured, statement,
             string.IsNullOrWhiteSpace(installedMode) ? null : installedMode);
     }
 

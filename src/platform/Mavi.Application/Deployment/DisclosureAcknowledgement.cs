@@ -26,9 +26,11 @@ public static class DisclosureAcknowledgement
         var expected = AcknowledgedText(disclosure);
         if (!string.Equals(statement, expected, StringComparison.Ordinal))
             return null;
-        return await audit.AppendAndCommitAsync(
+        var (_, receipt) = await audit.RecordAsync(
             new AuditRecord(Action, SubjectType, disclosure.Profile,
                 new { disclosure.Profile, Statement = expected, IdentityMode = disclosure.Identity.Mode }),
+            _ => Task.FromResult(true),
             cancellationToken);
+        return receipt;
     }
 }

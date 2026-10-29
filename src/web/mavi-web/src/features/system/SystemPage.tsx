@@ -77,6 +77,11 @@ function SystemDetails({ disclosure }: { disclosure: DeploymentDisclosure }) {
         )}
       </Panel>
       <Panel title="Operator identity" headingId="system-identity">
+        {disclosure.identity.installedMode && disclosure.identity.installedMode !== disclosure.identity.mode ? (
+          <Alert tone="warning" announce={false}>
+            The identity mode in effect differs from the mode recorded at install ({disclosure.identity.installedMode}).
+          </Alert>
+        ) : null}
         {disclosure.identity.mode === 'development-unattributed' ? (
           <Alert tone="warning" announce={false}>{disclosure.identity.statement}</Alert>
         ) : (

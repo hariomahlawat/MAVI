@@ -10,7 +10,8 @@ using Npgsql;
 namespace Mavi.IntegrationTests;
 
 /// <summary>
-/// ADR-010 §4 against PostgreSQL: an audit entry commits and rolls back with the mutation it records,
+/// ADR-010 §4 against PostgreSQL: an audit entry commits and rolls back with the mutation it records (even one that
+/// saves repeatedly and clears the change tracker),
 /// takes its time from the server's <see cref="TimeProvider"/>, and the table refuses UPDATE, DELETE
 /// and TRUNCATE from any client.
 /// </summary>
@@ -18,6 +19,7 @@ namespace Mavi.IntegrationTests;
 public sealed class AuditEntryPersistenceTests(PostgresFixture fixture)
 {
     private static readonly DateTimeOffset ServerNow = new(2026, 10, 29, 9, 30, 0, TimeSpan.Zero);
+    private static readonly string[] BatchCodes = ["AUDIT-B1", "AUDIT-B2"];
     private static readonly OperatorIdentity Alice = new("S-1-5-21-1-2-3-1001", "HOST\\alice", OperatorIdentityModes.WindowsNegotiate);
 
     [Fact]
@@ -25,10 +27,13 @@ public sealed class AuditEntryPersistenceTests(PostgresFixture fixture)
     {
         await using var db = await MigratedAsync();
         var camera = Camera.Create("AUDIT-01", "Audited camera", "UTC");
-        db.Cameras.Add(camera);
-        var receipt = Writer(db).Append(new AuditRecord("cameras.created", "camera", camera.Id.ToString(), new { camera.Code }));
 
-        await db.SaveChangesAsync();
+        var (_, receipt) = await Writer(db).RecordAsync(new AuditRecord("cameras.created", "camera", camera.Id.ToString(), new { camera.Code }),
+            async cancellationToken =>
+            {
+                db.Cameras.Add(camera);
+                return await db.SaveChangesAsync(cancellationToken);
+            }, CancellationToken.None);
 
         await using var read = fixture.CreateDbContext();
         Assert.True(await read.Cameras.AnyAsync(x => x.Id == camera.Id));
@@ -45,40 +50,81 @@ public sealed class AuditEntryPersistenceTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task AFailedMutationLeavesNoEntry()
+    public async Task AMutationThatSavesRepeatedlyAndClearsTheTrackerKeepsItsEntry()
+    {
+        // The shape of PlateLifecycle.RequestReanalysisAsync: clear the tracker, then one save per unit.
+        await using var db = await MigratedAsync();
+        await Writer(db).RecordAsync(new AuditRecord("cameras.created", "camera", "batch", null), async cancellationToken =>
+        {
+            db.ChangeTracker.Clear();
+            foreach (var code in BatchCodes)
+            {
+                db.ChangeTracker.Clear();
+                db.Cameras.Add(Camera.Create(code, code, "UTC"));
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            db.ChangeTracker.Clear();
+            return 0;
+        }, CancellationToken.None);
+
+        await using var read = fixture.CreateDbContext();
+        Assert.Equal(2, await read.Cameras.CountAsync());
+        Assert.Equal(1, await read.AuditEntries.CountAsync());
+    }
+
+    [Fact]
+    public async Task AFailedMutationLeavesNoEntryAndUndoesItsEarlierSaves()
     {
         await using var db = await MigratedAsync();
         db.Cameras.Add(Camera.Create("AUDIT-02", "First", "UTC"));
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
 
-        // The same code again: the unique index refuses the camera, and the entry staged with it goes too.
-        var duplicate = Camera.Create("AUDIT-02", "Duplicate", "UTC");
-        db.Cameras.Add(duplicate);
-        Writer(db).Append(new AuditRecord("cameras.created", "camera", duplicate.Id.ToString(), null));
-        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        // One camera saves, then the duplicate code is refused: the whole mutation and its entry roll back.
+        await Assert.ThrowsAsync<DbUpdateException>(() => Writer(db).RecordAsync(
+            new AuditRecord("cameras.created", "camera", "batch", null), async cancellationToken =>
+            {
+                db.Cameras.Add(Camera.Create("AUDIT-03", "Saved first", "UTC"));
+                await db.SaveChangesAsync(cancellationToken);
+                db.Cameras.Add(Camera.Create("AUDIT-02", "Duplicate", "UTC"));
+                return await db.SaveChangesAsync(cancellationToken);
+            }, CancellationToken.None));
 
         await using var read = fixture.CreateDbContext();
         Assert.Equal(0, await read.AuditEntries.CountAsync());
-        Assert.Equal(1, await read.Cameras.CountAsync());
+        Assert.Equal(["AUDIT-02"], await read.Cameras.Select(x => x.Code).ToListAsync());
     }
 
     [Fact]
-    public async Task ARolledBackTransactionTakesTheEntryWithIt()
+    public async Task AnEntryJoinsTheCallersTransactionAndRollsBackWithIt()
     {
         await using var db = await MigratedAsync();
         await using (var transaction = await db.Database.BeginTransactionAsync())
         {
-            var camera = Camera.Create("AUDIT-03", "Rolled back", "UTC");
+            var camera = Camera.Create("AUDIT-04", "Rolled back", "UTC");
             db.Cameras.Add(camera);
-            Writer(db).Append(new AuditRecord("cameras.created", "camera", camera.Id.ToString(), null));
             await db.SaveChangesAsync();
+            await Writer(db).AppendInTransactionAsync(new AuditRecord("cameras.created", "camera", camera.Id.ToString(), null), CancellationToken.None);
+            await Writer(db).RecordAsync(new AuditRecord("system.check", "system", "1", null), _ => Task.FromResult(0), CancellationToken.None);
             await transaction.RollbackAsync();
         }
 
         await using var read = fixture.CreateDbContext();
         Assert.Equal(0, await read.AuditEntries.CountAsync());
         Assert.Equal(0, await read.Cameras.CountAsync());
+    }
+
+    [Fact]
+    public async Task OutsideATransactionAnEntryIsRefused()
+    {
+        await using var db = await MigratedAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Writer(db).AppendInTransactionAsync(new AuditRecord("system.check", "system", "1", null), CancellationToken.None));
+
+        await using var read = fixture.CreateDbContext();
+        Assert.Equal(0, await read.AuditEntries.CountAsync());
     }
 
     [Theory]
@@ -88,7 +134,8 @@ public sealed class AuditEntryPersistenceTests(PostgresFixture fixture)
     public async Task TheDatabaseRefusesToChangeOrRemoveAnEntry(string sql, string operation)
     {
         await using var db = await MigratedAsync();
-        var receipt = await Writer(db).AppendAndCommitAsync(new AuditRecord("system.check", "system", "1", null), CancellationToken.None);
+        var (_, receipt) = await Writer(db).RecordAsync(new AuditRecord("system.check", "system", "1", null), _ => Task.FromResult(0),
+            CancellationToken.None);
 
         // Raw SQL on its own connection: the guard is the database's, not the application's.
         await using (var connection = new NpgsqlConnection(fixture.ConnectionString))
@@ -124,13 +171,18 @@ public sealed class AuditEntryPersistenceTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task WithoutAnOperatorNothingIsStaged()
+    public async Task WithoutAnOperatorTheMutationDoesNotRun()
     {
         await using var db = await MigratedAsync();
         var writer = new AuditWriter(db, new FixedOperator(null), new FixedCorrelation(), new FixedClock());
+        var ran = false;
 
-        Assert.Throws<InvalidOperationException>(() => writer.Append(new AuditRecord("system.check", "system", "1", null)));
-        Assert.Empty(db.ChangeTracker.Entries());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => writer.RecordAsync(new AuditRecord("system.check", "system", "1", null),
+            _ => Task.FromResult(ran = true), CancellationToken.None));
+
+        Assert.False(ran);
+        await using var read = fixture.CreateDbContext();
+        Assert.Equal(0, await read.AuditEntries.CountAsync());
     }
 
     private async Task<MaviDbContext> MigratedAsync()

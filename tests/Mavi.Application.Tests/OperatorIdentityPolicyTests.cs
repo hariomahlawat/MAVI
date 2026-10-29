@@ -75,6 +75,7 @@ public sealed class OperatorIdentityPolicyTests
     {
         Assert.Null(OperatorIdentityPolicy.Resolve(WindowsPrincipal("HOST\\alice", roles: ["BUILTIN\\Users"]), Windows()));
         Assert.False(OperatorIdentityPolicy.Disclose(Windows(), null).OperatorsConfigured);
+        Assert.False(OperatorIdentityPolicy.Disclose(Windows(), null).Attributable);
     }
 
     [Fact]
