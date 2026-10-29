@@ -104,6 +104,35 @@
       }
     ]
   },
+  "logOnlyObservations": [
+    {
+      "run": 40721307386,
+      "attempt": 1,
+      "head": "f680ef053c92088d2096d9a348d12ce6b82e8548",
+      "branch": "poc/s1-installer",
+      "longTaskJob": 122932739647,
+      "judgedBy": [
+        {
+          "job": 122947730967,
+          "attempt": 1
+        },
+        {
+          "job": 122948729384,
+          "attempt": 2
+        }
+      ],
+      "tasks": [
+        {
+          "at": "search-field-errors-above@1366x768",
+          "interaction": "submit an inverted time range with the rail scrolled to its foot",
+          "count": 1,
+          "maxMs": 65,
+          "totalMs": 65
+        }
+      ],
+      "why": "the attempt-1 long-task artefact was overwritten when attempt 3 re-ran the lane (which measured none); attempts 1 and 2 of performance budgets judged that one measurement"
+    }
+  ],
   "runs": [
     {
       "artifact": 11940577259,
