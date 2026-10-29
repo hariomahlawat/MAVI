@@ -635,6 +635,71 @@ public sealed class EmbeddingApiTests(PostgresFixture fixture)
         Assert.Contains(host.Logs.Entries, entry => entry.EventId.Id == 2205);
     }
 
+
+    [Fact]
+    public async Task TheAppearanceTextCapIsAtomicAndAppliesToARequeuedFailedText()
+    {
+        await using var host = await EmbeddingApiHost.CreateAsync(fixture, T0);
+        var fingerprint = host.Fingerprint;
+        var cap = Mavi.Infrastructure.Persistence.Repositories.EmbeddingLifecycle.MaximumPendingTexts;
+
+        async Task<bool> RequestAsync(string text)
+        {
+            await using var scope = host.Factory.Services.CreateAsyncScope();
+            try
+            {
+                await scope.ServiceProvider.GetRequiredService<IEmbeddingLifecycle>().RequestTextAsync(fingerprint, text, CancellationToken.None);
+                return true;
+            }
+            catch (EmbeddingTextQueueFullException)
+            {
+                return false;
+            }
+        }
+
+        // A text that will fail: leased and failed non-retryably while the queue is empty.
+        Assert.True(await RequestAsync("failing text"));
+        await using (var scope = host.Factory.Services.CreateAsyncScope())
+        {
+            var lifecycle = scope.ServiceProvider.GetRequiredService<IEmbeddingLifecycle>();
+            var grant = await lifecycle.ClaimTextAsync("embeddings-01", fingerprint, TimeSpan.FromSeconds(30), CancellationToken.None);
+            Assert.NotNull(grant);
+            var failed = await lifecycle.FailTextAsync(grant!.QueryId, "embeddings-01", grant.LeaseToken, grant.AttemptCount,
+                "embedding_text_invalid", retryable: false, CancellationToken.None);
+            Assert.Equal(EmbeddingFailOutcome.Failed, failed.Outcome);
+        }
+
+        // Concurrent new texts: exactly the cap is admitted, never more.
+        var admitted = await Task.WhenAll(Enumerable.Range(0, cap + 30).Select(index => RequestAsync($"text {index}")));
+        Assert.Equal(cap, admitted.Count(item => item));
+        await using (var db = host.World.Read())
+        {
+            Assert.Equal(cap, await db.AppearanceQueryEmbeddings.CountAsync(x =>
+                x.Status == AppearanceQueryStatus.Pending || x.Status == AppearanceQueryStatus.Running));
+        }
+
+        // After its cool-down the failed text would requeue, but the queue is full: refused, and it stays Failed.
+        host.World.Clock.Advance(Mavi.Infrastructure.Persistence.Repositories.EmbeddingLifecycle.FailedTextCoolDown + TimeSpan.FromSeconds(1));
+        Assert.False(await RequestAsync("failing text"));
+        await using (var db = host.World.Read())
+            Assert.Equal(AppearanceQueryStatus.Failed, (await db.AppearanceQueryEmbeddings.SingleAsync(x => x.Text == "failing text")).Status);
+
+        // With room again it requeues with a fresh attempt budget.
+        await using (var db = host.World.Read())
+        {
+            await db.AppearanceQueryEmbeddings.Where(x => x.Text == "text 0" || x.Text == "text 1")
+                .ExecuteDeleteAsync();
+        }
+
+        Assert.True(await RequestAsync("failing text"));
+        await using (var db = host.World.Read())
+        {
+            var requeued = await db.AppearanceQueryEmbeddings.SingleAsync(x => x.Text == "failing text");
+            Assert.Equal(AppearanceQueryStatus.Pending, requeued.Status);
+            Assert.Equal(0, requeued.AttemptCount);
+        }
+    }
+
     [Fact]
     public async Task AWorkerOfAnotherIdentityLeasesNothing()
     {

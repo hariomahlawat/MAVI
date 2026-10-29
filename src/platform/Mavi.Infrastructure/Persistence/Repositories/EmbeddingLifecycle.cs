@@ -547,42 +547,67 @@ public sealed class EmbeddingLifecycle(
 
     public const string TextQueueFullCode = "appearance_query_queue_full";
 
+    // The appearance-text admission lock's first key ("MAVITEXT"); the second is the identity's hash.
+    private const int TextAdmissionLockKey = 0x54455854;
+
+    /// <summary>
+    /// The text's query under the identity, created (or, for a cooled-down Failed text, requeued) when it has none.
+    /// </summary>
+    /// <remarks>
+    /// Admission is atomic (review P2): every path that can add a waiting text — a new text and a Failed text requeued
+    /// after its cool-down — runs under one transaction-scoped advisory lock per identity, counts the waiting texts and
+    /// refuses with <see cref="EmbeddingTextQueueFullException"/> at <see cref="MaximumPendingTexts"/>, so concurrent
+    /// requests cannot overshoot the cap. A text that already waits or has its vector never takes the lock.
+    /// </remarks>
     public async Task<AppearanceQueryEmbedding> RequestTextAsync(string identityFingerprint, string normalisedText, CancellationToken cancellationToken)
     {
         var textSha = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalisedText))).ToLowerInvariant();
         db.ChangeTracker.Clear();
         var existing = await db.AppearanceQueryEmbeddings.AsNoTracking()
             .SingleOrDefaultAsync(x => x.IdentityFingerprint == identityFingerprint && x.TextSha256 == textSha, cancellationToken);
-        if (existing is { Status: AppearanceQueryStatus.Failed })
+        if (existing is not null && existing.Status != AppearanceQueryStatus.Failed) return existing;
+
+        await using var transaction = await BeginFreshAsync(cancellationToken);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock({TextAdmissionLockKey}, hashtext({identityFingerprint}))", cancellationToken);
+        var current = await db.AppearanceQueryEmbeddings
+            .FromSqlInterpolated($"""
+                SELECT * FROM appearance_query_embeddings
+                WHERE identity_fingerprint = {identityFingerprint} AND text_sha256 = {textSha}
+                FOR UPDATE
+                """)
+            .SingleOrDefaultAsync(cancellationToken);
+        var nowUtc = timeProvider.GetUtcNow();
+        // Waiting, completed, or failed and still cooling down: nothing is admitted, so the cap does not apply.
+        if (current is not null &&
+            (current.Status != AppearanceQueryStatus.Failed || current.CompletedAtUtc is not { } failedAt || nowUtc - failedAt < FailedTextCoolDown))
         {
-            await using var transaction = await BeginFreshAsync(cancellationToken);
-            var locked = await db.AppearanceQueryEmbeddings
-                .FromSqlInterpolated($"SELECT * FROM appearance_query_embeddings WHERE id = {existing.Id} FOR UPDATE")
-                .SingleAsync(cancellationToken);
-            if (locked.Retry(timeProvider.GetUtcNow(), FailedTextCoolDown)) await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return locked;
+            return current;
         }
 
-        if (existing is not null) return existing;
-        var pending = await db.AppearanceQueryEmbeddings.AsNoTracking()
+        var waiting = await db.AppearanceQueryEmbeddings.AsNoTracking()
             .CountAsync(x => x.IdentityFingerprint == identityFingerprint &&
                              (x.Status == AppearanceQueryStatus.Pending || x.Status == AppearanceQueryStatus.Running), cancellationToken);
-        if (pending >= MaximumPendingTexts) throw new EmbeddingTextQueueFullException();
+        if (waiting >= MaximumPendingTexts)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new EmbeddingTextQueueFullException();
+        }
 
-        var created = AppearanceQueryEmbedding.Request(identityFingerprint, normalisedText, textSha, timeProvider.GetUtcNow());
-        db.AppearanceQueryEmbeddings.Add(created);
-        try
+        if (current is not null)
         {
-            await db.SaveChangesAsync(cancellationToken);
-            return created;
+            current.Retry(nowUtc, FailedTextCoolDown);
         }
-        catch (DbUpdateException exception) when (IsUniqueViolation(exception, "ux_appearance_query_embeddings_text"))
+        else
         {
-            db.ChangeTracker.Clear();
-            return await db.AppearanceQueryEmbeddings.AsNoTracking()
-                .SingleAsync(x => x.IdentityFingerprint == identityFingerprint && x.TextSha256 == textSha, cancellationToken);
+            current = AppearanceQueryEmbedding.Request(identityFingerprint, normalisedText, textSha, nowUtc);
+            db.AppearanceQueryEmbeddings.Add(current);
         }
+
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return current;
     }
 
     public Task<AppearanceQueryEmbedding?> GetTextAsync(Guid queryId, CancellationToken cancellationToken)
