@@ -78,7 +78,7 @@ public sealed class EmbeddingLifecycle(
             .Select(run => run.Id)
             .Take(batchSize)
             .ToListAsync(cancellationToken);
-        var (created, _) = await QueueRunsAsync(runIds, definition.Identity, cancellationToken);
+        var (created, _) = await QueueRunsAsync(runIds, definition.Identity, requeueFailed: false, cancellationToken);
         return created;
     }
 
@@ -96,7 +96,7 @@ public sealed class EmbeddingLifecycle(
         if (known.Count != ids.Count) return EmbeddingReanalysisResult.Refused("processing_run_not_found");
         var eligible = await EligibleRuns(Classes(definition)).Where(run => ids.Contains(run.Id)).Select(run => run.Id).ToListAsync(cancellationToken);
         var ordered = ids.Where(eligible.Contains).ToList();
-        var (queued, already) = await QueueRunsAsync(ordered, definition.Identity, cancellationToken);
+        var (queued, already) = await QueueRunsAsync(ordered, definition.Identity, requeueFailed: true, cancellationToken);
         return new EmbeddingReanalysisResult(ids.Count, queued, already, ids.Count - ordered.Count, null);
     }
 
@@ -109,17 +109,30 @@ public sealed class EmbeddingLifecycle(
             .Where(run => run.Status == ProcessingRunStatus.Completed && run.VisibilitySequence != null && run.CompletedAtUtc != null)
             .Where(run => db.Tracks.Any(track => track.ProcessingRunId == run.Id && classes.Contains(track.ObjectClass)));
 
+    /// <summary>
+    /// Queues one unit per run under <paramref name="identity"/>. The unique index is the arbiter of a concurrent
+    /// queue. With <paramref name="requeueFailed"/> (the explicit, bounded re-analysis request only) a Failed unit of
+    /// the identity gets a fresh attempt budget instead of counting as already queued; automatic queueing never
+    /// retries a failure.
+    /// </summary>
     private async Task<(int Created, int AlreadyQueued)> QueueRunsAsync(
-        IReadOnlyList<Guid> runIds, EmbeddingIdentityFields identity, CancellationToken cancellationToken)
+        IReadOnlyList<Guid> runIds, EmbeddingIdentityFields identity, bool requeueFailed, CancellationToken cancellationToken)
     {
         var created = 0;
         var already = 0;
         foreach (var runId in runIds)
         {
             db.ChangeTracker.Clear();
-            if (await db.EmbeddingAnalyses.AsNoTracking().AnyAsync(unit => unit.ProcessingRunId == runId && unit.IdentityFingerprint == identity.Fingerprint, cancellationToken))
+            var existing = await db.EmbeddingAnalyses.AsNoTracking()
+                .Where(unit => unit.ProcessingRunId == runId && unit.IdentityFingerprint == identity.Fingerprint)
+                .Select(unit => new { unit.Id, unit.Status })
+                .SingleOrDefaultAsync(cancellationToken);
+            if (existing is not null)
             {
-                already++;
+                if (requeueFailed && existing.Status == EmbeddingAnalysisStatus.Failed && await RequeueFailedAsync(existing.Id, cancellationToken))
+                    created++;
+                else
+                    already++;
                 continue;
             }
 
@@ -137,6 +150,22 @@ public sealed class EmbeddingLifecycle(
 
         db.ChangeTracker.Clear();
         return (created, already);
+    }
+
+    private async Task<bool> RequeueFailedAsync(Guid analysisId, CancellationToken cancellationToken)
+    {
+        await using var transaction = await BeginFreshAsync(cancellationToken);
+        var unit = await LockAsync(analysisId, cancellationToken);
+        if (unit is null || unit.Status != EmbeddingAnalysisStatus.Failed)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return false;
+        }
+
+        unit.Requeue(timeProvider.GetUtcNow());
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     // --- Claim ----------------------------------------------------------------------------
@@ -310,8 +339,12 @@ public sealed class EmbeddingLifecycle(
     // --- Evidence --------------------------------------------------------------------------
 
     public async Task<EmbeddingEvidenceAuthorization> AuthorizeEvidenceReadAsync(
-        Guid analysisId, string workerId, string leaseToken, int attemptCount, Guid observationId, CancellationToken cancellationToken)
+        Guid analysisId, string workerId, string leaseToken, int attemptCount, Guid observationId,
+        EmbeddingReleaseDefinition? definition, CancellationToken cancellationToken)
     {
+        // Only the release's leased classes are readable; without a release nothing is leased, so nothing is served.
+        if (definition is null) return new(null, new EmbeddingRefusal(EvidenceForbiddenCode));
+        var classes = Classes(definition);
         db.ChangeTracker.Clear();
         var unit = await db.EmbeddingAnalyses.AsNoTracking().SingleOrDefaultAsync(x => x.Id == analysisId, cancellationToken);
         if (unit is null) return new(null, new EmbeddingRefusal(AnalysisNotFoundCode));
@@ -324,8 +357,7 @@ public sealed class EmbeddingLifecycle(
                 from observation in db.Observations.AsNoTracking()
                 where observation.Id == observationId
                 join track in db.Tracks.AsNoTracking() on observation.TrackId equals track.Id
-                where track.ProcessingRunId == unit.ProcessingRunId &&
-                      (track.ObjectClass == ObjectClass.Person || track.ObjectClass == ObjectClass.Vehicle)
+                where track.ProcessingRunId == unit.ProcessingRunId && classes.Contains(track.ObjectClass)
                 join artifact in db.Artifacts.AsNoTracking() on observation.ThumbnailArtifactId equals artifact.Id
                 where artifact.ArtifactType == ArtifactType.EvidenceCrop
                 select new { artifact.StorageKey, artifact.MimeType, artifact.SizeBytes })
@@ -507,13 +539,36 @@ public sealed class EmbeddingLifecycle(
 
     // --- Appearance text queries ------------------------------------------------------------
 
+    /// <summary>A Failed text may be asked for again after this long (review Minor 1).</summary>
+    public static readonly TimeSpan FailedTextCoolDown = TimeSpan.FromMinutes(5);
+
+    /// <summary>At most this many texts wait for the worker at once; a flood of new texts cannot starve real queries.</summary>
+    public const int MaximumPendingTexts = 50;
+
+    public const string TextQueueFullCode = "appearance_query_queue_full";
+
     public async Task<AppearanceQueryEmbedding> RequestTextAsync(string identityFingerprint, string normalisedText, CancellationToken cancellationToken)
     {
         var textSha = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalisedText))).ToLowerInvariant();
         db.ChangeTracker.Clear();
         var existing = await db.AppearanceQueryEmbeddings.AsNoTracking()
             .SingleOrDefaultAsync(x => x.IdentityFingerprint == identityFingerprint && x.TextSha256 == textSha, cancellationToken);
+        if (existing is { Status: AppearanceQueryStatus.Failed })
+        {
+            await using var transaction = await BeginFreshAsync(cancellationToken);
+            var locked = await db.AppearanceQueryEmbeddings
+                .FromSqlInterpolated($"SELECT * FROM appearance_query_embeddings WHERE id = {existing.Id} FOR UPDATE")
+                .SingleAsync(cancellationToken);
+            if (locked.Retry(timeProvider.GetUtcNow(), FailedTextCoolDown)) await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return locked;
+        }
+
         if (existing is not null) return existing;
+        var pending = await db.AppearanceQueryEmbeddings.AsNoTracking()
+            .CountAsync(x => x.IdentityFingerprint == identityFingerprint &&
+                             (x.Status == AppearanceQueryStatus.Pending || x.Status == AppearanceQueryStatus.Running), cancellationToken);
+        if (pending >= MaximumPendingTexts) throw new EmbeddingTextQueueFullException();
 
         var created = AppearanceQueryEmbedding.Request(identityFingerprint, normalisedText, textSha, timeProvider.GetUtcNow());
         db.AppearanceQueryEmbeddings.Add(created);

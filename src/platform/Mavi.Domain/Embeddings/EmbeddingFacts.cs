@@ -123,6 +123,22 @@ public sealed class AppearanceQueryEmbedding
         CompletedAtUtc = nowUtc.ToUniversalTime();
     }
 
+    /// <summary>
+    /// A Failed text asked for again after <paramref name="coolDown"/> gets a fresh attempt budget, so one bad
+    /// moment of the worker does not refuse that text for ever.
+    /// </summary>
+    public bool Retry(DateTimeOffset nowUtc, TimeSpan coolDown)
+    {
+        if (Status != AppearanceQueryStatus.Failed || CompletedAtUtc is not { } failedAt || nowUtc.ToUniversalTime() - failedAt < coolDown)
+            return false;
+        Status = AppearanceQueryStatus.Pending;
+        AttemptCount = 0;
+        FailureCode = null;
+        CompletedAtUtc = null;
+        RequestedAtUtc = nowUtc.ToUniversalTime();
+        return true;
+    }
+
     /// <summary>A query whose attempts are spent and whose last lease lapsed is failed by the platform.</summary>
     public bool IsExhausted(DateTimeOffset nowUtc) =>
         Status == AppearanceQueryStatus.Running && AttemptCount >= MaximumAttempts &&

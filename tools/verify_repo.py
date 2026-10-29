@@ -1202,8 +1202,12 @@ def check_embedding_contract(errors: list[str]) -> None:
     vectors = json.loads((ROOT / "contracts/test-vectors/embedding-identity-v1.json").read_text(encoding="utf-8"))
     for vector in vectors["vectors"]:
         manifest_path, profile_path = ROOT / vector["modelManifest"], ROOT / vector["pipelineProfile"]
-        if not (manifest_path.is_file() and profile_path.is_file()):
+        if not (ROOT / "models").is_dir() and not (ROOT / "src").is_dir():
             # A contracts-only tree (the contract drift tests) has no manifests or profiles to re-derive from.
+            continue
+        if not (manifest_path.is_file() and profile_path.is_file()):
+            # In a full tree a missing or renamed file fails closed rather than silently disabling the check.
+            fail(f"Embedding identity vector {vector['name']} names a missing manifest or profile.", errors)
             continue
         canonical, fingerprint = embedding_identity(manifest_path, profile_path)
         if canonical != vector["canonicalIdentity"] or fingerprint != vector["fingerprint"]:

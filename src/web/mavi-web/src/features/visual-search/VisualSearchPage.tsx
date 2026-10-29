@@ -206,6 +206,10 @@ function appearanceErrorMessage(error: unknown): string | undefined {
       return 'The appearance description must be 1 to 200 characters.';
     case 'appearance_query_combination_unsupported':
       return 'Appearance search cannot be combined with plate text or analytics filters.';
+    case 'appearance_query_failed':
+      return 'The appearance description could not be prepared for search. Try again in a few minutes or rephrase it.';
+    case 'appearance_query_queue_full':
+      return 'Too many appearance queries are being prepared. Retry in a moment.';
     default:
       return undefined;
   }

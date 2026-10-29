@@ -138,6 +138,7 @@ public static class EmbeddingEndpoints
         Guid observationId,
         HttpContext context,
         IEmbeddingLifecycle lifecycle,
+        IEmbeddingRelease release,
         IAcceptedEvidenceReader evidenceReader,
         EmbeddingAudit audit,
         TimeProvider clock,
@@ -149,7 +150,8 @@ public static class EmbeddingEndpoints
             return Problem(400, "embedding_evidence_request_invalid", "Evidence request headers are invalid.");
 
         var verifiedAtUtc = clock.GetUtcNow();
-        var authorization = await lifecycle.AuthorizeEvidenceReadAsync(id, workerId, capability, attempt, observationId, cancellationToken);
+        var authorization = await lifecycle.AuthorizeEvidenceReadAsync(id, workerId, capability, attempt, observationId,
+            release.Resolution.Definition, cancellationToken);
         if (!authorization.IsAuthorised)
         {
             audit.EvidenceRefused(id, attempt, observationId, authorization.Refusal!.Code);
@@ -287,20 +289,36 @@ public static class EmbeddingEndpoints
 
     public sealed record EmbeddingReanalysisRequestContract(IReadOnlyList<Guid>? ProcessingRunIds);
 
+    /// <summary>
+    /// <c>POST /api/embeddings/reanalysis</c>: explicit, bounded (run ids only), audited. It also requeues a Failed unit
+    /// of the preferred identity. Authorisation follows the plate re-analysis endpoint when operator identity lands
+    /// (register C4.2, C10.1).
+    /// </summary>
     private static async Task<IResult> ReanalysisAsync(
         EmbeddingReanalysisRequestContract request,
         IEmbeddingRelease release,
         IEmbeddingLifecycle lifecycle,
+        EmbeddingAudit audit,
         IOptions<EmbeddingOptions> options,
         CancellationToken cancellationToken)
     {
         if (release.Resolution.Definition is not { } definition)
+        {
+            audit.ReanalysisRefused(TrackSimilarityService.NotConfiguredCode);
             return Problem(409, TrackSimilarityService.NotConfiguredCode, "No embedding identity is configured.");
-        var result = await lifecycle.RequestReanalysisAsync(definition, new EmbeddingReanalysisRequest(request.ProcessingRunIds ?? []),
+        }
+
+        var runIds = request.ProcessingRunIds ?? [];
+        var result = await lifecycle.RequestReanalysisAsync(definition, new EmbeddingReanalysisRequest(runIds),
             options.Value.MaximumRunsPerReanalysisRequest, cancellationToken);
         if (!result.IsSuccess)
-            return Problem(result.Refusal!.Code == "processing_run_not_found" ? 404 : 400, result.Refusal.Code,
+        {
+            audit.ReanalysisRefused(result.Refusal!.Code);
+            return Problem(result.Refusal.Code == "processing_run_not_found" ? 404 : 400, result.Refusal.Code,
                 "The embedding re-analysis request was rejected.");
+        }
+
+        audit.ReanalysisRequested(result.RunsMatched, result.Queued, result.AlreadyQueued, result.NotEligible, runIds);
         return Results.Accepted(value: new
         {
             identityFingerprint = definition.Identity.Fingerprint,

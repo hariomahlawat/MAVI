@@ -35,6 +35,7 @@ internal sealed class EmbeddingApiHost : IAsyncDisposable
     private EmbeddingApiHost(VisualAttributeWorld world) => World = world;
 
     public VisualAttributeWorld World { get; }
+    public VisionFinalizationSubmissionApiTests.CapturingLoggerProvider Logs { get; } = new();
     public ApiTestFactory Factory { get; private set; } = null!;
     public HttpClient Client { get; private set; } = null!;
 
@@ -57,6 +58,7 @@ internal sealed class EmbeddingApiHost : IAsyncDisposable
             MediaRootOverride = host.World.MediaRoot,
             EvidenceRootOverride = host.World.EvidenceRoot,
             AdditionalConfiguration = settings,
+            OverrideServices = services => services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(host.Logs),
         };
         host.Client = host.Factory.CreateClient();
         // Every test drops and recreates the schema and the vector extension, so pgvector's type OID changes while
@@ -102,14 +104,17 @@ internal sealed class EmbeddingApiHost : IAsyncDisposable
         return new LeasedEmbeddingUnit(lease!, Assert.Single(response.Headers.GetValues(EmbeddingContractRules.CapabilityHeader)), workerId);
     }
 
-    public Task<HttpResponseMessage> EvidenceAsync(LeasedEmbeddingUnit unit, Guid observationId)
+    public Task<HttpResponseMessage> EvidenceAsync(LeasedEmbeddingUnit unit, Guid observationId, string? capability = null, int? attempt = null)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, $"{EmbeddingContractRules.AnalysisRoutePrefix}/{unit.AnalysisId}/evidence/{observationId}");
-        request.Headers.Add(EmbeddingContractRules.CapabilityHeader, unit.Capability);
+        request.Headers.Add(EmbeddingContractRules.CapabilityHeader, capability ?? unit.Capability);
         request.Headers.Add(EmbeddingContractRules.WorkerHeader, unit.WorkerId);
-        request.Headers.Add(EmbeddingContractRules.AttemptHeader, unit.Attempt.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        request.Headers.Add(EmbeddingContractRules.AttemptHeader, (attempt ?? unit.Attempt).ToString(System.Globalization.CultureInfo.InvariantCulture));
         return Client.SendAsync(request);
     }
+
+    public Task<HttpResponseMessage> ReanalysisAsync(params Guid[] runIds) =>
+        Client.PostAsJsonAsync("/api/embeddings/reanalysis", new { processingRunIds = runIds });
 
     public Task<HttpResponseMessage> CompleteAsync(LeasedEmbeddingUnit unit, string body, string? capability = null) =>
         SendRawAsync($"{EmbeddingContractRules.AnalysisRoutePrefix}/{unit.AnalysisId}/complete", capability ?? unit.Capability, body);
@@ -527,6 +532,107 @@ public sealed class EmbeddingApiTests(PostgresFixture fixture)
 
         await using var db = host.World.Read();
         Assert.All(await db.Tracks.AsNoTracking().ToListAsync(), track => Assert.Null(track.EntityId));
+    }
+
+
+    [Fact]
+    public async Task EvidenceReadsAreFencedToTheLeasedRunCapabilityAndAttempt()
+    {
+        await using var host = await EmbeddingApiHost.CreateAsync(fixture, T0);
+        var leased = await ActivateAndSeedAsync(host, persons: 1, vehicles: 0, crops: 1);
+        host.World.Clock.Advance(TimeSpan.FromSeconds(1));
+        var other = await host.World.SeedRunAsync(1, 0, 1, completedAtUtc: host.World.Clock.GetUtcNow());
+        Assert.Equal(2, (await host.RunCycleAsync()).Queued);
+        var unit = await host.LeaseAsync();
+        var foreignRun = unit.Lease.ProcessingRunId == leased.RunId ? other : leased;
+        var ownRun = unit.Lease.ProcessingRunId == leased.RunId ? leased : other;
+
+        // Another run's Observation is never served, however valid the lease (the IDOR fence).
+        using (var foreign = await host.EvidenceAsync(unit, foreignRun.Track(0).Observations[0].ObservationId))
+            Assert.Equal("embedding_evidence_forbidden", await CodeAsync(foreign));
+        // A capability that is not this unit's, or another attempt, is refused before any byte.
+        using (var stolen = await host.EvidenceAsync(unit, ownRun.Track(0).Observations[0].ObservationId, capability: new string('A', 43)))
+            Assert.Equal(EmbeddingAnalysis.LeaseInvalidCode, await CodeAsync(stolen));
+        using (var stale = await host.EvidenceAsync(unit, ownRun.Track(0).Observations[0].ObservationId, attempt: unit.Attempt + 1))
+            Assert.Equal(EmbeddingAnalysis.LeaseInvalidCode, await CodeAsync(stale));
+        // After the lease expires the same read is refused too.
+        host.World.Clock.Advance(TimeSpan.FromMinutes(3));
+        using (var expired = await host.EvidenceAsync(unit, ownRun.Track(0).Observations[0].ObservationId))
+            Assert.Equal(EmbeddingAnalysis.LeaseInvalidCode, await CodeAsync(expired));
+    }
+
+    [Fact]
+    public async Task TheCapabilityNeverAppearsInAResponseBodyOrALogLine()
+    {
+        await using var host = await EmbeddingApiHost.CreateAsync(fixture, T0);
+        var run = await ActivateAndSeedAsync(host, persons: 2, vehicles: 0, crops: 1);
+        await host.RunCycleAsync();
+        using var lease = await host.PostLeaseAsync("embeddings-01");
+        var capability = Assert.Single(lease.Headers.GetValues(EmbeddingContractRules.CapabilityHeader));
+        Assert.DoesNotContain(capability, await lease.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var unit = new LeasedEmbeddingUnit(
+            JsonSerializer.Deserialize<EmbeddingLeaseContract>(await lease.Content.ReadAsStringAsync(), JsonSerializerOptions.Web)!,
+            capability, "embeddings-01");
+        using (var refused = await host.EvidenceAsync(unit, Guid.CreateVersion7()))
+            Assert.DoesNotContain(capability, await refused.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using (var completed = await host.CompleteAsync(unit,
+                   EmbeddingApiHost.CompletionBody(unit, (track, _) => EmbeddingApiHost.Embedded(track, EmbeddingApiHost.Axis(2)))))
+            Assert.DoesNotContain(capability, await completed.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.NotEmpty(host.Logs.Entries);
+        Assert.All(host.Logs.Entries, entry => Assert.DoesNotContain(capability, entry.Message, StringComparison.Ordinal));
+        Assert.Equal("ready", (await host.SimilarAsync(run.Track(0).TrackId)).GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public async Task OversizedControlPlaneBodiesAreRefusedBeforeTheyAreRead()
+    {
+        await using var host = await EmbeddingApiHost.CreateAsync(fixture, T0);
+        var padding = new string(' ', (int)EmbeddingRequestLimitMiddleware.SmallRequestBodyBytes + 1);
+        using (var lease = await host.SendRawAsync($"{EmbeddingContractRules.AnalysisRoutePrefix}/lease", null, padding + "{}"))
+            Assert.Equal(HttpStatusCode.RequestEntityTooLarge, lease.StatusCode);
+        using (var text = await host.SendRawAsync($"{EmbeddingContractRules.TextQueryRoutePrefix}/{Guid.CreateVersion7()}/fail", null, padding + "{}"))
+            Assert.Equal(HttpStatusCode.RequestEntityTooLarge, text.StatusCode);
+        Assert.Equal(EmbeddingContractRules.MaximumCompletionBodyBytes,
+            EmbeddingRequestLimitMiddleware.LimitFor($"{EmbeddingContractRules.AnalysisRoutePrefix}/{Guid.CreateVersion7()}/complete"));
+        Assert.Equal(0, EmbeddingRequestLimitMiddleware.LimitFor($"{EmbeddingContractRules.AnalysisRoutePrefix}/{Guid.CreateVersion7()}/unknown"));
+    }
+
+    [Fact]
+    public async Task AFailedOrNeverAnalysedRunSaysSoAndAnExplicitReanalysisRecoversIt()
+    {
+        await using var host = await EmbeddingApiHost.CreateAsync(fixture, T0,
+            configuration: new Dictionary<string, string?> { ["Embeddings:MaximumAttempts"] = "1" });
+        // A run completed before the identity's activation is never queued automatically: not analysed.
+        var history = await host.World.SeedRunAsync(1, 0, 1, completedAtUtc: T0.AddMinutes(-5));
+        var run = await ActivateAndSeedAsync(host, persons: 2, vehicles: 0, crops: 1);
+        Assert.Equal(1, (await host.RunCycleAsync()).Queued);
+        Assert.Equal("notAnalysed", (await host.SimilarAsync(history.Track(0).TrackId)).GetProperty("state").GetString());
+
+        // The only attempt is lost: the unit fails and similarity says so, with the failure code.
+        var unit = await host.LeaseAsync();
+        host.World.Clock.Advance(TimeSpan.FromMinutes(3));
+        Assert.Equal(1, (await host.RunCycleAsync()).ExhaustedFailed);
+        var failed = await host.SimilarAsync(run.Track(0).TrackId);
+        Assert.Equal("failed", failed.GetProperty("state").GetString());
+        Assert.Equal(EmbeddingAnalysis.AttemptsExhaustedCode, failed.GetProperty("reason").GetString());
+
+        // One bounded re-analysis requeues the failed unit (same id, fresh attempts) and queues the history run.
+        using (var reanalysis = await host.ReanalysisAsync(run.RunId, history.RunId))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, reanalysis.StatusCode);
+            var json = await reanalysis.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(2, json.GetProperty("queued").GetInt32());
+        }
+
+        var requeued = await host.UnitAsync(unit.AnalysisId);
+        Assert.Equal(EmbeddingAnalysisStatus.Queued, requeued.Status);
+        Assert.Equal(0, requeued.AttemptCount);
+        Assert.Equal("pending", (await host.SimilarAsync(run.Track(0).TrackId)).GetProperty("state").GetString());
+        Assert.Equal("pending", (await host.SimilarAsync(history.Track(0).TrackId)).GetProperty("state").GetString());
+        // A second request for the same runs queues nothing more.
+        using var again = await host.ReanalysisAsync(run.RunId, history.RunId);
+        Assert.Equal(2, (await again.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("alreadyQueued").GetInt32());
+        Assert.Contains(host.Logs.Entries, entry => entry.EventId.Id == 2205);
     }
 
     [Fact]

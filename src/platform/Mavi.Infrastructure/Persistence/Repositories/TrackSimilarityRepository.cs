@@ -35,7 +35,23 @@ public sealed class TrackSimilarityRepository(MaviDbContext db, TimeProvider tim
                 select new { row.Outcome, row.UnavailableReason, row.Embedding })
             .SingleOrDefaultAsync(cancellationToken);
         if (fact is null)
-            return new SimilarityTrackState(track.Id, track.ObjectClass, TrackSimilarityContractRules.StatePending, null, null);
+        {
+            // No fact inside the snapshot: say why. A unit Queued/Running (or published after a pinned snapshot) is
+            // pending; a Failed unit is failed with its code; no unit at all is not analysed (a run from before the
+            // identity's activation, or of another identity) — both recoverable by an explicit re-analysis.
+            var unit = await db.EmbeddingAnalyses.AsNoTracking()
+                .Where(analysis => analysis.ProcessingRunId == track.ProcessingRunId && analysis.IdentityFingerprint == identityFingerprint)
+                .Select(analysis => new { analysis.Status, analysis.FailureCode })
+                .SingleOrDefaultAsync(cancellationToken);
+            return unit switch
+            {
+                null => new SimilarityTrackState(track.Id, track.ObjectClass, TrackSimilarityContractRules.StateNotAnalysed, null, null),
+                { Status: EmbeddingAnalysisStatus.Failed } => new SimilarityTrackState(track.Id, track.ObjectClass,
+                    TrackSimilarityContractRules.StateFailed, unit.FailureCode, null),
+                _ => new SimilarityTrackState(track.Id, track.ObjectClass, TrackSimilarityContractRules.StatePending, null, null),
+            };
+        }
+
         return fact.Outcome == "Embedded" && fact.Embedding is { } embedding
             ? new SimilarityTrackState(track.Id, track.ObjectClass, TrackSimilarityContractRules.StateReady, null, embedding.ToArray())
             : new SimilarityTrackState(track.Id, track.ObjectClass, TrackSimilarityContractRules.StateUnavailable, fact.UnavailableReason, null);

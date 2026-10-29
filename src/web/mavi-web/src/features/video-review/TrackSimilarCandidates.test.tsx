@@ -184,6 +184,19 @@ describe('PoC S4 TrackSimilarCandidates', () => {
     expect(screen.queryByRole('list', { name: 'Similar Track candidates' })).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['notAnalysed', null, /Similarity not analysed: this Track.s run has no appearance analysis/],
+    ['failed', 'embedding_attempts_exhausted', /Similarity failed: this Track.s appearance analysis did not complete \(embedding_attempts_exhausted\)/],
+  ] as const)('says a %s run is not pending and can be re-analysed', async (state, reason, sentence) => {
+    const user = userEvent.setup();
+    vi.mocked(getSimilarTracks).mockResolvedValue(response({ state, reason, candidates: [], snapshot: null }));
+    renderPanel();
+
+    await user.click(screen.getByRole('button', { name: 'Find similar' }));
+    expect(await screen.findByText(sentence)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
+  });
+
   it('says when similarity is not configured', async () => {
     const user = userEvent.setup();
     vi.mocked(getSimilarTracks).mockResolvedValue(response({ state: 'notConfigured', identity: null, candidates: [], snapshot: null }));

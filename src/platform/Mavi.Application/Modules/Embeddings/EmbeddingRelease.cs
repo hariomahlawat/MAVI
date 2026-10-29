@@ -71,7 +71,9 @@ public static class EmbeddingReleaseParser
             var modelVersion = Text(m, "modelVersion");
             var pipelineId = Text(p, "pipelineId");
             var pipelineVersion = Text(p, "pipelineVersion");
-            if (!IsIdentityText(modelId) || !IsIdentityText(modelVersion) || !IsIdentityText(pipelineId) || !IsIdentityText(pipelineVersion))
+            // The same bounds EmbeddingAnalysis enforces, so a release that starts can always queue.
+            if (!IsIdentityText(modelId, 128) || !IsIdentityText(modelVersion, 64) || !IsIdentityText(pipelineId, 64) ||
+                !IsIdentityText(pipelineVersion, 64) || pipelineVersion!.Length < 5 || dimension is < 1 or > EmbeddingContractRules.MaximumDimension)
                 return Refused();
 
             var manifestSha = Sha256Hex(manifestBytes);
@@ -102,8 +104,9 @@ public static class EmbeddingReleaseParser
 
     public static string Sha256Hex(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-    private static bool IsIdentityText(string? value) =>
-        value is { Length: >= 1 and <= 128 } && value.All(character => character is >= ' ' and <= '~' and not '"' and not '\\');
+    private static bool IsIdentityText(string? value, int maximumLength) =>
+        value is not null && value.Length >= 1 && value.Length <= maximumLength &&
+        value.All(character => character is >= ' ' and <= '~' and not '"' and not '\\');
 
     private static string? Text(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

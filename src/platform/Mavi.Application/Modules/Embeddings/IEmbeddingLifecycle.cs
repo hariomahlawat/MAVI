@@ -45,6 +45,9 @@ public sealed record EmbeddingTextLeaseGrant(
 
 public sealed record EmbeddingReanalysisRequest(IReadOnlyList<Guid> ProcessingRunIds);
 
+/// <summary>Too many appearance texts already wait for the worker; the caller retries later.</summary>
+public sealed class EmbeddingTextQueueFullException() : InvalidOperationException("appearance_query_queue_full");
+
 public sealed record EmbeddingReanalysisResult(int RunsMatched, int Queued, int AlreadyQueued, int NotEligible, EmbeddingRefusal? Refusal)
 {
     public bool IsSuccess => Refusal is null;
@@ -93,7 +96,8 @@ public interface IEmbeddingLifecycle
     Task<EmbeddingSweepResult> SweepAsync(EmbeddingLeasePolicy policy, int batchSize, CancellationToken cancellationToken);
 
     Task<EmbeddingEvidenceAuthorization> AuthorizeEvidenceReadAsync(
-        Guid analysisId, string workerId, string leaseToken, int attemptCount, Guid observationId, CancellationToken cancellationToken);
+        Guid analysisId, string workerId, string leaseToken, int attemptCount, Guid observationId,
+        EmbeddingReleaseDefinition? definition, CancellationToken cancellationToken);
 
     Task<DateTimeOffset?> RevalidateLeaseAsync(Guid analysisId, string workerId, string leaseToken, int attemptCount, CancellationToken cancellationToken);
 

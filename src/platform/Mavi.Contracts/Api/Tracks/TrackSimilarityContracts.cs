@@ -20,6 +20,10 @@ public static class TrackSimilarityContractRules
     public const string StatePending = "pending";
     public const string StateUnavailable = "unavailable";
     public const string StateNotConfigured = "notConfigured";
+    /// <summary>The run has no analysis under the identity (it predates activation); an explicit re-analysis queues it.</summary>
+    public const string StateNotAnalysed = "notAnalysed";
+    /// <summary>The run's analysis failed (reason = its failure code); an explicit re-analysis requeues it.</summary>
+    public const string StateFailed = "failed";
 }
 
 public sealed record SimilarityIdentityResponse(string Fingerprint, string ModelId, string ModelVersion);

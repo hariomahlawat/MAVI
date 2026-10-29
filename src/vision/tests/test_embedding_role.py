@@ -162,8 +162,9 @@ class FakePlatform:
         if operation == "complete":
             self.completions.append(request.content)
             status = self.complete_statuses.pop(0) if self.complete_statuses else 200
+            status, code = status if isinstance(status, tuple) else (status, "transient")
             if status != 200:
-                return httpx.Response(status, json={"code": "transient"})
+                return httpx.Response(status, json={"code": code})
             body = json.loads(request.content)
             embedded = sum(1 for track in body["tracks"] if track["outcome"] == "embedded")
             return httpx.Response(200, json={
@@ -265,9 +266,19 @@ def test_an_ambiguous_completion_is_replayed_with_identical_bytes() -> None:
 def test_a_refused_completion_fails_the_attempt_as_output_invalid() -> None:
     platform = FakePlatform()
     platform.add_track([_jpeg(100, 100, 8)])
-    platform.complete_statuses = [422]
+    platform.complete_statuses = [(422, "embedding_completion_invalid")]
     outcome = asyncio.run(_run_analysis(platform))
     assert outcome.failure_code == "embedding_output_invalid" and len(platform.completions) == 1
+
+
+def test_another_completion_refusal_abandons_the_attempt_without_burning_the_unit() -> None:
+    # A release change (identity no longer preferred) or a size limit is not bad output: no non-retryable failure.
+    for refusal in [(409, "embedding_identity_mismatch"), (413, "payload_too_large")]:
+        platform = FakePlatform()
+        platform.add_track([_jpeg(100, 100, 8)])
+        platform.complete_statuses = [refusal]
+        outcome = asyncio.run(_run_analysis(platform))
+        assert outcome.status == "abandoned" and platform.failures == [] and len(platform.completions) == 1
 
 
 def test_a_model_fault_fails_the_attempt_as_runtime_failed() -> None:

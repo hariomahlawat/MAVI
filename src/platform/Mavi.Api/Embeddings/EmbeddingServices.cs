@@ -27,6 +27,24 @@ public sealed partial class EmbeddingAudit(ILogger<EmbeddingAudit> logger) : ILe
     public void Completed(Guid analysisId, int attempt, string status, int embedded, int unavailable) =>
         LogCompleted(logger, analysisId, attempt, status, embedded, unavailable);
 
+    public void ReanalysisRequested(int matched, int queued, int alreadyQueued, int notEligible, IReadOnlyList<Guid> runIds)
+    {
+        if (!logger.IsEnabled(LogLevel.Information))
+            return;
+        var selected = string.Join(",", runIds);
+        LogReanalysis(logger, matched, queued, alreadyQueued, notEligible, selected);
+    }
+
+    public void ReanalysisRefused(string code) => LogReanalysisRefused(logger, code);
+
+    [LoggerMessage(EventId = 2205, EventName = "embedding_reanalysis_requested", Level = LogLevel.Information,
+        Message = "Embedding re-analysis requested: {Matched} runs matched, {Queued} queued, {AlreadyQueued} already queued, {NotEligible} not eligible; runs {RunIds}.")]
+    private static partial void LogReanalysis(ILogger logger, int matched, int queued, int alreadyQueued, int notEligible, string runIds);
+
+    [LoggerMessage(EventId = 2206, EventName = "embedding_reanalysis_refused", Level = LogLevel.Warning,
+        Message = "Embedding re-analysis refused ({Code}); nothing was queued.")]
+    private static partial void LogReanalysisRefused(ILogger logger, string code);
+
     [LoggerMessage(EventId = 2200, EventName = "embedding_evidence_read", Level = LogLevel.Information,
         Message = "Embedding evidence read: analysis {AnalysisId} attempt {Attempt} Observation {ObservationId}, {Bytes} bytes, served.")]
     private static partial void LogEvidenceServed(ILogger logger, Guid analysisId, int attempt, Guid observationId, long bytes);

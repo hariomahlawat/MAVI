@@ -127,6 +127,20 @@ function Answer({
       );
     case 'notConfigured':
       return <Alert tone="info">Similarity search is not configured in this installation.</Alert>;
+    case 'notAnalysed':
+      return (
+        <Alert tone="info">
+          Similarity not analysed: this Track&apos;s run has no appearance analysis (it was processed before similarity
+          was enabled). An administrator can request a re-analysis of the run.
+        </Alert>
+      );
+    case 'failed':
+      return (
+        <Alert tone="warning">
+          Similarity failed: this Track&apos;s appearance analysis did not complete
+          {data.reason ? ` (${data.reason})` : ''}. An administrator can request a re-analysis of the run.
+        </Alert>
+      );
     case 'unavailable':
       return <Alert tone="info">{similarityUnavailableSentence(data.reason)}</Alert>;
     case 'ready': {

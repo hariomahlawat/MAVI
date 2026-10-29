@@ -30,6 +30,7 @@ Chance R@1 is 0.005. A post-hoc breakdown of the first run (hypothesis only) fou
 ### 1. Model and normalisation
 
 - **Model:** `google/siglip2-base-patch16-224`, revision `75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2`, Apache-2.0.
+- **Spike CUDA caveat:** the spike's CUDA leg (agreement ≥ 0.9997, 29.6 ms per crop) ran on a spike-only `onnxruntime-gpu 1.22.0`. The end-to-end run used the bound pin `1.26.0` and gave identical Track outcomes and rankings to the CPU run.
 - **Export:** the image tower and the text tower are exported to two ONNX graphs (opset 17) by `tools/vision/build_siglip2_pack.py`. The export is checked against PyTorch: minimum cosine 0.99999994 for both towers. CPU and CUDA ONNX Runtime agree to a minimum cosine of 0.9997.
 - **Image preprocessing** (`siglip2-fixed-224-v1`): RGB; bilinear resize to 224×224; `(x/255 − 0.5)/0.5`.
 - **Text preprocessing:** lowercase, then the pack's SentencePiece `tokenizer.model`, then EOS (id 1), then pad (id 0) to 64. This equals the reference Hugging Face tokenizer on the build's parity texts. The runtime does not use `transformers` or `tokenizers`.
@@ -72,8 +73,8 @@ The role follows ADR-013 §8–§12 and the plate role's control plane (`mavi-em
 | Table | Content |
 |---|---|
 | `embedding_analyses` | The unit header: identity, lease, attempts, outcome, visibility sequence, provenance. Unique `(processing_run_id, identity_fingerprint)`. |
-| `track_embeddings` | One row per Track per analysis: `outcome`, `unavailable_reason`, `embedding vector(768)` (null when Unavailable), `source_observation_ids uuid[]`, `crop_count`. |
-| `appearance_query_embeddings` | Cached text-query vectors per (identity, normalised-text SHA-256), filled by the role's text-query lease. |
+| `track_embeddings` | One row per Track per analysis: `outcome`, `unavailable_reason`, `embedding vector` (null when Unavailable), `source_observation_ids uuid[]`. The column is dimension-free; each analysis records its dimension, the completion checks every vector against it, and search compares vectors of one identity only. |
+| `appearance_query_embeddings` | Cached text-query vectors per (identity, normalised-text SHA-256), filled by the role's text-query lease. At most 50 texts wait at once; at most 8 requests wait for a vector at once; a Failed text can be asked for again after 5 minutes. The operator's texts are kept with the database. A retention rule follows with the audit work (C10.1). |
 
 - **Search is exact and deterministic.** Candidates come from the existing base Track candidate set at the snapshot (one shared implementation with Track search). They are joined to the pinned identity's fact-bearing analysis of each run, published inside the snapshot, and ordered by `cosine distance ASC, track id ASC`.
 - **No ANN index.** HNSW, which plan S4 named, is deliberately not created in this slice:
@@ -83,7 +84,12 @@ The role follows ADR-013 §8–§12 and the plate role's control plane (`mavi-em
 - **`GET /api/tracks/{id}/similar`:**
   - Parameters: `k` (1–50, default 20), optional `cameraId`, `fromUtc`, `toUtc`, `objectClass` (default: the query Track's class) and `snapshot`.
   - Every other key is refused (whitelisted).
-  - The query Track must have a vector in the pinned identity. Otherwise the endpoint answers with explicit states: `similarity_unavailable` (with its reason) when the Track's evidence is too small, `similarity_pending` while its analysis has not completed.
+  - The query Track must have a vector in the pinned identity. Otherwise the endpoint answers with an explicit state:
+    - `unavailable` (with its reason), for example when the Track's evidence is too small;
+    - `pending` while its analysis is queued or running;
+    - `failed` (with the failure code) when its analysis failed;
+    - `notAnalysed` when its run has no analysis under the identity (it predates the activation).
+  - The explicit, bounded `POST /api/embeddings/reanalysis` (run ids only, audited) queues a not-analysed run and requeues a Failed unit with a fresh attempt budget. Automatic queueing never retries a failure.
 - **`appearanceQuery`** is a whitelisted key on `GET /api/tracks` (1–200 characters after normalisation: trim, collapse whitespace, lowercase).
   - It ranks the base candidates by text→image cosine and returns the top `k` (≤ 100) in one page with no continuation cursor.
   - It cannot be combined with plate or analytic predicates in this slice (refused with `appearance_query_combination_unsupported`).
@@ -107,8 +113,9 @@ The role follows ADR-013 §8–§12 and the plate role's control plane (`mavi-em
 ## Trade-offs accepted
 
 - **Scope limited to evidence ≥ 80 px.** Small and distant subjects, which in CCTV are many, get "similarity unavailable" instead of unreliable candidates. The evidence supports nothing better today.
+- **Text→image is unvalidated.** The appearance query has been checked for determinism and plausible class ordering only (person→Person, car→Vehicle on the demo corpus). Its retrieval quality is unmeasured. Raw text–image cosines are small (about 0.04–0.15), so its results are ordering hints, not detections. S5 calibrates the zero-shot use with the model's logit scale and bias.
 - **A general model, not ReID.** SigLIP 2 is a general image–text model, not a re-identification model. Its margin over a trivial baseline on the sanity test is small. Cross-camera candidates will include look-alikes of the same type and colour. A specialist ReID model (OSNet/TransReID, or a fine-tuned head) is the later swap under ADR-014. It needs a labelled benchmark (e.g. VeRi-776, Market-1501) per ADR-017, not more spike data.
-- **Exact search.** It costs O(N) per query. It is chosen for determinism and is acceptable to roughly 10⁵ Tracks; the ANN trigger is explicit.
+- **Exact search.** It costs O(N) per query and is chosen for determinism. It is measured only at demo scale (40 Tracks: p95 under 40 ms). The ANN trigger is explicit, and any larger-scale claim needs a measurement.
 - **No sealed artefact.** No raw per-crop vectors are kept, so forensic replay re-embeds the sealed crops instead of reading a sealed vector file.
 - **Bounded, pull-based text queries.** The first use of a new appearance text waits up to about 10 s for the worker; repeated texts are immediate.
 - **Explicit composition, not a Component Binding.** The role is composed from explicit paths (model manifest, pipeline profile, Model Pack root) rather than an ADR-014 Component Binding with a Runtime Pack id. ADR-014's Development role-binding path is plate-specific today. Generalising it is not needed for the PoC claim, and doing it now would have reworked the plate binding code that slice S3 is changing in parallel.

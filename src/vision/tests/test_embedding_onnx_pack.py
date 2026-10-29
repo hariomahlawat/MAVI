@@ -71,3 +71,14 @@ def test_text_vectors_and_tokenizer(model_and_artifacts) -> None:
     assert len(ids) == 64 and 1 in ids and ids[ids.index(1) + 1:] == [0] * (63 - ids.index(1))
     vectors = l2_normalise_rows(model.embed_texts(["a car", "a person"]), 768)
     assert vectors.shape == (2, 768) and float(vectors[0] @ vectors[1]) < 0.999
+
+
+def test_the_pack_tokenizer_reproduces_the_reference_ids_including_truncation_and_non_ascii() -> None:
+    import json
+
+    fixture = Path(__file__).parent / "fixtures" / "embeddings" / "tokenizer-parity-v1.json"
+    vectors = json.loads(fixture.read_text(encoding="utf-8"))["vectors"]
+    processor = load_sentencepiece(Path(MODEL_ROOT) / "embeddings-siglip2-base-p16-224-dev-v1" / "tokenizer.model")
+    assert any(item["ids"][-1] == 1 and 0 not in item["ids"] for item in vectors)  # a truncated text keeps EOS last
+    for item in vectors:
+        assert sentencepiece_ids(processor, item["text"]) == item["ids"], item["text"]

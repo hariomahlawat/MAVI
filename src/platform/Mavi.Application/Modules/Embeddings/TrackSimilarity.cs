@@ -65,6 +65,15 @@ public sealed class TrackSimilarityService(
     public const string AppearanceFailedCode = "appearance_query_failed";
     public const string NotConfiguredCode = "embeddings_not_configured";
     public const string ClassNotEmbeddedReason = "class_not_embedded";
+    public const string AppearanceBusyCode = "appearance_query_queue_full";
+
+    /// <summary>
+    /// At most this many requests wait for a new text's vector at once, process-wide (each holds a connection slot
+    /// while it polls); the rest answer 503 at once instead of piling up (review Minor 1).
+    /// </summary>
+    public const int MaximumConcurrentWaiters = 8;
+
+    private static readonly SemaphoreSlim Waiters = new(MaximumConcurrentWaiters, MaximumConcurrentWaiters);
 
     public async Task<SimilarTracksResult> FindSimilarAsync(Guid trackId, SimilarTracksQuery query, CancellationToken cancellationToken)
     {
@@ -131,12 +140,32 @@ public sealed class TrackSimilarityService(
                 return new AppearanceSearchResult(AppearanceInvalidCode, 400, [], null);
         }
 
-        var query = await lifecycle.RequestTextAsync(identity.Fingerprint, normalised, cancellationToken);
-        var deadline = timeProvider.GetUtcNow().AddMilliseconds(options.Value.AppearanceQueryWaitMilliseconds);
-        while (query.Status is AppearanceQueryStatus.Pending or AppearanceQueryStatus.Running && timeProvider.GetUtcNow() < deadline)
+        AppearanceQueryEmbedding query;
+        try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(200), timeProvider, cancellationToken);
-            query = await lifecycle.GetTextAsync(query.Id, cancellationToken) ?? query;
+            query = await lifecycle.RequestTextAsync(identity.Fingerprint, normalised, cancellationToken);
+        }
+        catch (EmbeddingTextQueueFullException)
+        {
+            return new AppearanceSearchResult(AppearanceBusyCode, 503, [], null);
+        }
+
+        if (query.Status is AppearanceQueryStatus.Pending or AppearanceQueryStatus.Running && options.Value.AppearanceQueryWaitMilliseconds > 0 &&
+            await Waiters.WaitAsync(0, cancellationToken))
+        {
+            try
+            {
+                var deadline = timeProvider.GetUtcNow().AddMilliseconds(options.Value.AppearanceQueryWaitMilliseconds);
+                while (query.Status is AppearanceQueryStatus.Pending or AppearanceQueryStatus.Running && timeProvider.GetUtcNow() < deadline)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(200), timeProvider, cancellationToken);
+                    query = await lifecycle.GetTextAsync(query.Id, cancellationToken) ?? query;
+                }
+            }
+            finally
+            {
+                Waiters.Release();
+            }
         }
 
         if (query.Status == AppearanceQueryStatus.Failed) return new AppearanceSearchResult(AppearanceFailedCode, 422, [], null);

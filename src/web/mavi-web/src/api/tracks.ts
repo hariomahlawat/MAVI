@@ -527,7 +527,7 @@ export function getTrack(trackId: string, signal?: AbortSignal, identity?: Track
 }
 
 /** `GET /api/tracks/{id}/similar` (ADR-021 §4). */
-export type SimilarTracksState = 'ready' | 'pending' | 'unavailable' | 'notConfigured';
+export type SimilarTracksState = 'ready' | 'pending' | 'unavailable' | 'notConfigured' | 'notAnalysed' | 'failed';
 
 export type SimilarityUnavailableReason = 'evidence_too_small' | 'no_evidence' | 'evidence_unavailable';
 

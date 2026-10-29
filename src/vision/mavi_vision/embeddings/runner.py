@@ -298,8 +298,16 @@ class EmbeddingRunner:
             except EmbeddingLeaseLost:
                 raise
             except EmbeddingApiError as exc:
-                if exc.status_code is not None and exc.status_code < 500:
+                if exc.status_code == 422 and exc.code == "embedding_completion_invalid":
+                    # The platform judged this output invalid: the one refusal that is the worker's own fault.
                     raise _AttemptFailed(FAILURE_OUTPUT_INVALID, f"completion refused ({exc.code})") from exc
+                if exc.status_code is not None and exc.status_code < 500:
+                    # Any other refusal (an identity no longer preferred after a release change, a size limit, a
+                    # stale attempt) is not evidence of bad output: abandon the attempt and let the platform reclaim
+                    # it, never burn the unit with a non-retryable failure.
+                    _LOGGER.warning("Embedding analysis %s attempt %s: completion refused (%s %s); abandoning the attempt",
+                                    lease.analysis_id, lease.attempt_count, exc.status_code, exc.code)
+                    return AttemptOutcome("abandoned")
                 # Transport or an ambiguous outcome: the identical bytes are replayed.
                 continue
             _LOGGER.info("Embedding analysis %s attempt %s %s: %s Tracks embedded, %s unavailable", lease.analysis_id,

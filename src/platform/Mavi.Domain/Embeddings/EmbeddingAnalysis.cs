@@ -236,6 +236,24 @@ public sealed class EmbeddingAnalysis
         Terminate(AttemptsExhaustedCode, null, nowUtc.ToUniversalTime());
     }
 
+    /// <summary>
+    /// An explicit, bounded re-analysis of a <see cref="EmbeddingAnalysisStatus.Failed"/> unit (ADR-021 §3): the same
+    /// identity gets a fresh attempt budget and deadline. The failure stays recorded in the last-failure fields; a
+    /// fact-bearing or live unit is never reset.
+    /// </summary>
+    public void Requeue(DateTimeOffset nowUtc)
+    {
+        if (Status != EmbeddingAnalysisStatus.Failed) throw Invalid();
+        Status = EmbeddingAnalysisStatus.Queued;
+        AttemptCount = 0;
+        FirstClaimedAtUtc = null;
+        CompletedAtUtc = null;
+        FailureCode = null;
+        FailureDetails = null;
+        ClearLease();
+        QueuedAtUtc = nowUtc.ToUniversalTime();
+    }
+
     // --- Completion ----------------------------------------------------------------------
 
     /// <summary>
