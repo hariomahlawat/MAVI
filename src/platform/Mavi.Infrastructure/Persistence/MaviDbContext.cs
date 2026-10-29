@@ -1,5 +1,6 @@
 using Mavi.Domain.Audit;
 using Mavi.Domain.Cameras;
+using Mavi.Domain.Embeddings;
 using Mavi.Domain.Intelligence;
 using Mavi.Domain.Media;
 using Mavi.Domain.Plates;
@@ -44,6 +45,10 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<PlateReading> PlateReadings => Set<PlateReading>();
     public DbSet<PlateTrackText> PlateTrackTexts => Set<PlateTrackText>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+    public DbSet<EmbeddingAnalysis> EmbeddingAnalyses => Set<EmbeddingAnalysis>();
+    public DbSet<EmbeddingIdentityActivation> EmbeddingIdentityActivations => Set<EmbeddingIdentityActivation>();
+    public DbSet<Configurations.TrackEmbeddingRow> TrackEmbeddings => Set<Configurations.TrackEmbeddingRow>();
+    public DbSet<AppearanceQueryEmbedding> AppearanceQueryEmbeddings => Set<AppearanceQueryEmbedding>();
 
     // Model configuration
     protected override void OnModelCreating(ModelBuilder modelBuilder)

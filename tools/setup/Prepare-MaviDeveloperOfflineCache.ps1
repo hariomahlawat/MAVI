@@ -2,7 +2,11 @@
 param(
     [string]$Destination = (Join-Path $PSScriptRoot "..\..\vendor\developer-cache\win-x64"),
 
-    [string]$Python = "python"
+    [string]$Python = "python",
+
+    # PoC S4 (ADR-021): the controlled store holding the exported SigLIP 2 embeddings pack (built once by
+    # tools\vision\build_siglip2_pack.py; there is no upstream URL for the ONNX towers). Collected SHA-256 verified.
+    [string]$EmbeddingsPackSource = "E:\MAVI-Controlled\PoC\S4\pack"
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +24,8 @@ $instrumentWheelRoot = Join-Path $destination "python-benchmark-instruments-whee
 $instrumentPayloadRoot = Join-Path $destination "benchmark-instrument-payloads"
 $platesWheelRoot = Join-Path $destination "python-plates-pilot-wheelhouse"
 $platesPayloadRoot = Join-Path $destination "plates-pilot-payloads"
+$embeddingsWheelRoot = Join-Path $destination "python-embeddings-wheelhouse"
+$embeddingsPayloadRoot = Join-Path $destination "embeddings-payloads"
 
 if (Test-Path -LiteralPath $destination) {
     Remove-Item -LiteralPath $destination -Recurse -Force
@@ -31,6 +37,8 @@ New-Item -ItemType Directory -Path $instrumentWheelRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $instrumentPayloadRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $platesWheelRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $platesPayloadRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $embeddingsWheelRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $embeddingsPayloadRoot -Force | Out-Null
 
 Push-Location $repoRoot
 try {
@@ -90,6 +98,18 @@ try {
         throw "Plates pilot Model Pack payload preparation failed."
     }
 
+    # PoC S4 (ADR-021): the embeddings-onnx-v1 runtime family (exact wheels of its hash-pinned lock) and the
+    # unverified SigLIP 2 Model Pack payloads. Installed offline by tools\setup\Install-MaviEmbeddingsRuntime.ps1.
+    $embeddingsLock = Join-Path $repoRoot "src\vision\runtime\embeddings-onnx-v1\windows-x86_64-cpu.lock"
+    & $Python -m pip download --dest $embeddingsWheelRoot -r $embeddingsLock --require-hashes --no-deps --only-binary=:all: --python-version 3.12 --implementation cp --platform win_amd64
+    if ($LASTEXITCODE -ne 0) {
+        throw "Embeddings runtime wheelhouse preparation failed."
+    }
+    & $Python (Join-Path $repoRoot "tools\vision\embeddings_packs.py") collect --source $EmbeddingsPackSource --dest $embeddingsPayloadRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Embeddings Model Pack payload preparation failed."
+    }
+
     $visionRoot = Join-Path $repoRoot "src\vision"
     $visionEggInfo = Join-Path $visionRoot "mavi_vision.egg-info"
     Push-Location $visionRoot
@@ -124,6 +144,8 @@ $sourceInputs = [ordered]@{
     instrumentPayloadsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\benchmarks\plates\instrument-payloads-v1.json") -Algorithm SHA256).Hash.ToLowerInvariant()
     platesPilotLockSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "src\vision\runtime\plates-onnx-v1\windows-x86_64-cpu.lock") -Algorithm SHA256).Hash.ToLowerInvariant()
     platesPilotPayloadsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\vision\plates-pilot-payloads-v1.json") -Algorithm SHA256).Hash.ToLowerInvariant()
+    embeddingsLockSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "src\vision\runtime\embeddings-onnx-v1\windows-x86_64-cpu.lock") -Algorithm SHA256).Hash.ToLowerInvariant()
+    embeddingsManifestSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "models\manifests\embeddings-siglip2-base-p16-224-dev-v1.json") -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
 $nugetPackages = @()
@@ -226,6 +248,15 @@ foreach ($file in @(Get-ChildItem -LiteralPath $platesWheelRoot, $platesPayloadR
     }
 }
 
+$embeddingsArtifacts = @()
+foreach ($file in @(Get-ChildItem -LiteralPath $embeddingsWheelRoot, $embeddingsPayloadRoot -File -Recurse | Sort-Object FullName)) {
+    $embeddingsArtifacts += [ordered]@{
+        path = $file.FullName.Substring($destination.Length).TrimStart('\').Replace('\', '/')
+        sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = [long]$file.Length
+    }
+}
+
 $cacheManifest = [ordered]@{
     schemaVersion = "mavi-developer-offline-cache-v1"
     sourceInputs = $sourceInputs
@@ -234,6 +265,7 @@ $cacheManifest = [ordered]@{
     pythonArtifacts = @($pythonArtifacts)
     benchmarkInstrumentArtifacts = @($instrumentArtifacts)
     platesPilotArtifacts = @($platesArtifacts)
+    embeddingsArtifacts = @($embeddingsArtifacts)
 }
 $cacheManifestPath = Join-Path $destination "developer-cache-manifest.json"
 $cacheManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $cacheManifestPath -Encoding UTF8
@@ -245,6 +277,7 @@ Write-Host "  npm packages   : $($npmPackages.Count)"
 Write-Host "  Python artifacts: $($pythonArtifacts.Count)"
 Write-Host "  Benchmark instrument artifacts: $($instrumentArtifacts.Count)"
 Write-Host "  Plates pilot artifacts: $($platesArtifacts.Count)"
+Write-Host "  Embeddings artifacts: $($embeddingsArtifacts.Count)"
 Write-Host "  NuGet : $nugetRoot"
 Write-Host "  npm   : $npmRoot"
 Write-Host "  Python: $pythonRoot"

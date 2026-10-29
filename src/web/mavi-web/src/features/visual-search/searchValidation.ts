@@ -1,5 +1,9 @@
 import {
+  APPEARANCE_CONFLICT_MESSAGE,
+  canonicalSearchKey,
   compareUtcInstants,
+  hasAppearanceConflict,
+  normaliseAppearanceQuery,
   confidencePercentTextToFraction,
   removeCriteria,
   secondsTextToMilliseconds,
@@ -32,7 +36,7 @@ import { normalisePlateText } from './plateText';
 
 export type SearchFieldKey =
   | 'fromLocal' | 'toLocal' | 'minimumDurationSeconds' | 'minimumConfidencePercent'
-  | 'minDwellSeconds' | 'minStationarySeconds' | 'plateText' | 'objectClass';
+  | 'minDwellSeconds' | 'minStationarySeconds' | 'plateText' | 'objectClass' | 'appearanceQuery';
 
 export type SearchFieldErrors = Partial<Record<SearchFieldKey, string>>;
 
@@ -201,8 +205,34 @@ export function commitDraft({
     errors.toLocal = 'To time must be later than the From time.';
   }
 
+  // ADR-021 §4: an appearance query ranks the base candidates on its own. It
+  // is refused beside plate text or analytics, on its own field, rather than
+  // silently dropping either half of what the operator asked for. Judged on
+  // the settled criteria, so a link-only analytic key counts too.
+  if (draft.appearanceQuery.trim()) {
+    const text = normaliseAppearanceQuery(draft.appearanceQuery);
+    if (text === null) {
+      errors.appearanceQuery = 'Enter 1 to 200 characters.';
+    } else {
+      next.appearanceQuery = text;
+      if (hasAppearanceConflict(removeCriteria(next, []))) {
+        errors.appearanceQuery = APPEARANCE_CONFLICT_MESSAGE + ' Clear them, or clear the appearance description.';
+      }
+    }
+  } else {
+    delete next.appearanceQuery;
+  }
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   // Settle the dependency graph once more: an analytic criterion cannot stand
   // without a camera-resolving scope, whatever the draft said about it.
-  return { ok: true, filters: removeCriteria(next, []) };
+  const settled = removeCriteria(next, []);
+  // A held appearance snapshot replays exactly the search it was taken under.
+  // Any other committed search is a new query, and a new query drops it.
+  if (settled.appearanceSnapshot !== undefined) {
+    const { appearanceSnapshot: _held, ...rest } = settled;
+    const { appearanceSnapshot: _committed, ...committedRest } = committed;
+    if (canonicalSearchKey(rest) !== canonicalSearchKey(committedRest)) delete settled.appearanceSnapshot;
+  }
+  return { ok: true, filters: settled };
 }

@@ -127,6 +127,7 @@ public static class DependencyInjection
         services.AddSceneAnalyticsOptions(configuration);
         services.AddVisualAttributes(configuration);
         services.AddPlates(configuration);
+        services.AddEmbeddings(configuration);
         services.AddTrackSearchOptions(configuration);
         services.AddOptions<LocalizationOptions>()
             .Bind(configuration.GetSection(LocalizationOptions.SectionName))
@@ -326,6 +327,37 @@ internal sealed class PlateOptionsValidator : IValidateOptions<Mavi.Application.
 internal sealed class VisualAttributeOptionsValidator : IValidateOptions<VisualAttributeOptions>
 {
     public ValidateOptionsResult Validate(string? name, VisualAttributeOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var problems = options.Validate();
+        return problems.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(problems);
+    }
+}
+
+/// <summary>
+/// The embedding lifecycle's registrations (PoC S4; ADR-021). Validated at start whether or not the host loop is
+/// enabled, so a misconfigured section fails before anything is served.
+/// </summary>
+public static class EmbeddingRegistration
+{
+    public static IServiceCollection AddEmbeddings(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddOptions<Mavi.Application.Modules.Embeddings.EmbeddingOptions>()
+            .Bind(configuration.GetSection(Mavi.Application.Modules.Embeddings.EmbeddingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<Mavi.Application.Modules.Embeddings.EmbeddingOptions>, EmbeddingOptionsValidator>();
+        services.AddSingleton<Mavi.Application.Modules.Embeddings.IEmbeddingRelease, Mavi.Infrastructure.Embeddings.EmbeddingReleaseSource>();
+        services.AddScoped<Mavi.Application.Modules.Embeddings.IEmbeddingLifecycle, EmbeddingLifecycle>();
+        services.AddScoped<Mavi.Application.Modules.Embeddings.ITrackSimilarityRepository, TrackSimilarityRepository>();
+        services.AddScoped<Mavi.Application.Modules.Embeddings.TrackSimilarityService>();
+        return services;
+    }
+}
+
+internal sealed class EmbeddingOptionsValidator : IValidateOptions<Mavi.Application.Modules.Embeddings.EmbeddingOptions>
+{
+    public ValidateOptionsResult Validate(string? name, Mavi.Application.Modules.Embeddings.EmbeddingOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         var problems = options.Validate();

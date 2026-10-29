@@ -1,0 +1,19 @@
+{
+  "description": "Cross-language pin of the embedding analysis identity (ADR-021 \u00a73). The .NET platform and the Python worker must derive exactly these canonical bytes (sorted keys, no whitespace, UTF-8, trailing LF) and this SHA-256 fingerprint from the named model manifest and pipeline profile files (their raw bytes for the two SHA-256 fields).",
+  "vectors": [
+    {
+      "name": "development-siglip2",
+      "modelManifest": "models/manifests/embeddings-siglip2-base-p16-224-dev-v1.json",
+      "pipelineProfile": "src/vision/config/embeddings/development-embeddings-siglip2-v1.json",
+      "canonicalIdentity": "{\"model\":{\"dimension\":768,\"id\":\"siglip2-base-patch16-224\",\"manifestSha256\":\"d5adcb08f226eed955ccd9b2b05a2a53975cd84f8a0942e765fe9a675a191f08\",\"version\":\"75de2d55-dev.1\"},\"pipeline\":{\"id\":\"embeddings-siglip2-dev\",\"sha256\":\"1c8479e19fa52380b4e846da2ceb9bc49148523f6851368a3c7f7d093c24d7b0\",\"version\":\"1.0.0\"},\"schemaVersion\":\"mavi-embedding-identity-v1\"}\n",
+      "fingerprint": "13bac41fa80540fd901008853baf5b958e31e1321c948936038d7e2e91646f12"
+    },
+    {
+      "name": "fixture",
+      "modelManifest": "src/vision/tests/fixtures/model-manifests/embedding-fixture-v2.json",
+      "pipelineProfile": "src/vision/tests/fixtures/embeddings/fixture-pipeline-v1.json",
+      "canonicalIdentity": "{\"model\":{\"dimension\":512,\"id\":\"embedding-fixture\",\"manifestSha256\":\"daee9b1206a9536018521b3882dec503279c7fca3af3e97cb3e26577e419b5ac\",\"version\":\"0.0.1\"},\"pipeline\":{\"id\":\"embeddings-fixture\",\"sha256\":\"04ed142607260dadf7ac5c4be848fb4161085206b8019b1467874a8ff6d154b7\",\"version\":\"1.0.0\"},\"schemaVersion\":\"mavi-embedding-identity-v1\"}\n",
+      "fingerprint": "d944b650c7fadd2fcf7f259b0c49e8c90b547c92c1835aa1c6cba217d6a49a26"
+    }
+  ]
+}

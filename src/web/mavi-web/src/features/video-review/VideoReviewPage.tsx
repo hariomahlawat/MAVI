@@ -19,6 +19,7 @@ import { ProvenancePanel, TrackSummary } from './TrackDetailsPanels';
 import TrackEvidence from './TrackEvidence';
 import TrackEvidenceSet from './TrackEvidenceSet';
 import TrackPlateReadings from './TrackPlateReadings';
+import TrackSimilarCandidates from './TrackSimilarCandidates';
 import TrackAnalyticsExplanation from './TrackAnalyticsExplanation';
 import { buildAnalyticsEvidence } from './analyticsEvidence';
 import { pinnedNames, pinnedRevision, useAnalyticsScene } from './useAnalyticsScene';
@@ -296,6 +297,15 @@ export default function VideoReviewPage() {
                   <TrackPlateReadings detail={detail} onSelectObservation={selectPlateSource} />
                 </Panel>
               ) : null}
+              {/* ADR-021 §5: similarity candidates, run on request. Keyed by
+                  the Track so following a candidate starts with no held
+                  snapshot and no answer that belongs to another Track. */}
+              <TrackSimilarCandidates
+                key={detail.id}
+                detail={detail}
+                displayTimeZoneId={displayTimeZoneId}
+                returnFrom={searchParams.get('from')}
+              />
               <ProvenancePanel detail={detail} displayTimeZoneId={displayTimeZoneId} />
             </>
           )}

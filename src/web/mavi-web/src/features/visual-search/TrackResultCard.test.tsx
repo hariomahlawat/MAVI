@@ -118,3 +118,24 @@ describe('TrackResultCard', () => {
       .toHaveAttribute('src', '/api/artifacts/new/content');
   });
 });
+
+describe('TrackResultCard: appearance score (PoC S4)', () => {
+  it('shows the similarity score to three decimals, never as a percentage, and only when ranked by appearance', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <TrackResultCard track={{ ...base, appearanceScore: 0.87349 }} onSelect={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('Similarity')).toBeInTheDocument();
+    expect(screen.getByText('0.873')).toBeInTheDocument();
+    expect(screen.queryByText(/87(\.3)?%/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /similarity score 0\.873/ })).toBeInTheDocument();
+
+    rerender(
+      <MemoryRouter>
+        <TrackResultCard track={base} onSelect={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText('Similarity')).not.toBeInTheDocument();
+  });
+});

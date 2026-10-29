@@ -78,6 +78,7 @@ $cpuRuntimeSource = Join-Path $BundleRoot "vision\runtime\windows-x86_64-cpu"
 $modelSourceRoot = Join-Path $BundleRoot "vision\models"
 $platesCache = Join-Path $BundleRoot "plates"
 $cudaCandidates = Get-MaviPocCudaRuntimePackCandidates -OverlayRoot $bundleOverlay -BundleRoot $BundleRoot
+$embeddingsCache = Join-Path $BundleRoot "embeddings"
 $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
 $smiLines = $null
 if ($nvidiaSmi) {
@@ -146,6 +147,7 @@ $plan = [ordered]@{
     platform = [ordered]@{ url = (Get-MaviPocOperatorUrl -HttpPort $HttpPort); applicationRoot = $layout.ApplicationRoot; machineConfig = $layout.MachineConfigPath }
     vision = [ordered]@{ cpuRuntimeRoot = $layout.VisionRuntimeCpuRoot; cudaRuntimeRoot = $(if ($cudaSource -eq "none") { $null } else { $cudaRuntimeRoot }); modelStore = $layout.VisionModelRoot; devicePolicy = $DevicePolicy; cuda = $cudaDecision }
     plates = [ordered]@{ environment = $layout.PlatesEnvironmentRoot; modelStore = $layout.PlatesModelRoot; bound = $true; componentBinding = $layout.PlatesComponentBindingPath; devicePolicy = $PlatesDevicePolicy }
+    embeddings = [ordered]@{ environment = $layout.EmbeddingsEnvironmentRoot; modelStore = $layout.EmbeddingsModelRoot; bound = $true; devicePolicy = "cpu" }
     releaseMetadata = $layout.ReleaseMetadataPath
 }
 
@@ -306,6 +308,11 @@ try {
     & (Join-Path $layout.OverlayRoot "tools\setup\Install-MaviPlatesPilotRuntime.ps1") -Python $platesPython -Destination $layout.PlatesEnvironmentRoot -ModelRoot $layout.PlatesModelRoot -Cache $platesCache -ReuseVerified
     Write-MaviSetupStatus -Name "Plates runtime" -Status "OK" -Detail "$($layout.PlatesEnvironmentRoot) (PD5 + OC1-S Model Packs verified)"
 
+    # Embeddings runtime (PoC S4, ADR-021) and the SigLIP 2 Model Pack: installed and bound (machine configuration
+    # Embeddings section; Start-MAVI-PoC starts its worker). CPU ONNX Runtime; the CUDA build is S1b's pin.
+    & (Join-Path $layout.OverlayRoot "tools\setup\Install-MaviEmbeddingsRuntime.ps1") -Python $platesPython -Destination $layout.EmbeddingsEnvironmentRoot -ModelRoot $layout.EmbeddingsModelRoot -Cache $embeddingsCache -ReuseVerified
+    Write-MaviSetupStatus -Name "Embeddings runtime" -Status "OK" -Detail "installed and bound (SigLIP 2, Development)"
+
     # Machine configuration (connection string, roots, cursor key, loopback URL, profile).
     $cursorSigningKey = Get-MaviExistingCursorSigningKey -MachineConfigPath $layout.MachineConfigPath
     if (-not $cursorSigningKey) { $cursorSigningKey = New-MaviCursorSigningKey }
@@ -340,6 +347,14 @@ try {
     }
     # The plates role's packs as the binding names them, each Model Pack's licence read from its installed LICENSE.
     $packs += Get-MaviPocPlatesPacks -ComponentBindingPath $layout.PlatesComponentBindingPath -ManifestDirectory $manifestDirectory -ModelRoot $layout.PlatesModelRoot -RuntimeProfilePath (Join-Path $layout.OverlayRoot "src\vision\runtime\plates-onnx-v1\runtime.json")
+    $embeddingsLockSha = Get-MaviSha256 -Path (Join-Path $layout.OverlayRoot "src\vision\runtime\embeddings-onnx-v1\windows-x86_64-cpu.lock")
+    $packs += [ordered]@{ kind = "runtime"; role = "embeddings"; capabilityId = $null; packId = "embeddings-onnx-v1@lock-sha256:$embeddingsLockSha"; variant = "windows-x86_64-cpu"; verificationStatus = "development-pilot"; note = "embeddings-onnx-v1 Development environment, CPU only (PoC S4)"; licence = $null }
+    # The SigLIP 2 Model Pack (ADR-021), its licence read from its installed LICENSE as the plates packs' are.
+    $embeddingsManifest = Read-MaviJson -Path (Join-Path $manifestDirectory "embeddings-siglip2-base-p16-224-dev-v1.json")
+    $embeddingsNotice = @(@($embeddingsManifest.artifacts) | Where-Object { [string]$_.artifactRole -eq [string]$embeddingsManifest.licence.noticeArtifactRole })
+    if ($embeddingsNotice.Count -ne 1) { throw "The embeddings manifest names no single licence notice." }
+    $embeddingsLicence = Get-MaviPocNoticeLicence -Path (Join-Path $layout.EmbeddingsModelRoot ([string]$embeddingsNotice[0].relativePath)) -ExpectedSha256 ([string]$embeddingsNotice[0].sha256) -DeclaredSpdxId ([string]$embeddingsManifest.licence.spdxId)
+    $packs += [ordered]@{ kind = "model"; role = "embeddings"; capabilityId = "embedding"; packId = "$($embeddingsManifest.modelId)@$($embeddingsManifest.modelVersion)"; variant = $null; verificationStatus = [string]$embeddingsManifest.verificationStatus; note = "$($embeddingsManifest.modelId) $($embeddingsManifest.modelVersion) (PoC S4, bound)"; licence = "$($embeddingsLicence.SpdxId), read from its LICENSE (SHA-256 $($embeddingsLicence.Sha256)); licence review $($embeddingsManifest.licence.reviewStatus)" }
     $metadata = New-MaviPocReleaseMetadata -ApplicationRevision $revision -BundleSha256 $bundleSha256 -DevicePolicy $DevicePolicy -CudaDecision $cudaDecision -Packs $packs -InstalledAtUtc ([DateTimeOffset]::UtcNow.ToString("O"))
     Write-MaviJson -Value $metadata -Path $layout.ReleaseMetadataPath -Depth 8
     Write-MaviSetupStatus -Name "Release metadata" -Status "OK" -Detail $layout.ReleaseMetadataPath
@@ -357,6 +372,8 @@ try {
         cudaRuntimeRoot = $(if ($cudaSource -eq "none") { $null } else { $cudaRuntimeRoot })
         postgresqlServiceName = $serviceName
         applicationRevision = $revision
+        # PoC S4: Start-MAVI-PoC starts the embeddings worker for an installation that bound it.
+        embeddingsBound = $true
     }
     Write-MaviJson -Value $state -Path $layout.InstallationStatePath -Depth 6
 
