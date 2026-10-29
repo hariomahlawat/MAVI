@@ -29,6 +29,7 @@ export type SurfaceId =
   | DestinationId
   | 'scene'
   | 'analytics'
+  | 'events'
   | 'processing-detail'
   | 'review'
   | 'not-found';
@@ -97,6 +98,7 @@ export const SURFACES: Readonly<Record<SurfaceId, SurfaceRow>> = {
   cameras: { owner: 'cameras' },
   scene: { owner: 'cameras', child: 'Scene' },
   analytics: { owner: 'cameras', child: 'Analytics' },
+  events: { owner: 'cameras', child: 'Events' },
   videos: { owner: 'videos' },
   import: { owner: 'import' },
   processing: { owner: 'processing' },

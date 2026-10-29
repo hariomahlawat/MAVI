@@ -6,6 +6,7 @@ import {
   type SaveSceneRequest,
   type SaveSceneTripLineRequest,
   type SaveSceneZoneRequest,
+  type PermittedDirection,
   type ScenePoint,
   type SceneRevision,
   type SceneZoneKind,
@@ -45,6 +46,8 @@ export type DraftTripLine = {
   directed: boolean;
   aToBLabel: string;
   bToALabel: string;
+  /** Carried through every save so an edit elsewhere never drops it (ADR-025 §6). */
+  permittedDirection: PermittedDirection | null;
 };
 
 export type SceneDraft = {
@@ -138,6 +141,7 @@ export function draftFromRevision(revision: SceneRevision): SceneDraft {
       directed: line.directed,
       aToBLabel: line.aToBLabel,
       bToALabel: line.bToALabel,
+      permittedDirection: line.permittedDirection ?? null,
     })),
   };
 }
@@ -181,6 +185,8 @@ function lineRequest(line: DraftTripLine): SaveSceneTripLineRequest {
     directed: line.directed,
     aToBLabel: line.aToBLabel.trim(),
     bToALabel: line.bToALabel.trim(),
+    // A permitted direction only means something on a directed line; the server refuses it otherwise.
+    permittedDirection: line.directed ? line.permittedDirection : null,
   };
   if (line.lineId) request.lineId = line.lineId;
   return request;

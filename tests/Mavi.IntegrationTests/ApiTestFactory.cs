@@ -43,6 +43,9 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     /// </summary>
     public bool EnableSceneAnalyticsHost { get; init; }
 
+    /// <summary>The analytic-event sweep (ADR-025); off by default so tests derive deliberately.</summary>
+    public bool EnableAnalyticEventsHost { get; init; }
+
     /// <summary>
     /// Off by default: a background janitor reclaiming staging while a test inspects it would
     /// make unrelated tests timing-dependent. Janitor tests drive cycles explicitly.
@@ -125,6 +128,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["DatabaseMigrations:Enabled"] = EnableStartupMigrations ? "true" : "false",
                 ["MediaProcessing:VerifyOnStartup"] = "false",
                 ["SceneAnalytics:Enabled"] = EnableSceneAnalyticsHost ? "true" : "false",
+                ["AnalyticEvents:Enabled"] = EnableAnalyticEventsHost ? "true" : "false",
                 ["StagingJanitor:Enabled"] = EnableStagingJanitorHost ? "true" : "false",
                 ["VisionFinalization:Enabled"] = EnableAsynchronousFinalization ? "true" : "false",
                 ["TrackSearch:CursorSigningKey"] = CursorSigningKey,

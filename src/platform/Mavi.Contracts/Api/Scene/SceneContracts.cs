@@ -26,7 +26,8 @@ public sealed record SceneTripLineResponse(
     ScenePointResponse B,
     bool Directed,
     string AToBLabel,
-    string BToALabel);
+    string BToALabel,
+    string? PermittedDirection = null);
 
 /// <summary>One immutable revision of a camera's scene configuration.</summary>
 /// <remarks>
@@ -109,7 +110,8 @@ public sealed record SaveSceneTripLineRequest(
     ScenePointRequest? B,
     bool? Directed,
     string? AToBLabel,
-    string? BToALabel);
+    string? BToALabel,
+    string? PermittedDirection = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ScenePointRequest(double? X, double? Y);

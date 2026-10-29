@@ -173,6 +173,29 @@ describe('VideoReviewPage', () => {
     expect(screen.getByText(/08:00:00/)).toBeInTheDocument();
   });
 
+  it('seeks to the event instant an Events drill-through names, and ignores a malformed one (PoC S8)', async () => {
+    const first = renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId + '&seekMs=250000',
+      routePath: '/review/video/:videoAssetId',
+    });
+
+    const video = await screen.findByLabelText(/source video evidence$/);
+    Object.defineProperty(video, 'duration', { configurable: true, value: 600 });
+    fireEvent.loadedMetadata(video);
+    expect((video as HTMLVideoElement).currentTime).toBe(250);
+    first.unmount();
+
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId + '&seekMs=-5',
+      routePath: '/review/video/:videoAssetId',
+    });
+    const fallback = await screen.findByLabelText(/source video evidence$/);
+    Object.defineProperty(fallback, 'duration', { configurable: true, value: 600 });
+    fireEvent.loadedMetadata(fallback);
+    // The Track's own start, as without a link.
+    expect((fallback as HTMLVideoElement).currentTime).toBeCloseTo(196.420, 3);
+  });
+
   describe('the Evidence Set in the evidence rail', () => {
     function renderReview(track: TrackDetail) {
       vi.mocked(getTrack).mockResolvedValue(track);

@@ -53,7 +53,11 @@ export type SceneTripLine = {
   directed: boolean;
   aToBLabel: string;
   bToALabel: string;
+  /** The one direction the line may be crossed in (ADR-025 §6); null when both are allowed. */
+  permittedDirection?: PermittedDirection | null;
 };
+
+export type PermittedDirection = 'AToB' | 'BToA';
 
 export type SceneRevision = {
   revisionId: string;
@@ -112,6 +116,7 @@ export type SaveSceneTripLineRequest = {
   directed: boolean;
   aToBLabel: string;
   bToALabel: string;
+  permittedDirection: PermittedDirection | null;
 };
 
 /**
