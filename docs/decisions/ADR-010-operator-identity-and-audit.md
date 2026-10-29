@@ -44,6 +44,10 @@ Choosing `development-unattributed` is the explicit setting the fallback require
 
 The deployment disclosure (`GET /api/system/deployment`, the System page, ADR-020 §3) gains an `identity` block: the mode in effect, whether actions are attributable, whether any operator is configured, and a statement. Under `poc-single-host` the release metadata written by the installer records the identity mode installed (`identityMode`), and the disclosure shows both. The PoC installer writes `windows-negotiate` with `BUILTIN\Users` as the operator group: on a dedicated demonstration host with trusted local users (owner decision S1-T1), every interactive local user is an operator, and every action is attributed to that user's Windows account.
 
+**Browsers.** A browser sends Windows credentials without prompting only to hosts it treats as intranet. Observed on the Development laptop (Chromium 152): from `http://127.0.0.1:<port>` the operator request is refused (401, no credentials sent); from `http://localhost:<port>` the same browser negotiates silently and the operator is resolved. Browser-side attributable actions (S3 onwards) therefore need the operator to open MAVI at `http://localhost:<port>`, or an `AuthServerAllowlist` browser policy; the slice that first adds a UI mutation adjusts the PoC launcher URL. Scripts and services use the credentials of their own process (`UseDefaultCredentials`).
+
+**Cross-site requests.** Because browsers send Windows credentials automatically, a state-changing request under the operator policy must be `application/json` (or carry a JSON body bound by the endpoint). A cross-site page cannot send that without a CORS preflight, which MAVI never grants. Form-shaped requests are refused: 415 by the endpoint's JSON contract, or 403 by the policy when there is no body.
+
 ### 4. Append-only audit
 
 One table, `audit_entries`, records every attributable mutation: entry id, operator id, display name and identity source, action, subject type and id, server timestamp (`recorded_at_utc`), SHA-256 of the canonical payload, and correlation id (the request's trace identifier).
