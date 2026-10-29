@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "mavi-embedding-control-v1",
+  "queryId": "01a1a000-0000-7000-8000-0000000000d1",
+  "workerId": "mavi-embeddings-1",
+  "attemptCount": 1,
+  "leaseExpiresAtUtc": "2026-10-29T12:00:30Z",
+  "identityFingerprint": "13bac41fa80540fd901008853baf5b958e31e1321c948936038d7e2e91646f12",
+  "text": "white van"
+}

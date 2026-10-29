@@ -43,6 +43,11 @@ export const queryKeys = {
    * answers to different questions and must never overwrite each other.
    */
   track: (id: string, analyticsIdentity = '') => ['track', id, analyticsIdentity] as const,
+  /**
+   * One entry per explicit similarity request: the operator asked for it, so a
+   * second press is a second request (`serial`), never a cached answer.
+   */
+  similarTracks: (id: string, request: string, serial: number) => ['track-similar', id, request, serial] as const,
   cameraScene: (cameraId: string) => ['camera-scene', cameraId] as const,
   cameraSceneRevision: (cameraId: string, revisionNumber: number) =>
     ['camera-scene-revision', cameraId, revisionNumber] as const,

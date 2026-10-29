@@ -149,3 +149,42 @@ The worker contract of the `plates` role (Stage 4 PR-3; ADR-013 implementation a
 - **Reading order.** A plate's readings are ranked by confidence, descending; equal confidences are ordered by raw text in ascending UTF-16 code-unit order (.NET `string.CompareOrdinal`; the worker compares UTF-16BE bytes, because Python's `str` order is code-point order and differs outside the Basic Multilingual Plane). The order is strict: two readings equal in confidence and raw text have no order, the platform refuses such a sequence, and the worker therefore abstains that crop (`ocr_output_invalid`, its proposals kept without a plate) rather than de-duplicating output — one bad crop never fails the run. **Recorded exception (owner decision, 2026-10-13):** an `ocr_output_invalid` abstention (a malformed, duplicate or non-strict reading sequence) keeps the crop's detector proposals, their scores and the reason, but not its readings, because the v1 abstained-crop shape has no slot for them; this is an exception to "everything inside the bounds is retained", and retaining rejected readings needs a new `PlatePredictions` version (ADR-013 item 15). Both sides test `test-vectors/plate-reading-order-v1.json`, which includes a supplementary-plane tie and refused duplicate cases.
 - **Bounded v1 profile.** At most 2 detector proposals and 1 accepted plate per evidence crop, and at most 3 candidate readings for it. Output beyond a configured bound fails the attempt (`plate_output_invalid`) and is never truncated; everything inside the bounds is kept in the artefact. `test-vectors/plate-artifact-bound-v1.json` pins the worst-case artefact and completion sizes per profile shape at 10,000 Tracks × 4 crops; the largest v1 shape fits 64 MiB.
 - **Validator-level rules** the schemas cannot express — lease order and exactly-once crop coverage, the kept-reading prefix (`read` keeps the readings at or above the OCR floor as ranks `0..m-1`; `unreadable` keeps none), the box inside its crop, Track texts equal to the summary policy's derivation, and equality between the completion and the sealed artefact — are enforced by the platform validator. `tools/verify_repo.py` holds the examples to each other and to the vectors.
+
+## PoC Stage 5 embedding control plane (`mavi-embedding-control-v1`)
+
+The worker contract of the `embeddings` role (PoC S4; ADR-021). It is capability-specific, like the plate plane. The C# records are in `Mavi.Contracts/Worker/Embeddings`. The lease capability travels only in `X-Mavi-Lease-Capability`; worker and attempt travel in `X-Mavi-Worker-Id` and `X-Mavi-Attempt` on evidence reads.
+
+| Schema | Example | Pinned by |
+|---|---|---|
+| `embedding-lease-v1` (analysis lease response) | `embedding-lease-v1.example.json` | `test-vectors/embedding-identity-v1.json`: canonical identity and fingerprint from the model manifest and pipeline profile bytes |
+| `embedding-complete-v1` (analysis completion request) | `embedding-complete-v1.example.json` | completion digest = SHA-256 of the exact request body |
+| `embedding-text-query-lease-v1` (appearance text lease response) | `embedding-text-query-lease-v1.example.json` | — |
+| `embedding-text-query-complete-v1` (appearance text completion) | `embedding-text-query-complete-v1.example.json` | — |
+
+**Routes**
+
+| Route | Request | Response |
+|---|---|---|
+| `POST /api/embeddings/analyses/lease` | `{schemaVersion, workerId, identityFingerprint}` | 204 if nothing is queued; 200 with `embedding-lease-v1` and the capability header |
+| `POST …/{analysisId}/heartbeat` | `{schemaVersion, analysisId, workerId, attemptCount}` | `{schemaVersion, leaseExpiresAtUtc}` |
+| `POST …/{analysisId}/fail` | `{schemaVersion, analysisId, workerId, attemptCount, failureCode, failureMessage?}` | `{schemaVersion, outcome: "requeued" \| "failed"}` |
+| `GET …/{analysisId}/evidence/{observationId}` | — | The accepted JPEG crop, the shared lease-scoped handler (ADR-013 §10) |
+| `POST …/{analysisId}/complete` | `embedding-complete-v1` | `{schemaVersion, analysisId, processingRunId, status: "completed" \| "superseded", completedAtUtc, tracksEmbedded, tracksUnavailable}` |
+| `POST /api/embeddings/text-queries/lease` | `{schemaVersion, workerId, identityFingerprint}` | 204, or 200 with `embedding-text-query-lease-v1` and the capability header |
+| `POST /api/embeddings/text-queries/{queryId}/complete` | `embedding-text-query-complete-v1` | `{schemaVersion, status: "completed"}` |
+| `POST /api/embeddings/text-queries/{queryId}/fail` | `{schemaVersion, queryId, workerId, attemptCount, failureCode, failureMessage?}` | `{schemaVersion, outcome}` |
+
+**Rules**
+
+- **Failure codes** (code: retryable):
+  - Analysis: `embedding_runtime_failed`: true; `embedding_evidence_transport_failed`: true; `embedding_model_unavailable`: true; `embedding_cancelled`: true; `embedding_output_invalid`: false.
+  - Text: `embedding_text_runtime_failed`: true; `embedding_text_invalid`: false.
+- **Lease refusals:**
+  - 409 with `embedding_lease_invalid`, `embedding_not_running`, `embedding_attempt_stale` or `embedding_deadline_exceeded`;
+  - 404 with `embedding_analysis_not_found` or `embedding_text_query_not_found`.
+- **Evidence integrity:** 422 with `embedding_evidence_missing` or `embedding_evidence_integrity_failed` makes the crop unavailable, not the run.
+- **Vectors:** float32 little-endian, standard base64, finite, L2 norm 1 ± 1e-3, exactly `identity.model.dimension` components.
+- **Completion:**
+  - Every leased Track appears exactly once, in lease order.
+  - An `embedded` Track names only leased observations of that Track; each is a crop whose shorter side is at least the profile's `minimumCropSide`.
+  - An `unavailable` Track gives `no_evidence` (nothing leased), `evidence_too_small` (no crop met the floor) or `evidence_unavailable` (every adequate crop failed integrity or transport).

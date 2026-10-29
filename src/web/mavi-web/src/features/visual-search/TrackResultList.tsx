@@ -6,7 +6,7 @@ import TrackPlateMatch, { plateMatchAccessibleText } from './TrackPlateMatch';
 import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
-import { displayTimestamp, formatConfidence, formatOffset } from '../../shared/format/format';
+import { displayTimestamp, formatConfidence, formatOffset, formatSimilarityScore } from '../../shared/format/format';
 import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
 
 /**
@@ -75,7 +75,9 @@ const ResultRow = memo(function ResultRow({
   useEffect(() => { setThumbnailFailed(false); }, [track.thumbnailContentUrl]);
 
   const title = `${objectClassLabel(track)} · ${track.cameraCode} · ${track.cameraName}`;
-  const select = selectControlProps(track.id, `Select ${title}${track.plate ? ` · ${plateMatchAccessibleText(track.plate)}` : ''}`, onSelect);
+  const score = track.appearanceScore;
+  const scoreText = score !== undefined ? ` · similarity score ${formatSimilarityScore(score)}` : '';
+  const select = selectControlProps(track.id, `Select ${title}${track.plate ? ` · ${plateMatchAccessibleText(track.plate)}` : ''}${scoreText}`, onSelect);
 
   return (
     <li ref={ref} className="result-row" aria-current={selected ? 'true' : undefined}>
@@ -96,6 +98,7 @@ const ResultRow = memo(function ResultRow({
             <span><b>{formatDuration(track.durationMs)}</b> from {formatOffset(track.startOffsetMs)}</span>
             <span><b>{formatConfidence(track.meanConfidence, 'list')}</b> mean</span>
             <span><b>{track.detectionCount}</b> detections</span>
+            {score !== undefined ? <span><b className="num">{formatSimilarityScore(score)}</b> similarity</span> : null}
           </span>
           {track.plate ? <TrackPlateMatch plate={track.plate} searchContext={searchContext} /> : null}
         </span>

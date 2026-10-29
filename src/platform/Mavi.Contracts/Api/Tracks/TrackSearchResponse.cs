@@ -19,7 +19,9 @@ public sealed record TrackSearchResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     AnalyticsCoverageResponse? AnalyticsCoverage = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    PlateCoverageResponse? PlateCoverage = null);
+    PlateCoverageResponse? PlateCoverage = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    AppearanceSearchResponse? Appearance = null);
 
 /// <summary>One Track result.</summary>
 /// <remarks>
@@ -61,4 +63,6 @@ public sealed record TrackSearchItemResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? ObjectSubclass = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    TrackItemPlateResponse? Plate = null);
+    TrackItemPlateResponse? Plate = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    double? AppearanceScore = null);

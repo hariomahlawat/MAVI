@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  APPEARANCE_CONFLICT_MESSAGE,
   canonicalSearchKey,
+  canonicalSearchParams,
+  isAppearanceSearch,
+  normaliseAppearanceQuery,
   confidenceFractionToPercentText,
   confidencePercentTextToFraction,
   compareUtcInstants,
@@ -273,5 +277,54 @@ describe('Slice 4 analytic committed state (plan §S)', () => {
     // No scope left: every analytic key goes with it.
     expect(withCameraScope(filters, {})).toEqual({ objectClass: 'Person' });
     expect(removeCriteria(filters, ['cameraId'])).toEqual({ objectClass: 'Person' });
+  });
+});
+
+describe('PoC S4 appearance query in the committed search state', () => {
+  it('round-trips an appearance description through the URL, whitespace collapsed and case kept', () => {
+    const parsed = parseCommittedSearch(new URLSearchParams('appearanceQuery=%20White%20%20van%20&objectClass=vehicle'));
+    expect(parsed).toEqual({
+      isValid: true,
+      filters: { objectClass: 'Vehicle', appearanceQuery: 'White van' },
+      canonicalQuery: 'objectClass=Vehicle&appearanceQuery=White+van',
+    });
+    if (!parsed.isValid) return;
+    const again = parseCommittedSearch(canonicalSearchParams(parsed.filters));
+    expect(again).toEqual(parsed);
+    expect(isAppearanceSearch(parsed.filters)).toBe(true);
+  });
+
+  it('keeps a snapshot only beside its description', () => {
+    const parsed = parseCommittedSearch(new URLSearchParams('appearanceQuery=red+jacket&appearanceSnapshot=tok-1'));
+    expect(parsed.isValid && parsed.filters).toEqual({ appearanceQuery: 'red jacket', appearanceSnapshot: 'tok-1' });
+    expect(parsed.canonicalQuery).toBe('appearanceQuery=red+jacket&appearanceSnapshot=tok-1');
+
+    const orphan = parseCommittedSearch(new URLSearchParams('appearanceSnapshot=tok-1'));
+    expect(orphan.isValid).toBe(false);
+    if (!orphan.isValid) expect(orphan.error).toMatch(/requires an appearance description/);
+  });
+
+  it('refuses a description over 200 characters and one combined with plate text or analytics', () => {
+    expect(parseCommittedSearch(new URLSearchParams('appearanceQuery=' + 'a'.repeat(201))).isValid).toBe(false);
+    expect(parseCommittedSearch(new URLSearchParams('appearanceQuery=' + 'a'.repeat(200))).isValid).toBe(true);
+
+    const plate = parseCommittedSearch(new URLSearchParams('appearanceQuery=van&plateText=KA01'));
+    expect(plate.isValid).toBe(false);
+    if (!plate.isValid) expect(plate.error).toBe(APPEARANCE_CONFLICT_MESSAGE);
+
+    const analytics = parseCommittedSearch(new URLSearchParams('appearanceQuery=van&loitering=true&cameraId=' + cameraId));
+    expect(analytics.isValid).toBe(false);
+  });
+
+  it('normalises 1 to 200 characters after trimming', () => {
+    expect(normaliseAppearanceQuery('   ')).toBeNull();
+    expect(normaliseAppearanceQuery('  a\tb  ')).toBe('a b');
+  });
+
+  it('drops a held snapshot when any criterion is removed, and with its description', () => {
+    const filters = { appearanceQuery: 'van', appearanceSnapshot: 'tok', objectClass: 'Vehicle' as const };
+    expect(removeCriteria(filters, ['objectClass'])).toEqual({ appearanceQuery: 'van' });
+    expect(removeCriteria(filters, ['appearanceQuery'])).toEqual({ objectClass: 'Vehicle' });
+    expect(withCameraScope(filters, { cameraId })).toEqual({ appearanceQuery: 'van', objectClass: 'Vehicle', cameraId: cameraId.toLowerCase() });
   });
 });

@@ -4,6 +4,7 @@ import {
   CROSSING_DIRECTIONS,
   MOTION_DIRECTIONS,
   OBJECT_SUBCLASSES,
+  SIMILARITY_CANDIDATES_LABEL,
   ZONE_RELATIONS,
   objectSubclassLabel,
   type CrossingDirection,
@@ -63,6 +64,7 @@ export type SearchDraft = {
   motionDirection: '' | MotionDirection;
   minStationarySeconds: string;
   loitering: '' | 'true';
+  appearanceQuery: string;
 };
 
 export const emptyDraft: SearchDraft = {
@@ -84,6 +86,7 @@ export const emptyDraft: SearchDraft = {
   motionDirection: '',
   minStationarySeconds: '',
   loitering: '',
+  appearanceQuery: '',
 };
 
 /** The analytics fields, which a change of camera scope resets together (plan §S). */
@@ -305,6 +308,29 @@ export default function SearchFilterRail({
             { value: 'exact', label: 'Exact' },
           ]}
         />
+      </section>
+
+      {/* ADR-021 §4–§5: a free-text appearance description ranks Tracks by
+          visual similarity. It is its own section because it is a different
+          kind of question from the predicates around it — a ranking, not a
+          filter — and it carries the similarity label wherever it appears. */}
+      <section className="filter-rail__section" aria-labelledby="filter-appearance">
+        <h2 id="filter-appearance">Appearance</h2>
+        <p className="filter-rail__hint">{SIMILARITY_CANDIDATES_LABEL}</p>
+        <Field
+          label="Appearance (describe what to look for)"
+          error={errors.appearanceQuery}
+          help="e.g. white van, person in red jacket"
+        >
+          {(control) => (
+            <input
+              {...control}
+              value={draft.appearanceQuery}
+              autoComplete="off"
+              onChange={(event) => onDraftChange({ appearanceQuery: event.target.value })}
+            />
+          )}
+        </Field>
       </section>
 
       <section className="filter-rail__section" aria-labelledby="filter-time">
