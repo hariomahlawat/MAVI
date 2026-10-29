@@ -36,7 +36,11 @@ The measured starting point is weak. On the demo corpus (protocol `s6-face-cover
 ### 2. Models and their terms
 
 - **Detector:** YuNet, OpenCV Zoo `face_detection_yunet_2026may.onnx` at opencv_zoo commit `48b10fa5`. Its model folder's own LICENSE is **MIT** (Copyright (c) 2020 Shiqi Yu). The role decodes the graph with numpy on ONNX Runtime; OpenCV is not a dependency. The decoder equals OpenCV `FaceDetectorYN` on 137 demo crops (43 of 43 faces, maximum difference 3e-5).
-- **Embedder:** the S6 spike decides between two packs, as decision D6 set out:
+- **Spike result.** The frozen spike `s6-embedder-spike-v1` chose **AdaFace IR-50** (`docs/qualification/poc/s6-face-embedder-spike.md`).
+  - LFW 10-fold accuracy 99.8 % at native resolution and 99.7 % with faces downscaled to 32 px.
+  - SFace scored 99.27 % and 98.7 %.
+  - The reference threshold is cosine **0.2121**, the 32-px operating point at FAR 0.1 %.
+- **Embedder:** one of two packs, as decision D6 set out:
   - **AdaFace IR-50** (code MIT). The WebFace4M checkpoint ships with no LICENSE file. Its card says to follow the training dataset's licence, and WebFace4M (a WebFace260M subset) is for non-commercial research only. The pack is therefore **Development-only**:
     - its manifest is `developmentOnly`, and the platform refuses it outside the `poc-single-host` and Development profiles;
     - it may be used only for non-commercial demonstration and evaluation;
