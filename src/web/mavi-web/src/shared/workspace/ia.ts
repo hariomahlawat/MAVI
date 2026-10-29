@@ -12,7 +12,7 @@ import type { IconName } from '../components/Icon';
  * document title and the `g` destination keys are all derived from it, and
  * nothing else in the product spells them.
  *
- * It is deliberately small and closed: twelve surfaces, three sections. It is not
+ * It is deliberately small and closed: thirteen surfaces, three sections. It is not
  * a routing framework — route paths stay in the router, which names each
  * route's surface through its `handle` — and a new surface is one row here by
  * amendment of §5, under its owning section.
@@ -22,7 +22,7 @@ import type { IconName } from '../components/Icon';
  */
 
 /** A primary destination: one rail item, one root crumb, one `g` key. */
-export type DestinationId = 'overview' | 'cameras' | 'videos' | 'import' | 'processing' | 'search' | 'system';
+export type DestinationId = 'overview' | 'cameras' | 'videos' | 'import' | 'processing' | 'search' | 'faces' | 'system';
 
 /** Every surface the product renders, including the one that owns nothing. */
 export type SurfaceId =
@@ -52,7 +52,7 @@ export type Section = { label: string; destinations: Destination[] };
 /**
  * Grouped per §5 and ordered by operator workflow rather than alphabetically:
  * know what you have, bring media in, watch it process, then investigate what
- * came out. Investigate holds Search alone; Events, Entities and Cases join it
+ * came out. Investigate holds Search and Faces (PoC S6); Events, Entities and Cases join it
  * only when they are real routes.
  */
 export const SECTIONS: readonly Section[] = [
@@ -70,6 +70,8 @@ export const SECTIONS: readonly Section[] = [
     label: 'Investigate',
     destinations: [
       { id: 'search', label: 'Search', to: '/search', icon: 'search', key: 's' },
+      // PoC S6 (ADR-022): find a face from an image, the gallery and the per-camera opt-in.
+      { id: 'faces', label: 'Faces', to: '/faces', icon: 'person', key: 'f' },
     ],
   },
   {
@@ -103,6 +105,7 @@ export const SURFACES: Readonly<Record<SurfaceId, SurfaceRow>> = {
   'processing-detail': { owner: 'processing' },
   search: { owner: 'search' },
   review: { owner: 'search', child: 'Review' },
+  faces: { owner: 'faces' },
   system: { owner: 'system' },
   'not-found': { owner: null },
 };
