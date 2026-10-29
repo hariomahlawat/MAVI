@@ -141,7 +141,7 @@ export const DECISIONS = Object.freeze({
       name: 'Cold first interaction (form entry and rail)',
       interactions: ['fill the import form with long identities', 'submit an inverted time range with the rail scrolled to its foot', 'collapse the navigation rail'],
       count: 1, maxMs: 147,
-      why: 'Linux CI, 50 retained single-lane runs (2026-10-15 to 10-28): 9 raised a long task, every one a single task at 1366x768 — the first case the lane measures for its state — on one of these three interactions only (import fill 50-100ms, inverted-range submit 55-147ms, rail collapse 60ms). Not a product regression: four heads that raised one measured none on a same-head re-run, and identical web code passed (c1ff6b70) and failed (179fe32d). Kept at the evidence envelope (147ms, ff52d5a2), as Search selection is kept at its P1 envelope; every other interaction stays at "no long task".',
+      why: 'Linux CI, 50 retained single-lane runs (2026-10-15 to 10-28): 9 raised a long task (13 tasks in all, never more than one per case), every one at 1366x768 — the first case the lane measures for its state — and on one of these three interactions only (import fill 50-100ms, inverted-range submit 55-147ms, rail collapse 60ms). Not a product regression: four heads that raised one measured none on a same-head re-run, and identical web code passed (c1ff6b70) and failed (179fe32d). Kept at the evidence envelope (147ms, ff52d5a2), as Search selection is kept at its P1 envelope; every other interaction stays at "no long task".',
     }],
   },
   fonts: { documentFaces: 0, why: '§38 "fonts do not swap": the document holds no font face (no @font-face, no FontFace), so the platform stack resolves at layout and nothing can arrive late.' },
