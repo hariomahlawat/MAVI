@@ -172,7 +172,7 @@ def compose_zero_shot(settings: AttributeWorkerSettings, *, model_loader: ModelL
     if any(pack != manifest.model_pack_id for pack in binding.model_pack_ids.values()):
         raise ValueError("attribute_zero_shot_model_pack_mismatch")
     record_sha256 = read_development_record(profile.path.parent, binding.qualification_id)
-    runtime_profile_sha256 = hashlib.sha256(_read(settings.runtime_profile_path, "attribute_runtime_profile_unreadable")).hexdigest()
+    runtime_profile_sha256 = hashlib.sha256(_read(settings.attribute_runtime_profile_path, "attribute_runtime_profile_unreadable")).hexdigest()
     identity = attribute_identity(profile, dict(binding.model_pack_ids))
     model, variant, device = model_loader(manifest, settings)
     inferencer = SiglipZeroShotInferencer(model, parameters)  # type: ignore[arg-type]

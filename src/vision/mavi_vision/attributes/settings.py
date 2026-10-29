@@ -53,7 +53,7 @@ class AttributeWorkerSettings(BaseSettings):
     # PoC S5 zero-shot composition (Development only; zero_shot_runtime): the SigLIP 2 Model Pack manifest, the
     # embeddings-onnx-v1 runtime profile it runs from and, on Windows CUDA, the directory of CUDA/cuDNN DLLs.
     attribute_model_manifest_path: Path | None = None
-    runtime_profile_path: Path = Path("src/vision/runtime/embeddings-onnx-v1/runtime.json")
+    attribute_runtime_profile_path: Path = Path("src/vision/runtime/embeddings-onnx-v1/runtime.json")
     cuda_dll_directory: Path | None = None
 
     @model_validator(mode="before")

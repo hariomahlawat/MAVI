@@ -208,8 +208,9 @@ def test_aggregation_observes_a_confident_value_and_abstains_on_an_ambiguous_one
 
     confident = decide(np.eye(DIMENSION)[0])
     assert (confident.outcome, confident.value) == ("observed", "red")
-    # Halfway between red and blue: no value reaches its threshold, so the model abstains.
-    ambiguous = decide((np.eye(DIMENSION)[0] + np.eye(DIMENSION)[1]) / np.sqrt(2))
+    # Equally close to every colour prototype (red, blue and the rest share the last axis): p is about 1/11 for each
+    # value, none reaches its threshold, so the model abstains.
+    ambiguous = decide((np.eye(DIMENSION)[0] + np.eye(DIMENSION)[1] + np.eye(DIMENSION)[DIMENSION - 1]) / np.sqrt(3))
     assert ambiguous.outcome == "unknown" and ambiguous.value is None
 
 
@@ -227,7 +228,7 @@ def _settings(tmp_path: Path, **overrides) -> AttributeWorkerSettings:
         "component_binding_path": BINDING,
         "pipeline_profile_path": PROFILE,
         "attribute_model_manifest_path": MANIFEST,
-        "runtime_profile_path": RUNTIME_PROFILE,
+        "attribute_runtime_profile_path": RUNTIME_PROFILE,
         "model_root": tmp_path,
     }
     values.update(overrides)
