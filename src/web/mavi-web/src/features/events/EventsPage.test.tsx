@@ -15,7 +15,7 @@ import {
 import { getSystemConfig } from '../../api/system';
 import { listVideos, type VideoAsset } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
-import EventsPage, { coverageGaps, recordingsWindow } from './EventsPage';
+import EventsPage, { coverageGaps, parseUtcBound, recordingsWindow } from './EventsPage';
 
 vi.mock('../../api/cameras', () => ({ getCamera: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
@@ -225,6 +225,33 @@ describe('EventsPage', () => {
     expect(screen.getByText('No events in the evaluated runs so far.')).toBeInTheDocument();
   });
 
+  it('says nothing was evaluated, not "complete" or "no events", when the window has no analysed run', async () => {
+    vi.mocked(getEventTimeline).mockResolvedValue(timeline({
+      events: [],
+      ruleCounts: [],
+      crossingCounts: [],
+      coverage: { analytics: completeAnalytics, derivedRuns: 0, eventsPendingRuns: 0, complete: true },
+    }));
+    renderPage();
+
+    expect(await screen.findByText('No analysed runs in this window, so there is nothing to derive events from.')).toBeInTheDocument();
+    expect(screen.getByText('No analysed runs in this window.')).toBeInTheDocument();
+    expect(screen.queryByText(/^Complete:/)).not.toBeInTheDocument();
+    expect(screen.queryByText('No events in this window.')).not.toBeInTheDocument();
+  });
+
+  it('will not apply a window bound typed without an offset', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const from = await screen.findByRole('textbox', { name: 'From (UTC)' });
+    await user.clear(from);
+    await user.type(from, '2026-09-21T04:00:00');
+
+    expect(screen.getByRole('button', { name: 'Show' })).toBeDisabled();
+    expect(screen.getByText(/Enter both instants with an offset/)).toBeInTheDocument();
+  });
+
   it('says to choose a rule when every rule is unticked, instead of loading forever', async () => {
     const user = userEvent.setup();
     renderPage();
@@ -250,6 +277,13 @@ describe('events helpers', () => {
       fromUtc: '2026-09-21T04:00:00.000Z', toUtc: '2026-09-21T04:04:00.000Z', bucketSeconds: 60,
     });
     expect(recordingsWindow([])).toBeNull();
+  });
+
+  it('reads a window bound only when it names its offset', () => {
+    expect(parseUtcBound('2026-09-21T04:00:00Z')).toBe(Date.parse('2026-09-21T04:00:00Z'));
+    expect(parseUtcBound('2026-09-21T09:30:00+05:30')).toBe(Date.parse('2026-09-21T04:00:00Z'));
+    expect(parseUtcBound('2026-09-21T04:00:00')).toBeNaN();
+    expect(parseUtcBound('')).toBeNaN();
   });
 
   it('names every gap, and none when complete', () => {

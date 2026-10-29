@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Mavi.Application.Modules.Events;
 
@@ -59,6 +60,8 @@ public sealed record RuleCatalogueDefinition(string CatalogueVersion, IReadOnlyL
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = false,
+        // Enums by name, so reordering an enum never changes a digest.
+        Converters = { new JsonStringEnumConverter() },
     };
 
     /// <summary>SHA-256 of the catalogue's canonical JSON, recorded with every derivation.</summary>

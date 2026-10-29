@@ -94,18 +94,25 @@ public sealed record AnalyticEventDetailView(
     EventProvenance Provenance,
     IReadOnlyList<AnalyticEventParticipantView> Participants);
 
+/// <summary>A unit awaiting derivation, with its position in the sweep's order.</summary>
+public sealed record EventDerivationCandidate(long VisibilitySequence, Guid SceneAnalysisId);
+
 /// <summary>Persistence and reads for analytic events (ADR-025).</summary>
 public interface IAnalyticEventRepository
 {
-    /// <summary>Fact-bearing, visible units with no derivation at <paramref name="catalogueVersion"/>, oldest first.</summary>
-    Task<IReadOnlyList<Guid>> ListUnitsAwaitingDerivationAsync(
+    /// <summary>
+    /// Fact-bearing, visible units with no derivation at <paramref name="catalogueVersion"/>,
+    /// oldest first, strictly after <paramref name="after"/> when one is given (a keyset page).
+    /// </summary>
+    Task<IReadOnlyList<EventDerivationCandidate>> ListUnitsAwaitingDerivationAsync(
         string catalogueVersion,
+        EventDerivationCandidate? after,
         int batchSize,
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Derives one unit in one transaction: locks the unit, re-checks, reads its facts,
-    /// runs the catalogue and inserts the derivation with its events.
+    /// Derives one unit in one transaction: takes the unit's advisory lock, re-checks,
+    /// reads its facts, runs the catalogue and inserts the derivation with its events.
     /// </summary>
     Task<EventDerivationOutcome> DeriveAsync(
         Guid sceneAnalysisId,

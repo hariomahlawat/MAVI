@@ -27,7 +27,7 @@ public static class EventDeriver
         {
             if (!rule.Enabled)
             {
-                states.Add(new EventRuleState(rule.RuleId, rule.RuleVersion, false, rule.DisabledReason, 0));
+                states.Add(new EventRuleState(rule.RuleId, rule.RuleVersion, false, rule.DisabledReason, null));
                 continue;
             }
 
@@ -102,6 +102,8 @@ public static class EventDeriver
     {
         var id = EventId(catalogue.CatalogueVersion, rule.RuleId, rule.RuleVersion, unit.SceneAnalysisId, draft.Discriminator);
         var provenanceJson = Encoding.UTF8.GetString(RuleCatalogueDefinition.Canonical(draft.Provenance));
+        var startUtc = draft.AtUtc ?? unit.RecordingStartUtc.AddMilliseconds(draft.StartOffsetMs);
+        var endUtc = draft.AtUtc ?? unit.RecordingStartUtc.AddMilliseconds(draft.EndOffsetMs);
 
         // What the event claims, bound to everything it was computed from: the rule
         // version, the unit (and with it run, revision and algorithm version), the
@@ -121,7 +123,8 @@ public static class EventDeriver
             draft.Direction,
             draft.StartOffsetMs,
             draft.EndOffsetMs,
-            draft.AtUtc,
+            startUtc,
+            endUtc,
             provenance = draft.Provenance,
         })));
 
@@ -136,8 +139,8 @@ public static class EventDeriver
             draft.Direction,
             draft.StartOffsetMs,
             draft.EndOffsetMs,
-            draft.AtUtc ?? unit.RecordingStartUtc.AddMilliseconds(draft.StartOffsetMs),
-            draft.AtUtc ?? unit.RecordingStartUtc.AddMilliseconds(draft.EndOffsetMs),
+            startUtc,
+            endUtc,
             draft.Provenance,
             provenanceJson,
             digest);

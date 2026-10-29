@@ -26,33 +26,52 @@ public sealed class AnalyticEventService(
     /// Derives up to <paramref name="batchSize"/> units that have no derivation at the
     /// current catalogue version, each in its own transaction. Returns how many were derived.
     /// </summary>
+    /// <remarks>
+    /// The budget counts derivations, not attempts, and the sweep pages past a unit that
+    /// failed: units that fail every time are retried each cycle, but they never hold the
+    /// units behind them back.
+    /// </remarks>
     public async Task<int> DeriveDueAsync(int batchSize, CancellationToken cancellationToken)
     {
         var catalogue = RuleCatalogue.Current;
-        var due = await repository.ListUnitsAwaitingDerivationAsync(catalogue.CatalogueVersion, batchSize, cancellationToken);
         var derived = 0;
-        foreach (var unitId in due)
+        EventDerivationCandidate? after = null;
+        while (derived < batchSize)
         {
-            try
+            var page = await repository.ListUnitsAwaitingDerivationAsync(catalogue.CatalogueVersion, after, batchSize - derived, cancellationToken);
+            if (page.Count == 0)
+                break;
+
+            foreach (var candidate in page)
             {
-                var outcome = await repository.DeriveAsync(unitId, catalogue, timeProvider.GetUtcNow(), cancellationToken);
-                if (outcome == EventDerivationOutcome.Derived)
+                after = candidate;
+                if (await TryDeriveAsync(candidate.SceneAnalysisId, catalogue, cancellationToken))
                     derived++;
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-#pragma warning disable CA1031 // One unit that cannot be derived must not starve every unit behind it.
-            catch (Exception exception)
-#pragma warning restore CA1031
-            {
-                // Its runs stay "events not derived yet" in coverage, which is the operator-facing truth.
-                LogUnitFailed(logger, unitId, catalogue.CatalogueVersion, exception);
             }
         }
 
         return derived;
+    }
+
+    private async Task<bool> TryDeriveAsync(Guid unitId, RuleCatalogueDefinition catalogue, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await repository.DeriveAsync(unitId, catalogue, timeProvider.GetUtcNow(), cancellationToken)
+                == EventDerivationOutcome.Derived;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+#pragma warning disable CA1031 // One unit that cannot be derived must not starve every unit behind it.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            // Its runs stay "events not derived yet" in coverage, which is the operator-facing truth.
+            LogUnitFailed(logger, unitId, catalogue.CatalogueVersion, exception);
+            return false;
+        }
     }
 
     public static RuleCatalogueResponse Catalogue(RuleCatalogueDefinition catalogue) => new(

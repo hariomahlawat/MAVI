@@ -65,7 +65,8 @@ public sealed record DerivedEvent(
     string InputSha256);
 
 /// <summary>What one rule did in one derivation.</summary>
-public sealed record EventRuleState(string RuleId, int RuleVersion, bool Enabled, string? DisabledReason, int EventCount);
+/// <summary>A rule's state in one derivation; a disabled rule ran on nothing and has no count, never zero.</summary>
+public sealed record EventRuleState(string RuleId, int RuleVersion, bool Enabled, string? DisabledReason, int? EventCount);
 
 /// <summary>The complete output of one derivation.</summary>
 public sealed record EventDerivationResult(

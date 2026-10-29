@@ -32,20 +32,30 @@ public sealed class AnalyticEventRepository(MaviDbContext db) : IAnalyticEventRe
     private const string UniqueViolation = "23505";
     private const string DerivationUniqueIndex = "ux_analytic_event_derivations_unit_catalogue";
 
-    public async Task<IReadOnlyList<Guid>> ListUnitsAwaitingDerivationAsync(
+    public async Task<IReadOnlyList<EventDerivationCandidate>> ListUnitsAwaitingDerivationAsync(
         string catalogueVersion,
+        EventDerivationCandidate? after,
         int batchSize,
         CancellationToken cancellationToken)
     {
-        return await db.SceneAnalyses.AsNoTracking()
+        var units = db.SceneAnalyses.AsNoTracking()
             .Where(unit =>
                 (unit.Status == SceneAnalysisStatus.Completed || unit.Status == SceneAnalysisStatus.Superseded) &&
                 unit.VisibilitySequence != null &&
                 !db.AnalyticEventDerivations.Any(derivation =>
-                    derivation.SceneAnalysisId == unit.Id && derivation.CatalogueVersion == catalogueVersion))
+                    derivation.SceneAnalysisId == unit.Id && derivation.CatalogueVersion == catalogueVersion));
+        if (after is not null)
+        {
+            var sequence = after.VisibilitySequence;
+            var id = after.SceneAnalysisId;
+            units = units.Where(unit =>
+                unit.VisibilitySequence > sequence || (unit.VisibilitySequence == sequence && unit.Id > id));
+        }
+
+        return await units
             .OrderBy(unit => unit.VisibilitySequence)
             .ThenBy(unit => unit.Id)
-            .Select(unit => unit.Id)
+            .Select(unit => new EventDerivationCandidate(unit.VisibilitySequence!.Value, unit.Id))
             .Take(batchSize)
             .ToListAsync(cancellationToken);
     }

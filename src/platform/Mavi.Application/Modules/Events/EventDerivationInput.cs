@@ -80,7 +80,8 @@ public sealed record EventDerivationInput(
         Tracks = [.. Tracks.OrderBy(track => track.TrackId)],
         Visits = [.. Visits.OrderBy(visit => visit.TrackId).ThenBy(visit => visit.ZoneId).ThenBy(visit => visit.VisitIndex)],
         Summaries = [.. Summaries.OrderBy(summary => summary.TrackId).ThenBy(summary => summary.ZoneId)],
-        Crossings = [.. Crossings.OrderBy(crossing => crossing.TrackId).ThenBy(crossing => crossing.CrossingIndex)],
+        // A crossing index is numbered per (Track, line), so the line is part of the key.
+        Crossings = [.. Crossings.OrderBy(crossing => crossing.TrackId).ThenBy(crossing => crossing.LineId).ThenBy(crossing => crossing.CrossingIndex)],
         StationaryIntervals = [.. StationaryIntervals.OrderBy(interval => interval.TrackId).ThenBy(interval => interval.IntervalIndex)],
     };
 }

@@ -46,6 +46,15 @@ export function recordingsWindow(recordings: { recordingStartUtc: string; record
   return { fromUtc: new Date(from).toISOString(), toUtc: new Date(to).toISOString(), bucketSeconds: bucketFor(from, to) };
 }
 
+/**
+ * A window bound typed by the operator, as epoch milliseconds, or NaN unless it names
+ * its offset (`Z` or `±hh:mm`): without one the browser would read it as local time and
+ * move the window silently. The API refuses such a value for the same reason.
+ */
+export function parseUtcBound(value: string): number {
+  return /(Z|[+-]\d{2}:\d{2})$/i.test(value.trim()) ? Date.parse(value.trim()) : Number.NaN;
+}
+
 function bucketFor(from: number, to: number): number {
   for (const size of BUCKETS) {
     if (bucketCount(new Date(from).toISOString(), new Date(to).toISOString(), size) <= MAXIMUM_BUCKETS) return size;
@@ -154,13 +163,13 @@ export default function EventsPage() {
   }
 
   const applyDraft = () => {
-    const from = Date.parse(draft.fromUtc);
-    const to = Date.parse(draft.toUtc);
+    const from = parseUtcBound(draft.fromUtc);
+    const to = parseUtcBound(draft.toUtc);
     if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return;
     setWindow({ fromUtc: new Date(from).toISOString(), toUtc: new Date(to).toISOString(), bucketSeconds: bucketFor(from, to) });
     setSelectedId(null);
   };
-  const draftInvalid = !(Date.parse(draft.fromUtc) < Date.parse(draft.toUtc));
+  const draftInvalid = !(parseUtcBound(draft.fromUtc) < parseUtcBound(draft.toUtc));
 
   return (
     <div className="events-page">
@@ -199,6 +208,11 @@ export default function EventsPage() {
             />
           </label>
           <button type="submit" className="button button--secondary button--md" disabled={draftInvalid}>Show</button>
+          {draftInvalid ? (
+            <p className="events-page__muted" role="status">
+              Enter both instants with an offset, for example 2026-09-21T05:00:00Z, and To after From.
+            </p>
+          ) : null}
           {defaultWindow ? (
             <button
               type="button"
@@ -347,6 +361,8 @@ function TimelineBody({
   onSelect: (eventId: string) => void;
 }) {
   const gaps = coverageGaps(timeline.coverage);
+  // Nothing was evaluated: an empty answer here is not an observed absence of events.
+  const noneEvaluated = timeline.coverage.derivedRuns === 0;
   const from = Date.parse(timeline.fromUtc);
   const span = Math.max(1, Date.parse(timeline.toUtc) - from);
   const lanes = shownRules;
@@ -362,7 +378,9 @@ function TimelineBody({
           ? 'This camera has no scene configuration, so no events can be derived.'
           : gaps.length > 0
             ? `Incomplete: ${gaps.join('; ')}. Missing runs are not shown as zero events.`
-            : `Complete: ${timeline.coverage.derivedRuns} run(s) evaluated against scene revision ${timeline.sceneRevisionNumber}.`}
+            : noneEvaluated
+              ? 'No analysed runs in this window, so there is nothing to derive events from.'
+              : `Complete: ${timeline.coverage.derivedRuns} run(s) evaluated against scene revision ${timeline.sceneRevisionNumber}.`}
         {timeline.truncated ? ` Showing the first ${timeline.limit} events; counts cover all of them.` : ''}
       </div>
 
@@ -411,7 +429,11 @@ function TimelineBody({
           ))}
         </svg>
         {timeline.events.length === 0 ? (
-          <p>{gaps.length > 0 ? 'No events in the evaluated runs so far.' : 'No events in this window.'}</p>
+          <p>
+            {gaps.length > 0
+              ? 'No events in the evaluated runs so far.'
+              : noneEvaluated ? 'No analysed runs in this window.' : 'No events in this window.'}
+          </p>
         ) : (
           <table className="events-page__table">
             <thead>

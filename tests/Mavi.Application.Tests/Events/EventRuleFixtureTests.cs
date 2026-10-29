@@ -202,7 +202,7 @@ public sealed class EventRuleFixtureTests
 
         Assert.DoesNotContain(result.Events, item => item.RuleId == EventRuleIds.RepeatedVisit);
         var state = result.RuleStates.Single(item => item.RuleId == EventRuleIds.RepeatedVisit);
-        Assert.Equal((false, RuleCatalogue.RequiresEntityConfirmation, 0), (state.Enabled, state.DisabledReason, state.EventCount));
+        Assert.Equal((false, RuleCatalogue.RequiresEntityConfirmation, (int?)null), (state.Enabled, state.DisabledReason, state.EventCount));
     }
 
     [Fact]
@@ -233,6 +233,7 @@ public sealed class EventRuleFixtureTests
             Lines = [.. input.Lines.Reverse()],
             Tracks = [.. input.Tracks.Reverse()],
             Visits = [.. input.Visits.Reverse()],
+            Summaries = [.. input.Summaries.Reverse()],
             Crossings = [.. input.Crossings.Reverse()],
             StationaryIntervals = [.. input.StationaryIntervals.Reverse()],
         };
@@ -307,6 +308,14 @@ public sealed class EventRuleFixtureTests
         [
             Cross(Id(810), Car, Gate, 0, 61_000, "AToB"),
             Cross(Id(811), Van, Gate, 0, 62_000, "BToA"),
+            // The same Track's first crossing of a second line: a crossing index is
+            // numbered per (Track, line), so this one is also index 0.
+            Cross(Id(812), Car, Kerb, 0, 30_000, "BToA"),
+        ],
+        summaries:
+        [
+            new EventZoneSummary(Car, Bay, 1, 60_000, Loitering: false, LoiteringThresholdSeconds: 120),
+            new EventZoneSummary(Person, Bay, 1, 10_000, Loitering: false, LoiteringThresholdSeconds: 120),
         ],
         intervals: [new EventStationaryInterval(Car, 0, 5_000, 50_000)]);
 
