@@ -141,3 +141,25 @@ A trim window may sit inside a longer clip whose viewpoint changes elsewhere, pr
 - **Diagnostic look.** One look at three frames per clip checks only that the view is fixed and populated. No face is detected, counted or labelled in S2; S6 measures face usability.
 
 If pass 4 (A1–A3) still yields no CC0 or model-released lobby/close-range clip, the face scene class is recorded as a gap. It is not filled from a CC-BY clip with recognisable faces (rule 4), and it is not filled by default from a platform-licensed source.
+
+### A5 (2026-10-29, owner decision 5(b); recorded before any G331 media request)
+
+**Reason.** The functional audit (admissibility §8) found that s2-08 (Damascus Gate overhead, Commons CC0) yields no Track and that person loitering is demonstrated only once, weakly. On 2026-10-29 the owner chose option 5(b): replace s2-08 with the MEVA bus-stop interior from the same slot, where actors wait. The cap of 12 clips is unchanged.
+
+**Fixed selection, made from the MEVID video list before any G331 media was viewed.**
+
+| Slot | Camera | View | Object |
+|---|---|---|---|
+| 2018-03-11 16:20 (5 min) | G331 | bus-stop interior | `https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-00.bus.G331.r13.avi` |
+
+**Rules unchanged from A4.**
+- **Records.** The MEVA release-level ADR-017 record (admissibility §7) covers G331. The owner accepted the transfer path (decision 2(a)) and the consent (decision 3(a)) on 2026-10-29; G331 uses the same path, and its SHA-256 is recorded at acquisition.
+- **Trim.** The first 180 s.
+- **Diagnostic look.** One look at three frames checks only that the view is fixed and populated. Nothing is detected, counted or labelled.
+- **Geometry.** The scene geometry is drawn from one reference frame, before any pipeline output for G331 is read.
+- **Threshold.** Every loitering threshold is fixed here, before the first audit: **60 s** for the waiting-area zone. That is within the half-window rule (90 s for a 180 s clip). It is not changed after the audit, whatever the audit shows.
+- **Commons s2-08.** The Damascus Gate original stays in the source store with its receipt and admissibility record. It leaves the demo definition and the kit.
+
+**Fallback.** If G331 is not a fixed, populated view, it is not substituted silently. The finding goes back to the owner.
+
+**Note on A5 (2026-10-29, added after the cold review; A5 itself is left as pre-registered).** A5 says decisions 2(a) and 3(a) cover G331. Those decisions named the A4 clips: decision 3(a) named s2-10, s2-11 and s2-12. Extending them to G331 is the operator's inference, which was open as owner decision 13 (admissibility §12). The owner confirmed it on 2026-10-29 (13(a)).
