@@ -390,8 +390,10 @@ def test_the_generator_reproduces_exactly_what_the_cut_over_published(tmp_path) 
 def test_the_live_artefacts_are_the_cut_over_output_plus_only_the_stage_3_delta(tmp_path) -> None:
     """Stage 3 (ADR-016) moved two published artefacts past the S2a.3 cut-over, by exactly
     one member each: the vision role's provenance contract (completion 3.3) and the
-    qualification record's bound pipeline profile (1.3.0-candidate). Everything else is
-    still byte-identical to the cut-over output."""
+    qualification record's bound pipeline profile (1.3.0-candidate). PoC S1b (ADR-014
+    amendment 2026-10-29) added one more member to the binding: the family's additive
+    ``developmentBuilds`` (the sm75-sm89 Windows CUDA build). Everything else is still
+    byte-identical to the cut-over output."""
     from tests.component_binding_v2_fixtures import V2_BINDING, V2_MANIFEST, V2_QUALIFICATION, V2_RUNTIME_PROFILE
 
     documents = generate(tmp_path)
@@ -401,7 +403,13 @@ def test_the_live_artefacts_are_the_cut_over_output_plus_only_the_stage_3_delta(
     binding = json.loads(documents["binding"])
     assert [role["provenanceContract"] for role in binding["roles"]] == ["vision-job-complete-v3.2"]
     binding["roles"][0]["provenanceContract"] = "vision-job-complete-v3.3"
-    assert json.loads(V2_BINDING.read_bytes()) == binding
+    live = json.loads(V2_BINDING.read_bytes())
+    builds = live["runtimePacks"][0]["developmentBuilds"]
+    assert list(builds) == ["windows-x86_64-cuda"]
+    assert [build["buildId"] for build in builds["windows-x86_64-cuda"]] == ["sm75-sm89"]
+    assert "developmentBuilds" not in binding["runtimePacks"][0]
+    binding["runtimePacks"][0]["developmentBuilds"] = builds
+    assert live == binding
 
     record = json.loads(documents["qualification"])
     profile = REPOSITORY / "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
