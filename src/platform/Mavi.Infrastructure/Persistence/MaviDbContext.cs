@@ -1,6 +1,7 @@
 using Mavi.Domain.Audit;
 using Mavi.Domain.Cameras;
 using Mavi.Domain.Embeddings;
+using Mavi.Domain.Faces;
 using Mavi.Domain.Intelligence;
 using Mavi.Domain.Media;
 using Mavi.Domain.Plates;
@@ -49,6 +50,14 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<EmbeddingIdentityActivation> EmbeddingIdentityActivations => Set<EmbeddingIdentityActivation>();
     public DbSet<Configurations.TrackEmbeddingRow> TrackEmbeddings => Set<Configurations.TrackEmbeddingRow>();
     public DbSet<AppearanceQueryEmbedding> AppearanceQueryEmbeddings => Set<AppearanceQueryEmbedding>();
+    public DbSet<FaceAnalysis> FaceAnalyses => Set<FaceAnalysis>();
+    public DbSet<Configurations.FaceTrackOutcomeRow> FaceTrackOutcomes => Set<Configurations.FaceTrackOutcomeRow>();
+    public DbSet<Configurations.FaceObservationRow> FaceObservations => Set<Configurations.FaceObservationRow>();
+    public DbSet<Configurations.FaceEmbeddingRow> FaceEmbeddings => Set<Configurations.FaceEmbeddingRow>();
+    public DbSet<FaceQuery> FaceQueries => Set<FaceQuery>();
+    public DbSet<Configurations.FaceQueryEmbeddingRow> FaceQueryEmbeddings => Set<Configurations.FaceQueryEmbeddingRow>();
+    public DbSet<EnrolledPerson> EnrolledPersons => Set<EnrolledPerson>();
+    public DbSet<EnrolledPersonFace> EnrolledPersonFaces => Set<EnrolledPersonFace>();
 
     // Model configuration
     protected override void OnModelCreating(ModelBuilder modelBuilder)

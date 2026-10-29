@@ -61,6 +61,11 @@ builder.Services.AddSingleton<PlateAudit>();
 builder.Services.AddSingleton<Mavi.Api.Embeddings.EmbeddingHostedService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<Mavi.Api.Embeddings.EmbeddingHostedService>());
 builder.Services.AddSingleton<Mavi.Api.Embeddings.EmbeddingAudit>();
+// The face authority loop (PoC S6; ADR-022): Faces:Enabled gates it; with nothing configured it idles and every
+// face surface answers faces_not_configured.
+builder.Services.AddSingleton<Mavi.Api.Faces.FaceHostedService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<Mavi.Api.Faces.FaceHostedService>());
+builder.Services.AddSingleton<Mavi.Api.Faces.FaceAudit>();
 // Canonical API JSON policy: property names are case-sensitive and numeric properties must be JSON numbers.
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -85,6 +90,7 @@ app.VerifyDeploymentDisclosure();
 app.VerifyOperatorIdentity();
 app.VerifyPlateRelease();
 Mavi.Api.Embeddings.EmbeddingReleaseStartup.VerifyEmbeddingRelease(app);
+Mavi.Api.Faces.FaceReleaseStartup.VerifyFaceRelease(app);
 await app.ApplyDatabaseMigrationsAsync();
 // Sanitised request start/finish telemetry in place of the framework's raw-URL lines (Stage 4 §5.5).
 app.UseSafeRequestTelemetry();
@@ -98,6 +104,7 @@ app.UseVisionCompletionRequestLimits();
 app.UseVisualAttributeRequestLimits();
 app.UsePlateRequestLimits();
 Mavi.Api.Embeddings.EmbeddingRequestLimitMiddleware.UseEmbeddingRequestLimits(app);
+Mavi.Api.Faces.FaceRequestLimitMiddleware.UseFaceRequestLimits(app);
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseAuthentication();
@@ -129,6 +136,8 @@ app.MapVisionJobEndpoints();
 app.MapVisualAttributeEndpoints();
 app.MapPlateEndpoints();
 app.MapEmbeddingEndpoints();
+app.MapFaceEndpoints();
+app.MapFaceOperatorEndpoints();
 app.MapTrackEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapArtifactEndpoints();
