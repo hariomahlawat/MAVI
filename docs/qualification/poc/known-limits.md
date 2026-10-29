@@ -14,13 +14,14 @@ This page is the PoC's record of what each capability does not do. The operator 
   - **7 of 140** Person Tracks (5 %) have a usable face, all in the two indoor MEVA clips: the stairwell s2-12 (2 of 9) and the entrance hall s2-13 (5 of 30).
   - The cafe lobby s2-10, the school hall s2-11 and every traffic clip have none.
   - Most Person Tracks are therefore **Unknown (no usable face)**, which means "not analysable", not "no match".
-  - "Find this face" can be shown across s2-12 and s2-13 (same MEVA slot) only for an actor whose face is usable in both; no identity label exists to confirm it is the same actor.
+  - **Demonstration scope.** ADR-022 §3 opts in only s2-10, s2-11 and s2-12, where only s2-12 has usable faces, so no cross-camera face demonstration is possible there. s2-13 may be opted in only after the owner confirms consent for its camera (G420) and ADR-022 §3 and the runbook are amended to name it. Even then, "Find this face" across s2-12 and s2-13 works only for an actor whose face is usable in both, and no identity label confirms it is the same actor.
   - The detector threshold stays at 0.9: the predeclared v2 rule found only 77 % of the 0.8–0.9 band to be faces, under its 90 % bar (`docs/qualification/poc/s6-face-coverage.md`).
 - **Opt-in per camera.** Face analysis runs only on cameras an operator has switched on. In the demonstration that is only the MEVA clips with consented actors.
 - **Model and threshold.**
   - AdaFace IR-50 scores 99.8 % on LFW 10-fold and 99.7 % with faces downscaled to 32 px.
   - The reference threshold is cosine 0.2121, the 32-px operating point at 0.1 % false accepts on LFW (`docs/qualification/poc/s6-face-embedder-spike.md`).
   - LFW is frontal and well lit, and it may overlap the training identities. **The threshold is not calibrated on CCTV.**
+  - On the demo clips, two usable faces of the same Track scored 0.14, below the threshold (`s6-face-e2e-rehearsal.md`). A candidate below the threshold is not evidence of a different person, and one above it is not evidence of the same person.
 - **Research-only checkpoint.** The AdaFace weights follow WebFace4M's non-commercial research terms. The pack is Development-only and may be used only for non-commercial demonstration. SFace (Apache-2.0) is the built fallback.
 - **Biometric data stays on this machine.** Face templates, the gallery and query images live only in this installation's database:
   - query images are erased once analysed;

@@ -63,4 +63,6 @@ The latency was measured on the laptop CPU under load from another session's job
 
 - **LFW is easy.** It is frontal, well lit, and its faces are celebrities. WebFace4M is also built from web images of public figures, so identity overlap with LFW is possible and the accuracy above may be optimistic. Downscaling to 32 px simulates resolution, but not CCTV pose, blur, compression or lighting.
 - **The threshold is context, not a decision rule.** It was not calibrated on CCTV.
+- **The threshold is noisy.** FAR 0.1 % over LFW's 3,000 impostor pairs is set by about the three highest impostor scores, and it was read from the same pairs that report the accuracy. Its sampling variance is high.
+- **The spike's detector setting differs from the role's.** The spike detects at YuNet score ≥ 0.5 so that every LFW image yields a face; the role uses the profile's 0.9. Alignment, preprocessing and embedding are the role's code.
 - **The AdaFace checkpoint is research-only.** If the owner rules it out (decision D-S6-3), SFace is the built and hashed fallback. Its own numbers are above, and its reference threshold would be 0.3484.

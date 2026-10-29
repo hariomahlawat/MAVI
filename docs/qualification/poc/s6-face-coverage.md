@@ -111,6 +111,6 @@ The look is recorded as counts only, in `diagnostic-look.txt`. No label was kept
 
 **Reading.**
 - **Coverage improved.** With s2-13, the corpus has usable faces in **7 of 140 Person Tracks** (5 %). They come from two indoor cameras: s2-12 (2/9) and s2-13 (5/30).
-- **A same-slot demonstration is now possible.** "Find this face" can be shown across two cameras of the same slot (s2-12 and s2-13), but only for actors whose face is usable in both. The protocol does not test whether the same actor appears in both, and no identity label is created.
+- **A same-slot demonstration becomes possible, subject to consent.** "Find this face" could be shown across two cameras of the same slot (s2-12 and s2-13), but only for actors whose face is usable in both. The protocol does not test whether the same actor appears in both, and no identity label is created. ADR-022 §3 opts in only s2-10, s2-11 and s2-12; s2-13 needs the owner's confirmation of consent for G420 and an amendment of §3 before it is opted in.
 - **The 0.8 band is mostly faces.** At 77 % faces, it would add 13 Tracks, but a quarter of its detections would be crowns or rear views that embed poorly. The 0.9 rule keeps Unknown honest.
 - **Unknown remains the majority result.**
