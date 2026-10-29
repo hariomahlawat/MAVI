@@ -38,6 +38,13 @@ export default function AttributeFilterSection({ value, objectClass, vocabulary,
   const offered = vocabulary?.attributes.filter((item) =>
     objectClass === '' || CLASS_OF[item.objectClass] === objectClass || chosen.has(item.attributeType)) ?? [];
 
+  // A chosen attribute of the other class (the operator changed Object class after choosing it) cannot be searched:
+  // say so on the section, in words, rather than let the server refuse the whole search.
+  const mismatched = objectClass === '' ? [] : [...chosen.keys()].filter((type) => {
+    const definition = vocabulary?.attributes.find((item) => item.attributeType === type);
+    return definition !== undefined && CLASS_OF[definition.objectClass] !== objectClass;
+  });
+
   function choose(attributeType: string, objectClassOfType: 'person' | 'vehicle', next: string) {
     let text = value;
     if (next) {
@@ -55,6 +62,11 @@ export default function AttributeFilterSection({ value, objectClass, vocabulary,
     <section className="filter-rail__section" aria-labelledby="filter-attributes">
       <h2 id="filter-attributes">Attributes</h2>
       {disclosure ? <p className="filter-rail__hint">Attribute values: {disclosure}</p> : null}
+      {mismatched.length > 0 ? (
+        <p className="filter-rail__hint" role="alert">
+          {mismatched.map(attributeTypeLabel).join(', ')} does not apply to {objectClass} Tracks. Set it to Any, or change Object class.
+        </p>
+      ) : null}
       {vocabularyUnavailable ? (
         <p className="filter-rail__hint">The attribute vocabulary is unavailable, so attribute filters cannot be edited.</p>
       ) : !vocabulary ? (

@@ -307,3 +307,30 @@ def test_the_schema_type_used_by_the_test_is_the_committed_one() -> None:
     assert isinstance(profile.schema, AttributeSchema)
     assert [item.attribute_type for item in profile.schema.attributes] == [
         "person-carried-bag", "person-headwear", "person-lower-colour", "person-upper-colour", "vehicle-colour"]
+
+
+# --------------------------------------------------------------------------- calibration (protocol v2)
+
+
+def _spike():
+    sys.path.insert(0, str(REPOSITORY / "tools" / "poc"))
+    try:
+        import attributes_zero_shot_spike as spike
+    finally:
+        sys.path.pop(0)
+    return spike
+
+
+def test_calibration_decides_tracks_exactly_as_the_runtime_aggregates() -> None:
+    """Protocol v2 (cold review P2-1): a small crop scores zero and is averaged in, so a Track with one confident and
+    one small crop abstains where the confident crop alone would be Observed."""
+    spike = _spike()
+    profile, _ = _profile()
+    vehicle = next(item for item in profile.schema.attributes if item.attribute_type == "vehicle-colour")
+    confident = {"sha256": "a" * 64, "small": False,
+                 "probabilities": {"vehicle-colour": {v: (0.9 if v == "red" else 0.01) for v in vehicle.values}}}
+    small = {"sha256": "b" * 64, "small": True, "probabilities": None}
+
+    assert spike.track_decision({"crops": [confident]}, vehicle, 0.8, profile.aggregation) == "red"
+    assert spike.track_decision({"crops": [confident, small]}, vehicle, 0.8, profile.aggregation) is None
+    assert spike.track_decision({"crops": [confident]}, vehicle, 0.95, profile.aggregation) is None

@@ -16,6 +16,13 @@ public static class VisualAttributeReleaseStartup
 {
     public const string FixtureForbiddenCode = "visual_attribute_development_definition_forbidden";
 
+    /// <summary>
+    /// The one Development-only identity a <c>poc-single-host</c> build admits (PoC S5, ADR-021 amendment 2026-10-29):
+    /// the committed SigLIP 2 zero-shot release. Equal to
+    /// <c>contracts/test-vectors/poc-zero-shot-attribute-identity-v1.json</c>; a test re-derives it from the release.
+    /// </summary>
+    public const string PocZeroShotIdentityFingerprint = "d51e7347f751059be134f2237d34b6c05be4d262f90f0c80e39c9a42faeecc23";
+
     private static readonly Action<ILogger, string, Exception?> LogConfigured =
         LoggerMessage.Define<string>(LogLevel.Information, new EventId(1960, "VisualAttributeReleaseConfigured"),
             "Visual attribute analysis is configured for identity {Fingerprint}.");
@@ -35,16 +42,27 @@ public static class VisualAttributeReleaseStartup
             return;
         }
 
-        RequireAllowed(definition, app.Environment);
+        RequireAllowed(definition, app.Environment, Deployment.DeploymentEndpoints.BuildProfile);
         LogConfigured(logger, definition.Identity.Fingerprint, null);
     }
 
-    /// <summary>A Development-only definition (the S2b fixture) starts only in Development or Testing.</summary>
-    public static void RequireAllowed(Mavi.Application.Modules.VisualAttributes.Release.VisualAttributeReleaseDefinition definition, IHostEnvironment environment)
+    /// <summary>
+    /// A Development-only definition starts only in Development or Testing, or, on a platform built for
+    /// <c>poc-single-host</c> (ADR-020), only as the pinned zero-shot release (the plate gate's rule).
+    /// </summary>
+    /// <param name="buildProfile">The profile the platform was built for (never a configured value).</param>
+    public static void RequireAllowed(
+        Mavi.Application.Modules.VisualAttributes.Release.VisualAttributeReleaseDefinition definition,
+        IHostEnvironment environment,
+        string? buildProfile = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(environment);
-        if (definition.DevelopmentOnly && !environment.IsDevelopment() && !environment.IsEnvironment("Testing"))
-            throw new InvalidOperationException(FixtureForbiddenCode);
+        if (!definition.DevelopmentOnly || environment.IsDevelopment() || environment.IsEnvironment("Testing"))
+            return;
+        if (string.Equals(buildProfile, Mavi.Application.Deployment.DeploymentProfiles.PocSingleHost, StringComparison.Ordinal) &&
+            string.Equals(definition.Identity.Fingerprint, PocZeroShotIdentityFingerprint, StringComparison.Ordinal))
+            return;
+        throw new InvalidOperationException(FixtureForbiddenCode);
     }
 }

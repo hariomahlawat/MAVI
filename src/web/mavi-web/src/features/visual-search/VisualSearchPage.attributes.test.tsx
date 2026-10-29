@@ -125,7 +125,16 @@ describe('PoC S5 attribute search on Search', () => {
     expect(coverage).toHaveTextContent('1 not analysed');
     expect(coverage).toHaveTextContent('upper clothing colour unknown on 2');
     const rows = within(screen.getByRole('list', { name: 'Track results' })).getAllByRole('listitem');
-    expect(rows[0]).toHaveTextContent('Matched upper clothing colour red (score 0.71)');
+    expect(rows[0]).toHaveTextContent('Matched upper clothing colour red (score 0.71) · zero-shot, Development');
+  });
+
+  it('warns in words when a chosen attribute does not apply to the chosen object class', async () => {
+    vi.mocked(searchTracks).mockResolvedValue({ ...page, items: [] });
+    renderWithApp(<VisualSearchPage />, { route: '/search?objectClass=Vehicle&attribute=person-upper-colour:red' });
+    await searchDrawn();
+
+    expect(await screen.findByText('Upper clothing colour does not apply to Vehicle Tracks. Set it to Any, or change Object class.'))
+      .toBeInTheDocument();
   });
 
   it('never reads an empty attribute result as "no such Track" while coverage is partial', async () => {

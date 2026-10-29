@@ -39,6 +39,7 @@ export default memo(function TrackResultCard({
   selected = false,
   searchContext,
   analyticsIdentity,
+  attributeDisclosure,
   onSelect,
 }: {
   track: TrackSearchItem;
@@ -46,6 +47,8 @@ export default memo(function TrackResultCard({
   selected?: boolean;
   searchContext?: string;
   analyticsIdentity?: TrackAnalyticsIdentity;
+  /** The attribute pipeline's disclosure, stated on every attribute match (PoC S5). */
+  attributeDisclosure?: string | null;
   onSelect?: (id: string) => void;
 }) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
@@ -103,7 +106,7 @@ export default memo(function TrackResultCard({
         {track.plate ? <TrackPlateMatch plate={track.plate} searchContext={searchContext} /> : null}
         {/* UI/UX §29: a matched attribute value is plain secondary text, never a badge. */}
         {track.attributes && track.attributes.length > 0
-          ? <p className="track-card__explanation">{attributeMatchText(track.attributes)}</p>
+          ? <p className="track-card__explanation">{attributeMatchText(track.attributes, attributeDisclosure)}</p>
           : null}
       </div>
 

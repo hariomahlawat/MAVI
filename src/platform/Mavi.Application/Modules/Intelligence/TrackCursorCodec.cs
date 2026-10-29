@@ -597,7 +597,8 @@ public static class TrackCursorCodec
     /// Decodes and authenticates an attribute v4 cursor (MAC first, as every signed envelope). Exactly one derived pin,
     /// tagged <c>attributes</c>, is accepted, so a plate cursor is refused here and an attribute cursor by the plate
     /// decoder; the counts must partition the scope and no Unknown count may exceed the analysed Tracks. The
-    /// <paramref name="disclosure"/> is not carried: it is the release's, which cannot change for a pinned identity.
+    /// <paramref name="disclosure"/> is not carried; the service supplies the release's only when the cursor's pinned
+    /// identity is the release's own.
     /// </summary>
     public static bool TryDecodeAttribute(
         string? cursor,

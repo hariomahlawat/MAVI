@@ -287,7 +287,7 @@ public sealed class TrackSearchService(
         TrackAttributeCursorPosition? cursor = null;
         if (query.Cursor is not null)
         {
-            if (!TrackCursorCodec.TryDecodeAttribute(query.Cursor, signingKey, definition?.Disclosure, out cursor) ||
+            if (!TrackCursorCodec.TryDecodeAttribute(query.Cursor, signingKey, null, out cursor) ||
                 cursor is null ||
                 cursor.IsAnalytic != query.IsAnalytic ||
                 cursor.AttributeCoverage.Unknown.Count != attributes.Predicates.Count ||
@@ -301,6 +301,10 @@ public sealed class TrackSearchService(
             }
         }
 
+        // The disclosure is the release's; a cursor pinned to another (older) identity carries none rather than borrow it.
+        if (cursor is not null && definition is not null &&
+            string.Equals(cursor.AttributeIdentityFingerprint, definition.Identity.Fingerprint, StringComparison.Ordinal))
+            cursor = cursor with { AttributeCoverage = cursor.AttributeCoverage with { Disclosure = definition.Disclosure } };
         var preferred = cursor?.AttributeIdentityFingerprint ?? definition?.Identity.Fingerprint;
         var result = await attributeRepository.SearchAttributesAsync(
             query,
@@ -351,23 +355,25 @@ public sealed class TrackSearchService(
 
     /// <summary>
     /// A Track's visual attributes (PoC S5): its run's readiness and, when Ready, the default analysis's final rows.
-    /// Null when the host has no attribute plane wired or the configured schema has no attribute for the Track's class.
+    /// Null when the host has no attribute plane wired, no attribute release is configured, or the configured schema
+    /// has no attribute for the Track's class.
     /// </summary>
     public async Task<TrackAttributeDetail?> GetAttributeDetailAsync(TrackDetailRow row, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(row);
         if (attributeReadiness is null || attributeRepository is null || attributeRelease is null)
             return null;
+        // No attribute release: the detail carries no block, so it is byte-for-byte the pre-S5 response.
         var definition = attributeRelease.Resolution.Definition;
-        if (definition is not null &&
+        if (definition is null ||
             definition.Schema.ForObjectClass(TrackAttributeQueryRules.ToSchemaClass(row.ObjectClass)).Count == 0)
             return null;
 
         var readiness = await attributeReadiness.GetAsync(row.ProcessingRunId, cancellationToken);
         if (readiness is null)
             return null;
-        var disclosure = definition?.Disclosure;
-        var developmentOnly = definition?.DevelopmentOnly ?? false;
+        var disclosure = definition.Disclosure;
+        var developmentOnly = definition.DevelopmentOnly;
         if (readiness.State != VisualAttributes.VisualAttributeReadinessState.Ready || readiness.DefaultAnalysisId is not { } analysisId)
             return new TrackAttributeDetail(readiness.State, disclosure, developmentOnly, null);
 

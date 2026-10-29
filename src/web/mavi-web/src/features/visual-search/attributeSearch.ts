@@ -89,10 +89,16 @@ export function attributeDisclosure(disclosure: string | null | undefined, devel
   return developmentOnly ? ATTRIBUTE_DEVELOPMENT_FALLBACK : null;
 }
 
-/** A result row's plain-text explanation: each matched value with its abstention-normalised score. */
-export function attributeMatchText(matches: ReadonlyArray<{ attributeType: string; value: string; confidence: number }>): string {
+/**
+ * A result row's plain-text explanation: each matched value with its abstention-normalised score, followed by the
+ * pipeline's disclosure, so every row that shows an attribute says what kind of evidence it is.
+ */
+export function attributeMatchText(
+  matches: ReadonlyArray<{ attributeType: string; value: string; confidence: number }>,
+  disclosure?: string | null,
+): string {
   return 'Matched ' + matches
     .map((item) => attributeTypeLabel(item.attributeType).toLowerCase() + ' ' + attributeValueLabel(item.value)
       + ' (score ' + item.confidence.toFixed(2) + ')')
-    .join(' · ');
+    .join(' · ') + (disclosure ? ' · ' + disclosure : '');
 }

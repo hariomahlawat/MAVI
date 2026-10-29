@@ -1511,9 +1511,10 @@ def check_zero_shot_attribute_release(errors: list[str]) -> None:
         if not profile.development_only or profile.parameters.get("disclosure") != "zero-shot, Development":
             fail("The zero-shot attribute release must be developmentOnly and state 'zero-shot, Development'.", errors)
         vector = json.loads((ROOT / "contracts/test-vectors/poc-zero-shot-attribute-identity-v1.json").read_text(encoding="utf-8"))
-        if attribute_identity(profile, packs).fingerprint != vector["fingerprint"] or                 hashlib.sha256(vector["canonicalIdentity"].encode("ascii")).hexdigest() != vector["fingerprint"]:
+        if attribute_identity(profile, packs).fingerprint != vector["fingerprint"] or (
+                hashlib.sha256(vector["canonicalIdentity"].encode("ascii")).hexdigest() != vector["fingerprint"]):
             fail("poc-zero-shot-attribute-identity-v1.json does not pin the committed zero-shot release's identity.", errors)
-    except (ValueError, OSError, KeyError, TypeError) as exc:
+    except (ImportError, ValueError, OSError, KeyError, TypeError) as exc:
         fail(f"Zero-shot attribute release refusal: {exc}", errors)
 
 

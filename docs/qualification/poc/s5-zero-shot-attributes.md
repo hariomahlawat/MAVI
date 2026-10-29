@@ -1,6 +1,6 @@
 # PoC S5: zero-shot attributes, calibration note
 
-**Status:** IN PROGRESS. The protocol is frozen and committed, the held set is selected and scored, and the **labels are not yet entered**. The thresholds in `src/vision/config/attributes/parameters-siglip2-zero-shot-v1.json` are therefore the **provisional uncalibrated value 0.5 for every attribute**. Register row C2.1 stays IN PROGRESS until the calibration result below is entered.
+**Status:** IN PROGRESS. Protocol v2 is frozen and committed, the held Tracks are selected and scored, and the **labels are not yet entered**. The thresholds in `src/vision/config/attributes/parameters-siglip2-zero-shot-v1.json` are therefore the **provisional uncalibrated value 0.5 for every attribute**. Register row C2.1 stays IN PROGRESS until the calibration result below is entered.
 **Evidence class:** Development (ADR-020). Zero-shot, Development; not qualified, not a Stage-2 S2c learned Model Pack, and closing no Stage-2 F/G row.
 **Governing:** plan slice S5; ADR-021 and its 2026-10-29 amendment; register rows C2.1 and C2.2.
 
@@ -28,24 +28,29 @@ The plan asked for thresholds from held crops of the S4 spike set. That set cann
 
 The only labelled attribute datasets MAVI has cleared are PA-100K and UPAR. R-5 approved them for evaluation only; choosing a threshold is tuning, which is not approved (`E:\MAVI-Controlled\Evidence\S2c\2026-10-02-r5-pa100k-upar-eval\03-r5-decision-record.json`). This was reported to the coordinator before any calibration ran, as owner decision **S5-1**.
 
-## 3. Frozen protocol (`docs/qualification/poc/s5-zero-shot-protocol-v1.json`)
+## 3. Frozen protocol (`docs/qualification/poc/s5-zero-shot-protocol-v2.json`)
 
-The protocol was committed in `d6262172` before any label existed.
+**Protocol v1 is withdrawn.** v1 (`s5-zero-shot-protocol-v1.json`, committed in `d6262172`) was withdrawn on 2026-10-30, before any label existed. It thresholded one crop's softmax `p`. That is not the decision the runtime ships, which averages the abstention-normalised score over **every** crop of the Track and scores small crops as zero (cold review P2-1). v1's selection and scores are kept, unchanged, in `E:\MAVI-Controlled\PoC\S5\spike-v1-withdrawn\`.
+
+**v2 is committed before any label exists.**
 
 - **Held set.**
   - Seeded (`202610295`) from the same read-only H3 exports.
-  - 100 Person and 100 Vehicle Tracks, each with a crop whose shorter side is at least 80 px, using the largest such crop per Track.
+  - 100 Person and 100 Vehicle Tracks, each with at least one crop of shorter side ≥ 80 px. Every accepted crop of the Track is kept, and each crop's hash is checked.
   - At most 4 Tracks per run.
   - Split into seeded halves: calibration (even index) and check (odd index).
-- **Rule.** For each attribute, take the smallest threshold on the grid 0.30, 0.35 … 0.95 whose calibration-half precision is at least **0.80**, with at least **8** Observed rows. If no grid value qualifies, use 0.99 (the attribute is effectively always Unknown).
-  - An Observed row on a crop labelled `unscorable` counts as wrong.
-- **Reporting.** Check-half precision, with a Wilson 95% interval, and coverage (Observed / items). Thresholds are never re-chosen on the check half.
+- **Labels.** One label per Track and attribute, judged from all the Track's crops, which the contact sheet shows side by side. Every applicable cell must be labelled; `calibrate` refuses a missing or out-of-vocabulary label.
+- **Decision measured.** It is the runtime's own: `abstention_score` per crop, then `aggregate_track` (`mean-score-argmax` at 0.5). The spike calls the same functions.
+- **Rule.** For each attribute, take the smallest threshold on the grid 0.30, 0.35 … 0.95 whose calibration-half Track precision is at least **0.80**, with at least **8** Observed rows. If no grid value qualifies, use 0.99.
+  - An Observed decision on a Track labelled `unscorable` or `absent` counts as wrong.
+  - An abstention counts only against coverage.
+- **Reporting.** Check-half Track precision, with a Wilson 95% interval, and coverage. Thresholds are never re-chosen on the check half.
 
 ## 4. Held set and scores (raw outputs in `E:\MAVI-Controlled\PoC\S5\spike\`)
 
-The selection read 369 eligible Person Tracks (100 chosen from 45 runs) and 4,031 eligible Vehicle Tracks (100 chosen from 69 runs). No crop failed its hash check.
+The selection read 369 eligible Person Tracks (100 chosen from 45 runs, 167 crops) and 4,031 eligible Vehicle Tracks (100 chosen from 69 runs, 202 crops). No crop failed its hash check. All 369 crops were scored on CPU (ONNX Runtime 1.31.0, `embeddings-onnx-v1`); crops under 80 px are recorded as small and score zero.
 
-Scoring the 200 crops on CPU (ONNX Runtime 1.31.0, `embeddings-onnx-v1`) took 53 s in total, including prototype construction. The unlabelled distributions of the top value's softmax `p` are shown below. They are for orientation only, not a measurement:
+For orientation only, the withdrawn v1 run gave these unlabelled distributions of the top softmax `p` on the largest crop of the same seeded Tracks:
 
 | Attribute | p10 / p50 / p90 of top `p` | Top-value counts (largest) |
 |---|---|---|
@@ -67,4 +72,4 @@ Scoring the 200 crops on CPU (ONNX Runtime 1.31.0, `embeddings-onnx-v1`) took 53
 
 ## 7. Evidence
 
-The folder `E:\MAVI-Controlled\PoC\S5\spike\` contains `selection.json`, `scores-cpu.json`, `labels-template.csv`, `contact-sheet.html` and `SHA256SUMS`. When calibration runs, it will also hold `labels.csv`, `calibration.json` and `thresholds.json`.
+The folder `E:\MAVI-Controlled\PoC\S5\spike\` (protocol v2) contains `selection.json`, `scores-cpu.json`, `labels-template.csv`, `contact-sheet.html` and `SHA256SUMS`. The withdrawn v1 outputs are in `E:\MAVI-Controlled\PoC\S5\spike-v1-withdrawn\`, also with `SHA256SUMS`. When calibration runs, it will also hold `labels.csv`, `calibration.json` and `thresholds.json`.

@@ -1,21 +1,25 @@
-"""PoC S5 spike: zero-shot SigLIP 2 attribute scores over held H3 crops, and per-attribute abstention calibration.
+"""PoC S5 spike: zero-shot SigLIP 2 attribute scores over held H3 Tracks, and per-attribute abstention calibration.
+
+Protocol ``s5-zero-shot-calibration-v2`` (``docs/qualification/poc/s5-zero-shot-protocol-v2.json``). Calibration measures
+the **Track-level decision that ships**: every accepted crop of a held Track is scored, crops under the minimum side
+contribute zero scores, and the decision is the runtime's own ``abstention_score`` + ``aggregate_track``
+(``mean-score-argmax`` at 0.5), evaluated for each candidate threshold. Labels are per Track.
 
 Three steps; each writes under ``--out`` (``E:\\MAVI-Controlled\\PoC\\S5\\spike``), never into the repository.
 
-``select``   Seeded held set from the read-only H3 exports (the S4 spike's source): Person and Vehicle Tracks
-             with a crop whose shorter side is at least 80 px; per Track the largest such crop; at most
-             ``MAX_TRACKS_PER_RUN`` Tracks per run; ``PER_CLASS`` per class; each crop's SHA-256 is checked against
-             the export. Every item is assigned to the ``calibration`` or ``check`` half by a seeded shuffle.
-             Writes ``selection.json``, ``labels-template.csv`` (one row per crop, an empty column per
-             applicable attribute) and ``contact-sheet.html``.
-``score``    The committed zero-shot inferencer (``src/vision/config/attributes``) over every selected crop:
-             per attribute the softmax ``p`` per value. Writes ``scores-<device>.json``.
-``calibrate`` Reads ``labels.csv`` (the template, filled in) and the frozen ``protocol.json``; per attribute
-             chooses the threshold on the calibration half by the protocol's rule and reports precision and
-             coverage on the check half. Writes ``calibration.json`` and ``thresholds.json``.
+``select``    Seeded held set from the read-only H3 exports (the S4 spike's source): Person and Vehicle Tracks with at
+              least one crop whose shorter side is >= 80 px; all the Track's crops are kept (SHA-256 checked); at most
+              ``MAX_TRACKS_PER_RUN`` Tracks per run; ``PER_CLASS`` per class; seeded calibration/check halves. Writes
+              ``selection.json``, ``labels-template.csv`` (one row per Track) and ``contact-sheet.html`` (all the
+              Track's crops side by side).
+``score``     The SigLIP 2 Model Pack over every crop >= the minimum side: per attribute the softmax ``p`` per value
+              (threshold-free). Writes ``scores-<device>.json``.
+``calibrate`` Reads ``labels.csv`` (the template, filled in), refuses any unlabelled applicable cell, and per attribute
+              chooses the threshold on the calibration half by the protocol's rule; reports precision (Wilson 95%)
+              and coverage on the check half. Writes ``calibration.json`` and ``thresholds.json``.
 
-A label is a schema value, ``present`` / ``absent`` for a presence attribute, or ``unscorable``. Unscorable crops
-are excluded from precision and counted in coverage only as "should abstain".
+A label is a schema value, ``present`` / ``absent`` for a presence attribute, or ``unscorable``. An Observed decision on
+a Track labelled ``unscorable`` counts as wrong; an abstention is never wrong (it is coverage, reported separately).
 """
 
 from __future__ import annotations
@@ -35,16 +39,20 @@ sys.path.insert(0, str(REPOSITORY / "src" / "vision"))
 
 from PIL import Image  # noqa: E402
 
+from mavi_vision.attributes.contracts import LeaseTrack  # noqa: E402
 from mavi_vision.attributes.pipeline import load_attribute_pipeline  # noqa: E402
-from mavi_vision.attributes.zero_shot import KIND_PRESENCE, parse_zero_shot_parameters  # noqa: E402
+from mavi_vision.attributes.predictions import ObservationResult, aggregate_track  # noqa: E402
+from mavi_vision.attributes.zero_shot import KIND_PRESENCE, PRESENT, abstention_score, parse_zero_shot_parameters  # noqa: E402
 
 PROFILE = REPOSITORY / "src/vision/config/attributes/development-attributes-siglip2-zero-shot-v1.json"
 MANIFEST = REPOSITORY / "models/manifests/embeddings-siglip2-base-p16-224-dev-v1.json"
+PROTOCOL = REPOSITORY / "docs/qualification/poc/s5-zero-shot-protocol-v2.json"
 SEED = 20261029_5
 PER_CLASS = 100
 MAX_TRACKS_PER_RUN = 4
 MIN_SIDE = 80
 CLASSES = {"Person": "person", "Vehicle": "vehicle"}
+UNSCORABLE = "unscorable"
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -74,7 +82,7 @@ def select(exports_root: Path, out: Path) -> None:
         for track in sorted(export["tracks"], key=lambda t: t["id"]):
             if track["objectClass"] not in CLASSES:
                 continue
-            best = None
+            crops = []
             for obs in track["observations"]:
                 path = export_path.parent / obs["evidencePath"]
                 if not path.is_file():
@@ -84,14 +92,11 @@ def select(exports_root: Path, out: Path) -> None:
                     raise SystemExit(f"hash mismatch: {path}")
                 with Image.open(io.BytesIO(data)) as image:
                     width, height = image.size
-                if min(width, height) < MIN_SIDE:
-                    continue
-                key = (width * height, obs["evidenceSha256"])
-                if best is None or key > best[0]:
-                    best = (key, {"path": str(path), "sha256": obs["evidenceSha256"], "width": width, "height": height})
-            if best is not None:
+                crops.append({"path": str(path), "sha256": obs["evidenceSha256"], "width": width, "height": height})
+            if any(min(c["width"], c["height"]) >= MIN_SIDE for c in crops):
+                crops.sort(key=lambda c: c["sha256"])
                 tracks[track["objectClass"]].append({"runId": run_id, "trackId": track["id"],
-                                                     "objectClass": track["objectClass"], **best[1]})
+                                                     "objectClass": track["objectClass"], "crops": crops})
     rng = random.Random(SEED)
     chosen: list[dict] = []
     stats = {}
@@ -107,7 +112,8 @@ def select(exports_root: Path, out: Path) -> None:
             picked.append(item)
             if len(picked) == PER_CLASS:
                 break
-        stats[name] = {"eligibleTracks": len(pool), "selected": len(picked), "runs": len(per_run)}
+        stats[name] = {"eligibleTracks": len(pool), "selected": len(picked), "runs": len(per_run),
+                       "crops": sum(len(item["crops"]) for item in picked)}
         chosen.extend(picked)
     rng.shuffle(chosen)
     for index, item in enumerate(chosen):
@@ -115,8 +121,8 @@ def select(exports_root: Path, out: Path) -> None:
         item["half"] = "calibration" if index % 2 == 0 else "check"
     chosen.sort(key=lambda item: item["itemId"])
     out.mkdir(parents=True, exist_ok=True)
-    (out / "selection.json").write_text(json.dumps({"seed": SEED, "stats": stats, "items": chosen}, indent=2),
-                                        encoding="utf-8")
+    (out / "selection.json").write_text(json.dumps({"protocol": "s5-zero-shot-calibration-v2", "seed": SEED,
+                                                    "stats": stats, "items": chosen}, indent=2), encoding="utf-8")
     columns = [item.attribute_type for item in profile.schema.attributes]
     with open(out / "labels-template.csv", "w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
@@ -126,24 +132,26 @@ def select(exports_root: Path, out: Path) -> None:
             writer.writerow([item["itemId"], item["objectClass"],
                              *["" if definition.object_class == object_class else "n/a" for definition in profile.schema.attributes]])
     rows = "\n".join(
-        f'<figure><img src="file:///{html.escape(item["path"].replace(chr(92), "/"))}"><figcaption>{item["itemId"]} '
-        f'{item["objectClass"]} {item["width"]}x{item["height"]}</figcaption></figure>'
+        f'<div class="track"><b>{item["itemId"]} {item["objectClass"]}</b><br>'
+        + "".join(f'<img src="file:///{html.escape(c["path"].replace(chr(92), "/"))}" title="{c["width"]}x{c["height"]}">'
+                  for c in item["crops"]) + "</div>"
         for item in chosen)
     vocabulary = "<br>".join(f"<b>{d.attribute_type}</b>: {', '.join(d.values)}"
-                             + (" (label present / absent)" if d.values == ("present",) else "")
+                             + (" (label present / absent)" if d.values == (PRESENT,) else "")
                              + " or unscorable" for d in profile.schema.attributes)
     (out / "contact-sheet.html").write_text(
-        "<!doctype html><meta charset=utf-8><title>S5 held crops</title><style>figure{display:inline-block;margin:6px;"
-        "text-align:center;font:12px sans-serif}img{max-height:220px;max-width:220px}</style>"
-        f"<p>{vocabulary}</p>{rows}", encoding="utf-8")
+        "<!doctype html><meta charset=utf-8><title>S5 held Tracks</title><style>.track{display:inline-block;margin:6px;"
+        "padding:4px;border:1px solid #ccc;font:12px sans-serif;vertical-align:top}img{max-height:200px;max-width:200px;"
+        "margin:2px}</style><p>One label per Track (all its crops are shown). " + vocabulary + "</p>" + rows,
+        encoding="utf-8")
     print(json.dumps(stats, indent=2))
 
 
 def score(out: Path, model_root: Path, device: str) -> None:
+    from mavi_vision.attributes.zero_shot import SiglipZeroShotInferencer
     from mavi_vision.embeddings.identity import verify_model_pack
     from mavi_vision.embeddings.model import l2_normalise_rows
     from mavi_vision.embeddings.onnx_model import load_onnx_model
-    from mavi_vision.attributes.zero_shot import SiglipZeroShotInferencer
     from mavi_vision.runtime.model_manifest_v2 import load_model_manifest_v2
 
     profile, parameters = _profile()
@@ -153,33 +161,68 @@ def score(out: Path, model_root: Path, device: str) -> None:
     selection = json.loads((out / "selection.json").read_text(encoding="utf-8"))
     results = []
     for item in selection["items"]:
-        data = Path(item["path"]).read_bytes()
-        if sha256_bytes(data) != item["sha256"]:
-            raise SystemExit(f"hash mismatch: {item['path']}")
-        image = l2_normalise_rows(model.embed_images([data]), 768)[0]
         object_class = CLASSES[item["objectClass"]]
-        probabilities = {}
-        for definition in profile.schema.for_object_class(object_class):
-            p = inferencer.probabilities(image, definition.attribute_type)
-            if parameters.attributes[definition.attribute_type].kind == KIND_PRESENCE:
-                probabilities[definition.attribute_type] = {"present": float(p[0]), "absent": float(p[1])}
-            else:
-                probabilities[definition.attribute_type] = {v: float(p[i]) for i, v in enumerate(definition.values)}
-        results.append({"itemId": item["itemId"], "probabilities": probabilities})
-    document = {"profileSha256": profile.sha256, "parametersSha256": profile.parameters_sha256,
-                "device": device, "items": results}
+        crops = []
+        for crop in item["crops"]:
+            data = Path(crop["path"]).read_bytes()
+            if sha256_bytes(data) != crop["sha256"]:
+                raise SystemExit(f"hash mismatch: {crop['path']}")
+            if min(crop["width"], crop["height"]) < parameters.minimum_crop_side:
+                crops.append({"sha256": crop["sha256"], "small": True, "probabilities": None})
+                continue
+            image = l2_normalise_rows(model.embed_images([data]), 768)[0]
+            probabilities = {}
+            for definition in profile.schema.for_object_class(object_class):
+                p = inferencer.probabilities(image, definition.attribute_type)
+                if parameters.attributes[definition.attribute_type].kind == KIND_PRESENCE:
+                    probabilities[definition.attribute_type] = {PRESENT: float(p[0])}
+                else:
+                    probabilities[definition.attribute_type] = {v: float(p[i]) for i, v in enumerate(definition.values)}
+            crops.append({"sha256": crop["sha256"], "small": False, "probabilities": probabilities})
+        results.append({"itemId": item["itemId"], "crops": crops})
+    document = {"protocol": "s5-zero-shot-calibration-v2", "profileSha256": profile.sha256,
+                "parametersSha256": profile.parameters_sha256, "device": device, "items": results}
     (out / f"scores-{device}.json").write_text(json.dumps(document, indent=2), encoding="utf-8")
-    print(f"scored {len(results)} crops on {device}")
+    print(f"scored {sum(len(r['crops']) for r in results)} crops of {len(results)} Tracks on {device}")
+
+
+def track_decision(scored: dict, definition, threshold: float, policy) -> str | None:
+    """The runtime's Track decision for one attribute at ``threshold``: abstention_score per crop, then aggregate_track."""
+    lease_track = LeaseTrack.model_validate_json(json.dumps({
+        "trackId": "00000000-0000-7000-8000-000000000001", "objectClass": definition.object_class,
+        "observations": [{"observationId": f"00000000-0000-7000-8000-{index:012d}", "role": "representative",
+                          "evidenceRank": index, "sizeBytes": 1, "sha256": crop["sha256"]}
+                         for index, crop in enumerate(scored["crops"])],
+    }))
+    observations = []
+    for index, crop in enumerate(scored["crops"]):
+        if crop["small"]:
+            values = {value: 0.0 for value in definition.values}
+        else:
+            values = {value: abstention_score(crop["probabilities"][definition.attribute_type][value], threshold)
+                      for value in definition.values}
+        observations.append(ObservationResult(lease_track.observations[index].observation_id, index,
+                                              scores={definition.attribute_type: values}))
+    decision = aggregate_track(lease_track, tuple(observations), (definition,), policy).decisions[0]
+    return decision.value if decision.outcome == "observed" else None
 
 
 def calibrate(out: Path, device: str) -> None:
-    protocol = json.loads((REPOSITORY / "docs/qualification/poc/s5-zero-shot-protocol-v1.json").read_text(encoding="utf-8"))
-    profile, parameters = _profile()
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    profile, _ = _profile()
     selection = {item["itemId"]: item for item in json.loads((out / "selection.json").read_text(encoding="utf-8"))["items"]}
-    scores = {item["itemId"]: item["probabilities"] for item in
-              json.loads((out / f"scores-{device}.json").read_text(encoding="utf-8"))["items"]}
+    scores = {item["itemId"]: item for item in json.loads((out / f"scores-{device}.json").read_text(encoding="utf-8"))["items"]}
     with open(out / "labels.csv", newline="", encoding="utf-8") as stream:
         labels = {row["itemId"]: row for row in csv.DictReader(stream)}
+    # Every applicable cell must carry a vocabulary label: an unlabelled Track is refused, never silently counted.
+    for item_id, item in selection.items():
+        row = labels.get(item_id)
+        if row is None:
+            raise SystemExit(f"unlabelled Track: {item_id}")
+        for definition in profile.schema.for_object_class(CLASSES[item["objectClass"]]):
+            allowed = set(definition.values) | {UNSCORABLE} | ({"absent"} if definition.values == (PRESENT,) else set())
+            if row[definition.attribute_type].strip() not in allowed:
+                raise SystemExit(f"invalid label {row[definition.attribute_type]!r} for {item_id} {definition.attribute_type}")
     grid = [round(protocol["thresholdGrid"]["start"] + i * protocol["thresholdGrid"]["step"], 4)
             for i in range(protocol["thresholdGrid"]["count"])]
     target, minimum_observed, fallback = protocol["targetPrecision"], protocol["minimumObserved"], protocol["fallbackThreshold"]
@@ -187,28 +230,19 @@ def calibrate(out: Path, device: str) -> None:
     thresholds: dict[str, float] = {}
     for definition in profile.schema.attributes:
         name = definition.attribute_type
-        presence = parameters.attributes[name].kind == KIND_PRESENCE
-
-        def decide(item_id: str, threshold: float) -> str | None:
-            p = scores[item_id][name]
-            if presence:
-                return "present" if p["present"] >= threshold else None
-            best = max(definition.values, key=lambda value: (p[value], -definition.values.index(value)))
-            return best if p[best] >= threshold else None
 
         def measure(half: str, threshold: float) -> dict:
-            items = [i for i, item in selection.items() if item["half"] == half and name in scores[i]]
+            items = [i for i, item in selection.items() if item["half"] == half and CLASSES[item["objectClass"]] == definition.object_class]
             observed = correct = scorable = 0
             for item_id in items:
                 label = labels[item_id][name].strip()
-                decision = decide(item_id, threshold)
-                if label not in ("", "unscorable", "n/a"):
-                    scorable += 1
+                scorable += int(label != UNSCORABLE)
+                decision = track_decision(scores[item_id], definition, threshold, profile.aggregation)
                 if decision is None:
                     continue
                 observed += 1
                 correct += int(decision == label)
-            return {"items": len(items), "scorable": scorable, "observed": observed, "correct": correct,
+            return {"tracks": len(items), "scorable": scorable, "observed": observed, "correct": correct,
                     "precision": correct / observed if observed else None,
                     "precisionWilson95": wilson(correct, observed),
                     "coverage": observed / len(items) if items else None}

@@ -52,6 +52,8 @@ describe('PoC S5 attribute predicates', () => {
     expect(predicateLabel('person-upper-colour:red')).toBe('Upper clothing colour: red');
     expect(attributeMatchText([{ attributeType: 'vehicle-colour', value: 'white', confidence: 0.734 }]))
       .toBe('Matched vehicle colour white (score 0.73)');
+    expect(attributeMatchText([{ attributeType: 'vehicle-colour', value: 'white', confidence: 0.734 }], 'zero-shot, Development'))
+      .toBe('Matched vehicle colour white (score 0.73) · zero-shot, Development');
     expect(attributeDisclosure('zero-shot, Development', true)).toBe('zero-shot, Development');
     expect(attributeDisclosure(null, true)).toBe('Development');
     expect(attributeDisclosure(null, false)).toBeNull();

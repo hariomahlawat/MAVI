@@ -58,6 +58,7 @@ const ResultRow = memo(function ResultRow({
   displayTimeZoneId,
   searchContext,
   analyticsIdentity,
+  attributeDisclosure,
   onSelect,
 }: {
   track: TrackSearchItem;
@@ -65,6 +66,8 @@ const ResultRow = memo(function ResultRow({
   displayTimeZoneId?: string;
   searchContext?: string;
   analyticsIdentity?: TrackAnalyticsIdentity;
+  /** The attribute pipeline's disclosure, stated on every attribute match (PoC S5). */
+  attributeDisclosure?: string | null;
   onSelect: (id: string) => void;
 }) {
   // Keeping the selected result on screen is the selection contract's, shared
@@ -104,7 +107,7 @@ const ResultRow = memo(function ResultRow({
           {track.plate ? <TrackPlateMatch plate={track.plate} searchContext={searchContext} /> : null}
           {/* UI/UX §29: a matched attribute value is plain secondary text, never a badge. */}
           {track.attributes && track.attributes.length > 0
-            ? <span className="track-card__explanation">{attributeMatchText(track.attributes)}</span>
+            ? <span className="track-card__explanation">{attributeMatchText(track.attributes, attributeDisclosure)}</span>
             : null}
         </span>
       </button>
@@ -128,6 +131,7 @@ export default function TrackResultList({
   displayTimeZoneId,
   searchContext,
   analyticsIdentity,
+  attributeDisclosure,
   onSelect,
 }: {
   items: TrackSearchItem[];
@@ -135,6 +139,7 @@ export default function TrackResultList({
   displayTimeZoneId?: string;
   searchContext?: string;
   analyticsIdentity?: TrackAnalyticsIdentity;
+  attributeDisclosure?: string | null;
   onSelect: (id: string) => void;
 }) {
   return (
@@ -147,6 +152,7 @@ export default function TrackResultList({
           displayTimeZoneId={displayTimeZoneId}
           searchContext={searchContext}
           analyticsIdentity={analyticsIdentity}
+          attributeDisclosure={attributeDisclosure}
           onSelect={onSelect}
         />
       ))}

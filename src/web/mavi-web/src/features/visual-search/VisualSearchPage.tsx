@@ -6,7 +6,7 @@ import { listCameras } from '../../api/cameras';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { SIMILARITY_CANDIDATES_LABEL, getAttributeVocabulary, searchTracks } from '../../api/tracks';
-import { draftFromPredicates } from './attributeSearch';
+import { attributeDisclosure, draftFromPredicates } from './attributeSearch';
 import AttributeCoverageLine, { attributeEmptyState } from './AttributeCoverageLine';
 import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
@@ -371,6 +371,7 @@ export default function VisualSearchPage() {
   const coverage = analytic ? tracks.data?.pages[0]?.analyticsCoverage : undefined;
   const attributeCoverage = committed.isValid && activeFilters.attribute?.length
     ? tracks.data?.pages[0]?.attributeCoverage : undefined;
+  const attributeRowDisclosure = attributeCoverage ? attributeDisclosure(attributeCoverage.disclosure, true) : null;
   const plateCoverage = committed.isValid && activeFilters.plateText
     ? tracks.data?.pages[0]?.plateCoverage : undefined;
 
@@ -944,7 +945,7 @@ export default function VisualSearchPage() {
             {() => (
           <>
           {shownView === 'list' ? (
-              <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} searchContext={searchContext} analyticsIdentity={analyticsIdentity} onSelect={selectTrack} />
+              <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} searchContext={searchContext} analyticsIdentity={analyticsIdentity} attributeDisclosure={attributeRowDisclosure} onSelect={selectTrack} />
             ) : (
               <div className="results__list">
                 <div className="track-grid">
@@ -956,6 +957,7 @@ export default function VisualSearchPage() {
                       selected={selectedId !== null && track.id.toLowerCase() === selectedId}
                       searchContext={searchContext}
                       analyticsIdentity={analyticsIdentity}
+                      attributeDisclosure={attributeRowDisclosure}
                       onSelect={selectTrack}
                     />
                   ))}
