@@ -74,6 +74,10 @@ try {
     if ($metadata.identityMode -ne $config.Identity.Mode) { throw "The release metadata must record the identity mode the machine configuration sets." }
     if ((Get-MaviPocOperatorUrl -HttpPort 8090) -ne "http://localhost:8090") { throw "Operators must open the PoC at localhost, where browsers negotiate Windows identity (ADR-010)." }
     $installText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Install-MAVI-PoC.ps1") -Raw
+    $startText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviPoc.ps1") -Raw
+    if (-not $startText.Contains("`$state.PSObject.Properties['operatorUrl']") -or $startText -match '\$state\.operatorUrl') { throw "Start-MaviPoc must accept an installation state without operatorUrl under strict mode." }
+    $oldStateUrl = & { Set-StrictMode -Version Latest; $state = [pscustomobject]@{ apiBaseUrl = "http://127.0.0.1:8090" }; $p = $state.PSObject.Properties['operatorUrl']; if ($p -and [string]$p.Value) { [string]$p.Value } else { $state.apiBaseUrl } }
+    if ($oldStateUrl -ne "http://127.0.0.1:8090") { throw "An installation state without operatorUrl must fall back to apiBaseUrl." }
     if (-not $installText.Contains('.Replace("__MAVI_POC_URL__", (Get-MaviPocOperatorUrl -HttpPort $HttpPort))') -or -not $installText.Contains('apiBaseUrl = "http://127.0.0.1:$HttpPort"')) { throw "The launcher must open the operator URL; scripts must keep the loopback API URL." }
     if ($config.AllowedHosts -ne "localhost;127.0.0.1") { throw "The PoC platform must accept only loopback host names." }
     $serialised = ConvertTo-Json -InputObject $config -Depth 8 | ConvertFrom-Json

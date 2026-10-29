@@ -73,7 +73,7 @@ P1–P3 behaviour does not change: their configuration does not set `Identity:Mo
 
 ### 8. Consequences for later slices
 
-S3 (`POST /api/plates/reanalysis`), S6 (gallery), S7 (Entity confirm/dismiss) and S11-full (review decisions, cases) each add `.RequireAuthorization(OperatorPolicy.Name)` to their endpoint and run their mutation through `IAuditWriter.RecordAsync` (or call `AppendInTransactionAsync` inside the transaction they own). S11-full adds the audit read surface.
+S3 (`POST /api/plates/reanalysis`), S6 (gallery), S7 (Entity confirm/dismiss) and S11-full (review decisions, cases) each add `.RequireAuthorization(OperatorPolicy.Name)` to their endpoint and run their mutation through `IAuditWriter.RecordAsync` (or call `AppendInTransactionAsync` inside the transaction they own). S11-full adds the audit read surface. An operator mutation that cannot be JSON (for example a multipart image upload for S6 gallery enrolment) must not simply be exempted from the JSON rule of §3, because a cross-site page can send `multipart/form-data` without a preflight: it must also require a custom request header (which forces a CORS preflight that MAVI never grants) or an anti-forgery token, and that slice extends the policy and its tests accordingly. `IAuditWriter` joins only a transaction open on the request's scoped `MaviDbContext`; a mutation on another context instance runs in its own transaction.
 
 ### 9. Owner decision (accepted 2026-10-29)
 

@@ -22,8 +22,9 @@ public interface IAuditWriter
     /// Runs <paramref name="mutation"/> and writes its audit entry in one database transaction: both commit
     /// or neither does. The mutation may save several times or clear the change tracker; the entry is
     /// inserted directly, not staged on the tracker. When a transaction is already open the mutation and
-    /// the entry join it and its owner commits. The operator is resolved first: without one the mutation
-    /// does not run.
+    /// the entry join it and its owner commits. Only a transaction on the request's scoped database context is
+    /// joined; a mutation on another context instance is not covered. The operator is resolved first: without
+    /// one the mutation does not run.
     /// </summary>
     Task<(T Result, AuditEntryReceipt Receipt)> RecordAsync<T>(AuditRecord record, Func<CancellationToken, Task<T>> mutation,
         CancellationToken cancellationToken);

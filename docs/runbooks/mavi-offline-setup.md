@@ -348,6 +348,8 @@ Steps, all offline and idempotent (a rerun verifies and repairs): verify the bun
 
 ### Running and the smoke test
 
+**Operator identity (ADR-010).** `Start-MAVI-PoC.cmd` opens `http://localhost:<port>`: the browser signs in silently with the Windows account, and every local user of the PoC host is an operator (`BUILTIN\Users`, owner decision S1-T1). Open MAVI at `localhost`, not `127.0.0.1`: from `127.0.0.1` the browser sends no Windows credentials and attributable actions are refused (401). Each such action is recorded with the Windows account in the append-only audit table; the System page shows the identity mode.
+
 In the install root: `Start-MAVI-PoC.cmd` (PostgreSQL service, platform, Vision worker through `Start-MaviVisionWorker.ps1` from the overlay; opens the UI), `Stop-MAVI-PoC.cmd`, and
 
 ~~~text
