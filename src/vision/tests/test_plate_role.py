@@ -123,6 +123,18 @@ def test_a_missing_model_pack_leaves_the_role_unavailable_and_it_never_leases(ov
     assert asyncio.run(run_worker(overlay.settings(), client_factory=factory)) == RUNTIME_UNAVAILABLE_EXIT
 
 
+def test_verify_only_reports_a_ready_runtime_without_ever_leasing(overlay: PlateOverlay) -> None:
+    def factory(**kwargs):
+        raise AssertionError("a verify-only run must not create a lease client")
+
+    assert asyncio.run(run_worker(overlay.settings(verify_only=True), client_factory=factory)) == 0
+
+
+def test_verify_only_still_refuses_an_unavailable_runtime(overlay: PlateOverlay) -> None:
+    overlay.manifest_path.unlink()
+    assert asyncio.run(run_worker(overlay.settings(verify_only=True))) == RUNTIME_UNAVAILABLE_EXIT
+
+
 def test_a_binding_without_the_role_refuses_composition(overlay: PlateOverlay) -> None:
     binding = overlay.vision.binding
     binding["roles"] = [item for item in binding["roles"] if item["roleId"] != "plates"]

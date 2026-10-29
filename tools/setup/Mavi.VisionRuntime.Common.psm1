@@ -1065,4 +1065,51 @@ function Resolve-MaviVisionCudaAvailability {
     return [pscustomobject]$result
 }
 
+function Resolve-MaviPlatesDevicePolicy {
+    <#
+    .SYNOPSIS
+    Resolve the plates role's device under ADR-008 Auto / CUDA / CPU (PoC S3; Issue #229 GPU-first).
+
+    .DESCRIPTION
+    The plates role resolves its device on its own, like every role runtime. GPU-first applies only where the
+    runtime supports it: the role's bound runtime family must declare a windows-x86_64-cuda variant, and the plates
+    worker's adapters must run on it. Neither holds for plates-onnx-v1 (graph onnxruntime-cpu-v1; the adapters use
+    the CPU execution provider only), so Auto resolves CPU with that reason recorded, CPU resolves CPU, and an
+    explicit CUDA request fails closed -- never a silent CPU run (ADR-008). Throws "plates_device_unsupported:..."
+    for explicit CUDA and "plates_binding_invalid:..." for a binding without a usable plates role.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet("auto", "cpu", "cuda")][string]$DevicePolicy,
+        [Parameter(Mandatory = $true)][string]$ComponentBindingPath
+    )
+    try { $binding = Get-Content -LiteralPath $ComponentBindingPath -Raw | ConvertFrom-Json }
+    catch { throw "plates_binding_invalid:unreadable" }
+    $role = @(@($binding.roles) | Where-Object { [string]$_.roleId -eq "plates" })
+    if ($role.Count -ne 1) { throw "plates_binding_invalid:no_plates_role" }
+    $familyId = [string]$role[0].runtimePackFamilyId
+    $family = @(@($binding.runtimePacks) | Where-Object { [string]$_.runtimePackFamilyId -eq $familyId })
+    if ($family.Count -ne 1 -or $null -eq $family[0].variants) { throw "plates_binding_invalid:no_runtime_family" }
+    $variants = @($family[0].variants.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($variants -notcontains "windows-x86_64-cpu") { throw "plates_binding_invalid:no_cpu_variant" }
+    # The worker composes only on the CPU execution provider (src/vision/mavi_vision/plates/adapters/onnx.py), so a
+    # declared CUDA variant would still not be usable by this role yet: the reason says which of the two holds.
+    $cpuOnlyReason = if ($variants -contains "windows-x86_64-cuda") { "plates_worker_cpu_only" } else { "plates_runtime_cpu_only" }
+    $reason = switch ($DevicePolicy) {
+        "cpu" { "explicit_cpu" }
+        "auto" { $cpuOnlyReason }
+        "cuda" { throw "plates_device_unsupported:${cpuOnlyReason}: explicit CUDA was requested for the plates role, which runs on CPU only ($familyId)." }
+    }
+    $modelPacks = @(@($binding.capabilityBindings) | Where-Object { [string]$_.roleId -eq "plates" -and [bool]$_.enabled } |
+        Sort-Object { [string]$_.capabilityId } | ForEach-Object { [ordered]@{ capabilityId = [string]$_.capabilityId; modelPackId = [string]$_.modelPackId } })
+    [pscustomobject]@{
+        RequestedDevicePolicy = $DevicePolicy
+        ResolvedDevicePolicy = "cpu"
+        DeviceResolutionReason = $reason
+        RuntimePackFamilyId = $familyId
+        RuntimePackId = [string]$family[0].variants."windows-x86_64-cpu".runtimePackId
+        RuntimeVariant = "windows-x86_64-cpu"
+        ModelPacks = $modelPacks
+    }
+}
+
 Export-ModuleMember -Function *

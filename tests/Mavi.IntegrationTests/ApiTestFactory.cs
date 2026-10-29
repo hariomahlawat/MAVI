@@ -63,6 +63,19 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     /// </summary>
     public bool EnableVisionFinalizationHost { get; init; }
 
+    /// <summary>
+    /// Whether the plate authority loop runs on its own schedule. Off by default for the same reason: plate tests drive
+    /// <c>PlateHostedService.RunCycleAsync</c> themselves. <c>Plates:Enabled</c> is a separate thing — it gates only new
+    /// activation and queueing — and is on in tests.
+    /// </summary>
+    public bool EnablePlateHostedLoop { get; init; }
+
+    /// <summary>The re-analysis operator key whose SHA-256 the test platform is configured with (PoC S3, C4.2).</summary>
+    public const string TestReanalysisOperatorKey = "mavi-test-reanalysis-operator-key-not-a-secret";
+
+    public static readonly string TestReanalysisOperatorKeySha256 = Convert.ToHexStringLower(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(TestReanalysisOperatorKey)));
+
     /// <summary>Use an existing media root instead of a fresh temporary one.</summary>
     public string? MediaRootOverride { get; init; }
 
@@ -125,8 +138,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["VisualAttributes:Enabled"] = "false",
                 ["VisualAttributes:ComponentBindingPath"] = VisualAttributeComponentBindingPath ?? string.Empty,
                 ["VisualAttributes:PipelineProfilePath"] = VisualAttributePipelineProfilePath ?? string.Empty,
-                // The plate loop stays off too: plate tests drive RunCycleAsync themselves.
-                ["Plates:Enabled"] = "false",
+                // Plate analysis is on; its hosted loop is removed below unless a test opts in, so plate tests drive
+                // RunCycleAsync themselves.
+                ["Plates:Enabled"] = "true",
+                ["Plates:ReanalysisOperatorKeySha256"] = TestReanalysisOperatorKeySha256,
                 ["Plates:ComponentBindingPath"] = PlateComponentBindingPath ?? string.Empty,
                 ["Plates:PipelineProfilePath"] = PlatePipelineProfilePath ?? string.Empty,
                 ["DatabaseMigrations:LockTimeoutSeconds"] =
@@ -146,6 +161,13 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 // The loop would claim and publish Finalizing jobs underneath every finalizer
                 // test that drives the lifecycle by hand; host tests opt in and drive cycles.
                 foreach (var descriptor in services.Where(x => x.ImplementationType == typeof(Mavi.Api.Finalization.VisionFinalizationHostedService)).ToList())
+                    services.Remove(descriptor);
+            }
+            if (!EnablePlateHostedLoop)
+            {
+                // Registered through a factory that resolves the PlateHostedService singleton, which tests still use.
+                foreach (var descriptor in services.Where(x => x.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService) &&
+                             x.ImplementationFactory?.Method.ReturnType == typeof(Mavi.Api.Plates.PlateHostedService)).ToList())
                     services.Remove(descriptor);
             }
             services.RemoveAll<DbContextOptions<MaviDbContext>>();
