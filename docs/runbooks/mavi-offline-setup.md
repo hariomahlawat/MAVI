@@ -373,6 +373,33 @@ The smoke test checks health and the disclosure, imports the clip to `POC-S2-01`
 
 `Auto` resolves CUDA only when the CUDA Runtime Pack is installed, intact, bound and its GPU index answers; otherwise CPU with a reason code from the closed vocabulary (for example `cuda_pack_absent`). Explicit `CUDA` never falls back: with no CUDA pack the launcher refuses with `launch_runtime_pack_not_installed`. `Start-MAVI-PoC.cmd -DevicePolicy CPU|CUDA|Auto` overrides the installed policy for one start. The resolved device and reason appear on the About page and in the banner.
 
+### Uninstalling (PoC S6; ADR-022 §5; register C5A.5)
+
+The uninstaller removes the installation, including every biometric derivative: face observations and embeddings, the enrolled gallery and transient face queries. Those exist only in the installation's database (ADR-022 §4). Run it from an elevated prompt with the installed overlay's copy, so it matches the installation:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File "<InstallRoot>\overlay\tools\setup\Uninstall-MAVI-PoC.ps1" -DataRoot "<DataRoot>" -PlanOnly
+powershell -NoProfile -ExecutionPolicy Bypass -File "<InstallRoot>\overlay\tools\setup\Uninstall-MAVI-PoC.ps1" -DataRoot "<DataRoot>" -RemoveAllData
+```
+
+**What `-PlanOnly` does.** It prints what would be removed and changes nothing. Without `-RemoveAllData`, the uninstaller refuses.
+
+**What `-RemoveAllData` does,** using only what the installation recorded (`<DataRoot>\config\poc-installation.json` and the machine configuration):
+1. It stops MAVI.
+2. It drops the installation's database (`with (force)`) and its role, through the installation's PostgreSQL. The administrator password comes from the installer's DPAPI secret.
+3. It removes the `MAVI-PoC-PostgreSQL-18` service, but only when the service's command line names this installation's PostgreSQL directories. A shared instance keeps running and loses only this installation's database and role.
+4. It deletes `DataRoot` (evidence, media, logs, configuration, PostgreSQL data), then `InstallRoot`.
+5. It verifies that the database, the owned service and both roots are gone. If anything is left, it exits 1 and names it.
+
+**Refusals.** The uninstaller refuses when:
+- the installation state is missing;
+- a recorded root is a drive root, a top-level directory, a system or profile directory (or an ancestor of one), or a junction;
+- the two roots overlap;
+- the database is not on the local instance;
+- the database is a system database.
+
+**Rehearsal on the Development instance.** A non-elevated rehearsal installation on the Development instance has no DPAPI secret, so it uses the `PGPASSWORD` of the instance's `postgres` user. Set `PGPASSWORD` for that prompt only and clear it afterwards. Media files outside the installation (for example the demo corpus) are not touched.
+
 ## Verification and repair
 
 Verification only:

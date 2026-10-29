@@ -404,6 +404,72 @@ try {
     $ErrorActionPreference = "Stop"
     if ($LASTEXITCODE -eq 0 -or $platesCudaOutput -notmatch "Plates device policy CUDA requested") { throw "Explicit plates CUDA must fail closed, also in plan-only." }
 
+    # --- Uninstall (PoC S6; ADR-022 section 5; C5A.5): only the recorded installation, fail closed. ---
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path "" -Name "data root" } "no path is recorded" "An empty root"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path "relative\Data" -Name "data root" } "not an absolute local path" "A relative root"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path "\\server\share\MAVI\PoC" -Name "data root" } "not an absolute local path" "A UNC root"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path "C:\" -Name "data root" } "drive root or a top-level" "A drive root"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path "C:\MAVI" -Name "data root" } "drive root or a top-level" "A top-level directory"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path $env:ProgramData -Name "data root" } "system directory|top-level" "ProgramData itself"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path (Split-Path $env:LOCALAPPDATA -Parent) -Name "data root" } "system directory" "An ancestor of a profile directory"
+    $uninstallLinkTarget = Join-Path $tempRoot "uninstall-target"
+    $uninstallLink = Join-Path $tempRoot "uninstall-link"
+    New-Item -ItemType Directory -Path $uninstallLinkTarget -Force | Out-Null
+    & cmd.exe /c mklink /J "$uninstallLink" "$uninstallLinkTarget" | Out-Null
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path (Join-Path $uninstallLink "Data") -Name "data root" } "junction or symbolic link" "A root under a junction"
+    $uninstallInstall = Join-Path $tempRoot "uninstall\Program"
+    $uninstallData = Join-Path $tempRoot "uninstall\Data"
+    if ((Assert-MaviPocRemovableRoot -Path ($uninstallData + "\") -Name "data root") -ne $uninstallData) { throw "A removable root must be returned normalised." }
+
+    $connection = ConvertFrom-MaviPocConnectionString -ConnectionString "Host=127.0.0.1;Port=55434;Database=mavi_poc;Username=mavi_poc;Password=secret"
+    if ($connection.Database -ne "mavi_poc" -or $connection.Port -ne 55434 -or $connection.Username -ne "mavi_poc") { throw "The connection string was not read." }
+    Assert-Throws { ConvertFrom-MaviPocConnectionString -ConnectionString "Host=127.0.0.1;Port=1;Username=x" } "has no database" "A connection string without a database"
+    $uninstallState = [pscustomobject]@{ schemaVersion = "mavi-poc-installation-v1"; profile = "poc-single-host"; installRoot = $uninstallInstall; dataRoot = $uninstallData; postgresqlServiceName = "MAVI-PoC-PostgreSQL-18" }
+    $uninstallLayout = Get-MaviPocLayout -InstallRoot $uninstallInstall -DataRoot $uninstallData
+    $absent = New-MaviPocUninstallPlan -State $uninstallState -DataRoot $uninstallData -Connection $connection -Service $null
+    if ($absent.database.action -ne "drop" -or $absent.database.name -ne "mavi_poc" -or -not $absent.database.dropRole -or -not $absent.stopMavi) { throw "The uninstall plan must stop MAVI and drop the database and its role." }
+    if (@($absent.removeDirectories).Count -ne 2 -or $absent.removeDirectories[0] -ne $uninstallData -or $absent.removeDirectories[1] -ne $uninstallInstall) { throw "The uninstall plan must remove both recorded roots: $($absent.removeDirectories -join ', ')" }
+    if ($absent.postgresqlService.action -ne "keep" -or $absent.postgresqlService.reason -ne "absent") { throw "An absent service is not removed." }
+    $ownedService = [pscustomobject]@{ PathName = "`"$($uninstallLayout.PostgreSqlInstallRoot)\bin\pg_ctl.exe`" runservice -N `"MAVI-PoC-PostgreSQL-18`" -D `"$($uninstallLayout.PostgreSqlDataRoot)`" -w" }
+    $owned = New-MaviPocUninstallPlan -State $uninstallState -DataRoot $uninstallData -Connection $connection -Service $ownedService
+    if ($owned.postgresqlService.action -ne "remove" -or $owned.database.psql -ne (Join-Path $uninstallLayout.PostgreSqlInstallRoot "bin\psql.exe")) { throw "The installation's own PostgreSQL service must be removed." }
+    $sharedService = [pscustomobject]@{ PathName = "`"C:\Program Files\MAVI\Development\PostgreSQL\18\bin\pg_ctl.exe`" runservice -N `"MAVI-Dev-PostgreSQL-18`" -D `"C:\ProgramData\MAVI\Development\PostgreSQL\18\data`" -w" }
+    $shared = New-MaviPocUninstallPlan -State $uninstallState -DataRoot $uninstallData -Connection $connection -Service $sharedService
+    if ($shared.postgresqlService.action -ne "keep" -or $shared.postgresqlService.owned -or $shared.database.psql -ne "C:\Program Files\MAVI\Development\PostgreSQL\18\bin\psql.exe") { throw "A shared PostgreSQL service is kept; only the database is dropped through its psql." }
+    Assert-Throws { New-MaviPocUninstallPlan -State $uninstallState -DataRoot (Join-Path $tempRoot "elsewhere\Data") -Connection $connection -Service $null } "records data root" "A data root other than the recorded one"
+    $overlapping = [pscustomobject]@{ schemaVersion = "mavi-poc-installation-v1"; profile = "poc-single-host"; installRoot = (Join-Path $uninstallData "Program"); dataRoot = $uninstallData; postgresqlServiceName = "x" }
+    Assert-Throws { New-MaviPocUninstallPlan -State $overlapping -DataRoot $uninstallData -Connection $connection -Service $null } "overlap" "Nested roots"
+    $notPoc = [pscustomobject]@{ schemaVersion = "mavi-installation-v1"; profile = "p1"; installRoot = $uninstallInstall; dataRoot = $uninstallData; postgresqlServiceName = "x" }
+    Assert-Throws { New-MaviPocUninstallPlan -State $notPoc -DataRoot $uninstallData -Connection $connection -Service $null } "not a poc-single-host installation" "A non-PoC installation"
+    Assert-Throws { New-MaviPocUninstallPlan -State $uninstallState -DataRoot $uninstallData -Connection ([pscustomobject]@{ Host = "db.example"; Port = 5432; Database = "mavi_poc"; Username = "u" }) -Service $null } "only the local instance" "A remote database"
+    Assert-Throws { New-MaviPocUninstallPlan -State $uninstallState -DataRoot $uninstallData -Connection ([pscustomobject]@{ Host = "127.0.0.1"; Port = 5432; Database = "postgres"; Username = "u" }) -Service $null } "Refusing to drop database" "The postgres database"
+
+    # The script: a missing installation state fails closed; plan-only and an unconfirmed run change nothing.
+    $uninstaller = Join-Path $PSScriptRoot "Uninstall-MAVI-PoC.ps1"
+    $ErrorActionPreference = "Continue"
+    $missingOutput = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstaller -DataRoot (Join-Path $tempRoot "never-installed\Data") -PlanOnly 2>&1 | Out-String)
+    $ErrorActionPreference = "Stop"
+    if ($LASTEXITCODE -eq 0 -or $missingOutput -notmatch "No MAVI PoC installation is recorded") { throw "Uninstall without an installation state must fail closed: $missingOutput" }
+    if (Test-Path -LiteralPath (Join-Path $tempRoot "never-installed")) { throw "A refused uninstall created a directory." }
+    New-Item -ItemType Directory -Path (Join-Path $uninstallData "config"), (Join-Path $uninstallInstall "overlay") -Force | Out-Null
+    $uninstallState.postgresqlServiceName = "MAVI-PoC-Contract-Test-NoSuchService"
+    $uninstallState | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $uninstallData "config\poc-installation.json") -Encoding UTF8
+    @{ ConnectionStrings = @{ Mavi = "Host=127.0.0.1;Port=55434;Database=mavi_poc;Username=mavi_poc;Password=secret" } } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $uninstallData "config\appsettings.poc.machine.json") -Encoding UTF8
+    $uninstallPlanJson = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstaller -DataRoot $uninstallData -PlanOnly 6>$null | Out-String)
+    if ($LASTEXITCODE -ne 0) { throw "Uninstall plan-only failed: $uninstallPlanJson" }
+    $uninstallPlan = $uninstallPlanJson.Substring($uninstallPlanJson.IndexOf("{")) | ConvertFrom-Json
+    if ($uninstallPlan.database.name -ne "mavi_poc" -or $uninstallPlan.postgresqlService.action -ne "keep" -or @($uninstallPlan.removeDirectories).Count -ne 2) { throw "The uninstall plan is not the recorded installation's." }
+    if ($uninstallPlanJson -match "secret") { throw "The uninstall plan must not print the database password." }
+    $ErrorActionPreference = "Continue"
+    $unconfirmed = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstaller -DataRoot $uninstallData 2>&1 | Out-String)
+    $ErrorActionPreference = "Stop"
+    if ($LASTEXITCODE -eq 0 -or $unconfirmed -notmatch "-RemoveAllData") { throw "An uninstall without -RemoveAllData must refuse." }
+    if (-not (Test-Path -LiteralPath $uninstallData) -or -not (Test-Path -LiteralPath $uninstallInstall)) { throw "Plan-only or an unconfirmed uninstall removed a root." }
+    $uninstallText = Get-Content -LiteralPath $uninstaller -Raw
+    foreach ($required in @("Stop-MaviPoc.ps1", "drop database if exists", "with (force)", "sc.exe", "Assert-MaviPocNoReparsePoint -Path `$root -Recurse", "exit 1")) {
+        if ($uninstallText.IndexOf($required, [StringComparison]::Ordinal) -lt 0) { throw "The uninstaller must keep '$required'." }
+    }
+
     # The plan-only CUDA case above exits 1 by design; the caller's shell reports this
     # script's last exit code.
     $global:LASTEXITCODE = 0

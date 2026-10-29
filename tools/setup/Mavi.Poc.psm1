@@ -604,4 +604,105 @@ function Get-MaviPocRecordedProcess {
     return $process
 }
 
-Export-ModuleMember -Function Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks
+# --- Uninstall (PoC S6; ADR-022 section 5; register C5A.5) --------------------------------------
+# The uninstaller removes only what an installation recorded: its two roots, its database and, when this
+# installation owns it, its PostgreSQL service. Dropping the database removes every biometric derivative
+# (face observations and embeddings, the enrolled gallery, transient face queries) with everything else.
+
+# A root the uninstaller may delete: absolute, at least two levels below its drive, not a drive root, not a
+# well-known system or profile directory or an ancestor of one, and neither a junction nor under one.
+function Assert-MaviPocRemovableRoot {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyString()][AllowNull()][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) { throw "Refusing to remove the ${Name}: no path is recorded." }
+    $trimmed = $Path.Trim().Trim('"')
+    if (-not [IO.Path]::IsPathRooted($trimmed) -or $trimmed -notmatch '^[A-Za-z]:\\') { throw "Refusing to remove the $Name '$Path': it is not an absolute local path." }
+    $full = [IO.Path]::GetFullPath($trimmed)
+    if ($full.Length -gt 3) { $full = $full.TrimEnd("\") }
+    $driveRoot = [IO.Path]::GetPathRoot($full)
+    $segments = @($full.Substring($driveRoot.Length).Split("\", [StringSplitOptions]::RemoveEmptyEntries))
+    if ($segments.Count -lt 2) { throw "Refusing to remove the $Name '$full': it is a drive root or a top-level directory." }
+    $protected = @($env:SystemRoot, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData, $env:USERPROFILE, $env:PUBLIC, $env:APPDATA, $env:LOCALAPPDATA, (Join-Path $driveRoot "Users")) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd("\") }
+    foreach ($directory in $protected) {
+        if ($full.Equals($directory, [StringComparison]::OrdinalIgnoreCase) -or $directory.StartsWith($full + "\", [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to remove the $Name '$full': it is, or contains, the system directory '$directory'."
+        }
+    }
+    Assert-MaviPocNoReparsePoint -Path $full
+    return $full
+}
+
+# Host, port, database and user of the platform's connection string (the machine configuration).
+function ConvertFrom-MaviPocConnectionString {
+    param([Parameter(Mandatory = $true)][string]$ConnectionString)
+    $values = @{}
+    foreach ($part in $ConnectionString.Split(";")) {
+        $pair = $part.Split("=", 2)
+        if ($pair.Count -eq 2) { $values[$pair[0].Trim().ToLowerInvariant()] = $pair[1].Trim() }
+    }
+    foreach ($key in @("host", "port", "database", "username")) {
+        if (-not $values.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($values[$key])) { throw "The machine configuration's connection string has no $key." }
+    }
+    [pscustomobject]@{ Host = $values["host"]; Port = [int]$values["port"]; Database = $values["database"]; Username = $values["username"] }
+}
+
+# What an uninstall removes, from the recorded installation alone. $Service is the Win32_Service record of the
+# recorded PostgreSQL service ($null when absent): it is removed only when its command line names this
+# installation's PostgreSQL install and data directories (the installer's own ownership test); a shared
+# instance (the Development rehearsal) keeps running and loses only this installation's database and role.
+function New-MaviPocUninstallPlan {
+    param(
+        [Parameter(Mandatory = $true)]$State,
+        [Parameter(Mandatory = $true)][string]$DataRoot,
+        [Parameter(Mandatory = $true)]$Connection,
+        $Service
+    )
+    if ([string]$State.schemaVersion -ne "mavi-poc-installation-v1" -or [string]$State.profile -ne (Get-MaviPocProfile)) {
+        throw "The installation state is not a $(Get-MaviPocProfile) installation (schema '$($State.schemaVersion)')."
+    }
+    $data = Assert-MaviPocRemovableRoot -Path $DataRoot -Name "data root"
+    $recordedData = Assert-MaviPocRemovableRoot -Path ([string]$State.dataRoot) -Name "recorded data root"
+    if (-not $data.Equals($recordedData, [StringComparison]::OrdinalIgnoreCase)) { throw "The installation state records data root '$recordedData', not '$data'." }
+    $install = Assert-MaviPocRemovableRoot -Path ([string]$State.installRoot) -Name "install root"
+    if ($install.StartsWith($data + "\", [StringComparison]::OrdinalIgnoreCase) -or $data.StartsWith($install + "\", [StringComparison]::OrdinalIgnoreCase) -or $install.Equals($data, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to uninstall: the install root '$install' and data root '$data' overlap."
+    }
+    $layout = Get-MaviPocLayout -InstallRoot $install -DataRoot $data
+    if ([string]$Connection.Host -notin @("127.0.0.1", "localhost", "::1")) { throw "Refusing to drop a database on '$($Connection.Host)': only the local instance is the installation's." }
+    $database = [string]$Connection.Database
+    if ($database -in @("postgres", "template0", "template1") -or $database -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { throw "Refusing to drop database '$database'." }
+    $role = [string]$Connection.Username
+    $dropRole = $role -match '^[A-Za-z_][A-Za-z0-9_]*$' -and $role -ne "postgres"
+    $serviceName = [string]$State.postgresqlServiceName
+    $owned = $false
+    $psql = $null
+    if ($Service) {
+        $pathName = [string]$Service.PathName
+        $owned = $pathName.IndexOf($layout.PostgreSqlInstallRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+            $pathName.IndexOf($layout.PostgreSqlDataRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        $match = [regex]::Match($pathName, '^\s*"?(?<exe>[A-Za-z]:\\[^"]*?pg_ctl\.exe)"?', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        if ($match.Success) { $psql = Join-Path (Split-Path $match.Groups["exe"].Value -Parent) "psql.exe" }
+    }
+    if (-not $psql) { $psql = Join-Path $layout.PostgreSqlInstallRoot "bin\psql.exe" }
+    [ordered]@{
+        schemaVersion = "mavi-poc-uninstall-plan-v1"
+        profile = Get-MaviPocProfile
+        installRoot = $install
+        dataRoot = $data
+        stopMavi = $true
+        database = [ordered]@{ action = "drop"; port = [int]$Connection.Port; name = $database; role = $role; dropRole = $dropRole; psql = $psql }
+        postgresqlService = [ordered]@{
+            name = $serviceName
+            present = [bool]$Service
+            owned = $owned
+            action = $(if ($owned) { "remove" } else { "keep" })
+            reason = $(if (-not $Service) { "absent" } elseif ($owned) { "owned by this installation" } else { "not this installation's (shared instance): only its database and role are dropped" })
+        }
+        removeDirectories = @($data, $install)
+    }
+}
+
+Export-ModuleMember -Function Assert-MaviPocRemovableRoot, ConvertFrom-MaviPocConnectionString, New-MaviPocUninstallPlan, Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks
