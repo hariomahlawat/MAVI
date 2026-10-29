@@ -21,7 +21,7 @@ public static class VisualAttributeReleaseStartup
     /// the committed SigLIP 2 zero-shot release. Equal to
     /// <c>contracts/test-vectors/poc-zero-shot-attribute-identity-v1.json</c>; a test re-derives it from the release.
     /// </summary>
-    public const string PocZeroShotIdentityFingerprint = "d51e7347f751059be134f2237d34b6c05be4d262f90f0c80e39c9a42faeecc23";
+    public const string PocZeroShotIdentityFingerprint = "11f06733af390526b0c3731de15d54731789f652792957bc84ff0374bd8110e4";
 
     private static readonly Action<ILogger, string, Exception?> LogConfigured =
         LoggerMessage.Define<string>(LogLevel.Information, new EventId(1960, "VisualAttributeReleaseConfigured"),

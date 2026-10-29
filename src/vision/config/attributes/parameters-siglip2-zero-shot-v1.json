@@ -12,7 +12,7 @@
     "attributes": {
       "person-carried-bag": {
         "kind": "presence",
-        "threshold": 0.5,
+        "threshold": 0.55,
         "prompts": {
           "present": [
             "a photo of a person carrying a bag",
@@ -27,7 +27,7 @@
       },
       "person-headwear": {
         "kind": "presence",
-        "threshold": 0.5,
+        "threshold": 0.99,
         "prompts": {
           "present": [
             "a photo of a person wearing a hat",
@@ -42,7 +42,7 @@
       },
       "person-lower-colour": {
         "kind": "categorical",
-        "threshold": 0.5,
+        "threshold": 0.99,
         "prompts": {
           "black": [
             "a photo of a person wearing black trousers",
@@ -103,7 +103,7 @@
       },
       "person-upper-colour": {
         "kind": "categorical",
-        "threshold": 0.5,
+        "threshold": 0.8,
         "prompts": {
           "black": [
             "a photo of a person wearing a black top",

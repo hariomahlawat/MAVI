@@ -13,6 +13,6 @@
   },
   "parameters": {
     "file": "parameters-siglip2-zero-shot-v1.json",
-    "sha256": "db6e82145ad787812ae2341a641e0e6bc8db12a4a4ce331077e7a0dcec7145f6"
+    "sha256": "b5a71e7ac0d841e05c003b68249c1af7c71dde28e2bf58032f6c4c878fe274cb"
   }
 }

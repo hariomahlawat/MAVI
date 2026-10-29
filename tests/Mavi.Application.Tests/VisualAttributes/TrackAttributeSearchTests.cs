@@ -17,7 +17,7 @@ public sealed class TrackAttributeSearchTests
     private static readonly TrackCursorSigningKey OtherKey =
         TrackCursorSigningKey.FromBytes(Enumerable.Range(50, 32).Select(x => (byte)x).ToArray());
     private static readonly DateTimeOffset At = new(2026, 10, 29, 12, 0, 0, TimeSpan.Zero);
-    private const string Fingerprint = "d51e7347f751059be134f2237d34b6c05be4d262f90f0c80e39c9a42faeecc23";
+    private const string Fingerprint = "11f06733af390526b0c3731de15d54731789f652792957bc84ff0374bd8110e4";
     private static readonly Guid Camera = Guid.Parse("0199a1f0-0000-7000-8000-00000000c001");
     private static readonly Guid Revision = Guid.Parse("0199a1f0-0000-7000-8000-00000000b001");
     private static readonly Guid Zone = Guid.Parse("0199a1f0-0000-7000-8000-00000000d001");
