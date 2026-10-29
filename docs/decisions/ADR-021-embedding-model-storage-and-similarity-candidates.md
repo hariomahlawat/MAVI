@@ -1,6 +1,6 @@
 # ADR-021: Embedding model, storage and similarity-candidate semantics (PoC Stage 5)
 
-**Status:** Accepted owner decision **pending** (register row C5.1 stays IN PROGRESS until the owner ratifies the decision text in §Owner decision). Written before any S4 code merges, as the PoC plan requires.
+**Status:** **Accepted** owner decision, 2026-10-29. The owner ratified the decision text in §Owner decision as written, in the S4 Claude Code session, on PR #244, before any S4 code merged (register C5.1).
 
 **Date:** 2026-10-29
 
@@ -123,7 +123,7 @@ The role follows ADR-013 §8–§12 and the plate role's control plane (`mavi-em
   - Moving the role into the binding machinery is the promotion path.
 - **A large text tower.** `text.onnx` is about 1.13 GB, mostly the 256k-token embedding table. The pack is about 1.5 GB. This is accepted for one pack that serves Stages 2, 5 and 6 (D5).
 
-## Owner decision (to ratify)
+## Owner decision (ratified 2026-10-29)
 
 > **ADR-021 (PoC Stage 5) is accepted:**
 > 1. SigLIP 2 base `google/siglip2-base-patch16-224` @ `75de2d55`, Apache-2.0, is the PoC embedding model:
