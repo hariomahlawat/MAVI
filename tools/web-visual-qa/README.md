@@ -582,8 +582,11 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   navigation budget is never lent to a preparation.
 - **Long tasks**: the single-lane run (`run.mjs --long-tasks`, one worker:
   every state that declares an interaction, at its ordinary anchors and
-  probes). A default class for every interaction and one for Search result
-  selection, P1's only interaction with a long task; their counts and
+  probes). A default class for every interaction, one for Search result
+  selection (P1's only interaction with a long task) and, since the
+  2026-10-29 long-task recalibration, one for the cold first interaction of
+  three form-entry and rail interactions at 1366x768 (a class may name
+  viewports; elsewhere its interactions are the zero class); their counts and
   durations are the budget source's, never restated here. A run on more
   lanes, or not the lane, is a fault.
 - **Fonts**: the text renders in a platform font and the document holds no
@@ -672,6 +675,17 @@ same-head repeatability per tier. It prints the review table and, with
 the calibration contradicts a decision, or when a preparation transition P1
 never measured has no decision (each is qualified by state, with its reason). The register's P1 row carries the
 budget block, and `test/performance.test.mjs` fails if they disagree.
+
+The long-task classes are owner decisions (`DECISIONS.longTasks`), not
+derived values: the calibration's long-task runs only check them. To
+re-decide them on new evidence without re-deriving any CLS class,
+`--long-tasks-only --linux-long-tasks x.json,y.json [--windows-long-tasks …] [--linux-runs "<provenance>"]`
+takes two single-lane Linux runs of one head and regenerates only the
+long-task table. Every CLS class, its calibration and its measured sets are
+carried byte for byte, and the write is refused if an interaction case that
+was measured before is no longer measured. The first such recalibration
+(2026-10-29) is recorded in the register with its evidence in
+`docs/qualification/stage3-5/x3-long-task-recalibration-evidence.json`.
 
 In CI, `performance-long-tasks` runs the lane in parallel with the sweep, and
 `performance` (*performance budgets*) judges the visual aggregate and that run
