@@ -97,7 +97,7 @@ def main() -> int:
         cameras = {item["track"]["cameraCode"] for item in body["candidates"]}
         if body["candidates"]:
             status, detail, _ = get(args.api, f"/api/tracks/{track_id}")
-            query_camera = detail.get("cameraCode") if status == 200 else None
+            query_camera = (detail.get("camera") or {}).get("code") if status == 200 else None
             cross_camera += int(any(code != query_camera for code in cameras))
         if len(examples) < 5 and body["candidates"]:
             examples.append({"queryTrackId": track_id, "queryCamera": query_camera, "label": body["label"],
