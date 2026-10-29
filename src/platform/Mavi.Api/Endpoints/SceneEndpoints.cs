@@ -137,7 +137,8 @@ public static class SceneEndpoints
             ToEndpointDraft(request.B),
             request.Directed ?? false,
             request.AToBLabel,
-            request.BToALabel);
+            request.BToALabel,
+            request.PermittedDirection);
     }
 
     private static void Require([System.Diagnostics.CodeAnalysis.NotNull] object? element)
@@ -213,7 +214,8 @@ public static class SceneEndpoints
         ToResponse(line.B),
         line.Directed,
         line.AToBLabel,
-        line.BToALabel);
+        line.BToALabel,
+        line.PermittedDirection);
 
     private static ScenePointResponse ToResponse(NormalizedPoint point) => new(point.X, point.Y);
 

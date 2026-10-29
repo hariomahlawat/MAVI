@@ -49,6 +49,8 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<EmbeddingIdentityActivation> EmbeddingIdentityActivations => Set<EmbeddingIdentityActivation>();
     public DbSet<Configurations.TrackEmbeddingRow> TrackEmbeddings => Set<Configurations.TrackEmbeddingRow>();
     public DbSet<AppearanceQueryEmbedding> AppearanceQueryEmbeddings => Set<AppearanceQueryEmbedding>();
+    public DbSet<Mavi.Domain.Events.AnalyticEventDerivation> AnalyticEventDerivations => Set<Mavi.Domain.Events.AnalyticEventDerivation>();
+    public DbSet<Mavi.Domain.Events.AnalyticEvent> AnalyticEvents => Set<Mavi.Domain.Events.AnalyticEvent>();
 
     // Model configuration
     protected override void OnModelCreating(ModelBuilder modelBuilder)
