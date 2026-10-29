@@ -629,79 +629,57 @@
       }
     },
     {
-      "clipId": "s2-08-damascus-gate-overhead",
-      "sceneClass": "pedestrian",
+      "clipId": "s2-08-meva-bus-stop",
+      "sceneClass": "lobby",
       "kit": true,
       "source": {
-        "provider": "wikimedia-commons",
-        "fileTitle": "File:Three Minutes of Damascus Gate.webm",
-        "pageId": 71591077,
-        "pageRevisionId": 689333972,
-        "fileSha1": "8ec674205cff86c3c07ea697fcfd1660518af62c",
-        "originalSha256": "db67701634363a9a7b53fa0a516d384fb0cdb526bdf8090fbc313edcf518a25b",
-        "storeRelativePath": "media/commons/71591077/8ec674205cff86c3c07ea697fcfd1660518af62c/Three_Minutes_of_Damascus_Gate.webm",
-        "licenceCode": "cc0"
+        "provider": "meva",
+        "objectUrl": "https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-00.bus.G331.r13.avi",
+        "contentLength": 87225020,
+        "originalSha256": "e9428729f0ef403fa8676d6bd7c7b9f274cbdb6b1b5a1f7b0bbe658154f2995c",
+        "storeRelativePath": "media/meva/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-00.bus.G331.r13.avi",
+        "licenceCode": "cc-by-4.0",
+        "release": "MEVA (Kitware/IARPA) drops-123-r13",
+        "camera": "G331",
+        "captureSlot": "2018-03-11 16:20 (5 min)"
       },
       "trim": {
-        "startSeconds": 2,
-        "durationSeconds": 170,
-        "maxWidth": 1280,
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1920,
         "fps": null
       },
       "derivative": {
-        "fileName": "s2-08-damascus-gate-overhead.mp4",
-        "sha256": "d0c89ef38760e1be8670e9dbeeec0664f68e19059231397cf9398ca1b2313499"
+        "fileName": "s2-08-meva-bus-stop.mp4",
+        "sha256": "02ed784a35626ea7aee87d6c8fd6c7ccb484f9cffc83e7c6f97a9bf71df30517"
       },
       "camera": {
         "code": "POC-S2-08",
-        "name": "PoC demo 08 - Gate passage overhead",
+        "name": "PoC demo 08 - Bus stop waiting room (MEVA G331)",
         "timeZoneId": "Asia/Kolkata"
       },
-      "recordingStartLocal": "2026-10-01T09:35:00",
+      "recordingStartLocal": "2026-10-01T09:40:00",
       "scene": {
         "zones": [
           {
-            "name": "Passage centre",
-            "kind": "Restricted",
-            "vertices": [
-              [
-                0.35,
-                0.25
-              ],
-              [
-                0.75,
-                0.25
-              ],
-              [
-                0.75,
-                0.65
-              ],
-              [
-                0.35,
-                0.65
-              ]
-            ],
-            "loiteringThresholdSeconds": 30
-          },
-          {
-            "name": "Stall front",
+            "name": "Waiting area",
             "kind": "General",
             "vertices": [
               [
-                0.0,
-                0.7
+                0.6,
+                0.28
               ],
               [
-                0.35,
-                0.7
+                0.99,
+                0.28
               ],
               [
-                0.35,
-                0.99
+                0.99,
+                0.98
               ],
               [
-                0.0,
-                0.99
+                0.66,
+                0.98
               ]
             ],
             "loiteringThresholdSeconds": 60
@@ -709,13 +687,13 @@
         ],
         "tripLines": [
           {
-            "name": "Gate midline",
+            "name": "Hall midline",
             "a": [
-              0.5,
-              0.02
+              0.55,
+              0.25
             ],
             "b": [
-              0.5,
+              0.55,
               0.98
             ],
             "aToBLabel": "Rightward",
