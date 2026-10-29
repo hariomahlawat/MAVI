@@ -4,6 +4,7 @@ using Mavi.Domain.Cameras;
 using Mavi.Infrastructure.Audit;
 using Mavi.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Npgsql;
 
 namespace Mavi.IntegrationTests;
@@ -106,6 +107,23 @@ public sealed class AuditEntryPersistenceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task TheMigrationRoundTripsAndRemovesItsGuard()
+    {
+        await using var db = await MigratedAsync();
+        var migrations = db.Database.GetMigrations().ToList();
+        var audit = migrations.Single(name => name.EndsWith("_AddAuditEntries", StringComparison.Ordinal));
+        var preceding = migrations[migrations.IndexOf(audit) - 1];
+
+        await db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync(preceding);
+        Assert.Equal(0L, await ScalarAsync("SELECT count(*) FROM pg_tables WHERE tablename = 'audit_entries'"));
+        Assert.Equal(0L, await ScalarAsync("SELECT count(*) FROM pg_proc WHERE proname = 'audit_entries_refuse_change'"));
+
+        await db.Database.MigrateAsync();
+        Assert.Equal(2L, await ScalarAsync(
+            "SELECT count(*) FROM pg_trigger WHERE tgrelid = 'audit_entries'::regclass AND NOT tgisinternal"));
+    }
+
+    [Fact]
     public async Task WithoutAnOperatorNothingIsStaged()
     {
         await using var db = await MigratedAsync();
@@ -121,6 +139,14 @@ public sealed class AuditEntryPersistenceTests(PostgresFixture fixture)
         var db = fixture.CreateDbContext();
         await db.Database.MigrateAsync();
         return db;
+    }
+
+    private async Task<long> ScalarAsync(string sql)
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static AuditWriter Writer(MaviDbContext db) => new(db, new FixedOperator(Alice), new FixedCorrelation(), new FixedClock());
