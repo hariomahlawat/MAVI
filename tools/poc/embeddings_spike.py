@@ -29,6 +29,12 @@ Metrics (each crop is a query against the other 2*TRACKS-1 crops, cosine similar
 Sanity criterion (frozen): R@1 >= 0.50 overall and SigLIP MRR > baseline MRR. Otherwise the slice
 stops and reports.
 
+Confirmatory protocol ``s4-confirm-80-v1`` (frozen 2026-10-29 after the sanity protocol above
+failed its baseline clause, before any confirmatory outcome was read): the same selection and
+metrics with MIN_SIDE = 80, SEED = 20261030, every run that contributed a Track to the sanity
+selection excluded (disjoint videos), and the criterion R@1 >= 0.80 and SigLIP R@1 and MRR both
+above the baseline. Fewer than 50 eligible Tracks makes the run inconclusive, not a pass.
+
 Latency: batch 1, ``WARMUP`` warm-up runs then every selected crop once, per device; median and
 p95 of preprocessing+inference wall time; plus batch-16 throughput.
 """
@@ -53,19 +59,29 @@ TRACKS = 100
 MAX_TRACKS_PER_RUN = 4
 WARMUP = 10
 IMAGE_SIZE = 224
+PROTOCOLS = {
+    "s4-sanity-v1": {"seed": SEED, "minSide": MIN_SIDE, "excludeRunsOf": None, "minimumTracks": TRACKS,
+                     "criterion": "recallAt1 >= 0.50 and siglip.mrr > baseline.mrr"},
+    "s4-confirm-80-v1": {"seed": 20261030, "minSide": 80, "excludeRunsOf": "s4-sanity-v1", "minimumTracks": 50,
+                         "criterion": "recallAt1 >= 0.80 and siglip.recallAt1 > baseline.recallAt1 "
+                                      "and siglip.mrr > baseline.mrr"},
+}
 
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def select(exports_root: Path) -> tuple[list[dict], dict]:
+def select(exports_root: Path, seed: int = SEED, min_side: int = MIN_SIDE,
+           excluded_runs: frozenset[str] = frozenset()) -> tuple[list[dict], dict]:
     runs = sorted(exports_root.glob("*/subclass-measurement-export.json"))
     tracks: list[dict] = []
     rejected = {"hash_mismatch": 0, "too_small": 0, "missing": 0}
     for export_path in runs:
         export = json.loads(export_path.read_text(encoding="utf-8"))
         run_id = export["processingRun"]["processingRunId"]
+        if run_id in excluded_runs:
+            continue
         for track in sorted(export["tracks"], key=lambda t: t["id"]):
             crops = []
             for obs in track["observations"]:
@@ -79,7 +95,7 @@ def select(exports_root: Path) -> tuple[list[dict], dict]:
                     continue
                 with Image.open(io.BytesIO(data)) as image:
                     width, height = image.size
-                if min(width, height) < MIN_SIDE:
+                if min(width, height) < min_side:
                     rejected["too_small"] += 1
                     continue
                 crops.append(
@@ -101,7 +117,7 @@ def select(exports_root: Path) -> tuple[list[dict], dict]:
                         "pair": [crops[0], crops[-1]],
                     }
                 )
-    rng = random.Random(SEED)
+    rng = random.Random(seed)
     rng.shuffle(tracks)
     per_run: dict[str, int] = {}
     chosen = []
@@ -112,7 +128,7 @@ def select(exports_root: Path) -> tuple[list[dict], dict]:
         chosen.append(track)
         if len(chosen) == TRACKS:
             break
-    stats = {"runs": len(runs), "eligibleTracks": len(tracks), "rejectedCrops": rejected,
+    stats = {"runs": len(runs), "excludedRuns": len(excluded_runs), "eligibleTracks": len(tracks), "rejectedCrops": rejected,
              "selectedRuns": len(per_run)}
     return chosen, stats
 
@@ -170,6 +186,9 @@ def main() -> int:
     parser.add_argument("--pack", type=Path, required=True, help="local Model Pack payload directory (vision.onnx)")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--devices", default="cpu,cuda")
+    parser.add_argument("--protocol", choices=sorted(PROTOCOLS), default="s4-sanity-v1")
+    parser.add_argument("--exclude-selection", type=Path,
+                        help="selection.json of the protocol named by excludeRunsOf (required when it is set)")
     parser.add_argument("--cuda-dll-dir", type=Path, help="directory holding the CUDA 12 / cuDNN 9 DLLs")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -180,15 +199,23 @@ def main() -> int:
         os.environ["PATH"] = str(args.cuda_dll_dir) + os.pathsep + os.environ["PATH"]
     import onnxruntime as ort
 
+    rules = PROTOCOLS[args.protocol]
+    excluded: frozenset[str] = frozenset()
+    if rules["excludeRunsOf"]:
+        if args.exclude_selection is None:
+            parser.error(f"--exclude-selection is required for {args.protocol}")
+        previous = json.loads(args.exclude_selection.read_text(encoding="utf-8"))
+        excluded = frozenset(crop["runId"] for crop in previous["crops"])
     protocol = {
-        "seed": SEED, "minSide": MIN_SIDE, "tracks": TRACKS, "maxTracksPerRun": MAX_TRACKS_PER_RUN,
-        "warmup": WARMUP, "imageSize": IMAGE_SIZE,
-        "criterion": "recallAt1 >= 0.50 and siglip.mrr > baseline.mrr",
+        "protocolId": args.protocol, "seed": rules["seed"], "minSide": rules["minSide"], "tracks": TRACKS,
+        "maxTracksPerRun": MAX_TRACKS_PER_RUN, "minimumTracks": rules["minimumTracks"],
+        "warmup": WARMUP, "imageSize": IMAGE_SIZE, "criterion": rules["criterion"],
+        "excludedRunsFrom": str(args.exclude_selection) if excluded else None, "excludedRuns": len(excluded),
         "script": "tools/poc/embeddings_spike.py",
     }
     (args.out / "protocol.json").write_text(json.dumps(protocol, indent=2), encoding="utf-8")
 
-    chosen, stats = select(args.exports)
+    chosen, stats = select(args.exports, rules["seed"], rules["minSide"], excluded)
     items = []
     for track in chosen:
         for crop in track["pair"]:
@@ -245,8 +272,14 @@ def main() -> int:
     baseline = np.stack([thumbnail(item["path"]) for item in items])
     results["baseline16x16"] = retrieval(baseline, items)
     first = next(v for v in results["devices"].values() if "retrieval" in v)
-    results["criterionMet"] = (first["retrieval"]["recallAt1"] >= 0.50
-                               and first["retrieval"]["mrr"] > results["baseline16x16"]["mrr"])
+    ours, base = first["retrieval"], results["baseline16x16"]
+    if args.protocol == "s4-sanity-v1":
+        met = ours["recallAt1"] >= 0.50 and ours["mrr"] > base["mrr"]
+    else:
+        met = ours["recallAt1"] >= 0.80 and ours["recallAt1"] > base["recallAt1"] and ours["mrr"] > base["mrr"]
+    results["protocolId"] = args.protocol
+    results["inconclusive"] = len(chosen) < rules["minimumTracks"]
+    results["criterionMet"] = met and not results["inconclusive"]
     suffix = "-".join(args.devices.split(","))
     (args.out / f"results-{suffix}.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(json.dumps(results, indent=2))
