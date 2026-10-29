@@ -309,6 +309,13 @@ public static class PlateEndpoints
             return Problem(refusal.Status, refusal.Code, refusal.Detail);
         }
 
+        if (!options.Value.Enabled)
+        {
+            // Plates:Enabled=false: nothing new is queued, explicitly or automatically.
+            audit.ReanalysisRefused(scope, "plate_analysis_disabled");
+            return Problem(409, "plate_analysis_disabled", "Plate analysis is disabled on this installation.");
+        }
+
         if (release.Resolution.Definition is not { } definition)
         {
             audit.ReanalysisRefused(scope, "plate_not_configured");

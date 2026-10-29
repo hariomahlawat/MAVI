@@ -295,9 +295,15 @@ describe('VisualSearchPage', () => {
     const readings = await within(inspector).findByRole('region', { name: 'Plate readings' });
     // The crop (plate region of the source Observation) and the source seek are both offered.
     expect(within(readings).getByText(/Single reading/)).toBeInTheDocument();
+    // The plate crop is cut from the source Observation's own server URL.
+    expect(within(readings).getByText('Loading plate image…')).toBeInTheDocument();
+    const player = within(inspector).getByLabelText(/source video evidence$/) as HTMLVideoElement;
     await user.click(within(readings).getByRole('button', { name: /View source at/ }));
     const crops = within(within(inspector).getByRole('region', { name: 'Evidence Set' })).getAllByRole('button');
     expect(crops[2]).toHaveAttribute('aria-current', 'true');
+    // The single Evidence Player seeks to the plate's source frame once its metadata is known (jsdom loads none).
+    fireEvent(player, new Event('loadedmetadata'));
+    expect(player.currentTime).toBe(source.videoOffsetMs / 1000);
   });
 
   it('loads the default unfiltered first page', async () => {

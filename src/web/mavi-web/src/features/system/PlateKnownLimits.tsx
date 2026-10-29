@@ -1,23 +1,27 @@
+import { POC_PROFILE } from '../../api/deployment';
 import Panel from '../../shared/components/Panel';
 
 /**
  * The plate-reading capability's known limits (PoC S3, register row C4.3). The
  * numbers are the Development pilot's measurement on the H3 proxy holdout
  * (`docs/qualification/stage4/anpr-dev-pilot-2026-10-17.md`), cited verbatim;
- * nothing here is configured or fetched, so no installation can soften it. The
- * ADR-020 disclosure is part of the text for the same reason.
+ * nothing here is configured or fetched, so no installation can soften it. On
+ * a poc-single-host installation the ADR-020 disclosure is part of the text;
+ * any other host is told only what is true of every host: the capability is
+ * Development-grade and not Production-qualified.
  */
 export const PLATE_KNOWN_LIMITS = {
   allTextTracks: '52/110',
   oracleReadableTracks: '45/79',
   disclosure: 'Profile poc-single-host (ADR-020): not Production-qualified; evidence class Development.',
+  unprofiled: 'Development capability: not Production-qualified.',
 } as const;
 
-export default function PlateKnownLimits() {
+export default function PlateKnownLimits({ profile }: { profile: string }) {
   return (
     <Panel title="Known limits: plate reading" headingId="system-known-limits-plates">
       <div className="system-page__limits" id="known-limits">
-        <p><strong>{PLATE_KNOWN_LIMITS.disclosure}</strong></p>
+        <p><strong>{profile === POC_PROFILE ? PLATE_KNOWN_LIMITS.disclosure : PLATE_KNOWN_LIMITS.unprofiled}</strong></p>
         <ul>
           <li>
             Plates are read by PD5 (PP-OCRv5 mobile detection, Apache-2.0) and OC1-S (fast-plate-ocr

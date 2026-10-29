@@ -118,7 +118,7 @@ function SystemDetails({ disclosure }: { disclosure: DeploymentDisclosure }) {
           </table>
         )}
       </Panel>
-      <PlateKnownLimits />
+      <PlateKnownLimits profile={disclosure.profile} />
     </div>
   );
 }

@@ -130,7 +130,7 @@ public static class DeploymentDisclosureReader
             .OrderBy(entry => entry.Key, StringComparer.Ordinal)
             .Select(entry =>
             {
-                var (status, roleDevice) = ReadDevice(entry.Value);
+                var (status, roleDevice) = ReadDevice(entry.Value, entry.Key);
                 return new DeploymentRoleDevice(entry.Key, status, roleDevice);
             })
             .ToList();
@@ -167,17 +167,6 @@ public static class DeploymentDisclosureReader
             device,
             metadata?.Packs ?? [],
             roleDevices);
-    }
-
-    /// <summary>
-    /// The profile this host runs under: the build's profile when it has one (configuration may only confirm it),
-    /// otherwise the configured one, otherwise <see cref="DeploymentProfiles.Unspecified"/>. Throws for a profile no
-    /// host can declare, as <see cref="Verify"/> does.
-    /// </summary>
-    public static string ResolveProfile(DeploymentOptions options, string? buildProfile = null)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        return EffectiveProfile(options.Profile, buildProfile);
     }
 
     private static string EffectiveProfile(string? configured, string? buildProfile)
@@ -255,7 +244,8 @@ public static class DeploymentDisclosureReader
         }
     }
 
-    private static (string Status, DeploymentDevice? Device) ReadDevice(string? path)
+    /// <param name="role">For a role record: the role it must name (<c>role</c>); a record of another role is unavailable.</param>
+    private static (string Status, DeploymentDevice? Device) ReadDevice(string? path, string? role = null)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             return ("not-reported", null);
@@ -264,6 +254,8 @@ public static class DeploymentDisclosureReader
             using var document = JsonDocument.Parse(File.ReadAllBytes(path));
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || Text(root, "schemaVersion") != PocDisclosure.DeviceResolutionSchema)
+                return ("unavailable", null);
+            if (role is not null && Text(root, "role") != role)
                 return ("unavailable", null);
             var requested = Text(root, "requestedDevicePolicy");
             var resolved = Text(root, "resolvedDevicePolicy");

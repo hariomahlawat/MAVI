@@ -191,14 +191,17 @@ public sealed class DeploymentDisclosureTests : IDisposable
         var options = PocOptions(WriteMetadata(ValidMetadata()), WriteDevice());
         options.RoleDeviceResolutionPaths["plates"] = plates;
         options.RoleDeviceResolutionPaths["embeddings"] = Path.Combine(_root, "absent.json");
+        // A record is only its own role's: the plates record named for another role is not shown as that role's.
+        options.RoleDeviceResolutionPaths["faces"] = plates;
 
         var disclosure = DeploymentDisclosureReader.Read(options);
 
         Assert.Equal("cuda_pack_absent", disclosure.Device!.Reason);
         Assert.NotNull(disclosure.RoleDevices);
-        Assert.Equal(["embeddings", "plates"], disclosure.RoleDevices!.Select(item => item.Role));
+        Assert.Equal(["embeddings", "faces", "plates"], disclosure.RoleDevices!.Select(item => item.Role));
         Assert.Equal("not-reported", disclosure.RoleDevices[0].DeviceStatus);
-        var role = disclosure.RoleDevices[1];
+        Assert.Equal(("unavailable", null), (disclosure.RoleDevices[1].DeviceStatus, disclosure.RoleDevices[1].Device));
+        var role = disclosure.RoleDevices[2];
         Assert.Equal("reported", role.DeviceStatus);
         Assert.Equal("auto", role.Device!.RequestedPolicy);
         Assert.Equal("cpu", role.Device.ResolvedPolicy);

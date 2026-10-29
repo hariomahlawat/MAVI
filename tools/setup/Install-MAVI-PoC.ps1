@@ -333,9 +333,10 @@ try {
     Write-MaviSetupStatus -Name "Vision composition" -Status "OK" -Detail "READY; device $($device.resolvedDevicePolicy) ($($device.deviceResolutionReason))"
 
     # The plates role's readiness: the worker composes the bound release and loads both Model Packs, then exits
-    # without leasing; the launcher records the role's device and reason only after that succeeded.
+    # without leasing; the launcher records the role's device and reason only after that succeeded. A child process,
+    # so the launcher's MAVI_* worker environment never reaches the start below.
     Remove-Item -LiteralPath $layout.PlatesDeviceResolutionPath -Force -ErrorAction SilentlyContinue
-    & (Join-Path $layout.OverlayRoot "tools\setup\Start-MaviPlatesPilotWorker.ps1") -RepositoryRoot $layout.OverlayRoot -Python (Join-Path $layout.PlatesEnvironmentRoot "Scripts\python.exe") -ModelRoot $layout.PlatesModelRoot -DevicePolicy $PlatesDevicePolicy.ToLowerInvariant() -DeviceReportPath $layout.PlatesDeviceResolutionPath -VerifyOnly
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $layout.OverlayRoot "tools\setup\Start-MaviPlatesPilotWorker.ps1") -RepositoryRoot $layout.OverlayRoot -Python (Join-Path $layout.PlatesEnvironmentRoot "Scripts\python.exe") -ModelRoot $layout.PlatesModelRoot -DevicePolicy $PlatesDevicePolicy.ToLowerInvariant() -DeviceReportPath $layout.PlatesDeviceResolutionPath -VerifyOnly
     if ($LASTEXITCODE -ne 0) { throw "The plates role did not compose READY (exit $LASTEXITCODE); see the log above." }
     $platesDevice = Read-MaviJson -Path $layout.PlatesDeviceResolutionPath
     Write-MaviSetupStatus -Name "Plates composition" -Status "OK" -Detail "READY; device $($platesDevice.resolvedDevicePolicy) ($($platesDevice.deviceResolutionReason))"

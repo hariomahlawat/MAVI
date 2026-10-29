@@ -244,13 +244,22 @@ public static class PlateRequestLimitMiddleware
 /// <summary>
 /// Resolves the plate release at startup and refuses a Development-only definition outside Development and
 /// Testing: the fixture role is refused in Production. The one other host that may run a Development-only
-/// definition is a <c>poc-single-host</c> installation (ADR-020 §1: Development-grade Model Packs, Development
-/// evidence class, never Production-qualified), and only a real one: a fixture definition (one with a
-/// <c>fixtureSeed</c>) is refused there too.
+/// definition is a platform <b>built</b> for <c>poc-single-host</c> (assembly metadata <c>MaviDeploymentProfile</c>;
+/// ADR-020 §1: Development-grade Model Packs, Development evidence class, never Production-qualified), and only for
+/// the plan-D4 composition: the analysis identity of PD5 + OC1-S on <c>plates-onnx-v1</c>
+/// (<see cref="PocPlateIdentityFingerprint"/>). Configuration cannot grant it: a <c>Deployment:Profile</c> key on an
+/// ordinary build does not, and no other Development-only definition (the fixture included) is accepted there.
 /// </summary>
 public static class PlateReleaseStartup
 {
     public const string FixtureForbiddenCode = "plate_development_definition_forbidden";
+
+    /// <summary>
+    /// The plate analysis identity of the committed PD5 + OC1-S release
+    /// (<c>src/vision/config/components/development-plates-onnx-pilot-v1.json</c> with its profile; the #226 pilot's
+    /// identity). A test re-derives it from the committed files, so the two cannot drift apart silently.
+    /// </summary>
+    public const string PocPlateIdentityFingerprint = "c86c930b038d4f933f66ec2ed2f0c886f2df18dc932f79ec2f703c5f882f066e";
 
     private static readonly Action<ILogger, string, Exception?> LogConfigured =
         LoggerMessage.Define<string>(LogLevel.Information, new EventId(2140, "PlateReleaseConfigured"),
@@ -271,20 +280,19 @@ public static class PlateReleaseStartup
             return;
         }
 
-        var profile = DeploymentDisclosureReader.ResolveProfile(
-            app.Services.GetRequiredService<IOptions<DeploymentOptions>>().Value, Deployment.DeploymentEndpoints.BuildProfile);
-        RequireAllowed(definition, app.Environment, profile);
+        RequireAllowed(definition, app.Environment, Deployment.DeploymentEndpoints.BuildProfile);
         LogConfigured(logger, definition.Identity.Fingerprint, null);
     }
 
-    public static void RequireAllowed(PlateReleaseDefinition definition, IHostEnvironment environment,
-        string deploymentProfile = DeploymentProfiles.Unspecified)
+    /// <param name="buildProfile">The profile the platform was built for (never a configured value).</param>
+    public static void RequireAllowed(PlateReleaseDefinition definition, IHostEnvironment environment, string? buildProfile = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(environment);
         if (!definition.DevelopmentOnly || environment.IsDevelopment() || environment.IsEnvironment("Testing"))
             return;
-        if (deploymentProfile == DeploymentProfiles.PocSingleHost && definition.Parameters.FixtureSeed is null)
+        if (string.Equals(buildProfile, DeploymentProfiles.PocSingleHost, StringComparison.Ordinal) &&
+            string.Equals(definition.Identity.Fingerprint, PocPlateIdentityFingerprint, StringComparison.Ordinal))
             return;
         throw new InvalidOperationException(FixtureForbiddenCode);
     }

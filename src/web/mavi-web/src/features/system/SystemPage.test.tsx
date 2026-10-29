@@ -110,7 +110,7 @@ describe('the About page (ADR-020 §3)', () => {
     expect(limits).toHaveTextContent('Profile poc-single-host (ADR-020): not Production-qualified; evidence class Development.');
   });
 
-  it('shows the plate known limits and the disclosure even when the platform reports no profile', async () => {
+  it('shows the plate known limits without claiming a profile when the platform reports none', async () => {
     vi.mocked(getDeploymentDisclosure).mockResolvedValue({
       schemaVersion: 'mavi-deployment-disclosure-v1', profile: 'unspecified', productionQualified: false, evidenceClass: null,
       statement: null, metadataStatus: 'not-configured', applicationRevision: null, installedAtUtc: null,
@@ -120,6 +120,7 @@ describe('the About page (ADR-020 §3)', () => {
 
     const limits = await screen.findByRole('region', { name: 'Known limits: plate reading' });
     expect(limits).toHaveTextContent('52/110');
-    expect(limits).toHaveTextContent('not Production-qualified');
+    expect(limits).toHaveTextContent('Development capability: not Production-qualified.');
+    expect(limits).not.toHaveTextContent('poc-single-host');
   });
 });
