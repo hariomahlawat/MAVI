@@ -395,7 +395,7 @@ Run 7 is pinned by the definition SHA-256 `6a4e2c9bb74385011f3d02d1af040d51afd31
 - **Run 1** created 12 cameras, 12 assets, 12 scene revisions (r1) and 12 runs, all `Completed` with analytics `Ready`. It exited `0`.
 - **Run 2** changed nothing: 12 × `409 video_duplicate`, the same ids, and no scene or process call.
 - **API mutation extract:** 12 cameras 201, 12 imports 201, 12 scene saves 201, 12 process 202, 12 duplicate imports 409.
-- **Same output on the unchanged clips.** The eleven unchanged clips produced the same Track counts as the 2026-10-28 runs, and their audit results equal `audit-4.json` event for event.
+- **Same output on the unchanged clips.** The eleven unchanged clips produced the same Track counts as the 2026-10-28 runs. Their audit results equal `audit-4.json` (`evidence-2026-10-29-r2`) event for event.
 
 **Audit of s2-08 (G331)** (`audit-1.json`):
 - **Tracks.** 3 Person Tracks. All three start inside the waiting area, so zone entry is 0 / 0.
@@ -419,11 +419,12 @@ The threshold was **not** changed after the audit (A5).
 
 ## 12. After the cold review of the decisions PR (2026-10-29)
 
-**Owner decisions still open.** The cold review found two consequences of applying the decisions that the owner has not seen. The operator decides neither.
+**Owner decisions still open.** The cold reviews found three consequences of applying the decisions that the owner has not seen. The operator decides neither.
 
 | # | Decision | Row | Operator recommendation |
 |---|---|---|---|
 | 11 | **Pedestrian coverage after A5.** Rule 5 targets at least 2 pedestrian clips. Replacing s2-08 (decision 5(b)) leaves 1 (s2-07); the old s2-08 had 0 Tracks. Options:<br>(a) accept 1 pedestrian clip, disclosed;<br>(b) the non-relaxing alternative: run a recorded discovery pass for one more fixed-camera pedestrian clip, replacing one of the six junction/gate clips (the target there is 3). | B1 | (a) |
 | 12 | **Reconfirm the attribution text.** The owner accepted the file as it stood in `main@8a03ce8d` (blob `db2b0278`). For A5 the operator then changed: the status line; the clip ranges (Commons 1–7, MEVA 8–12); the table header ("Wikimedia Commons or MEVA"); row 8; the scope of the MEVA notice ("clips 8–12"); the simultaneity note ("five cameras"); and the clip ranges in the biometric note. No licence, credit or other row changed. | B2 | Reconfirm |
+| 13 | **Confirm decisions 2(a) and 3(a) for G331.** Decision 2(a) accepted the MEVA transfer path, and 3(a) accepted MEVA consent for s2-10, s2-11 and s2-12. The operator applied both to G331 (s2-08) as a consequence of 5(b), but the owner has not said so. Options:<br>(a) confirm both for G331;<br>(b) the non-relaxing alternative: keep s2-08 owner-machine-only until it is acquired through an extended helper. | B1, B3 | (a) |
 
 **Person loitering, stated plainly.** Under the audit's same-zone rule it is still demonstrable **once** (s2-09, 1 / 1). On s2-08 it fires on 3 persons, but that zone has no same-zone negative.

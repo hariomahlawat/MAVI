@@ -5,7 +5,8 @@
 - the table header;
 - row 8;
 - the scope of the MEVA notice;
-- the five-camera note.
+- the five-camera note;
+- the clip ranges in the biometric note.
 
 No licence, credit or other row changed. **This updated text is pending owner reconfirmation** (decision 12). Once reconfirmed, it ships in the PoC kit next to the demo clips, unchanged.
 
