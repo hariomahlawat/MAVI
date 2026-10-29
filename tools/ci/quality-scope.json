@@ -20,6 +20,7 @@
       "tools/stage3/**",
       "tools/benchmarks/**",
       "tools/fixture/**",
+      "tools/poc/**",
       "tools/requirements.txt",
       "src/vision/**",
       "contracts/**",

@@ -1,0 +1,1070 @@
+{
+  "schemaVersion": "mavi-poc-demo-corpus-v1",
+  "$comment": "PoC S2 demo corpus (Development). Media bytes never enter Git: Commons originals are in the source-acquisition store, MEVA originals under source-store/media/meva, derivatives under <root>/derivatives (E:/MAVI-Controlled/PoC/Corpus on the owner laptop). recordingStartLocal is a demo-assigned time, not the capture time. Scene geometry is operator configuration, not annotation. See docs/qualification/poc/demo-corpus-attribution.md and s2-demo-corpus-admissibility.md.",
+  "clips": [
+    {
+      "clipId": "s2-01-dusseldorf-junction",
+      "sceneClass": "junction",
+      "kit": true,
+      "source": {
+        "provider": "wikimedia-commons",
+        "fileTitle": "File:Straßenverkehr in Düsseldorf.ogv",
+        "pageId": 31636169,
+        "pageRevisionId": 1227822546,
+        "fileSha1": "1b834e34bb25624de11ddd5ce4ea211c293a8a62",
+        "originalSha256": "bf63e9fcdf42fa429617d5e991f183baff619d06dd8aafdc97f76c13d22cc5eb",
+        "storeRelativePath": "media/commons/31636169/1b834e34bb25624de11ddd5ce4ea211c293a8a62/Stra_enverkehr_in_D_sseldorf.ogv",
+        "licenceCode": "cc0"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1280,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-01-dusseldorf-junction.mp4",
+        "sha256": "72c150df70228d7116ecdb62c0ba2d4b66c62e63a8b675cbeddf1f1f365f2459"
+      },
+      "camera": {
+        "code": "POC-S2-01",
+        "name": "PoC demo 01 - Worringer Platz junction",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:00:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Tram box",
+            "kind": "Restricted",
+            "vertices": [
+              [
+                0.05,
+                0.68
+              ],
+              [
+                0.66,
+                0.68
+              ],
+              [
+                0.9,
+                0.95
+              ],
+              [
+                0.02,
+                0.95
+              ]
+            ],
+            "loiteringThresholdSeconds": 20
+          },
+          {
+            "name": "Corner pavement",
+            "kind": "General",
+            "vertices": [
+              [
+                0.68,
+                0.53
+              ],
+              [
+                0.99,
+                0.55
+              ],
+              [
+                0.99,
+                0.78
+              ],
+              [
+                0.68,
+                0.7
+              ]
+            ],
+            "loiteringThresholdSeconds": 60
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Junction exit",
+            "a": [
+              0.3,
+              0.61
+            ],
+            "b": [
+              0.66,
+              0.56
+            ],
+            "aToBLabel": "Outbound",
+            "bToALabel": "Inbound"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-02-sofia-junction",
+      "sceneClass": "junction",
+      "kit": true,
+      "source": {
+        "provider": "wikimedia-commons",
+        "fileTitle": "File:Trams and road cars at Macedonia square in Sofia.webm",
+        "pageId": 62252665,
+        "pageRevisionId": 1035020995,
+        "fileSha1": "6c2562d63a6265dbc3dc58d17d19634fbd56c339",
+        "originalSha256": "5b2890759899f1e5b000ad789037d6d7c339b4867e5c5b1d9a0e91820f9a5c96",
+        "storeRelativePath": "media/commons/62252665/6c2562d63a6265dbc3dc58d17d19634fbd56c339/Trams_and_road_cars_at_Macedonia_square_in_Sofia.webm",
+        "licenceCode": "cc-by-3.0"
+      },
+      "trim": {
+        "startSeconds": 2,
+        "durationSeconds": 88,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-02-sofia-junction.mp4",
+        "sha256": "013cb556498bfac00b7080cfaa3dbce0ad018cdf09e4d5abc5dee1e44538cffe"
+      },
+      "camera": {
+        "code": "POC-S2-02",
+        "name": "PoC demo 02 - Macedonia Square junction",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:05:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Junction box",
+            "kind": "Restricted",
+            "vertices": [
+              [
+                0.24,
+                0.64
+              ],
+              [
+                0.95,
+                0.64
+              ],
+              [
+                0.95,
+                0.92
+              ],
+              [
+                0.12,
+                0.92
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          },
+          {
+            "name": "Right pavement",
+            "kind": "General",
+            "vertices": [
+              [
+                0.72,
+                0.49
+              ],
+              [
+                0.99,
+                0.49
+              ],
+              [
+                0.99,
+                0.62
+              ],
+              [
+                0.72,
+                0.62
+              ]
+            ],
+            "loiteringThresholdSeconds": 40
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Crosswalk",
+            "a": [
+              0.22,
+              0.62
+            ],
+            "b": [
+              0.7,
+              0.62
+            ],
+            "aToBLabel": "Away",
+            "bToALabel": "Toward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-03-crest-hill-road",
+      "sceneClass": "junction",
+      "kit": true,
+      "source": {
+        "provider": "wikimedia-commons",
+        "fileTitle": "File:Views of Caton Farm Road in Crest Hill, Illinois 04.webm",
+        "pageId": 198954882,
+        "pageRevisionId": 1292261971,
+        "fileSha1": "186c93582ee722504738943890766131fa2b3547",
+        "originalSha256": "bb237e157d04179bd178ab12e1658edf892c15a4b98e60563e7c7bf949b340ce",
+        "storeRelativePath": "media/commons/198954882/186c93582ee722504738943890766131fa2b3547/Views_of_Caton_Farm_Road_in_Crest_Hill_Illinois_04.webm",
+        "licenceCode": "cc-by-4.0"
+      },
+      "trim": {
+        "startSeconds": 1,
+        "durationSeconds": 68,
+        "maxWidth": 1920,
+        "fps": 30
+      },
+      "derivative": {
+        "fileName": "s2-03-crest-hill-road.mp4",
+        "sha256": "4ff8db4123e2325c1dafb53f1dda5f87eeb8f70af29a1e9bad3d9c9a46212347"
+      },
+      "camera": {
+        "code": "POC-S2-03",
+        "name": "PoC demo 03 - Caton Farm Road",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:10:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Roadside lot bays",
+            "kind": "Restricted",
+            "vertices": [
+              [
+                0.3,
+                0.54
+              ],
+              [
+                0.92,
+                0.54
+              ],
+              [
+                0.92,
+                0.62
+              ],
+              [
+                0.3,
+                0.63
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Count line",
+            "a": [
+              0.55,
+              0.62
+            ],
+            "b": [
+              0.58,
+              0.8
+            ],
+            "aToBLabel": "Rightward",
+            "bToALabel": "Leftward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-04-night-highway",
+      "sceneClass": "junction",
+      "kit": true,
+      "source": {
+        "provider": "wikimedia-commons",
+        "fileTitle": "File:Cars driving at night.webm",
+        "pageId": 24403804,
+        "pageRevisionId": 1274270458,
+        "fileSha1": "53fc56b2e6c053243f9ef377ada946abce4dcf63",
+        "originalSha256": "3dfc2c1ae60762e45ea68bc417695cc25a4fde5fcd771d4e3f8e59b0f2f7e9f8",
+        "storeRelativePath": "media/commons/24403804/53fc56b2e6c053243f9ef377ada946abce4dcf63/Cars_driving_at_night.webm",
+        "licenceCode": "cc-by-3.0"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 158,
+        "maxWidth": 1920,
+        "fps": 30
+      },
+      "derivative": {
+        "fileName": "s2-04-night-highway.mp4",
+        "sha256": "da326b6923c88a517d8378078d51665c4225c4a3913b35075e33ef15e0665314"
+      },
+      "camera": {
+        "code": "POC-S2-04",
+        "name": "PoC demo 04 - Highway at night",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:15:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Near carriageway",
+            "kind": "General",
+            "vertices": [
+              [
+                0.2,
+                0.66
+              ],
+              [
+                0.75,
+                0.66
+              ],
+              [
+                0.85,
+                0.99
+              ],
+              [
+                0.2,
+                0.99
+              ]
+            ],
+            "loiteringThresholdSeconds": 10
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Overpass line",
+            "a": [
+              0.2,
+              0.62
+            ],
+            "b": [
+              0.95,
+              0.62
+            ],
+            "aToBLabel": "Away",
+            "bToALabel": "Toward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-05-vrhnika-arch-gate",
+      "sceneClass": "gate",
+      "kit": true,
+      "source": {
+        "provider": "wikimedia-commons",
+        "fileTitle": "File:Road traffic – cobblestone road.webm",
+        "pageId": 75044923,
+        "pageRevisionId": 1035455639,
+        "fileSha1": "9a7d1ce86635d2c9bc53f0de30cb541ae42cae47",
+        "originalSha256": "a022c1adc52d5693704fd695bf4c66c3b4571229409dc5eaedd3cac3046764b6",
+        "storeRelativePath": "media/commons/75044923/9a7d1ce86635d2c9bc53f0de30cb541ae42cae47/Road_traffic_cobblestone_road.webm",
+        "licenceCode": "cc-by-3.0"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 104,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-05-vrhnika-arch-gate.mp4",
+        "sha256": "0f72d97b046d78b5708e56b9b9d0981dc5c7eb5c4e692a0135d30925b99cc46a"
+      },
+      "camera": {
+        "code": "POC-S2-05",
+        "name": "PoC demo 05 - Archway gate",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:20:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Parking bay",
+            "kind": "Restricted",
+            "vertices": [
+              [
+                0.0,
+                0.36
+              ],
+              [
+                0.36,
+                0.38
+              ],
+              [
+                0.36,
+                0.54
+              ],
+              [
+                0.0,
+                0.54
+              ]
+            ],
+            "loiteringThresholdSeconds": 50
+          },
+          {
+            "name": "Gate approach",
+            "kind": "General",
+            "vertices": [
+              [
+                0.38,
+                0.55
+              ],
+              [
+                0.72,
+                0.55
+              ],
+              [
+                0.7,
+                0.95
+              ],
+              [
+                0.2,
+                0.95
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Arch gate",
+            "a": [
+              0.6,
+              0.5
+            ],
+            "b": [
+              0.75,
+              0.5
+            ],
+            "aToBLabel": "Exit",
+            "bToALabel": "Entry"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-06-beynost-level-crossing",
+      "sceneClass": "gate",
+      "kit": true,
+      "source": {
+        "provider": "wikimedia-commons",
+        "fileTitle": "File:Passage à niveaux Beynost 2016.webm",
+        "pageId": 50746298,
+        "pageRevisionId": 993905209,
+        "fileSha1": "63a9a9d549b4ac964dcaeb7cf68d642491cba4ec",
+        "originalSha256": "39efd8c7af0cca621e69dc8b05a2cabee6db82a8f4db20a03a61902d08046d5e",
+        "storeRelativePath": "media/commons/50746298/63a9a9d549b4ac964dcaeb7cf68d642491cba4ec/Passage_niveaux_Beynost_2016.webm",
+        "licenceCode": "cc0"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 70,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-06-beynost-level-crossing.mp4",
+        "sha256": "0b8c8a6567d40ef4addbed6f2fac71a48ae9fe7d1485fe8fbf35dcf2e03783d5"
+      },
+      "camera": {
+        "code": "POC-S2-06",
+        "name": "PoC demo 06 - Level crossing barrier",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:25:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Crossing box",
+            "kind": "Restricted",
+            "vertices": [
+              [
+                0.0,
+                0.62
+              ],
+              [
+                1.0,
+                0.62
+              ],
+              [
+                1.0,
+                0.82
+              ],
+              [
+                0.0,
+                0.82
+              ]
+            ],
+            "loiteringThresholdSeconds": 10
+          },
+          {
+            "name": "Waiting area",
+            "kind": "General",
+            "vertices": [
+              [
+                0.34,
+                0.36
+              ],
+              [
+                0.6,
+                0.36
+              ],
+              [
+                0.6,
+                0.5
+              ],
+              [
+                0.3,
+                0.5
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Barrier line",
+            "a": [
+              0.02,
+              0.58
+            ],
+            "b": [
+              0.98,
+              0.58
+            ],
+            "aToBLabel": "Away",
+            "bToALabel": "Toward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-07-shibuya-crossing",
+      "sceneClass": "pedestrian",
+      "kit": true,
+      "source": {
+        "provider": "wikimedia-commons",
+        "fileTitle": "File:Shibuya Crossing.ogv",
+        "pageId": 8804999,
+        "pageRevisionId": 1048146516,
+        "fileSha1": "2ef3c927d5c5e5ccd7c537e4bad0e4b7c074cd55",
+        "originalSha256": "68f0d2f3b7acd107c462ac14ba30c7ffce7572594b30fe576c45f68ad1b43d42",
+        "storeRelativePath": "media/commons/8804999/2ef3c927d5c5e5ccd7c537e4bad0e4b7c074cd55/Shibuya_Crossing.ogv",
+        "licenceCode": "cc-by-2.0"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 88,
+        "maxWidth": 1280,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-07-shibuya-crossing.mp4",
+        "sha256": "93b89ed660491746c6abb221f9972bda3cdb77d9871e924d2025210ee06a331a"
+      },
+      "camera": {
+        "code": "POC-S2-07",
+        "name": "PoC demo 07 - Scramble crossing",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:30:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Crossing",
+            "kind": "General",
+            "vertices": [
+              [
+                0.0,
+                0.45
+              ],
+              [
+                0.95,
+                0.42
+              ],
+              [
+                0.95,
+                0.8
+              ],
+              [
+                0.0,
+                0.85
+              ]
+            ],
+            "loiteringThresholdSeconds": 40
+          },
+          {
+            "name": "Near corner",
+            "kind": "General",
+            "vertices": [
+              [
+                0.0,
+                0.86
+              ],
+              [
+                0.4,
+                0.8
+              ],
+              [
+                0.4,
+                0.99
+              ],
+              [
+                0.0,
+                0.99
+              ]
+            ],
+            "loiteringThresholdSeconds": 40
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Crossing midline",
+            "a": [
+              0.0,
+              0.62
+            ],
+            "b": [
+              1.0,
+              0.52
+            ],
+            "aToBLabel": "Away",
+            "bToALabel": "Toward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-08-damascus-gate-overhead",
+      "sceneClass": "pedestrian",
+      "kit": true,
+      "source": {
+        "provider": "wikimedia-commons",
+        "fileTitle": "File:Three Minutes of Damascus Gate.webm",
+        "pageId": 71591077,
+        "pageRevisionId": 689333972,
+        "fileSha1": "8ec674205cff86c3c07ea697fcfd1660518af62c",
+        "originalSha256": "db67701634363a9a7b53fa0a516d384fb0cdb526bdf8090fbc313edcf518a25b",
+        "storeRelativePath": "media/commons/71591077/8ec674205cff86c3c07ea697fcfd1660518af62c/Three_Minutes_of_Damascus_Gate.webm",
+        "licenceCode": "cc0"
+      },
+      "trim": {
+        "startSeconds": 2,
+        "durationSeconds": 170,
+        "maxWidth": 1280,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-08-damascus-gate-overhead.mp4",
+        "sha256": "d0c89ef38760e1be8670e9dbeeec0664f68e19059231397cf9398ca1b2313499"
+      },
+      "camera": {
+        "code": "POC-S2-08",
+        "name": "PoC demo 08 - Gate passage overhead",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:35:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Passage centre",
+            "kind": "Restricted",
+            "vertices": [
+              [
+                0.35,
+                0.25
+              ],
+              [
+                0.75,
+                0.25
+              ],
+              [
+                0.75,
+                0.65
+              ],
+              [
+                0.35,
+                0.65
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          },
+          {
+            "name": "Stall front",
+            "kind": "General",
+            "vertices": [
+              [
+                0.0,
+                0.7
+              ],
+              [
+                0.35,
+                0.7
+              ],
+              [
+                0.35,
+                0.99
+              ],
+              [
+                0.0,
+                0.99
+              ]
+            ],
+            "loiteringThresholdSeconds": 60
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Gate midline",
+            "a": [
+              0.5,
+              0.02
+            ],
+            "b": [
+              0.5,
+              0.98
+            ],
+            "aToBLabel": "Rightward",
+            "bToALabel": "Leftward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-09-meva-parking-lot",
+      "sceneClass": "car-park",
+      "kit": true,
+      "source": {
+        "provider": "meva",
+        "objectUrl": "https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-02.16-25-02.school.G424.r13.avi",
+        "contentLength": 97989578,
+        "originalSha256": "a092f15c3c55dce8c30418aa78f60ff6921962e01b373c616233c7a3e27dd952",
+        "storeRelativePath": "media/meva/drops-123-r13/2018-03-11/16/2018-03-11.16-20-02.16-25-02.school.G424.r13.avi",
+        "licenceCode": "cc-by-4.0",
+        "release": "MEVA (Kitware/IARPA) drops-123-r13",
+        "camera": "G424",
+        "captureSlot": "2018-03-11 16:20 (5 min)"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-09-meva-parking-lot.mp4",
+        "sha256": "cde2966f70f9378d70d6ea558531f394f4b2ad0eeabfbb58f94b00353fab2931"
+      },
+      "camera": {
+        "code": "POC-S2-09",
+        "name": "PoC demo 09 - School parking lot (MEVA G424)",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:40:02",
+      "scene": {
+        "zones": [
+          {
+            "name": "Upper bays",
+            "kind": "Restricted",
+            "vertices": [
+              [
+                0.45,
+                0.42
+              ],
+              [
+                0.99,
+                0.4
+              ],
+              [
+                0.99,
+                0.56
+              ],
+              [
+                0.45,
+                0.58
+              ]
+            ],
+            "loiteringThresholdSeconds": 90
+          },
+          {
+            "name": "Lower bays",
+            "kind": "Restricted",
+            "vertices": [
+              [
+                0.38,
+                0.75
+              ],
+              [
+                0.8,
+                0.75
+              ],
+              [
+                0.82,
+                0.99
+              ],
+              [
+                0.38,
+                0.99
+              ]
+            ],
+            "loiteringThresholdSeconds": 90
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Lot lane",
+            "a": [
+              0.42,
+              0.58
+            ],
+            "b": [
+              0.42,
+              0.74
+            ],
+            "aToBLabel": "Rightward",
+            "bToALabel": "Leftward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-10-meva-cafe-lobby",
+      "sceneClass": "lobby",
+      "kit": true,
+      "source": {
+        "provider": "meva",
+        "objectUrl": "https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-00.school.G421.r13.avi",
+        "contentLength": 103000564,
+        "originalSha256": "bba8290ef6e8f9c81516b15eb6fa36372bbe4346f9d8acb0360c3a6cfdd6d28c",
+        "storeRelativePath": "media/meva/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-00.school.G421.r13.avi",
+        "licenceCode": "cc-by-4.0",
+        "release": "MEVA (Kitware/IARPA) drops-123-r13",
+        "camera": "G421",
+        "captureSlot": "2018-03-11 16:20 (5 min)"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-10-meva-cafe-lobby.mp4",
+        "sha256": "54281656c3be114b66ee0543fc2e5cff7e2cc07515406376c495974022db97b0"
+      },
+      "camera": {
+        "code": "POC-S2-10",
+        "name": "PoC demo 10 - School cafe lobby (MEVA G421)",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:40:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Seating area",
+            "kind": "General",
+            "vertices": [
+              [
+                0.17,
+                0.35
+              ],
+              [
+                0.52,
+                0.35
+              ],
+              [
+                0.52,
+                0.62
+              ],
+              [
+                0.17,
+                0.62
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          },
+          {
+            "name": "Entrance floor",
+            "kind": "Entrance",
+            "vertices": [
+              [
+                0.55,
+                0.4
+              ],
+              [
+                0.85,
+                0.4
+              ],
+              [
+                0.85,
+                0.62
+              ],
+              [
+                0.55,
+                0.62
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Doorway line",
+            "a": [
+              0.55,
+              0.62
+            ],
+            "b": [
+              0.9,
+              0.62
+            ],
+            "aToBLabel": "Out",
+            "bToALabel": "In"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-11-meva-school-hall",
+      "sceneClass": "lobby",
+      "kit": true,
+      "source": {
+        "provider": "meva",
+        "objectUrl": "https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-01.school.G423.r13.avi",
+        "contentLength": 80699352,
+        "originalSha256": "443bce856d638f002fcfb19d6da9212bfce58814ed6bd1f36520151c0fb37d91",
+        "storeRelativePath": "media/meva/drops-123-r13/2018-03-11/16/2018-03-11.16-20-00.16-25-01.school.G423.r13.avi",
+        "licenceCode": "cc-by-4.0",
+        "release": "MEVA (Kitware/IARPA) drops-123-r13",
+        "camera": "G423",
+        "captureSlot": "2018-03-11 16:20 (5 min)"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-11-meva-school-hall.mp4",
+        "sha256": "62559507cf24d1694c81834f5e8cc5d3af08c0dde63164e8b0a57fe0c996e5f0"
+      },
+      "camera": {
+        "code": "POC-S2-11",
+        "name": "PoC demo 11 - School hallway (MEVA G423)",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:40:00",
+      "scene": {
+        "zones": [
+          {
+            "name": "Corridor near",
+            "kind": "General",
+            "vertices": [
+              [
+                0.42,
+                0.6
+              ],
+              [
+                0.75,
+                0.6
+              ],
+              [
+                0.88,
+                0.99
+              ],
+              [
+                0.42,
+                0.99
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Hall midline",
+            "a": [
+              0.42,
+              0.55
+            ],
+            "b": [
+              0.7,
+              0.55
+            ],
+            "aToBLabel": "Away",
+            "bToALabel": "Toward"
+          }
+        ]
+      }
+    },
+    {
+      "clipId": "s2-12-meva-stairwell",
+      "sceneClass": "lobby",
+      "kit": true,
+      "source": {
+        "provider": "meva",
+        "objectUrl": "https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-01.16-25-01.school.G419.r13.avi",
+        "contentLength": 88315936,
+        "originalSha256": "93ec12fafcb0ee166c71ec7a46061223e4257de9404d9992f118de275bfc416a",
+        "storeRelativePath": "media/meva/drops-123-r13/2018-03-11/16/2018-03-11.16-20-01.16-25-01.school.G419.r13.avi",
+        "licenceCode": "cc-by-4.0",
+        "release": "MEVA (Kitware/IARPA) drops-123-r13",
+        "camera": "G419",
+        "captureSlot": "2018-03-11 16:20 (5 min)"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-12-meva-stairwell.mp4",
+        "sha256": "174658c288934cdb95e12d65854cd36ee1a058e1d97bb1092130c8c87ade28a1"
+      },
+      "camera": {
+        "code": "POC-S2-12",
+        "name": "PoC demo 12 - School stairwell (MEVA G419)",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:40:01",
+      "scene": {
+        "zones": [
+          {
+            "name": "Landing",
+            "kind": "General",
+            "vertices": [
+              [
+                0.25,
+                0.68
+              ],
+              [
+                0.55,
+                0.68
+              ],
+              [
+                0.55,
+                0.8
+              ],
+              [
+                0.22,
+                0.8
+              ]
+            ],
+            "loiteringThresholdSeconds": 30
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Landing line",
+            "a": [
+              0.22,
+              0.7
+            ],
+            "b": [
+              0.55,
+              0.7
+            ],
+            "aToBLabel": "To door",
+            "bToALabel": "From door"
+          }
+        ]
+      }
+    }
+  ]
+}
