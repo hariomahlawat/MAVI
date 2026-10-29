@@ -42,7 +42,8 @@ public sealed class PlatePersistenceTests(PostgresFixture fixture)
         var before = await ColumnSignatureAsync();
         Assert.All(PlateTables, table => Assert.False(TableExistsAsync(table).GetAwaiter().GetResult(), table));
 
-        await db.Database.MigrateAsync();
+        // Up to this migration only: later migrations (other slices' tables) are not its subject.
+        await db.GetService<IMigrator>().MigrateAsync(Lifecycle);
         Assert.Contains(Lifecycle, await db.Database.GetAppliedMigrationsAsync());
         Assert.All(PlateTables, table => Assert.True(TableExistsAsync(table).GetAwaiter().GetResult(), table));
         // No existing column changed: the pre-existing tables' columns are exactly as before.

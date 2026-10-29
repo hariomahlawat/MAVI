@@ -1,3 +1,4 @@
+using Mavi.Domain.Audit;
 using Mavi.Domain.Cameras;
 using Mavi.Domain.Intelligence;
 using Mavi.Domain.Media;
@@ -42,6 +43,7 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<PlateObservation> PlateObservations => Set<PlateObservation>();
     public DbSet<PlateReading> PlateReadings => Set<PlateReading>();
     public DbSet<PlateTrackText> PlateTrackTexts => Set<PlateTrackText>();
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     // Model configuration
     protected override void OnModelCreating(ModelBuilder modelBuilder)

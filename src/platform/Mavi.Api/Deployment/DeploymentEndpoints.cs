@@ -15,7 +15,8 @@ public static class DeploymentEndpoints
     public static IEndpointRouteBuilder MapDeploymentEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/system/deployment",
-            (IOptions<DeploymentOptions> options) => Results.Ok(DeploymentDisclosureReader.Read(options.Value, BuildProfile)));
+            (IOptions<DeploymentOptions> options, IOptions<Mavi.Application.Modules.Identity.OperatorIdentityOptions> identity) =>
+                Results.Ok(DeploymentDisclosureReader.Read(options.Value, BuildProfile, identity.Value)));
         return endpoints;
     }
 

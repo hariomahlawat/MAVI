@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Mavi.Application.Deployment;
+using Mavi.Application.Modules.Identity;
 
 namespace Mavi.Application.Tests;
 
@@ -157,6 +158,32 @@ public sealed class DeploymentDisclosureTests : IDisposable
         Assert.Null(disclosure.Statement);
         Assert.Equal("not-configured", disclosure.MetadataStatus);
         Assert.Equal("not-reported", disclosure.DeviceStatus);
+    }
+
+    [Fact]
+    public void TheIdentityModeInEffectIsDisclosedBesideTheOneInstalled()
+    {
+        var metadata = ValidMetadata();
+        metadata["identityMode"] = JsonDocument.Parse("\"windows-negotiate\"").RootElement.Clone();
+        var identity = new OperatorIdentityOptions { Mode = OperatorIdentityModes.DevelopmentUnattributed };
+
+        var disclosure = DeploymentDisclosureReader.Read(PocOptions(WriteMetadata(metadata), null), identity: identity);
+
+        Assert.Equal(OperatorIdentityModes.DevelopmentUnattributed, disclosure.Identity.Mode);
+        Assert.False(disclosure.Identity.Attributable);
+        Assert.Contains("not attributable", disclosure.Identity.Statement, StringComparison.Ordinal);
+        Assert.Equal(OperatorIdentityModes.WindowsNegotiate, disclosure.Identity.InstalledMode);
+    }
+
+    [Fact]
+    public void AnUnconfiguredIdentityIsDisclosedAsDisabled()
+    {
+        var disclosure = DeploymentDisclosureReader.Read(new DeploymentOptions());
+
+        Assert.Equal(OperatorIdentityModes.Disabled, disclosure.Identity.Mode);
+        Assert.False(disclosure.Identity.Attributable);
+        Assert.False(disclosure.Identity.OperatorsConfigured);
+        Assert.Null(disclosure.Identity.InstalledMode);
     }
 
     [Fact]
