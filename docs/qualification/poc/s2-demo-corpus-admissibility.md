@@ -446,7 +446,8 @@ The threshold was **not** changed after the audit (A5).
 4. **Acquisition.** The original was fetched over HTTPS without credentials.
    - Its size matches the bucket's `Content-Length`: 75 749 322 bytes, ETag `ad7208714d38a525fdcad5511fea35e5-10`.
    - Its SHA-256 is `3e1cd6ebc9900a1c7582e3975537602ad7fae272d0e91a513d107d9802052f77`, appended to `approvals\meva-originals.sha256`. The fetch is logged in `approvals\meva-a6-fetch.log`, with UTC times.
-5. **Trim.** The first 180 s, using the corpus tool's pinned FFmpeg argv. The derivative `s2-13-meva-entrance-hall.mp4` has SHA-256 `60505f749a054f66af37753895901f42dc843ed3d87ef0257bd331fb0fb6a3f2`. The full `trim` pass re-derives it and must reproduce these bytes.
+5. **Trim.** The first 180 s, using the corpus tool's pinned FFmpeg argv. The derivative `s2-13-meva-entrance-hall.mp4` has SHA-256 `60505f749a054f66af37753895901f42dc843ed3d87ef0257bd331fb0fb6a3f2`. The full 13-clip `trim` pass afterwards re-derived the same bytes, and all twelve earlier derivatives reproduced. `demo_corpus.py verify` found no problems.
+   - Evidence: `E:\MAVI-Controlled\PoC\Corpus\evidence-2026-10-30-a6\`, `SHA256SUMS` = `1e2da4c71e6465ba175fbebc12937589d2aeeb9b276386573e9ea2c2bf72b620`.
 6. **Scene geometry.** It was drawn on the 5 s frame before any pipeline output for G420 was read: an "Entrance floor" zone with a 60 s loitering threshold (within the half-window rule), and a "Door line". The reference frame was deleted.
 7. **Recording start.** 09:40:01, which keeps the real offset in the slot (G420's object starts at 16-20-01).
 
