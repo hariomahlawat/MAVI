@@ -81,6 +81,11 @@ export type TrackSearchFilters = {
   appearanceQuery?: string;
   /** The opaque snapshot token of an earlier appearance response, for a stable replay. */
   appearanceSnapshot?: string;
+  /**
+   * PoC S5 visual-attribute predicates, `type:value` each, ANDed, in canonical
+   * (type) order. The only repeated search key.
+   */
+  attribute?: string[];
   cursor?: string;
   limit?: number;
 };
@@ -174,7 +179,76 @@ export type TrackSearchResponse = {
   plateCoverage?: PlateCoverage;
   /** Present on an appearance-ranked search (`appearanceQuery`). */
   appearance?: AppearanceSearchBlock;
+  /** Present on every attribute-filtered search, including empty results. */
+  attributeCoverage?: AttributeCoverage;
 };
+
+/**
+ * How much of an attribute search's scope had attribute facts (PoC S5). The
+ * analysed, unavailable and not-analysed counts partition `tracksInScope`;
+ * `unknown` counts analysed Tracks whose value was not asserted, per predicate.
+ */
+export type AttributeCoverage = {
+  identityFingerprint: string | null;
+  /** The pipeline's own disclosure, e.g. `zero-shot, Development`. */
+  disclosure: string | null;
+  predicates: string[];
+  tracksInScope: number;
+  analysed: number;
+  unavailable: number;
+  notAnalysed: number;
+  unknown: Array<{ attributeType: string; tracks: number }>;
+};
+
+/** Why a row matched an attribute predicate: an Observed value, never a verified fact. */
+export type TrackItemAttribute = {
+  attributeType: string;
+  value: string;
+  confidence: number;
+  supportingObservationId: string;
+};
+
+/** A Track's visual attributes on the detail surface (PoC S5). */
+export type TrackAttributes = {
+  readiness: 'NotConfigured' | 'NotApplicable' | 'Pending' | 'Ready' | 'Failed' | 'Stale';
+  disclosure?: string;
+  developmentOnly: boolean;
+  trackOutcome?: 'Analysed' | 'Unavailable';
+  unavailableReason?: string;
+  attributes: Array<{
+    attributeType: string;
+    outcome: 'Observed' | 'Unknown';
+    value?: string;
+    confidence?: number;
+    supportingObservationId?: string;
+  }>;
+  provenance?: {
+    analysisId: string;
+    identityFingerprint: string;
+    attributeSchemaId: string;
+    attributeSchemaVersion: string;
+    pipelineId: string;
+    pipelineVersion: string;
+    aggregationPolicyId: string;
+    aggregationPolicyVersion: string;
+    capabilities: string;
+    completedAtUtc: string | null;
+  };
+};
+
+/** The bound attribute vocabulary (`GET /api/visual-attributes/vocabulary`). */
+export type AttributeVocabulary = {
+  configured: boolean;
+  notConfiguredReason: string | null;
+  identityFingerprint: string | null;
+  disclosure: string | null;
+  developmentOnly: boolean;
+  attributes: Array<{ attributeType: string; objectClass: 'person' | 'vehicle'; values: string[] }>;
+};
+
+export function getAttributeVocabulary(signal?: AbortSignal): Promise<AttributeVocabulary> {
+  return apiRequest<AttributeVocabulary>('/api/visual-attributes/vocabulary', { signal });
+}
 
 export type TrackSearchItem = {
   id: string;
@@ -204,6 +278,8 @@ export type TrackSearchItem = {
   plate?: TrackItemPlate;
   /** Cosine similarity in [-1, 1] on an appearance-ranked search; a score, never a verdict. */
   appearanceScore?: number;
+  /** The Observed values that matched the attribute predicates. */
+  attributes?: TrackItemAttribute[];
 };
 
 export type TrackCamera = {
@@ -443,6 +519,8 @@ export type TrackDetail = {
   analytics: TrackDetailAnalytics;
   /** Vehicle Track only; omitted for Person. */
   plates?: TrackPlates;
+  /** Present when attribute analysis applies to the Track's class (PoC S5). */
+  attributes?: TrackAttributes;
 };
 
 export function serializePlainDecimal(value: number): string {
@@ -482,6 +560,7 @@ const orderedFilterKeys: ReadonlyArray<keyof TrackSearchFilters> = [
   'objectSubclass',
   'plateText',
   'plateMatch',
+  'attribute',
   'fromUtc',
   'toUtc',
   'minimumDurationMs',
@@ -507,6 +586,10 @@ export function serializeTrackSearchFilters(filters: TrackSearchFilters): string
   for (const key of orderedFilterKeys) {
     const value = filters[key];
     if (value === undefined || value === null || value === '') continue;
+    if (Array.isArray(value)) {
+      for (const item of value) params.append(key, item);
+      continue;
+    }
     params.set(key, key === 'minimumConfidence' ? serializePlainDecimal(value as number) : String(value));
   }
   return params.toString();

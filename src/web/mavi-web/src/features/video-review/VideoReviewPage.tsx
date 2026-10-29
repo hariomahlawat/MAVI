@@ -19,6 +19,7 @@ import { ProvenancePanel, TrackSummary } from './TrackDetailsPanels';
 import TrackEvidence from './TrackEvidence';
 import TrackEvidenceSet from './TrackEvidenceSet';
 import TrackPlateReadings from './TrackPlateReadings';
+import TrackAttributesPanel from './TrackAttributesPanel';
 import TrackSimilarCandidates from './TrackSimilarCandidates';
 import TrackAnalyticsExplanation from './TrackAnalyticsExplanation';
 import { buildAnalyticsEvidence } from './analyticsEvidence';
@@ -295,6 +296,11 @@ export default function VideoReviewPage() {
               {detail.plates ? (
                 <Panel title="Plate readings">
                   <TrackPlateReadings detail={detail} onSelectObservation={selectPlateSource} />
+                </Panel>
+              ) : null}
+              {detail.attributes ? (
+                <Panel title="Attributes">
+                  <TrackAttributesPanel detail={detail} />
                 </Panel>
               ) : null}
               {/* ADR-021 §5: similarity candidates, run on request. Keyed by

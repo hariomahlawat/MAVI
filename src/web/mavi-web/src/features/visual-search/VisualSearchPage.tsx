@@ -5,7 +5,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
-import { SIMILARITY_CANDIDATES_LABEL, searchTracks } from '../../api/tracks';
+import { SIMILARITY_CANDIDATES_LABEL, getAttributeVocabulary, searchTracks } from '../../api/tracks';
+import { draftFromPredicates } from './attributeSearch';
+import AttributeCoverageLine, { attributeEmptyState } from './AttributeCoverageLine';
 import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { describeError, fromInfiniteQuery, fromQuery } from '../../shared/async/fromQuery';
@@ -123,6 +125,7 @@ function draftFromFilters(filters: CommittedTrackSearch, timeZoneId: string | un
     minStationarySeconds: millisecondsToSecondsText(filters.minStationaryMs),
     loitering: filters.loitering ? 'true' : '',
     appearanceQuery: filters.appearanceQuery ?? '',
+    attribute: draftFromPredicates(filters.attribute),
   };
 }
 
@@ -261,6 +264,11 @@ export default function VisualSearchPage() {
     queryFn: ({ signal }) => listVideos(signal),
     staleTime: 30_000,
   });
+  const attributeVocabulary = useQuery({
+    queryKey: queryKeys.attributeVocabulary,
+    queryFn: ({ signal }) => getAttributeVocabulary(signal),
+    staleTime: Infinity,
+  });
   const systemConfig = useQuery({
     queryKey: queryKeys.systemConfig,
     queryFn: ({ signal }) => getSystemConfig(signal),
@@ -360,6 +368,8 @@ export default function VisualSearchPage() {
   // Coverage is part of the snapshot: page one computed it and every continuation
   // carries the same block, so the first page is the one to read it from.
   const coverage = analytic ? tracks.data?.pages[0]?.analyticsCoverage : undefined;
+  const attributeCoverage = committed.isValid && activeFilters.attribute?.length
+    ? tracks.data?.pages[0]?.attributeCoverage : undefined;
   const plateCoverage = committed.isValid && activeFilters.plateText
     ? tracks.data?.pages[0]?.plateCoverage : undefined;
 
@@ -813,6 +823,8 @@ export default function VisualSearchPage() {
             displayZone={displayZone}
             analyticsScoped={analyticsScoped}
             geometry={draftGeometry}
+            attributeVocabulary={attributeVocabulary.data}
+            attributeVocabularyUnavailable={fromQuery(attributeVocabulary).kind === 'unavailable'}
           />
         )}
         inspector={inspecting && selectedId ? (
@@ -897,6 +909,7 @@ export default function VisualSearchPage() {
           {coverage || plateCoverage
             ? <CoverageStrip coverage={coverage} plateCoverage={plateCoverage} geometry={resultGeometryNames} />
             : null}
+          {attributeCoverage ? <AttributeCoverageLine coverage={attributeCoverage} /> : null}
 
           {/* The results are one column region (§37.1). The first page decides
               its state; a later page failing is a continuation failure and is
@@ -912,7 +925,11 @@ export default function VisualSearchPage() {
             // Either view loads as its own skeleton, never a spinner (§38).
             skeleton={{ rows: 'default', pitch: shownView === 'list' ? 'list' : 'grid' }}
             isEmpty={(found) => found.length === 0}
-            empty={appearanceSearch ? APPEARANCE_EMPTY : resultsEmpty(coverage, plateCoverage, activeFilters.plateText)}
+            empty={appearanceSearch
+              ? APPEARANCE_EMPTY
+              : attributeCoverage
+                ? { icon: 'search', ...attributeEmptyState(attributeCoverage) }
+                : resultsEmpty(coverage, plateCoverage, activeFilters.plateText)}
             unavailableMessage={(error) => (appearanceSearch ? appearanceErrorMessage(error) : undefined)
               ?? describeError(error, 'The search could not be completed.')}
             // A refused query or a missing configuration is not cured by asking
