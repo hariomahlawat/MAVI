@@ -3,6 +3,8 @@
 **Status:** Accepted  
 **Date:** 2026-09-18
 
+**Amended by addition (2026-10-28):** ADR-020 adds the `poc-single-host` deployment profile (Development evidence class, mandatory not-qualified disclosure). Nothing in this ADR changes; P1, P2 and P3 and their qualification requirements stand.
+
 ## Context
 
 MAVI must support practical development on a single engineer workstation while also supporting production deployments ranging from a single capable Windows machine to a split operational/accelerator topology.

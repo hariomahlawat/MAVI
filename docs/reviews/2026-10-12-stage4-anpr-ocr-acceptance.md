@@ -7,8 +7,9 @@
   - selection: near views fail side- or top-edge contact (9 tracks), the sharpness floor (5) and NearView hysteresis (1); bottom contact blocks none;
   - tracking and association at 5 fps.
 - X1 (bottom-border exemption): 0/10 recovered, **rejected** by the owner.
-- PR-3 to PR-5 proceed; PR-6 is held (O3). Indian validation is split: O1A (tracking, IDD-X approved) and O1B (ANPR/OCR, OPEN). PR #213 stays Draft.
+- PR-3 to PR-5 proceed; PR-6 is held (O3). Indian validation is split: O1A (tracking, IDD-X approved) and O1B (ANPR/OCR, OPEN). PR #213 (PR-1) is merged.
 - **2026-10-17 owner decision:** Stage 4 is reoriented toward operational ANPR/OCR capability (see "Owner decision (2026-10-17) — capability reorientation"). No row, verdict or criterion changes.
+- **State at 2026-10-28 (header reconciliation only; no row changes):** merged in `main` are PR-1 (#213), the A–D harness (#218), M3 authority (#220) with IP-5 (#222) and IP-1 (#223), PR-3 (#217), PR-4 (#219), PR-5 (#230, #231), the real ANPR Development pilot (#226), and the Development experiments B1 (#232), X4-0 (#233) and LRLPR-26 (#234, #235). IP-2 is paused at a checkpoint; IP-3/IP-4, PR-2 (P4–P6) and PR-6 (P13–P15) are not started; protected D stays closed. The end-to-end PoC (`docs/superpowers/plans/2026-10-28-mavi-poc-end-to-end.md`, ADR-020) binds the #226 composition under the `poc-single-host` profile as Development capability; it changes no row, verdict, criterion or frozen rule here.
 
 **Date opened:** 2026-10-12\
 **Baseline:** `main@78ec81de514874ed7dc536f2eee19669d1cfec6b` (merge of PR #212, the Stage 4 plan)
