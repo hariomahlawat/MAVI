@@ -494,6 +494,16 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         res.end(readFileSync(file));
         return;
       }
+      // The review's Faces panel (PoC S6) asks every Track for its faces. The fixture world has no face
+      // release, so the platform's own answer for that case stands in unless a state supplies a fixture.
+      if (/^\/api\/tracks\/[^/]+\/faces$/.test(path)) {
+        res.writeHead(200, { 'content-type': TYPES['.json'] });
+        res.end(JSON.stringify({
+          label: 'Face candidates — not identification — Development',
+          state: 'notConfigured', reason: null, identity: null, referenceThreshold: null, faces: [],
+        }));
+        return;
+      }
       if (process.env.MAVI_VQA_DEBUG) process.stderr.write('  no fixture: ' + path + '\n');
       res.writeHead(404, { 'content-type': TYPES['.json'] });
       res.end('{}');
