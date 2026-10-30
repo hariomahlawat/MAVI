@@ -243,12 +243,51 @@ try {
         if (-not $startScript.Contains($fragment)) { throw "Start-MaviPoc.ps1 does not start the faces worker ('$fragment')." }
     }
     # Stop-MaviPoc stops the faces worker first: Uninstall-MAVI-PoC drops the database only after it.
-    if (-not $stopScript.Contains('"faces-worker" = "Start-MaviFacesWorker.ps1"') -or -not $stopScript.Contains('foreach ($name in @("faces-worker", "attributes-worker", "embeddings-worker"')) { throw "Stop-MaviPoc.ps1 does not stop the faces worker first." }
+    if (-not $stopScript.Contains('"faces-worker" = "Start-MaviFacesWorker.ps1"') -or -not $stopScript.Contains('foreach ($name in @("language-runtime", "faces-worker", "attributes-worker", "embeddings-worker"')) { throw "Stop-MaviPoc.ps1 does not stop the faces worker first (after the language role, which holds no data)." }
     foreach ($fragment in @('tools\vision\faces_packs.py") stage', 'facesBound = $true', 'Get-MaviPocFacesPack -ManifestPath', '"faces-payloads"')) {
         if (-not $installText.Contains($fragment)) { throw "Install-MAVI-PoC.ps1 does not install and disclose the face pack ('$fragment')." }
     }
     $bundleText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "New-MaviPocSetupBundle.ps1") -Raw
     if (-not $bundleText.Contains('(Join-Path $PlatesCache "faces-payloads") -Target (Join-Path $destination "faces\faces-payloads")')) { throw "The PoC bundle must carry the face pack payloads." }
+    # --- Language role (PoC S10, ADR-026, C9.1): staged, one pack bound by GPU memory, verified before every start,
+    # loopback only; CUDA fails closed. ---
+    $payloadsPath = Join-Path $repoRoot "tools\language\language-payloads-v1.json"
+    $pick = Select-MaviPocLanguagePack -NvidiaSmiLines @("0, NVIDIA GeForce RTX 4090, 8.9, 24564 MiB") -PayloadsPath $payloadsPath
+    if ($pick.PackDirectory -ne "language-qwen2.5-7b-instruct-q4-k-m-dev-v1" -or $pick.Reason -ne "gpu_memory_24564_mib_holds_7b") { throw "Auto must bind the 7B pack on a 24 GiB GPU: $($pick.PackDirectory) $($pick.Reason)" }
+    $pick = Select-MaviPocLanguagePack -NvidiaSmiLines @("0, NVIDIA GeForce GTX 1650 Ti, 7.5, 4096 MiB") -PayloadsPath $payloadsPath
+    if ($pick.PackDirectory -ne "language-qwen2.5-1.5b-instruct-q8-0-dev-v1") { throw "Auto must bind the 1.5B pack on a 4 GiB GPU." }
+    $pick = Select-MaviPocLanguagePack -NvidiaSmiLines $null -PayloadsPath $payloadsPath
+    if ($pick.PackDirectory -ne "language-qwen2.5-1.5b-instruct-q8-0-dev-v1" -or $pick.Reason -ne "no_nvidia_gpu_1_5b") { throw "Auto must bind the 1.5B pack without a GPU." }
+    $pick = Select-MaviPocLanguagePack -Choice "7B" -NvidiaSmiLines $null -PayloadsPath $payloadsPath
+    if ($pick.PackDirectory -ne "language-qwen2.5-7b-instruct-q4-k-m-dev-v1" -or $pick.Reason -ne "operator_choice_7b") { throw "An explicit pack choice must be honoured and recorded." }
+    $device = Resolve-MaviPocLanguageDevice -Policy auto -NvidiaSmiLines @("0, NVIDIA GeForce RTX 4090, 8.9, 24564 MiB")
+    if ($device.Variant -ne "cuda" -or $device.Device -notmatch "sm_89, native") { throw "The 4090 must run the CUDA build natively." }
+    $device = Resolve-MaviPocLanguageDevice -Policy auto -NvidiaSmiLines @("0, NVIDIA GeForce GTX 1650 Ti, 7.5, 4096 MiB")
+    if ($device.Variant -ne "cuda" -or $device.Device -notmatch "sm_75, ptx-jit") { throw "The 1650 Ti must run the CUDA build through the PTX JIT." }
+    $device = Resolve-MaviPocLanguageDevice -Policy auto -NvidiaSmiLines $null
+    if ($device.Variant -ne "cpu" -or $device.Reason -ne "auto_nvidia_smi_absent") { throw "Auto without nvidia-smi must resolve CPU with the reason." }
+    Assert-Throws { Resolve-MaviPocLanguageDevice -Policy cuda -NvidiaSmiLines $null } "refusing to fall back to CPU" "Explicit language CUDA without a GPU"
+    $languageConfig = New-MaviPocMachineConfig -Layout $layout -ConnectionString "Host=x" -CursorSigningKey ("k" * 44) -HttpPort 8090 -LanguagePack ([pscustomobject]@{ ModelPackId = "mavi-language-v1-x"; ModelId = "m"; Quantisation = "Q8_0"; RuntimeId = "r" }) -LanguagePort 62301
+    if ($languageConfig.Language.Enabled -ne $true -or $languageConfig.Language.Port -ne 62301 -or $languageConfig.Language.DeviceReportPath -ne $layout.LanguageDeviceResolutionPath -or
+        $languageConfig.Deployment.RoleDeviceResolutionPaths.language -ne $layout.LanguageDeviceResolutionPath) { throw "The machine configuration must bind the language role on loopback with its device record." }
+    $noLanguage = New-MaviPocMachineConfig -Layout $layout -ConnectionString "Host=x" -CursorSigningKey ("k" * 44) -HttpPort 8090
+    if ($noLanguage.Contains("Language")) { throw "Without a bound pack the machine configuration must carry no Language section." }
+    if (-not $layout.LanguageRuntimeRoot.StartsWith($layout.InstallRoot) -or -not $layout.LanguageCudaCachePath.StartsWith($layout.DataRoot)) { throw "The language runtime lives under the install root and its JIT cache under the data root." }
+    $languageLauncher = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviLanguageRuntime.ps1") -Raw
+    foreach ($fragment in @('language_packs.py") verify', 'Resolve-MaviPocLanguageDevice', '"--host", "127.0.0.1"', '"--parallel", "1"', '$env:CUDA_CACHE_PATH', '"--no-webui"')) {
+        if (-not $languageLauncher.Contains($fragment)) { throw "Start-MaviLanguageRuntime.ps1 lost '$fragment'." }
+    }
+    if ($languageLauncher.IndexOf('language_packs.py") verify') -gt $languageLauncher.IndexOf('& $server @arguments')) { throw "The packs must be verified before llama-server starts." }
+    foreach ($fragment in @('"language-runtime"', 'Start-MaviLanguageRuntime.ps1', '$state.languageBound', '$layout.LanguageDeviceResolutionPath')) {
+        if (-not $startScript.Contains($fragment)) { throw "Start-MaviPoc.ps1 does not start the language role ('$fragment')." }
+    }
+    foreach ($fragment in @('"language-runtime" = "Start-MaviLanguageRuntime.ps1"', 'language-device-resolution.json')) {
+        if (-not $stopScript.Contains($fragment)) { throw "Stop-MaviPoc.ps1 does not stop the language role ('$fragment')." }
+    }
+    foreach ($fragment in @('tools\language\language_packs.py") stage', 'languageBound = $true', 'Get-MaviPocLanguagePacks', 'Select-MaviPocLanguagePack')) {
+        if (-not $installText.Contains($fragment)) { throw "Install-MAVI-PoC.ps1 does not install and disclose the language packs ('$fragment')." }
+    }
+    if (-not $bundleText.Contains('(Join-Path $PlatesCache "language-payloads") -Target (Join-Path $destination "language\language-payloads")')) { throw "The PoC bundle must carry the language payloads." }
     # --- PoC S5 attributes worker: zero-shot on the embeddings runtime and pack, started and stopped with the stack. ---
     $attributesLauncher = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviAttributesWorker.ps1") -Raw
     foreach ($fragment in @('$env:MAVI_PRODUCTION_MODE = "false"', 'development-attributes-siglip2-binding-v1.json', 'development-attributes-siglip2-zero-shot-v1.json', 'embeddings-siglip2-base-p16-224-dev-v1.json', 'mavi_vision.attributes.main')) {

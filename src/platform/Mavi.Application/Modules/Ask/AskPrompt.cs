@@ -45,7 +45,7 @@ public static class AskPrompt
         prompt.Append("<|im_start|>user\n").Append(OneLine(question)).Append("<|im_end|>\n<|im_start|>assistant\n");
         // Line endings are part of the bytes the model sees; a Windows checkout's CRLF must not change the prompt.
         var text = prompt.ToString().Replace("\r\n", "\n", StringComparison.Ordinal);
-        var grammar = AskGrammar.Build(vocabulary, catalogue, siteTime);
+        var grammar = AskGrammar.Build(vocabulary, catalogue, siteTime, AskQuestionScope.From(question, catalogue, vocabulary));
         return new AskPromptRequest(text, Sha256(text), grammar, Sha256(grammar));
     }
 
@@ -109,8 +109,8 @@ public static class AskPrompt
             - When the question names a camera, or a zone or line of a camera, copy that camera's "cameraIds" fragment.
             - Use a zone, line, attribute, plate or minDurationMs predicate only when the question asks for it.
             - Lines: copy the fragment whose direction word matches the question ("entered" matches Entry; "went in" matches In; "left" or "went out" matches Exit or Out). With no direction word, copy the "any direction" fragment.
-            - Questions about events, or naming an event kind, use unit "event"; a named kind goes in ruleIds (crossings: line-crossing; dwell: zone-dwell; stopped vehicles: stopped-vehicle; wrong way: wrong-way; co-occurrence; repeated visit: repeated-visit). Questions about people, vehicles or tracks use unit "track".
-            - "list", "show", "find": find. "how many", "count": count. "how many different": countDistinct. "per", "by" a dimension: groupBy. "by hour": timeBucket 3600; "per N minutes": timeBucket N*60. "which N cameras had the most", "top N": top with k N. "which camera had the most": top with k 1. "first": first. "last", "latest": last. "Compare A with B": the window is A and the baseline is B.
+            - Questions about events, crossings, dwells or stops (for example "line crossings by direction"), or naming an event kind, use unit "event"; a named kind goes in ruleIds (crossings: line-crossing; dwell: zone-dwell; stopped vehicles: stopped-vehicle; wrong way: wrong-way; co-occurrence; repeated visit: repeated-visit). Questions about people, vehicles or tracks use unit "track".
+            - "list", "show", "find": find; "the N most recent", "the latest N", "the newest N": find with limit N, order newest; "the N oldest", "the first N": find with limit N, order oldest. "how many", "count": count. "how many different": countDistinct. "per", "by" a dimension: groupBy. "by hour": timeBucket 3600; "per N minutes": timeBucket N*60. "which N cameras had the most <things>", "top N cameras": top by camera with k N, and keep the objectClass of the things counted. "which camera had the most": top with k 1. "the first <thing>" (one): first. "the last <thing>", "the latest <thing>" (one): last. "how many entities": count on unit "entity". "Compare A with B": the window is A and the baseline is B.
 
             Site list (copy the fragments exactly):
 

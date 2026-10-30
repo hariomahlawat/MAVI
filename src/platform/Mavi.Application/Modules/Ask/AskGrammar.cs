@@ -8,20 +8,23 @@ namespace Mavi.Application.Modules.Ask;
 /// The decoding grammar for one request (ADR-026 §4): a JSON Schema the language runtime turns into a grammar, so the
 /// model can only write a translation document whose members, enumerations and ids come from the contract vocabulary
 /// and the site catalogue. It is a generation aid in the subset the runtime supports (objects, enums, consts, anyOf,
-/// array bounds, simple patterns); the strict S9 parser remains the authority on what a query is.
+/// array bounds, simple patterns); the strict S9 parser remains the authority on what a query is. The grammar is also
+/// gated by the question (<see cref="AskQuestionScope"/>): a reference or predicate the question does not name is not
+/// offered at all.
 /// </summary>
 public static class AskGrammar
 {
-    public static string Build(QueryContractResponse vocabulary, AskSiteCatalogue catalogue, AskSiteTime siteTime)
+    public static string Build(QueryContractResponse vocabulary, AskSiteCatalogue catalogue, AskSiteTime siteTime, AskQuestionScope scope)
     {
         ArgumentNullException.ThrowIfNull(vocabulary);
         ArgumentNullException.ThrowIfNull(catalogue);
         ArgumentNullException.ThrowIfNull(siteTime);
+        ArgumentNullException.ThrowIfNull(scope);
 
-        var cameraIds = catalogue.Cameras.Select(camera => camera.CameraId.ToString("D")).ToList();
-        var zoneIds = catalogue.Cameras.SelectMany(camera => camera.Zones).Select(zone => zone.ZoneId.ToString("D")).ToList();
-        var lineIds = catalogue.Cameras.SelectMany(camera => camera.Lines).Select(line => line.LineId.ToString("D")).ToList();
-        var units = vocabulary.Units.Select(unit => unit.Unit).ToList();
+        var cameraIds = catalogue.Cameras.Where(camera => scope.Cameras.Contains(camera.CameraId)).Select(camera => camera.CameraId.ToString("D")).ToList();
+        var zoneIds = catalogue.Cameras.SelectMany(camera => camera.Zones).Where(zone => scope.Zones.Contains(zone.ZoneId)).Select(zone => zone.ZoneId.ToString("D")).ToList();
+        var lineIds = catalogue.Cameras.SelectMany(camera => camera.Lines).Where(line => scope.Lines.Contains(line.LineId)).Select(line => line.LineId.ToString("D")).ToList();
+        var units = vocabulary.Units.Select(unit => unit.Unit).Where(unit => unit != "entity" || scope.Entity).ToList();
         var dimensions = vocabulary.Units.SelectMany(unit => unit.GroupDimensions).Distinct(StringComparer.Ordinal).ToList();
         var fields = vocabulary.Units.SelectMany(unit => unit.DistinctFields).Distinct(StringComparer.Ordinal).ToList();
 
@@ -49,30 +52,48 @@ public static class AskGrammar
                     ["loitering"] = new JsonObject { ["type"] = "boolean" },
                 },
                 "zoneId"),
-            ["line"] = Object(new() { ["lineId"] = Enum(lineIds), ["direction"] = Enum(vocabulary.CrossingDirections) }, "lineId"),
+            // One choice per named line: its id, and a direction only on the side(s) whose label the question names.
+            ["line"] = new JsonObject
+            {
+                ["anyOf"] = new JsonArray([.. lineIds.Select(id => (JsonNode)(scope.LineSides.TryGetValue(Guid.Parse(id), out var sides) && sides.Count > 0
+                    ? Object(new() { ["lineId"] = Const(id), ["direction"] = Enum(sides) }, "lineId")
+                    : Object(new() { ["lineId"] = Const(id) }, "lineId")))]),
+            },
             ["plateText"] = Object(
                 new() { ["text"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 64 }, ["match"] = Enum(vocabulary.PlateMatches) },
                 "text"),
-            ["ruleIds"] = Array(Enum(vocabulary.EventRuleIds), 1, vocabulary.EventRuleIds.Count),
         };
-        if (vocabulary.Attributes.Count > 0)
+        var attributes = vocabulary.Attributes.Where(attribute => scope.AttributeValues.ContainsKey(attribute.Type)).ToList();
+        if (attributes.Count > 0)
         {
             where["attributes"] = Array(
                 new JsonObject
                 {
-                    ["anyOf"] = new JsonArray([.. vocabulary.Attributes.Select(attribute => (JsonNode)Object(
-                        new() { ["type"] = new JsonObject { ["const"] = attribute.Type }, ["value"] = Enum(attribute.Values) },
+                    ["anyOf"] = new JsonArray([.. attributes.Select(attribute => (JsonNode)Object(
+                        new() { ["type"] = new JsonObject { ["const"] = attribute.Type }, ["value"] = Enum(scope.AttributeValues[attribute.Type]) },
                         "type", "value"))]),
                 },
                 1,
-                4);
+                Math.Min(4, attributes.Count));
         }
 
-        // Zone and line references need a catalogue entry; without one the member is left out of the grammar.
+        // Whatever the question does not name is not offered (AskQuestionScope).
+        if (cameraIds.Count == 0)
+            where.Remove("cameraIds");
         if (zoneIds.Count == 0)
             where.Remove("zone");
         if (lineIds.Count == 0)
             where.Remove("line");
+        if (!scope.Subclass)
+            where.Remove("objectSubclass");
+        if (!scope.Plate)
+            where.Remove("plateText");
+        if (!scope.Duration)
+            where.Remove("minDurationMs");
+        if (scope.Rules.Count == 0)
+            where.Remove("ruleIds");
+        else
+            where["ruleIds"] = Array(Enum(scope.Rules), 1, scope.Rules.Count);
 
         var operations = new JsonArray(
             Object(new() { ["op"] = Const("find"), ["limit"] = Integer(1, vocabulary.Bounds.MaximumFindLimit), ["order"] = Enum(["newest", "oldest"]) }, "op"),

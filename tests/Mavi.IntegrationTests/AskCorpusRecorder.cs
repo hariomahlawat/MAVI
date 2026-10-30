@@ -48,7 +48,13 @@ public sealed class AskCorpusRecorder
         var results = new JsonArray();
         var passed = new Dictionary<string, int> { ["development"] = 0, ["held"] = 0 };
         var total = new Dictionary<string, int> { ["development"] = 0, ["held"] = 0 };
-        foreach (var question in questions.Where(item => split == "all" || item.Split == split))
+        // MAVI_ASK_ORDER=reverse asks in reverse order (results are still written in corpus order): the same outputs in
+        // both orders show that reusing the cached prompt prefix does not change what the model writes.
+        var selected = questions.Where(item => split == "all" || item.Split == split).ToList();
+        if (Environment.GetEnvironmentVariable("MAVI_ASK_ORDER") == "reverse")
+            selected.Reverse();
+        var rows = new SortedDictionary<int, JsonObject>();
+        foreach (var question in selected)
         {
             var prompt = AskPrompt.Build(vocabulary, catalogue, siteTime, question.Text);
             var clock = Stopwatch.StartNew();
@@ -61,7 +67,7 @@ public sealed class AskCorpusRecorder
             total[question.Split]++;
             if (outcome == expected)
                 passed[question.Split]++;
-            results.Add(new JsonObject
+            rows.Add(questions.ToList().IndexOf(question), new JsonObject
             {
                 ["id"] = question.Id,
                 ["split"] = question.Split,
@@ -77,6 +83,8 @@ public sealed class AskCorpusRecorder
             });
         }
 
+        foreach (var row in rows.Values)
+            results.Add(row);
         var decoding = AskService.Decoding;
         var document = new JsonObject
         {
@@ -88,6 +96,7 @@ public sealed class AskCorpusRecorder
             ["questionsSha256"] = AskCorpus.TextSha256(AskCorpus.QuestionsPath),
             ["catalogueSha256"] = AskCorpus.TextSha256(AskCorpus.CataloguePath),
             ["split"] = split,
+            ["order"] = Environment.GetEnvironmentVariable("MAVI_ASK_ORDER") ?? "corpus",
             ["model"] = new JsonObject
             {
                 ["modelPackId"] = Env("MAVI_ASK_MODEL_PACK_ID"),

@@ -1,6 +1,6 @@
 # ADR-026: Ask MAVI — the language runtime, closed translation and the grounding rule (PoC Stage 9)
 
-**Status:** **Proposed**, 2026-10-30. Sent to the owner for ratification through the coordinator session. Nothing of S10 merges before it is accepted.
+**Status:** **Accepted**, 2026-10-30. The owner ratified this ADR as written ("accept all"), relayed by the coordinator session. Register: owner decisions D-S10-1 (this ADR), D-S10-2 (both models and both runtime builds in the kit), D-S10-3 (the laptop demonstrates the 1.5B only), D-S10-4 (the C9.2 bar) and D-S10-5 (the §3 exception to `AGENTS.md` rule 3). The decision text below is unchanged; proposed amendments are listed at the end and are not part of it until accepted.
 
 **Date:** 2026-10-30
 
@@ -109,3 +109,16 @@ A closed translation target trades **conversational range** for the guarantee th
 - **C. Letting the model write UTC directly.** Rejected for the time-zone arithmetic it demands of a small model; the explicit-offset rewrite is lossless and checked.
 - **D. Letting the model phrase the answer.** Rejected: it is exactly the fabrication path this ADR exists to close.
 - **E. Running the model in CI** (download weights on the runner at a pinned hash). Possible for the 1.5B on CPU, but slow (minutes per corpus pass), Internet-dependent in CI, and still not the device the demonstration uses; recorded, hash-bound outputs give the same regression protection deterministically.
+
+## Proposed amendments (not accepted; sent to the owner 2026-10-30)
+
+These change §4 and §6 as implemented on the S10 branch. Each is stated with the evidence that motivated it. Until the owner accepts one, the text above governs.
+
+1. **Lexical gating of the decoding grammar (§4; D-S10-6).** On the development split both models added predicates the question did not ask for: an invented colour attribute, an unasked zone, line or direction, or an extra camera. The grammar is therefore also gated by the question (`AskQuestionScope`):
+   - a camera, zone or line can be written only if the question contains every significant word of its name (a camera also through a zone or line of its own);
+   - a line direction only on the side whose label (or a fixed synonym) the question contains;
+   - an attribute value only if it occurs in the question;
+   - a plate text, a rule, the vehicle subclass, a duration or the Entity unit only if their fixed words occur.
+
+   It is a pure function of the question and the catalogue and only removes choices. Trade-off: indirect phrasing ("the gate" for a line named "Arch gate") cannot reference that item. The query then lacks the predicate, which "Interpreted as" shows, or the model refuses.
+2. **Prefix-cache reuse (§6).** §6 says "no prompt-cache reuse". The implementation reuses the cached prompt prefix (`cache_prompt: true`), because the prompt is about 6,400 tokens and the question is the only part that changes. Without reuse a question costs about 17 s on the laptop GPU for the 1.5B pack and several minutes for the 7B pack on that GPU. The amendment is proposed only with measured evidence: the same corpus asked in reverse order gives byte-identical model outputs. The recordings are made with reuse, as the platform runs.
