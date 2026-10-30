@@ -28,9 +28,9 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
 
     /// <summary>
     /// Cameras A, B, C, D of one site. Axis 1: a0 (A 0–10), b0 (B 40–50), c0 (C 3–12, overlaps a0 elsewhere by 7 s), d0 (D 60–70).
-    /// Axis 2: a1 (A 200–210), b1 (B 300–310).
+    /// Axis 2: a1 (A 200–210), b1 (B 300–310), e1 (C 400–410).
     /// </summary>
-    private sealed record World(EntityApiHost Host, Guid A0, Guid B0, Guid C0, Guid D0, Guid A1, Guid B1, List<JsonElement> Candidates)
+    private sealed record World(EntityApiHost Host, Guid A0, Guid B0, Guid C0, Guid D0, Guid A1, Guid B1, Guid E1, List<JsonElement> Candidates)
     {
         public Guid Candidate(Guid x, Guid y) =>
             Candidates.Single(item => Pair(item) == (x.CompareTo(y) < 0 ? (x, y) : (y, x))).GetProperty("candidateId").GetGuid();
@@ -47,11 +47,11 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
         var cameraD = await host.CameraAsync("CAM-COR-D");
         var a = await host.SeedAsync(host.World.CameraId, [Person(0, 10), Person(200, 210, tilt: 0.1, axis: 2)]);
         var b = await host.SeedAsync(cameraB, [Person(40, 50, tilt: 0.1), Person(300, 310, tilt: 0.15, axis: 2)]);
-        var c = await host.SeedAsync(cameraC, [Person(3, 12, tilt: 0.05)]);
+        var c = await host.SeedAsync(cameraC, [Person(3, 12, tilt: 0.05), Person(400, 410, tilt: 0.12, axis: 2)]);
         var d = await host.SeedAsync(cameraD, [Person(60, 70, tilt: 0.08)]);
         await host.EmbedAllAsync();
         await host.DeriveAsync();
-        return new World(host, a.TrackIds[0], b.TrackIds[0], c.TrackIds[0], d.TrackIds[0], a.TrackIds[1], b.TrackIds[1],
+        return new World(host, a.TrackIds[0], b.TrackIds[0], c.TrackIds[0], d.TrackIds[0], a.TrackIds[1], b.TrackIds[1], c.TrackIds[1],
             await host.CandidatesAsync("?limit=200"));
     }
 
@@ -315,7 +315,7 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task AnExtensionAndAMergeIntoTheSameEntityAtTheSameTimeBothApply()
+    public async Task AnExtensionOfTheKeptEntityAndAMergeAtTheSameTimeNeverLoseAMember()
     {
         var world = await SeedAsync();
         await using var host = world.Host;
@@ -326,10 +326,46 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
             host.DecideAsync(world.Candidate(world.B0, world.D0), "confirm"),
             host.Client.PostAsJsonAsync($"/api/entities/{second}/merge", new { intoEntityId = first }));
 
-        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        // The confirm always applies. The merge applies, or (when the confirm committed between the merge's read of the members
+        // and its locks) is refused as entity_changed_concurrently with nothing written: both are correct serialisations.
+        Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+        var merged = responses[1].StatusCode == HttpStatusCode.OK;
+        if (!merged) Assert.Equal(EntityCorrectionRules.ChangedConcurrently, await VisualAttributeApiHost.ProblemCodeAsync(responses[1]));
         foreach (var response in responses) response.Dispose();
         var ids = await host.EntityIdsAsync(world.A0, world.B0, world.D0, world.A1, world.B1);
-        Assert.All(ids.Values, value => Assert.Equal(first, value));
+        Assert.Equal(first, ids[world.D0]);
+        Assert.Equal(merged ? first : second, ids[world.A1]);
+        Assert.Equal(merged ? first : second, ids[world.B1]);
+        Assert.Equal(merged ? 1 : 0, await host.AuditCountAsync("entities.merged"));
+        await AssertProjectionInvariantAsync(host);
+    }
+
+    [Fact]
+    public async Task AJoinIntoTheEntityBeingMergedAwayIsNeverLeftInAMergedEntity()
+    {
+        var world = await SeedAsync();
+        await using var host = world.Host;
+        var first = await ConfirmAsync(world, world.A0, world.B0);
+        var second = await ConfirmAsync(world, world.A1, world.B1);
+
+        // b1–e1 extends the Entity that is being merged away. Whatever the order, e1 must end in an active Entity: the kept
+        // one if the merge moved it (or ran first and the confirm then extended the kept Entity), else the second.
+        var responses = await Task.WhenAll(
+            host.DecideAsync(world.Candidate(world.B1, world.E1), "confirm"),
+            host.Client.PostAsJsonAsync($"/api/entities/{second}/merge", new { intoEntityId = first }));
+
+        Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+        var merged = responses[1].StatusCode == HttpStatusCode.OK;
+        if (!merged) Assert.Equal(EntityCorrectionRules.ChangedConcurrently, await VisualAttributeApiHost.ProblemCodeAsync(responses[1]));
+        foreach (var response in responses) response.Dispose();
+        var ids = await host.EntityIdsAsync(world.A1, world.B1, world.E1);
+        Assert.All(ids.Values, value => Assert.Equal(merged ? first : second, value));
+        await using (var db = host.World.Read())
+        {
+            var holder = ids[world.E1]!.Value;
+            Assert.Equal(EntityMergeState.Active, (await db.Entities.SingleAsync(x => x.Id == holder)).State);
+        }
+
         await AssertProjectionInvariantAsync(host);
     }
 
