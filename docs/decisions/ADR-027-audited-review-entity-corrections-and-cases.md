@@ -1,6 +1,6 @@
 # ADR-027: Audited Track review, Entity corrections, cases and the audit read surface (PoC Stage 10)
 
-**Status:** **Proposed** — §1–§3 and §5–§6 implement the accepted design of `docs/superpowers/plans/2026-09-20-audited-review-and-cases-plan.md` §2 under ADR-010 and need no new decision beyond the two deviations named in §7; §4 (Entity merge, unlink and reopen) goes beyond ADR-023 and needs owner ratification (decision text in §Owner decision). Nothing of this slice merges before it is accepted.
+**Status:** **Accepted** owner decision, 2026-10-31: the owner ratified the decision text in §Owner decision as written with option (a) ("Ratify, (a)", relayed by the PoC coordinator session; register decision D-S11-1). §1–§3 and §5–§6 implement the accepted design of `docs/superpowers/plans/2026-09-20-audited-review-and-cases-plan.md` §2 under ADR-010 with the two deviations named in §7; §4 (Entity merge, unlink and reopen) goes beyond ADR-023.
 
 **Date:** 2026-10-31
 
@@ -74,9 +74,9 @@ All of it is local to the installation's database; the PoC uninstall removes it 
 - **Cases hold references, not copies.** A case shows a subject as unavailable if its evidence is gone, rather than keeping a copy of evidence outside its lifecycle.
 - **Non-monotonic membership** makes a future entity-conditioned event catalogue re-derive on leaves as well as joins.
 
-## Owner decision (requested)
+## Owner decision (ratified 2026-10-31, option (a))
 
-> **ADR-027 (PoC Stage 10) — decision requested.**
+> **ADR-027 (PoC Stage 10) is accepted, with option (a) for the single-member case.**
 > 1. Track review decisions, cases and the audit read surface as designed by the review plan §2 (append-only rows, `Track.ReviewStatus` a projection, `expectedReviewStatus` 409 and `decisionId` idempotency, one transaction with the audit row; cases with append-only items whose removal is a recorded state change, notes, no identity language; a read-only audit surface for operators), with two deviations: reviewer names only on operator routes, and no superseded-by column.
 > 2. Entity membership and candidate decisions become append-only histories (back-filled from S7's decisions) with `Track.EntityId` and the candidate status as projections; only an audited operator decision (confirm, unlink, merge) writes `Track.EntityId`.
 > 3. **Merge** two active Entities of one type when every cross pair is physically plausible (else 409); the source is kept as `Merged`. **Unlink** a Track from its Entity; the Entity stays with its remaining members, even one or none. **Reopen** a dismissed candidate, or a confirmed one whose Tracks are no longer together; current catalogue and identity only.
