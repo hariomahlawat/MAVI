@@ -204,6 +204,28 @@ def materialise(api: str, name: str, unit: str, operation: dict, where: dict, sc
     return query(unit, window, operation, **where)
 
 
+EXPECTED_KIND = {
+    "find": "rows", "first": "rows", "last": "rows", "count": "value", "countDistinct": "value",
+    "groupBy": "groups", "top": "groups", "timeBucket": "buckets", "compare": "comparison",
+}
+
+
+def kind_as_expected(query_body: dict, envelope: dict) -> bool:
+    """The answer is the kind its operation implies, not merely a 200.
+
+    The Entity unit answers ``empty`` (no Entity data before S7). A whole-scope answer may be ``withheld`` only when
+    every incomplete coverage component says why with a not-configured reason, the expected state of a capability this
+    runtime does not run; any other withheld answer, or a mismatched kind, is a failed measurement.
+    """
+    kind = (envelope.get("result") or {}).get("kind")
+    if query_body["unit"] == "entity":
+        return kind == "empty"
+    if kind == "withheld":
+        incomplete = [c for c in (envelope.get("coverage") or {}).get("components", []) if not c.get("complete")]
+        return bool(incomplete) and all(str(c.get("reason") or "").endswith("not_configured") for c in incomplete)
+    return kind == EXPECTED_KIND[query_body["operation"]["op"]]
+
+
 def measure(api: str, queries: list[tuple[str, dict]]) -> list[dict]:
     rows = []
     for name, body in queries:
@@ -226,6 +248,7 @@ def measure(api: str, queries: list[tuple[str, dict]]) -> list[dict]:
             "p95Ms": round(percentile(timings, 0.95), 1),
             "maxMs": round(max(timings), 1),
             "withinBudget": percentile(timings, 0.95) <= BUDGET_P95_MS,
+            "kindAsExpected": isinstance(first, dict) and kind_as_expected(body, first),
             "resultKind": (first.get("result") or {}).get("kind") if isinstance(first, dict) else None,
             "coverageComplete": (first.get("coverage") or {}).get("complete") if isinstance(first, dict) else None,
             "envelope": first,
@@ -330,11 +353,12 @@ def run(api: str, out: Path) -> int:
     print(f"\n{'query':<36} {'kind':<10} {'p50':>8} {'p95':>8} {'max':>8}  det  budget")
     for row in latency:
         print(f"{row['name']:<36} {str(row['resultKind']):<10} {row['p50Ms']:>8} {row['p95Ms']:>8} {row['maxMs']:>8}  "
-              f"{'yes' if row['deterministic'] else 'NO':<4} {'ok' if row['withinBudget'] else 'OVER'}")
+              f"{'yes' if row['deterministic'] else 'NO':<4} {'ok' if row['withinBudget'] else 'OVER'}"
+              f"{'' if row['kindAsExpected'] else '  UNEXPECTED KIND'}")
 
     agree = all(r["trackCount"]["equal"] and r["eventsByRule"]["equal"] and all(c["equal"] for c in r["crossings"]) for r in checks)
-    within = all(r["withinBudget"] and r["deterministic"] and r["statuses"] == [200] for r in latency)
-    print(f"\ncross-checks agree: {agree}; latency within budget and deterministic: {within}")
+    within = all(r["withinBudget"] and r["deterministic"] and r["statuses"] == [200] and r["kindAsExpected"] for r in latency)
+    print(f"\ncross-checks agree: {agree}; latency within budget, deterministic and of the expected kind: {within}")
     return 0 if agree and within else 1
 
 

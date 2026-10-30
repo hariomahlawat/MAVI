@@ -125,3 +125,18 @@ def test_corpus_scope_names_only_the_demo_cameras(monkeypatch):
     body = qe.materialise("http://127.0.0.1:1", "track-count", "track", {"op": "count"}, {}, "corpus", cameras, [],
                           ("2026-01-01T10:00:00Z", "2026-01-01T11:00:00Z"))
     assert body["where"]["cameraIds"] == ["c1", "c2"]
+
+
+def test_a_measurement_must_return_the_kind_its_operation_implies():
+    count = {"unit": "event", "operation": {"op": "count"}}
+    assert qe.kind_as_expected(count, {"result": {"kind": "value"}, "coverage": {"complete": True, "components": []}})
+    # A withheld event count (events not derived) is a failed measurement, not a 200 to accept.
+    withheld = {"result": {"kind": "withheld"},
+                "coverage": {"complete": False, "components": [{"kind": "events", "complete": False, "reason": None}]}}
+    assert not qe.kind_as_expected(count, withheld)
+    # Withheld because a capability is not configured on this runtime is the expected answer.
+    unconfigured = {"result": {"kind": "withheld"}, "coverage": {"complete": False, "components": [
+        {"kind": "plates", "complete": False, "reason": "plates_not_configured"}]}}
+    assert qe.kind_as_expected({"unit": "track", "operation": {"op": "count"}}, unconfigured)
+    assert qe.kind_as_expected({"unit": "entity", "operation": {"op": "count"}}, {"result": {"kind": "empty"}})
+    assert not qe.kind_as_expected({"unit": "track", "operation": {"op": "groupBy"}}, {"result": {"kind": "value"}})
