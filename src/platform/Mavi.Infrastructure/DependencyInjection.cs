@@ -377,6 +377,10 @@ public static class FaceRegistration
         services.AddScoped<Mavi.Application.Modules.Faces.IFaceLifecycle, FaceLifecycle>();
         services.AddScoped<Mavi.Application.Modules.Faces.IFaceRepository, FaceRepository>();
         services.AddScoped<Mavi.Application.Modules.Faces.FaceSearchService>();
+        // Entity candidates and operator confirmation (ADR-023): they read the embedding and face releases.
+        services.AddScoped<Mavi.Application.Modules.Entities.IEntityCandidateRepository, EntityCandidateRepository>();
+        services.AddScoped<Mavi.Application.Modules.Entities.EntityCandidateService>();
+        services.AddScoped<Mavi.Application.Modules.Entities.EntityCandidateFaceFactorService>();
         return services;
     }
 }
