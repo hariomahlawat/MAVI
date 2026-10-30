@@ -319,7 +319,7 @@ export function EntityView({ entityId, renderMember, onShowEntity }: {
                   </li>
                 ))}
               </ul>
-              {active ? <MergeFromEntity key={data.entityId} entity={data} onMerged={(kept) => onShowEntity(kept.entityId)} /> : null}
+              {active ? <MergeFromEntity entity={data} onMerged={(kept) => onShowEntity(kept.entityId)} /> : null}
               <ul className="stack small" aria-label="Confirmations">
                 {data.confirmations.map((item) => (
                   <li key={item.candidateId}>
