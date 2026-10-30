@@ -278,6 +278,13 @@ try {
         if (-not $languageLauncher.Contains($fragment)) { throw "Start-MaviLanguageRuntime.ps1 lost '$fragment'." }
     }
     if ($languageLauncher.IndexOf('language_packs.py") verify') -gt $languageLauncher.IndexOf('& $server @arguments')) { throw "The packs must be verified before llama-server starts." }
+    # Codex P1 (round 1): no CUDA binary runs, not even the device probe, before the CUDA variant is verified; after an
+    # Auto fallback the CPU variant is verified before it starts.
+    $probeAt = $languageLauncher.IndexOf('--list-devices')
+    $cudaVerifyAt = $languageLauncher.IndexOf('Invoke-MaviLanguagePackVerification "cuda"')
+    if ($cudaVerifyAt -lt 0 -or $probeAt -lt 0 -or $cudaVerifyAt -gt $probeAt) { throw "Start-MaviLanguageRuntime.ps1 must verify the CUDA variant before probing it." }
+    if (-not $languageLauncher.Contains('if ($device.Variant -ne "cuda") { $identity = Invoke-MaviLanguagePackVerification $device.Variant }')) { throw "Start-MaviLanguageRuntime.ps1 must verify the CPU variant it falls back to." }
+    if ($languageLauncher.IndexOf('throw "The Language Runtime Pack ($Variant) or Model Pack failed verification') -lt 0) { throw "A failed verification must stop the language role." }
     foreach ($fragment in @('"language-runtime"', 'Start-MaviLanguageRuntime.ps1', '$state.languageBound', '$layout.LanguageDeviceResolutionPath')) {
         if (-not $startScript.Contains($fragment)) { throw "Start-MaviPoc.ps1 does not start the language role ('$fragment')." }
     }
