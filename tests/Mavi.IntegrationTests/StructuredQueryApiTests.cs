@@ -35,8 +35,8 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
     /// <summary>
     /// The fixtures the corpus names. <c>derived</c>: one camera, one Person Track, scene facts committed and events
     /// derived. <c>underived</c>: the same, events not derived. <c>pending</c>: the same camera and Track, scene facts
-    /// not committed. <c>two-camera</c>: <c>derived</c> plus a second camera with no scene, recorded three hours
-    /// earlier, holding two Vehicle Tracks that start at the same instant.
+    /// not committed. <c>two-camera</c>: <c>derived</c> plus a second camera with no scene, recorded three
+    /// and a half hours earlier, holding two Vehicle Tracks that start at the same instant.
     /// </summary>
     [Theory]
     [InlineData("derived")]
@@ -171,6 +171,21 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
         var exact = await new StructuredQueryRepository(db, world.Clock) { MaximumMatchedRecords = 3 }
             .ReadTracksAsync(where, windows, identities, default);
         Assert.Equal(3, Assert.Single(exact.Windows).Records.Count);
+
+        // The Event read holds the same bound across cameras: two events, a bound of one.
+        await using (var scope = CreateFactory(world).Services.CreateAsyncScope())
+            Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<AnalyticEventService>().DeriveDueAsync(50, default));
+        var events = StructuredQueryParser.Parse(
+            "{\"contractVersion\":\"mavi-query-v1\",\"unit\":\"event\"," +
+            "\"where\":{\"timeWindow\":{\"fromUtc\":\"2026-09-21T05:00:00Z\",\"toUtc\":\"2026-09-21T07:00:00Z\"}}," +
+            "\"operation\":{\"op\":\"count\"}}").Query!.Where;
+        QueryReadWindow[] eventWindows = [new("query", events.Window)];
+        var refusedEvents = await new StructuredQueryRepository(db, world.Clock) { MaximumMatchedRecords = 1 }
+            .ReadEventsAsync(events, eventWindows, default);
+        Assert.Equal(QueryRefusalCodes.QueryScopeTooLarge, refusedEvents.Refusal!.Code);
+        var exactEvents = await new StructuredQueryRepository(db, world.Clock) { MaximumMatchedRecords = 2 }
+            .ReadEventsAsync(events, eventWindows, default);
+        Assert.Equal(2, Assert.Single(exactEvents.Windows).Records.Count);
     }
 
     [Fact]
@@ -279,10 +294,10 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
             .SqlQueryRaw<long>("SELECT nextval('processing_visibility_sequence') AS \"Value\"")
             .SingleAsync();
         run.AssignCompletionVisibilitySequence(sequence);
-        var first = Track.Create(run.Id, video.Id, 1, ObjectClass.Vehicle, 60_000, 70_000, recordingStart.AddMinutes(1),
+        var first = Track.Create(run.Id, video.Id, 1, ObjectClass.Vehicle, 60_000, 70_000, recordingStart,
             detectionCount: 8, meanConfidence: 0.7, maxConfidence: 0.9, createdAtUtc: completedAtUtc);
         // Identical in every field an envelope reports, so only the tie-break tells them apart.
-        var second = Track.Create(run.Id, video.Id, 2, ObjectClass.Vehicle, 60_000, 70_000, recordingStart.AddMinutes(1),
+        var second = Track.Create(run.Id, video.Id, 2, ObjectClass.Vehicle, 60_000, 70_000, recordingStart,
             detectionCount: 8, meanConfidence: 0.7, maxConfidence: 0.9, createdAtUtc: completedAtUtc);
         var job = VisionJob.Create(run.Id, "phase1-detection-tracking", Now.AddMinutes(-9));
         db.AddRange(camera, source, video, run, job, first, second);

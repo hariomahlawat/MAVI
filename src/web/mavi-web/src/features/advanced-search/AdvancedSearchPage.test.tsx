@@ -139,6 +139,14 @@ describe('the query builder', () => {
     expect(buildQuery({ ...base, op: 'top', k: 0 }, contract).query).toBeNull();
   });
 
+  it('does not combine attributes with a plate text', () => {
+    const state = {
+      ...initialBuilderState({ fromUtc: '2026-09-21T08:00:00Z', toUtc: '2026-09-21T14:00:00Z' }),
+      objectClass: 'Person' as const, attributes: { 'upper-colour': 'red' }, plateText: 'AB12C',
+    };
+    expect(buildQuery(state, contract).problem).toMatch(/cannot be combined/);
+  });
+
   it('says a partial list total is only a lower bound', () => {
     expect(truncationText({ truncated: false, returned: 2, total: 2, limit: 50, totalIsLowerBound: true }))
       .toBe('Showing 2 of at least 2 found so far: not every part of the scope has been analysed.');

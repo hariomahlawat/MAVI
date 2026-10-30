@@ -150,7 +150,7 @@ public static class StructuredQueryParser
         }
 
         long? minDurationMs = members.TryGetValue("minDurationMs", out var duration)
-            ? Integer(duration, "/where/minDurationMs", 0, long.MaxValue)
+            ? Integer(duration, "/where/minDurationMs", 0, QueryContract.MaximumInteger)
             : null;
 
         double? minConfidence = null;
@@ -235,7 +235,7 @@ public static class StructuredQueryParser
         }
 
         long? minDwellMs = members.TryGetValue("minDwellMs", out var dwell)
-            ? Integer(dwell, "/where/zone/minDwellMs", 0, long.MaxValue)
+            ? Integer(dwell, "/where/zone/minDwellMs", 0, QueryContract.MaximumInteger)
             : null;
 
         var loitering = false;
@@ -281,7 +281,7 @@ public static class StructuredQueryParser
         }
 
         long? minStationaryMs = members.TryGetValue("minStationaryMs", out var stationary)
-            ? Integer(stationary, "/where/motion/minStationaryMs", 0, long.MaxValue)
+            ? Integer(stationary, "/where/motion/minStationaryMs", 0, QueryContract.MaximumInteger)
             : null;
         return new QueryMotionPredicate(direction, minStationaryMs);
     }
@@ -534,7 +534,7 @@ public static class StructuredQueryParser
 
     private static long Integer(JsonElement element, string path, long minimum, long maximum)
     {
-        var message = maximum == long.MaxValue
+        var message = maximum == QueryContract.MaximumInteger
             ? $"Must be an integer of at least {minimum}."
             : $"Must be an integer from {minimum} to {maximum}.";
         if (element.ValueKind != JsonValueKind.Number)
@@ -543,7 +543,7 @@ public static class StructuredQueryParser
         // JSON Schema's "integer" includes an integral number written with a fraction (10.0); the parser agrees.
         if (!element.TryGetInt64(out var value))
         {
-            if (!element.TryGetDouble(out var number) || Math.Floor(number) != number || Math.Abs(number) >= 9e15)
+            if (!element.TryGetDouble(out var number) || Math.Floor(number) != number || Math.Abs(number) > QueryContract.MaximumInteger)
                 throw Refusal(QueryRefusalCodes.InvalidValue, path, message);
             value = (long)number;
         }

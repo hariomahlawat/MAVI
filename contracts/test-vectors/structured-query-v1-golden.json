@@ -3979,8 +3979,8 @@
                 "processingRunId": "00000000-0000-4000-8000-0000000000f5",
                 "objectClass": "Vehicle",
                 "objectSubclass": null,
-                "startTimestampUtc": "2026-09-21T02:32:00+00:00",
-                "endTimestampUtc": "2026-09-21T02:32:10+00:00",
+                "startTimestampUtc": "2026-09-21T02:31:00+00:00",
+                "endTimestampUtc": "2026-09-21T02:31:10+00:00",
                 "startOffsetMs": 60000,
                 "durationMs": 10000,
                 "meanConfidence": 0.7,
@@ -4080,8 +4080,8 @@
                 "processingRunId": "00000000-0000-4000-8000-0000000000f5",
                 "objectClass": "Vehicle",
                 "objectSubclass": null,
-                "startTimestampUtc": "2026-09-21T02:32:00+00:00",
-                "endTimestampUtc": "2026-09-21T02:32:10+00:00",
+                "startTimestampUtc": "2026-09-21T02:31:00+00:00",
+                "endTimestampUtc": "2026-09-21T02:31:10+00:00",
                 "startOffsetMs": 60000,
                 "durationMs": 10000,
                 "meanConfidence": 0.7,
@@ -4547,6 +4547,247 @@
             "message": "Not every part of the scope has been analysed, so no figure is given. The coverage says what is missing."
           },
           "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "two-camera-plate-count-sums-coverage",
+      "setup": "two-camera",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "track",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T02:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          },
+          "cameraIds": [
+            "00000000-0000-4000-8000-0000000000c1",
+            "00000000-0000-4000-8000-0000000000c2"
+          ],
+          "plateText": {
+            "text": "AB12C"
+          }
+        },
+        "operation": {
+          "op": "count"
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "track",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T02:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              },
+              "cameraIds": [
+                "00000000-0000-4000-8000-0000000000c1",
+                "00000000-0000-4000-8000-0000000000c2"
+              ],
+              "objectClass": "Vehicle",
+              "plateText": {
+                "text": "AB12C",
+                "match": "contains"
+              }
+            },
+            "operation": {
+              "op": "count"
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "track",
+          "operation": "count",
+          "identity": {
+            "cameras": [],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": false,
+            "components": [
+              {
+                "kind": "plates",
+                "window": "query",
+                "complete": false,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": {
+                  "vehicleTracksInScope": 2,
+                  "ready": 0,
+                  "pending": 0,
+                  "failed": 0,
+                  "stale": 0,
+                  "notConfigured": 2
+                },
+                "reason": "plates_not_configured"
+              }
+            ]
+          },
+          "result": {
+            "kind": "withheld",
+            "tracks": null,
+            "events": null,
+            "truncation": null,
+            "value": null,
+            "dimension": null,
+            "groups": null,
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": null,
+            "reason": "coverage_incomplete",
+            "message": "Not every part of the scope has been analysed, so no figure is given. The coverage says what is missing."
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "two-camera-attribute-count-sums-coverage",
+      "setup": "two-camera",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "track",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T02:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          },
+          "cameraIds": [
+            "00000000-0000-4000-8000-0000000000c1",
+            "00000000-0000-4000-8000-0000000000c2"
+          ],
+          "attributes": [
+            {
+              "type": "vehicle-colour",
+              "value": "white"
+            }
+          ]
+        },
+        "operation": {
+          "op": "count"
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "track",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T02:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              },
+              "cameraIds": [
+                "00000000-0000-4000-8000-0000000000c1",
+                "00000000-0000-4000-8000-0000000000c2"
+              ],
+              "attributes": [
+                {
+                  "type": "vehicle-colour",
+                  "value": "white"
+                }
+              ]
+            },
+            "operation": {
+              "op": "count"
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "track",
+          "operation": "count",
+          "identity": {
+            "cameras": [],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": false,
+            "components": [
+              {
+                "kind": "attributes",
+                "window": "query",
+                "complete": false,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": {
+                  "tracksInScope": 3,
+                  "analysed": 0,
+                  "unavailable": 0,
+                  "notAnalysed": 3,
+                  "unknown": [
+                    {
+                      "type": "vehicle-colour",
+                      "value": "white",
+                      "tracks": 0
+                    }
+                  ]
+                },
+                "plates": null,
+                "reason": "attributes_not_configured"
+              }
+            ]
+          },
+          "result": {
+            "kind": "withheld",
+            "tracks": null,
+            "events": null,
+            "truncation": null,
+            "value": null,
+            "dimension": null,
+            "groups": null,
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": null,
+            "reason": "coverage_incomplete",
+            "message": "Not every part of the scope has been analysed, so no figure is given. The coverage says what is missing."
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "integer-above-the-exact-range",
+      "setup": "none",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "track",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T05:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          },
+          "minDurationMs": 9007199254740992
+        },
+        "operation": {
+          "op": "count"
+        }
+      },
+      "schemaValid": false,
+      "expect": {
+        "status": 400,
+        "refusal": {
+          "code": "invalid_value",
+          "path": "/where/minDurationMs"
         }
       }
     },

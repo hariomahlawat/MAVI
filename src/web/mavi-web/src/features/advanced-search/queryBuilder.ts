@@ -126,6 +126,10 @@ export function buildQuery(state: BuilderState, contract: QueryContract): BuildR
   if (attributes.length > 0 && has('attributes')) {
     where.attributes = attributes.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([type, value]) => ({ type, value }));
   }
+  // As on Track search, attributes and a plate text are never combined: said here rather than sent and refused.
+  if (where.attributes && state.plateText.trim() && has('plateText')) {
+    return { query: null, problem: 'Attributes and a plate text cannot be combined; clear one of them.' };
+  }
   if (state.plateText.trim() && has('plateText')) where.plateText = { text: state.plateText.trim(), match: state.plateMatch };
   if (state.ruleIds.length > 0 && has('ruleIds')) where.ruleIds = [...state.ruleIds].sort();
 

@@ -15,6 +15,12 @@ public static class QueryContract
     public const string Disclosure = "PoC profile, Development evidence, not Production-qualified.";
 
     public const int MaximumCameraIds = 64;
+
+    /// <summary>
+    /// The largest integer any member takes (2^53 - 1): exactly representable as a JSON number by every reader, the
+    /// schema's <c>maximum</c> for the otherwise unbounded durations.
+    /// </summary>
+    public const long MaximumInteger = 9_007_199_254_740_991;
     public const int DefaultFindLimit = 50;
     public const int MaximumFindLimit = 200;
     public const int MaximumTopK = 50;

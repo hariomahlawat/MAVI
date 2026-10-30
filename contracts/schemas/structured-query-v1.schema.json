@@ -117,7 +117,7 @@
         "cameraIds": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" } },
         "objectClass": { "enum": ["Person", "Vehicle"] },
         "objectSubclass": { "enum": ["car"] },
-        "minDurationMs": { "type": "integer", "minimum": 0 },
+        "minDurationMs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
         "minConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "zone": {
           "type": "object",
@@ -126,7 +126,7 @@
           "properties": {
             "zoneId": { "$ref": "#/$defs/uuid" },
             "relation": { "enum": ["entered", "exited", "dwelled"] },
-            "minDwellMs": { "type": "integer", "minimum": 0 },
+            "minDwellMs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
             "loitering": { "type": "boolean" }
           }
         },
@@ -145,7 +145,7 @@
           "minProperties": 1,
           "properties": {
             "direction": { "enum": ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] },
-            "minStationaryMs": { "type": "integer", "minimum": 0 }
+            "minStationaryMs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
           }
         },
         "attributes": {
