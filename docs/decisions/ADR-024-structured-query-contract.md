@@ -9,7 +9,7 @@
 - ADR-013 §16 and ADR-021 (attribute and similarity read paths), ADR-018/019 (plate search).
 - ADR-020 (`poc-single-host`, Development evidence class).
 - ADR-025 (analytic events, the `mavi-events-v1` catalogue, the events read surface).
-- ADR-023 (Entity semantics, S7), not yet written. The Entity unit of this contract waits for it (§3).
+- ADR-023 (Entity semantics, S7), accepted 2026-10-30. The Entity unit of this contract reads its confirmed membership (§3; note below).
 - Plan `docs/superpowers/plans/2026-10-28-mavi-poc-end-to-end.md`, slice S9; D7 (Ask MAVI emits only Stage-8 structured queries). Register `docs/reviews/2026-10-28-poc-acceptance.md`, rows C8.1 and C8.2.
 
 ## Context
@@ -174,3 +174,5 @@ The 50 000-record bound and the absence of a continuation cursor keep evaluation
 - Latency is measured on the demo corpus at its real scale and recorded in the register (C8.2). It is a Development observation, not a performance qualification.
 
 **Deferred.** OR and nested predicates; cross-unit joins (for example "Tracks with an event"); a continuation cursor for `find`; the appearance text predicate; multi-series time buckets; relative time inside the contract.
+
+**Note 2026-10-30 (PoC S7; outside the ratified text, no contract version change).** The Entity unit is bound as §3 reserved it (ADR-023 §9): it reads operator-confirmed membership only, never candidates. An Entity is in scope when a member Track is visible in the snapshot, overlaps the window and is on an included camera; `groupBy`, `top` and `countDistinct` by camera count it once per camera. An installation with no confirmed Entity with a visible member still answers `empty` with `entity_data_unavailable`. Row results gain an optional `entities` list (`entityId`, `displayCode`, `entityType`, `firstStartUtc`, `lastEndUtc`, `cameraIds`, `memberTrackIds`), written only for Entity rows, so every envelope frozen before S7 is byte-identical. The request schema is unchanged. The Entity unit is read by operators only (401/403 otherwise; the contract route says `operator_required`), and membership is read as of evaluation in one REPEATABLE READ transaction, not at the visibility snapshot.

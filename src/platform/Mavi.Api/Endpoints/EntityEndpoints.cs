@@ -156,25 +156,27 @@ public static class EntityEndpoints
     // --- Decisions -------------------------------------------------------------------------------
 
     private static async Task<IResult> ConfirmAsync(Guid id, DecisionRequest request, IEntityCandidateRepository repository, IAuditWriter audit,
-        ICurrentOperator currentOperator, TimeProvider timeProvider, CancellationToken cancellationToken)
+        ICurrentOperator currentOperator, IEmbeddingRelease release, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         if (!ValidNote(request)) return Problem(400, DecisionInvalidCode, "The note is at most 500 characters.");
+        if (release.Resolution.Definition is not { } definition) return Problem(409, NotConfiguredCode, "No embedding identity is configured.");
         var note = EntityCandidate.NormaliseNote(request.Note);
         var record = new AuditRecord("entities.candidate-confirmed", SubjectCandidate, id.ToString("D"), new { candidateId = id, decision = "confirm", note });
         var catalogue = EntityCandidateCatalogue.Current;
         var result = await repository.ConfirmAsync(id, note, Decider(currentOperator), token => audit.AppendInTransactionAsync(record, token),
-            catalogue, timeProvider.GetUtcNow(), cancellationToken);
+            catalogue, definition.Identity.Fingerprint, timeProvider.GetUtcNow(), cancellationToken);
         return Decided(result, catalogue);
     }
 
     private static async Task<IResult> DismissAsync(Guid id, DecisionRequest request, IEntityCandidateRepository repository, IAuditWriter audit,
-        ICurrentOperator currentOperator, TimeProvider timeProvider, CancellationToken cancellationToken)
+        ICurrentOperator currentOperator, IEmbeddingRelease release, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         if (!ValidNote(request)) return Problem(400, DecisionInvalidCode, "The note is at most 500 characters.");
+        if (release.Resolution.Definition is not { } definition) return Problem(409, NotConfiguredCode, "No embedding identity is configured.");
         var note = EntityCandidate.NormaliseNote(request.Note);
         var record = new AuditRecord("entities.candidate-dismissed", SubjectCandidate, id.ToString("D"), new { candidateId = id, decision = "dismiss", note });
         var result = await repository.DismissAsync(id, note, Decider(currentOperator), token => audit.AppendInTransactionAsync(record, token),
-            timeProvider.GetUtcNow(), cancellationToken);
+            EntityCandidateCatalogue.Current, definition.Identity.Fingerprint, timeProvider.GetUtcNow(), cancellationToken);
         return Decided(result, EntityCandidateCatalogue.Current);
     }
 
@@ -247,6 +249,8 @@ public static class EntityEndpoints
                 entityId = result.EntityId,
                 conflictingTrackId = result.ConflictingTrackId,
             }, statusCode: 409, contentType: "application/problem+json"),
+            EntityConfirmationRules.Superseded => Problem(409, result.RefusalCode,
+                "The candidate belongs to an earlier catalogue version or embedding identity; only current candidates are decided."),
             EntityConfirmationRules.MergeUnsupported => Problem(409, result.RefusalCode,
                 "The two Tracks belong to different Entities; merging Entities is not supported in this slice."),
             _ => Problem(409, result.RefusalCode, "A Track of the candidate is no longer in the latest run of its video."),

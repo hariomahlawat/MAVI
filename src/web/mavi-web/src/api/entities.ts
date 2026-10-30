@@ -193,9 +193,11 @@ export function decisionRefusalText(code: string | undefined): string {
     case 'entity_candidate_already_decided':
       return 'Another decision was recorded for this candidate first; the list now shows it.';
     case 'entity_extension_implausible':
-      return 'Not linked: the Track would join an Entity with a member it overlaps on another camera (it cannot be in two places at once).';
+      return 'Not linked: the Track would join an Entity with a member seen at the same time (an object cannot be in two places at once).';
     case 'entity_merge_unsupported':
       return 'Not linked: the two Tracks already belong to different Entities, and merging Entities is not available yet.';
+    case 'entity_candidate_superseded':
+      return 'Not linked: this candidate belongs to an earlier candidate rule; only current candidates can be decided.';
     case 'entity_candidate_not_visible':
       return 'Not linked: a Track of this candidate is no longer in the latest run of its video.';
     default:

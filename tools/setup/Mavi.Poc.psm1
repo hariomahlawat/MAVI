@@ -450,7 +450,7 @@ function Read-MaviPocDemoCameras {
         if (-not $codes.Add([string]$camera.code)) { throw "Duplicate demo camera code '$($camera.code)'." }
         # The optional declared site (ADR-023 amendment 2026-10-30): Entity candidates pair only cameras of one site.
         $site = if ($null -ne $camera.PSObject.Properties["siteCode"]) { [string]$camera.siteCode } else { $null }
-        if ($null -ne $site -and $site -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}$') { throw "Demo camera '$($camera.code)' has an invalid siteCode." }
+        if ($null -ne $site -and $site -cnotmatch '\A[a-z0-9][a-z0-9._-]{0,63}\z') { throw "Demo camera '$($camera.code)' has an invalid siteCode." }
         $cameras += [pscustomobject]@{ Code = [string]$camera.code; Name = [string]$camera.name; TimeZoneId = [string]$camera.timeZoneId; SiteCode = $site }
     }
     if ($cameras.Count -eq 0) { throw "The demo camera seed has no cameras." }

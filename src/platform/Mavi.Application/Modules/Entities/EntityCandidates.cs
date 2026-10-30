@@ -106,14 +106,17 @@ public interface IEntityCandidateRepository
 
     /// <summary>
     /// Confirms under row locks (candidate, then both Tracks in id order, then the Entity) and appends the audit entry
-    /// in the same transaction before any state changes (ADR-023 §6). A refusal changes nothing and writes no entry.
+    /// in the same transaction before any state changes (ADR-023 §6). A refusal changes nothing and writes no entry; a
+    /// candidate of another catalogue version or embedding identity is refused as superseded.
     /// </summary>
     Task<EntityDecisionResult> ConfirmAsync(Guid candidateId, string? note, EntityCandidateDecider decider,
-        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, EntityCandidateCatalogueDefinition catalogue,
+        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, EntityCandidateCatalogueDefinition catalogue, string identityFingerprint,
         DateTimeOffset nowUtc, CancellationToken cancellationToken);
 
+    /// <summary>Records a dismissal under the same locks and audit rule; a candidate of another catalogue or identity is refused.</summary>
     Task<EntityDecisionResult> DismissAsync(Guid candidateId, string? note, EntityCandidateDecider decider,
-        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, DateTimeOffset nowUtc, CancellationToken cancellationToken);
+        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, EntityCandidateCatalogueDefinition catalogue, string identityFingerprint,
+        DateTimeOffset nowUtc, CancellationToken cancellationToken);
 
     Task<EntityFacePair?> BestFacePairAsync(Guid lowerTrackId, Guid higherTrackId, string faceIdentityFingerprint, CancellationToken cancellationToken);
 }

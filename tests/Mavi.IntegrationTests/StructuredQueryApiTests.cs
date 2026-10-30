@@ -343,11 +343,36 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
         return person.Id;
     }
 
-    private static ApiTestFactory CreateFactory(SceneAnalyticsWorld world) => new()
+    /// <summary>
+    /// The host as the labelled Development operator under the PoC profile: the Entity unit is read by operators only
+    /// (ADR-023 §6), and nothing else in the corpus depends on the identity mode.
+    /// </summary>
+    private static ApiTestFactory CreateFactory(SceneAnalyticsWorld world)
     {
-        Clock = world.Clock,
-        EnableSceneAnalyticsHost = false,
-        MediaRootOverride = world.MediaRoot,
-        EvidenceRootOverride = world.EvidenceRoot,
-    };
+        var metadata = Path.Combine(world.MediaRoot, "release.json");
+        File.WriteAllText(metadata, $$"""
+            {
+              "schemaVersion": "mavi-poc-release-metadata-v1",
+              "profile": "poc-single-host",
+              "productionQualified": false,
+              "evidenceClass": "Development",
+              "identityMode": "development-unattributed",
+              "application": { "revision": "{{new string('d', 40)}}" },
+              "packs": []
+            }
+            """);
+        return new ApiTestFactory
+        {
+            Clock = world.Clock,
+            EnableSceneAnalyticsHost = false,
+            MediaRootOverride = world.MediaRoot,
+            EvidenceRootOverride = world.EvidenceRoot,
+            AdditionalConfiguration = new Dictionary<string, string?>
+            {
+                ["Identity:Mode"] = "development-unattributed",
+                ["Deployment:Profile"] = Mavi.Application.Deployment.DeploymentProfiles.PocSingleHost,
+                ["Deployment:ReleaseMetadataPath"] = metadata,
+            },
+        };
+    }
 }

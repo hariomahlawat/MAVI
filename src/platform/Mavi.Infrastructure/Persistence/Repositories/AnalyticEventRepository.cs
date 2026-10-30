@@ -193,7 +193,9 @@ public sealed partial class AnalyticEventRepository(MaviDbContext db) : IAnalyti
         var tracks = await (from outcome in db.TrackAnalysisOutcomes.AsNoTracking()
                             join track in db.Tracks.AsNoTracking() on outcome.TrackId equals track.Id
                             where outcome.AnalysisId == unit.Id && outcome.Outcome == TrackAnalysisOutcomeKind.Analysed
-                            select new EventTrack(track.Id, track.ObjectClass, track.EntityId))
+                            // Membership is read only by repeated-visit, disabled in mavi-events-v1; projecting it here would
+                            // make inputs_sha256 change when an operator confirms an Entity (ADR-023 §9: v1 unchanged).
+                            select new EventTrack(track.Id, track.ObjectClass, (Guid?)null))
             .ToListAsync(cancellationToken);
 
         var visits = await db.TrackZoneVisits.AsNoTracking()

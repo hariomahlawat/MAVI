@@ -471,9 +471,15 @@ def ensure_camera(api: Api, camera: dict) -> str:
     require(status == 200 and isinstance(cameras, list), f"api_cameras:{status}")
     for existing in cameras:
         if isinstance(existing, dict) and existing.get("code") == camera["code"]:
-            require(existing.get("name") == camera["name"] and existing.get("timeZoneId") == camera["timeZoneId"] and
-                    existing.get("siteCode") == camera.get("siteCode"),
+            require(existing.get("name") == camera["name"] and existing.get("timeZoneId") == camera["timeZoneId"],
                     f"camera_mismatch:{camera['code']}")
+            site = existing.get("siteCode")
+            # A camera created before declared sites existed (ADR-023 amendment 2026-10-30) has none and cannot gain one:
+            # it is reused, and it gets no Entity candidates until the installation is reset. A different site is a mismatch.
+            require(site is None or site == camera.get("siteCode"), f"camera_mismatch:{camera['code']}")
+            if site is None and camera.get("siteCode") is not None:
+                print(f"  warning: camera {camera['code']} has no declared site; it gets no Entity candidates until the database is reset",
+                      file=sys.stderr)
             return existing["id"]
     status, created = api.call("POST", "/api/cameras", json_body=camera)
     require(status == 201 and isinstance(created, dict) and created.get("id"), f"camera_create:{status}:{_problem(created)}")

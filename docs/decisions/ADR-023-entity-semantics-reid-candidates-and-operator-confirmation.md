@@ -31,7 +31,7 @@ A wrong automatic link would attach one person's or vehicle's history to another
 - An **Entity candidate** is a pair of Tracks of the same class (Person or Vehicle) that MAVI proposes might show the same object. It carries each factor separately: appearance score, time and camera plausibility, and (for persons, on request) a face factor. It is a *candidate*, never identity.
 - An **Entity** is a group of Tracks that an operator has confirmed, one pair at a time, as the same person or vehicle. It is an **operator decision, not an identification**: `Entity.IdentityStatus` stays `Unknown`, no name, gallery entry or external identity is attached, and every surface labels it "Operator-confirmed Entity — not identification — Development". `Entity.ReviewStatus` is `Confirmed`.
 - **Nothing merges automatically.** No score, threshold or rule writes `Track.EntityId`, creates an Entity or adds a Track to one. Candidate generation writes only `entity_candidates`.
-- **Confirmation is the only writer of `Track.EntityId`.** The domain method that sets it is called from exactly one place, the confirmation service, and a test fails the build if any other code path calls it or writes the column.
+- **Confirmation is the only writer of `Track.EntityId`.** The domain method that sets it is called from exactly one place, the confirmation service, and a unit test fails if any other code path calls it or writes the column.
 
 ### 2. How candidates are generated, and why platform-side
 
@@ -158,5 +158,13 @@ Both come from two assumptions of v1's scope: that a same-camera revisit is plau
 **What is lost.**
 - Same-camera revisit ("this person came back to the gate") and tracker-fragment linking are never proposed.
 - On the demo corpus there are **no vehicle candidates**: the only MEVA camera with vehicles is the car park s2-09, and nothing within the site pairs with it. Demonstration step 8 shows Person candidates across the MEVA cameras.
-- A camera without a declared site, including every camera of an installation that predates this amendment, gets no candidates until it is recreated with a site.
+- A camera without a declared site, including every demo camera of an installation seeded before this amendment, gets no candidates. Cameras have no update path, so such an installation needs its PoC database reset; the demo import and `Start-MaviPoc -Seed` reuse such a camera and warn.
+
+**Clarifications after the independent review (2026-10-30; they change no decision above).**
+- **Extension (§6) checks visible members.** A member on an earlier run of its video stays in the Entity (§7) but is the same object as its reprocessed copy, so the joining Track is checked against the Entity's visible members only.
+- **Only current candidates are decided.** Confirm and dismiss refuse a candidate of another catalogue version or embedding identity with 409 `entity_candidate_superseded`, so a v1 pair left in a database is never confirmed.
+- **Locks.** The decision locks rows `FOR NO KEY UPDATE`, which does not conflict with the key-share locks that foreign-key inserts take on the same Tracks (candidates, embeddings, faces).
+- **S9 Entity unit (§9).** It is read by operators only: `POST /api/query` with `unit: entity` answers 401/403 without an operator, and the contract route reports the unit's data as unavailable with reason `operator_required`. Membership is an operator decision, not a published fact, so it is read as of evaluation in one REPEATABLE READ transaction (every window of a query sees one membership) rather than at the visibility snapshot.
+- **S8.** Event derivation under `mavi-events-v1` does not read membership while `repeated-visit` is disabled, so `inputs_sha256` does not change when an Entity is confirmed.
+- **A `not_visible` derivation is final.** An analysis whose run was no longer visible when derived pairs nothing, even if that run became visible again. No path makes a superseded run visible again today.
 

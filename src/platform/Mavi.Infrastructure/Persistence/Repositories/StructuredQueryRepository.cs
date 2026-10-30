@@ -29,20 +29,24 @@ public sealed class StructuredQueryRepository(MaviDbContext db, TimeProvider tim
         CancellationToken cancellationToken) =>
         new AnalyticEventRepository(db).ReadQueryEventsAsync(where, windows, MaximumMatchedRecords, cancellationToken);
 
+    /// <summary>Whether a visible Track (the latest completed run of its video) carries a confirmed Entity.</summary>
     public Task<bool> AnyConfirmedEntityAsync(CancellationToken cancellationToken) =>
-        db.Tracks.AsNoTracking().AnyAsync(track => track.EntityId != null, cancellationToken);
+        AnalyticsScopeQuery.BaseCandidates(db, new AnalyticsScopeRequest(null, null, null, null, null, null, null, null), long.MaxValue)
+            .AnyAsync(x => x.track.EntityId != null, cancellationToken);
 
     /// <summary>
     /// Operator-confirmed Entities (ADR-023 §9): in one snapshot under the shared barrier, the visible Tracks (the
     /// latest completed run per video, the base candidate set Track search uses) that carry a confirmed
     /// <c>EntityId</c>, overlap the window and are on an included camera, grouped by Entity. Candidates are never read.
+    /// Membership is an operator decision, not a published fact, so it carries no visibility sequence: it is read as of
+    /// evaluation, in one REPEATABLE READ transaction so that every window of one query sees the same membership.
     /// </summary>
     public async Task<QueryEntityRead> ReadEntitiesAsync(
         QueryPredicates where,
         IReadOnlyList<QueryReadWindow> windows,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
         await ProcessingVisibilityBarrier.AcquireSearchSharedAsync(db, cancellationToken);
         var sequence = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
         var cameras = await StructuredQueryScope.ResolveCamerasAsync(db, where.CameraIds, cancellationToken);

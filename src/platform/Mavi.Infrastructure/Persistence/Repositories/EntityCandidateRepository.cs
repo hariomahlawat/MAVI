@@ -19,6 +19,7 @@ namespace Mavi.Infrastructure.Persistence.Repositories;
 public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandidateRepository
 {
     private const string UniqueViolation = "23505";
+    private const string DerivationUniqueIndex = "ux_entity_candidate_derivations_analysis_catalogue";
     private const string DerivationLockKey = "entity-candidates:derivation";
 
     /// <summary>Scores within this of the floor are re-checked exactly after rounding, so SQL float noise never decides.</summary>
@@ -219,7 +220,7 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
     }
 
     public async Task<EntityDecisionResult> ConfirmAsync(Guid candidateId, string? note, EntityCandidateDecider decider,
-        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, EntityCandidateCatalogueDefinition catalogue,
+        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, EntityCandidateCatalogueDefinition catalogue, string identityFingerprint,
         DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(appendAudit);
@@ -232,10 +233,14 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
             if (candidate.Status != EntityCandidateStatus.Open)
                 return new EntityDecisionResult(EntityConfirmationRules.AlreadyDecided, await CurrentViewAsync(candidateId, cancellationToken),
                     candidate.EntityId, false);
+            if (!IsCurrent(candidate, catalogue, identityFingerprint))
+                return new EntityDecisionResult(EntityConfirmationRules.Superseded, null, null, false);
 
-            // Both Tracks, in id order, so two confirmations sharing a Track serialise without a lock cycle.
+            // Both Tracks, in id order, so two confirmations sharing a Track serialise without a lock cycle. NO KEY UPDATE, not
+            // UPDATE: no key changes here, and a plain UPDATE lock would conflict with the KEY SHARE locks that every
+            // foreign-key insert on these Tracks takes (candidates, embeddings, faces), inviting a deadlock with them.
             var tracks = await db.Tracks
-                .FromSqlInterpolated($"SELECT * FROM tracks WHERE id = {candidate.LowerTrackId} OR id = {candidate.HigherTrackId} ORDER BY id FOR UPDATE")
+                .FromSqlInterpolated($"SELECT * FROM tracks WHERE id = {candidate.LowerTrackId} OR id = {candidate.HigherTrackId} ORDER BY id FOR NO KEY UPDATE")
                 .ToListAsync(cancellationToken);
             var lower = tracks.Single(x => x.Id == candidate.LowerTrackId);
             var higher = tracks.Single(x => x.Id == candidate.HigherTrackId);
@@ -249,10 +254,13 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
             if ((lower.EntityId ?? higher.EntityId) is { } entityId && !(lower.EntityId is not null && higher.EntityId is not null))
             {
                 existingEntity = await db.Entities
-                    .FromSqlInterpolated($"SELECT * FROM entities WHERE id = {entityId} FOR UPDATE")
+                    .FromSqlInterpolated($"SELECT * FROM entities WHERE id = {entityId} FOR NO KEY UPDATE")
                     .SingleAsync(cancellationToken);
+                // Visible members only: a member on an earlier run of its video stays in the Entity (§7) but is the same object
+                // as its reprocessed copy, so checking a new Track against it would refuse the copy as "in two places at once".
                 var memberIds = await db.Tracks.AsNoTracking().Where(x => x.EntityId == entityId).Select(x => x.Id).ToListAsync(cancellationToken);
-                var memberTracks = await PlausibilityTracksAsync(memberIds, cancellationToken);
+                var visibleMembers = await VisibleTrackIdsAsync(memberIds, cancellationToken);
+                var memberTracks = await PlausibilityTracksAsync([.. memberIds.Where(visibleMembers.Contains)], cancellationToken);
                 members = new EntityMembers(entityId, existingEntity.EntityType, memberTracks.Values.ToList());
             }
 
@@ -299,7 +307,8 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
     }
 
     public async Task<EntityDecisionResult> DismissAsync(Guid candidateId, string? note, EntityCandidateDecider decider,
-        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, DateTimeOffset nowUtc, CancellationToken cancellationToken)
+        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, EntityCandidateCatalogueDefinition catalogue, string identityFingerprint,
+        DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(appendAudit);
         var owned = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
@@ -310,6 +319,8 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
             if (candidate.Status != EntityCandidateStatus.Open)
                 return new EntityDecisionResult(EntityConfirmationRules.AlreadyDecided, await CurrentViewAsync(candidateId, cancellationToken),
                     candidate.EntityId, false);
+            if (!IsCurrent(candidate, catalogue, identityFingerprint))
+                return new EntityDecisionResult(EntityConfirmationRules.Superseded, null, null, false);
             var receipt = await appendAudit(cancellationToken);
             candidate.Dismiss(decider, note, receipt.AuditEntryId, nowUtc);
             await db.SaveChangesAsync(cancellationToken);
@@ -526,9 +537,13 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
             x.ObjectClass == ObjectClass.Person && withFace.Contains(x.LowerTrackId) && withFace.Contains(x.HigherTrackId))).ToList();
     }
 
+    /// <summary>Only a candidate of the current catalogue and embedding identity is decided (ADR-023 §2, recompute).</summary>
+    private static bool IsCurrent(EntityCandidate candidate, EntityCandidateCatalogueDefinition catalogue, string identityFingerprint) =>
+        candidate.CatalogueVersion == catalogue.CatalogueVersion && candidate.IdentityFingerprint == identityFingerprint;
+
     private Task<EntityCandidate?> LockCandidateAsync(Guid candidateId, CancellationToken cancellationToken) =>
         db.EntityCandidates
-            .FromSqlInterpolated($"SELECT * FROM entity_candidates WHERE id = {candidateId} FOR UPDATE")
+            .FromSqlInterpolated($"SELECT * FROM entity_candidates WHERE id = {candidateId} FOR NO KEY UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
 
     private async Task<EntityCandidateView?> CurrentViewAsync(Guid candidateId, CancellationToken cancellationToken)
@@ -545,9 +560,14 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
             await transaction.CommitAsync(cancellationToken);
             return true;
         }
-        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: UniqueViolation })
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+                                                 {
+                                                     SqlState: UniqueViolation,
+                                                     ConstraintName: DerivationUniqueIndex,
+                                                 })
         {
-            // Another writer derived the same analysis; its answer is the same pair-local set.
+            // Another writer derived the same analysis; its answer is the same pair-local set. Any other unique violation
+            // (a candidate pair) is a defect and propagates, so the sweep logs it instead of relisting the analysis silently.
             return false;
         }
         finally

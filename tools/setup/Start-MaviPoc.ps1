@@ -284,7 +284,13 @@ if ($Seed) {
     $existing = @(Invoke-RestMethod -Uri "$apiBaseUrl/api/cameras" -Method Get -TimeoutSec 30 | ForEach-Object { $_ })
     $created = 0
     foreach ($camera in $cameras) {
-        if (@($existing | Where-Object { [string]$_.code -eq $camera.Code }).Count -gt 0) { continue }
+        $present = @($existing | Where-Object { [string]$_.code -eq $camera.Code })
+        if ($present.Count -gt 0) {
+            # A camera seeded before declared sites existed keeps none (cameras cannot be updated): it gets no Entity
+            # candidates until the PoC database is reset (ADR-023 amendment 2026-10-30).
+            if ($camera.SiteCode -and -not $present[0].siteCode) { Write-Warning "Demo camera $($camera.Code) has no declared site; reset the PoC database for Entity candidates." }
+            continue
+        }
         $fields = @{ code = $camera.Code; name = $camera.Name; timeZoneId = $camera.TimeZoneId }
         if ($camera.SiteCode) { $fields.siteCode = $camera.SiteCode }
         $body = $fields | ConvertTo-Json -Compress

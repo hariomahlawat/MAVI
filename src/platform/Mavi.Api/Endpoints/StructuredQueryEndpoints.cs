@@ -1,9 +1,11 @@
 using System.Text;
+using Mavi.Api.Identity;
 using Mavi.Application.Modules.Events;
 using Mavi.Application.Modules.Query;
 using Mavi.Application.Modules.VisualAttributes;
 using Mavi.Contracts.Api.Query;
 using Mavi.Contracts.Api.Tracks;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Mavi.Api.Endpoints;
 
@@ -26,9 +28,16 @@ public static class StructuredQueryEndpoints
         return endpoints;
     }
 
+    /// <summary>
+    /// The contract's reason for an Entity unit a caller may not read: confirmed Entities link a person's appearances,
+    /// so only an operator reads them (ADR-023 §6, §8), as on every other Entity surface.
+    /// </summary>
+    public const string EntityOperatorRequiredReason = "operator_required";
+
     private static async Task<IResult> EvaluateAsync(
         HttpContext context,
         StructuredQueryService service,
+        IAuthorizationService authorization,
         CancellationToken cancellationToken)
     {
         if (context.Request.Query.Count > 0)
@@ -48,14 +57,22 @@ public static class StructuredQueryEndpoints
         if (parsed.Refusal is { } refusal)
             return Refused(refusal);
 
+        // The Entity unit is an Entity surface: refused without an operator (401 with the scheme's challenge, 403 for an
+        // authenticated non-operator), so S9 never reads what /api/entities would refuse (ADR-023 §6, ADR-024 §8).
+        if (parsed.Query!.Unit == QueryUnit.Entity && !await IsOperatorAsync(context, authorization))
+            return context.User.Identity is { IsAuthenticated: true } ? Results.Forbid() : Results.Challenge();
+
         var outcome = await service.EvaluateAsync(parsed.Query!, cancellationToken);
         return outcome.Envelope is { } envelope
             ? Results.Ok(envelope)
             : Refused(outcome.Refusal!, outcome.StatusCode);
     }
 
+    private static async Task<bool> IsOperatorAsync(HttpContext context, IAuthorizationService authorization) =>
+        (await authorization.AuthorizeAsync(context.User, context, OperatorPolicy.Name)).Succeeded;
+
     private static async Task<IResult> ContractAsync(HttpContext context, IServiceProvider services, IStructuredQueryRepository repository,
-        CancellationToken cancellationToken)
+        IAuthorizationService authorization, CancellationToken cancellationToken)
     {
         if (context.Request.Query.Count > 0)
             return Refused(new QueryRefusal(QueryRefusalCodes.UnknownMember, "", "This route takes no query parameters."));
@@ -72,12 +89,15 @@ public static class StructuredQueryEndpoints
                 .ToList();
 
         // The Entity unit has data once an operator has confirmed an Entity here (ADR-023 §9).
-        var entitiesAvailable = await repository.AnyConfirmedEntityAsync(cancellationToken);
+        // Whether any exists is itself Entity data: told to an operator only.
+        var isOperator = await IsOperatorAsync(context, authorization);
+        var entitiesAvailable = isOperator && await repository.AnyConfirmedEntityAsync(cancellationToken);
+        var entityReason = !isOperator ? EntityOperatorRequiredReason : entitiesAvailable ? null : StructuredQueryService.EntityUnavailableReason;
         var units = new[] { QueryUnit.Track, QueryUnit.Event, QueryUnit.Entity }
             .Select(unit => new QueryUnitVocabularyResponse(
                 QueryContract.ToWire(unit),
                 unit != QueryUnit.Entity || entitiesAvailable,
-                unit == QueryUnit.Entity && !entitiesAvailable ? StructuredQueryService.EntityUnavailableReason : null,
+                unit == QueryUnit.Entity ? entityReason : null,
                 QueryContract.Predicates[unit],
                 QueryContract.GroupDimensions[unit],
                 QueryContract.DistinctFields[unit]))

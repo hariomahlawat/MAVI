@@ -113,7 +113,7 @@ function FaceFactor({ candidate }: { candidate: EntityCandidate }) {
   );
 }
 
-function CandidateDetail({ candidate, onDecided }: { candidate: EntityCandidate; onDecided: (message: string) => void }) {
+function CandidateDetail({ candidate, onDecided, onRefresh }: { candidate: EntityCandidate; onDecided: (message: string) => void; onRefresh: () => void }) {
   const [note, setNote] = useState('');
   const [pending, setPending] = useState<'confirm' | 'dismiss' | null>(null);
   const decide = useMutation({
@@ -123,6 +123,10 @@ function CandidateDetail({ candidate, onDecided }: { candidate: EntityCandidate;
       onDecided(decision === 'confirm'
         ? `Confirmed by ${response.candidate.decision?.displayName ?? 'the operator'}: ${response.entityCreated ? 'a new Entity was created' : 'the Track joined the Entity'}.`
         : 'Dismissed. The candidate will not be proposed again.');
+    },
+    onError: (error) => {
+      // A decision recorded first by someone else: refresh, so the list shows it as the message says.
+      if (error instanceof ApiError && error.code === 'entity_candidate_already_decided') onRefresh();
     },
     onSettled: () => setPending(null),
   });
@@ -249,6 +253,12 @@ export default function EntitiesPage() {
   const list = useQuery({ queryKey: queryKeys.entityCandidates(filter), queryFn: ({ signal }) => listEntityCandidates(filter, signal) });
   const active = list.data?.candidates.find((item) => item.candidateId === selected) ?? null;
 
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ['entity-candidates'] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.entityCandidateSummary });
+    void queryClient.invalidateQueries({ queryKey: ['entity'] });
+  };
+
   const update = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
     for (const [key, value] of Object.entries(changes)) {
@@ -365,10 +375,9 @@ export default function EntitiesPage() {
             onDecided={(text) => {
               setMessage(text);
               setSelected(null);
-              void queryClient.invalidateQueries({ queryKey: ['entity-candidates'] });
-              void queryClient.invalidateQueries({ queryKey: queryKeys.entityCandidateSummary });
-              void queryClient.invalidateQueries({ queryKey: ['entity'] });
+              refresh();
             }}
+            onRefresh={refresh}
           />
         ) : null}
         <p className="small muted">{ENTITY_LABEL}: an Entity groups Tracks an operator confirmed; it never names anyone.</p>

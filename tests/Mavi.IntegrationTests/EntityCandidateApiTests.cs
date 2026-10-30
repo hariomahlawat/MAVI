@@ -591,6 +591,16 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
         Assert.True(members[a.TrackIds[0]]);
         Assert.False(members[b.TrackIds[0]]);
 
+        // The reprocessed copy of B's Track can join the Entity: it is checked against visible members only, not against
+        // its own earlier-run copy (same camera, same interval).
+        using (var extended = await host.DecideAsync(Id(fresh), "confirm"))
+        {
+            Assert.Equal(HttpStatusCode.OK, extended.StatusCode);
+            Assert.False((await extended.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("entityCreated").GetBoolean());
+        }
+
+        Assert.Equal(entityId, (await host.EntityIdsAsync(again.TrackIds[0]))[again.TrackIds[0]]);
+
         // A candidate whose Track is no longer visible cannot be confirmed.
         await using (var db = host.World.Read())
         {
@@ -693,7 +703,7 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task AConfirmationWhoseAuditCannotBeWrittenChangesNothing()
+    public async Task ADecisionWhoseAuditCannotBeWrittenChangesNothing()
     {
         await using var host = await EntityApiHost.CreateAsync(fixture, T0);
         var cameraB = await host.CameraAsync("CAM-ENT-B");
@@ -706,10 +716,13 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
         await using (var scope = host.Factory.Services.CreateAsyncScope())
         {
             var repository = scope.ServiceProvider.GetRequiredService<IEntityCandidateRepository>();
-            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.ConfirmAsync(candidateId, null,
-                new EntityCandidateDecider("op", "Operator", "development-unattributed"),
+            var decider = new EntityCandidateDecider("op", "Operator", "development-unattributed");
+            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.ConfirmAsync(candidateId, null, decider,
                 _ => throw new InvalidOperationException("audit unavailable"),
-                EntityCandidateCatalogue.Current, T0, CancellationToken.None));
+                EntityCandidateCatalogue.Current, host.Fingerprint, T0, CancellationToken.None));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => repository.DismissAsync(candidateId, null, decider,
+                _ => throw new InvalidOperationException("audit unavailable"),
+                EntityCandidateCatalogue.Current, host.Fingerprint, T0, CancellationToken.None));
         }
 
         await using var db = host.World.Read();
@@ -719,6 +732,96 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
         Assert.Equal(0, await db.AuditEntries.CountAsync());
         Assert.Null((await host.EntityIdsAsync(b.TrackIds[0]))[b.TrackIds[0]]);
         _ = a;
+    }
+
+    [Fact]
+    public async Task DerivationGivesTheSameCandidatesInAnyOrder()
+    {
+        await using var host = await EntityApiHost.CreateAsync(fixture, T0);
+        var cameraB = await host.CameraAsync("CAM-ENT-B");
+        var cameraC = await host.CameraAsync("CAM-ENT-C");
+        await host.SeedAsync(host.World.CameraId, [Person(0, 4), Person(60, 64, tilt: 0.3)]);
+        await host.SeedAsync(cameraB, [Person(10, 14, tilt: 0.1), Person(70, 74, tilt: 0.4)]);
+        await host.SeedAsync(cameraC, [Person(20, 24, tilt: 0.2), Vehicle(30, 34)]);
+        await host.EmbedAllAsync();
+        Assert.Equal(3, await host.DeriveAsync());
+
+        async Task<List<string>> SetAsync()
+        {
+            await using var db = host.World.Read();
+            return (await db.EntityCandidates.AsNoTracking().ToListAsync())
+                .Select(x => $"{x.LowerTrackId}|{x.HigherTrackId}|{x.AppearanceScore:R}|{x.GapMs}|{x.SameCamera}")
+                .Order(StringComparer.Ordinal).ToList();
+        }
+
+        var forward = await SetAsync();
+        Assert.NotEmpty(forward);
+        List<Guid> analyses;
+        await using (var db = host.World.Read())
+        {
+            analyses = await db.EmbeddingAnalyses.AsNoTracking().OrderByDescending(x => x.VisibilitySequence).Select(x => x.Id).ToListAsync();
+            await db.EntityCandidateDerivations.ExecuteDeleteAsync();
+        }
+
+        // The same analyses derived in the reverse order give the identical set (pair-local rule, ADR-023 §2).
+        await using (var scope = host.Factory.Services.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IEntityCandidateRepository>();
+            foreach (var analysis in analyses)
+                await repository.DeriveAsync(analysis, host.Fingerprint, EntityCandidateCatalogue.Current, T0, CancellationToken.None);
+        }
+
+        Assert.Equal(forward, await SetAsync());
+    }
+
+    [Fact]
+    public async Task ACandidateOfAnEarlierCatalogueIsNeverDecided()
+    {
+        await using var host = await EntityApiHost.CreateAsync(fixture, T0);
+        var cameraB = await host.CameraAsync("CAM-ENT-B");
+        var a = await host.SeedAsync(host.World.CameraId, [Person(0, 4), Person(30, 34, tilt: 0.1)]);
+        await host.SeedAsync(cameraB, [Person(10, 14, tilt: 0.2)]);
+        await host.EmbedAllAsync();
+        await host.DeriveAsync();
+        Guid legacy;
+        await using (var db = host.World.Read())
+        {
+            // A v1 pair v2 excludes (same camera), left in the database from before the amendment.
+            var derivation = await db.EntityCandidateDerivations.FirstAsync();
+            var candidate = EntityCandidate.Create(derivation.Id, EntityCandidateCatalogue.V1.CatalogueVersion, host.Fingerprint, a.TrackIds[0],
+                a.TrackIds[1], ObjectClass.Person, 0.99, true, 26_000, T0);
+            db.EntityCandidates.Add(candidate);
+            await db.SaveChangesAsync();
+            legacy = candidate.Id;
+        }
+
+        foreach (var decision in new[] { "confirm", "dismiss" })
+        {
+            using var refused = await host.DecideAsync(legacy, decision);
+            Assert.Equal(EntityConfirmationRules.Superseded, await VisualAttributeApiHost.ProblemCodeAsync(refused));
+        }
+
+        Assert.Equal(0, await host.AuditCountAsync());
+        Assert.Null((await host.EntityIdsAsync(a.TrackIds[0]))[a.TrackIds[0]]);
+    }
+
+    [Fact]
+    public async Task TheStructuredQueryEntityUnitIsForOperatorsOnly()
+    {
+        await using var host = await EntityApiHost.CreateAsync(fixture, T0, identityMode: "disabled");
+        const string Query = "{\"contractVersion\":\"mavi-query-v1\",\"unit\":\"entity\",\"where\":{\"timeWindow\":" +
+                             "{\"fromUtc\":\"2026-10-30T09:00:00Z\",\"toUtc\":\"2026-10-30T11:00:00Z\"}},\"operation\":{\"op\":\"find\"}}";
+        using (var refused = await host.Client.PostAsync("/api/query", new StringContent(Query, Encoding.UTF8, "application/json")))
+            Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
+        // A Track query stays open, as before S7.
+        using (var tracks = await host.Client.PostAsync("/api/query",
+                   new StringContent(Query.Replace("\"entity\"", "\"track\"", StringComparison.Ordinal), Encoding.UTF8, "application/json")))
+            Assert.Equal(HttpStatusCode.OK, tracks.StatusCode);
+        // Whether any Entity exists is not disclosed either.
+        var contract = await host.GetJsonAsync("/api/query/contract");
+        var entity = contract.GetProperty("units").EnumerateArray().Single(unit => unit.GetProperty("unit").GetString() == "entity");
+        Assert.False(entity.GetProperty("dataAvailable").GetBoolean());
+        Assert.Equal("operator_required", entity.GetProperty("unavailableReason").GetString());
     }
 
     [Fact]

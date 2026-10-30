@@ -159,6 +159,7 @@ public static class EntityConfirmationRules
     public const string NotVisible = "entity_candidate_not_visible";
     public const string MergeUnsupported = "entity_merge_unsupported";
     public const string ExtensionImplausible = "entity_extension_implausible";
+    public const string Superseded = "entity_candidate_superseded";
 
     public static EntityConfirmationPlan Plan(
         PlausibilityTrack lower, Guid? lowerEntityId, PlausibilityTrack higher, Guid? higherEntityId,
