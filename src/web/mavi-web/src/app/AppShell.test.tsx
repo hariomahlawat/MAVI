@@ -440,9 +440,9 @@ describe('global keys (§5, §22)', () => {
     await screen.findByRole('heading', { name: 'Overview route' });
     await user.keyboard('g');
     expect(router.state.location.pathname).toBe('/');
-    await user.keyboard('x');
+    await user.keyboard('z');
     expect(router.state.location.pathname).toBe('/');
-    // The chord was spent on `x`: a destination letter now means nothing.
+    // The chord was spent on `z`: a destination letter now means nothing.
     await user.keyboard('c');
     expect(router.state.location.pathname).toBe('/');
 

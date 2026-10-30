@@ -58,12 +58,14 @@ describe('the IA map', () => {
     for (const entry of DESTINATIONS) {
       expect(entry.key).toMatch(/^[a-z]$/);
       // A letter of the label, the first wherever it is free (Ask takes `k`: `a` is About's;
-      // Cases `e` and Audit `u` for the same reason).
-      expect(entry.label.toLowerCase()).toContain(entry.key);
+      // Audit `u` for the same reason). Cases is the one stated exception: every letter of
+      // "cases" is already taken (Cameras, About, Search, Entities), so it takes `x`.
+      if (entry.id === 'cases') expect(entry.key).toBe('x');
+      else expect(entry.label.toLowerCase()).toContain(entry.key);
       expect(destinationForKey(entry.key)).toBe(entry);
       expect(destinationForKey(entry.key.toUpperCase())).toBe(entry);
     }
-    expect(destinationForKey('x')).toBeNull();
+    expect(destinationForKey('z')).toBeNull();
   });
 
   it('derives every frozen §5 crumb trail', () => {
