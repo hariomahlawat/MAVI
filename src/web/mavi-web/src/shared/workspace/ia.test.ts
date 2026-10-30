@@ -35,7 +35,10 @@ describe('the IA map', () => {
       ask: 'Ask',
       review: 'Search',
       faces: 'Faces',
+      cases: 'Cases',
+      'case-detail': 'Cases',
       system: 'About',
+      audit: 'Audit',
       'not-found': null,
     });
   });
@@ -43,8 +46,8 @@ describe('the IA map', () => {
   it('groups the rail Operate, Investigate, then Administer, in workflow order', () => {
     expect(SECTIONS.map((section) => [section.label, section.destinations.map((entry) => entry.label)])).toEqual([
       ['Operate', ['Overview', 'Cameras', 'Videos', 'Import', 'Processing']],
-      ['Investigate', ['Search', 'Query', 'Ask', 'Faces']],
-      ['Administer', ['About']],
+      ['Investigate', ['Search', 'Query', 'Ask', 'Faces', 'Cases']],
+      ['Administer', ['About', 'Audit']],
     ]);
   });
 
@@ -53,7 +56,8 @@ describe('the IA map', () => {
     expect(new Set(keys).size).toBe(keys.length);
     for (const entry of DESTINATIONS) {
       expect(entry.key).toMatch(/^[a-z]$/);
-      // A letter of the label, the first wherever it is free (Ask takes `k`: `a` is About's).
+      // A letter of the label, the first wherever it is free (Ask takes `k`: `a` is About's;
+      // Cases `e` and Audit `u` for the same reason).
       expect(entry.label.toLowerCase()).toContain(entry.key);
       expect(destinationForKey(entry.key)).toBe(entry);
       expect(destinationForKey(entry.key.toUpperCase())).toBe(entry);
@@ -76,6 +80,9 @@ describe('the IA map', () => {
     expect(labels('not-found')).toEqual(['Not found']);
     expect(labels('system')).toEqual(['About']);
     expect(labels('faces')).toEqual(['Faces']);
+    expect(labels('cases')).toEqual(['Cases']);
+    expect(labels('case-detail', 'Gate incident')).toEqual(['Cases', 'Gate incident']);
+    expect(labels('audit')).toEqual(['Audit']);
   });
 
   it('makes the root crumb the rail label, links every crumb but the last, and lets Review return to its Investigation', () => {

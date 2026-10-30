@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { MAXIMUM_BUCKETS, bucketCount } from '../../api/analytics';
 import { getCamera } from '../../api/cameras';
 import { ApiError, isGuid } from '../../api/client';
@@ -25,6 +25,7 @@ import { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
 import Panel from '../../shared/components/Panel';
 import { displayTimestamp, formatOffset } from '../../shared/format/format';
+import AddToCase from '../cases/AddToCase';
 
 /** Preferred bucket sizes; the smallest one that keeps the window within the response bound is used. */
 const BUCKETS = [60, 300, 900, 3_600, 21_600, 86_400] as const;
@@ -122,7 +123,10 @@ export default function EventsPage() {
   const [window, setWindow] = useState<Window | null>(null);
   const [draft, setDraft] = useState<{ fromUtc: string; toUtc: string }>({ fromUtc: '', toUtc: '' });
   const [hiddenRules, setHiddenRules] = useState<ReadonlySet<string>>(new Set());
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // A case item links back to its event (`?event=`): it opens with that event's evidence.
+  const [searchParams] = useSearchParams();
+  const linkedEvent = searchParams.get('event');
+  const [selectedId, setSelectedId] = useState<string | null>(() => (linkedEvent && isGuid(linkedEvent) ? linkedEvent.toLowerCase() : null));
 
   useEffect(() => {
     if (window === null && defaultWindow !== null) {
@@ -344,6 +348,9 @@ export default function EventsPage() {
                 Inputs: {detail.data.inputs.map((input) => input.kind).join(', ')}. Review opens the Track against
                 revision {detail.data.sceneRevisionNumber} with its crop, source frame and the player at the event.
               </p>
+              {/* PoC S11-full (ADR-027 §2): this event as a case item; keyed so
+                  selecting another event starts with an empty form. */}
+              <AddToCase key={detail.data.event.eventId} kind="AnalyticEvent" subjectId={detail.data.event.eventId} />
             </section>
           )}
         </Panel>

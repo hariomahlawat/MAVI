@@ -15,6 +15,9 @@ import FacesPage from '../features/faces/FacesPage';
 import VisualSearchPage from '../features/visual-search/VisualSearchPage';
 import AdvancedSearchPage from '../features/advanced-search/AdvancedSearchPage';
 import AskMaviPage from '../features/ask/AskMaviPage';
+import CasesPage from '../features/cases/CasesPage';
+import CaseDetailPage from '../features/cases/CaseDetailPage';
+import AuditPage from '../features/audit/AuditPage';
 import NotFoundPage from './NotFoundPage';
 
 /**
@@ -42,7 +45,10 @@ export const appRoutes: RouteObject[] = [
       { path: 'ask', element: <AskMaviPage />, handle: { surface: 'ask' } },
       { path: 'review/video/:videoAssetId', element: <VideoReviewPage />, handle: { surface: 'review' } },
       { path: 'faces', element: <FacesPage />, handle: { surface: 'faces' } },
+      { path: 'cases', element: <CasesPage />, handle: { surface: 'cases' } },
+      { path: 'cases/:caseId', element: <CaseDetailPage />, handle: { surface: 'case-detail' } },
       { path: 'system', element: <SystemPage />, handle: { surface: 'system' } },
+      { path: 'audit', element: <AuditPage />, handle: { surface: 'audit' } },
       { path: '*', element: <NotFoundPage />, handle: { surface: 'not-found' } },
     ],
   },

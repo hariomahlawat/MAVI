@@ -1422,3 +1422,24 @@
 .ask-page__interpretation dd { margin: 0; }
 .ask-page__sentence { margin: 0 0 var(--s-3); font-size: var(--fs-3); }
 @media (max-width: 720px) { .ask-page__form { grid-template-columns: 1fr; } }
+
+/* PoC S11-full (ADR-027): Track review, cases and the audit trail. */
+.track-review textarea, .add-to-case textarea, .case-items textarea, .page textarea { width: 100%; resize: vertical; font: inherit; }
+.track-review__runs, .track-review__history, .case-list, .case-items, .case-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
+.track-review__history > li, .case-notes > li { padding-bottom: var(--s-2); border-bottom: 1px solid var(--border-subtle); }
+.actor-identity { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); }
+.actor-identity__id { font-size: var(--fs-1); color: var(--text-secondary); }
+.case-list__item, .case-item { display: grid; gap: var(--s-1); padding-bottom: var(--s-3); border-bottom: 1px solid var(--border-subtle); }
+.case-list__item p, .case-item p, .case-notes p { margin: 0; }
+.case-list__title { font-weight: 600; }
+.case-item--removed .case-item__subject, .case-item--removed .case-item__note { text-decoration: line-through; color: var(--text-secondary); }
+.case-item__removal { color: var(--text-secondary); }
+.case-notes__body { white-space: pre-wrap; }
+.audit-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--s-3); }
+.audit-subjects { list-style: none; margin: 0; padding: 0; }
+.audit-table-wrap { overflow-x: auto; }
+.audit-table { width: 100%; border-collapse: collapse; }
+.audit-table th, .audit-table td { text-align: left; vertical-align: top; padding: var(--s-2); border-bottom: 1px solid var(--border-subtle); }
+.audit-table code { overflow-wrap: anywhere; }
+.audit-hash { display: inline-flex; align-items: center; gap: var(--s-1); }
+.audit-more { padding: var(--s-2); }

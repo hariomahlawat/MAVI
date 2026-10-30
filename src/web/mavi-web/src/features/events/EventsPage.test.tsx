@@ -329,3 +329,14 @@ describe('events helpers', () => {
     )).toBe(`/review/video/${videoId}?trackId=${trackId}&sceneRevisionId=${revisionId}&analyticsAlgorithmVersion=scene-analytics-v1&seekMs=1234`);
   });
 });
+
+describe('EventsPage and cases (PoC S11-full)', () => {
+  it('opens on the event a case item links to, and offers it to a case', async () => {
+    renderWithApp(<EventsPage />, { route: `/cameras/${cameraId}/events?event=${stopId.toUpperCase()}`, routePath: '/cameras/:cameraId/events' });
+
+    const evidence = await screen.findByRole('region', { name: 'Event evidence' });
+    expect(getEvent).toHaveBeenCalledWith(stopId, expect.anything());
+    // Nothing operator-only is read until the operator asks.
+    expect(within(evidence).getByRole('button', { name: 'Add to case' })).toHaveAttribute('aria-expanded', 'false');
+  });
+});

@@ -27,6 +27,8 @@ import { buildAnalyticsEvidence } from './analyticsEvidence';
 import { pinnedNames, pinnedRevision, useAnalyticsScene } from './useAnalyticsScene';
 import { returnToSearchPath } from './returnContext';
 import { useTrajectory } from './useTrajectory';
+import TrackReviewPanel from '../review/TrackReviewPanel';
+import AddToCase from '../cases/AddToCase';
 
 function shouldRetryQuery(failureCount: number, error: unknown): boolean {
   if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false;
@@ -274,6 +276,22 @@ export default function VideoReviewPage() {
               {/* F19: the panels name what they hold; no standing subtitle prose. */}
               <Panel title="Track summary">
                 <TrackSummary detail={detail} displayTimeZoneId={displayTimeZoneId} />
+              </Panel>
+              {/* PoC S11-full (ADR-027 §1, §2, §5): the operator's decision on the
+                  detection, its history and the earlier-run notice, then cases.
+                  Keyed by the Track so a followed candidate starts clean. */}
+              <Panel>
+                <div className="stack">
+                  <TrackReviewPanel
+                    key={`review:${detail.id}`}
+                    trackId={detail.id}
+                    reviewStatus={detail.reviewStatus}
+                    runCompletedAtUtc={detail.processing?.completedAtUtc}
+                    displayTimeZoneId={displayTimeZoneId}
+                    showHistory
+                  />
+                  <AddToCase key={`case:${detail.id}`} kind="Track" subjectId={detail.id} />
+                </div>
               </Panel>
               {/* The analytical explanation follows the primary summary, so
                   section 4.5.1 still holds at 1366x768: the summary and the
