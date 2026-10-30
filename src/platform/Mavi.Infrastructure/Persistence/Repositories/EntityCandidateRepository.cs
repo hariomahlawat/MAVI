@@ -81,13 +81,15 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
                 from left in embedded
                 where left.ProcessingRunId == analysis.ProcessingRunId
                 from right in embedded
-                where right.TrackId != left.TrackId && right.ObjectClass == left.ObjectClass
+                where right.TrackId != left.TrackId && right.ObjectClass == left.ObjectClass &&
+                      (!catalogue.CrossCameraOnly || right.CameraId != left.CameraId) &&
+                      (!catalogue.RequireSharedSite || (left.SiteCode != null && right.SiteCode == left.SiteCode))
                 let distance = left.Embedding!.CosineDistance(right.Embedding!)
                 where distance <= maximumDistance
                 select new
                 {
-                    Left = new PlausibilityTrack(left.TrackId, left.CameraId, left.StartUtc, left.EndUtc),
-                    Right = new PlausibilityTrack(right.TrackId, right.CameraId, right.StartUtc, right.EndUtc),
+                    Left = new PlausibilityTrack(left.TrackId, left.CameraId, left.StartUtc, left.EndUtc, left.SiteCode),
+                    Right = new PlausibilityTrack(right.TrackId, right.CameraId, right.StartUtc, right.EndUtc, right.SiteCode),
                     left.ObjectClass,
                     Distance = distance,
                 })
@@ -99,7 +101,7 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
             var score = Math.Round(1.0 - item.Distance, 6);
             if (score < catalogue.AppearanceFloor) continue;
             var key = item.Left.TrackId.CompareTo(item.Right.TrackId) < 0 ? (item.Left.TrackId, item.Right.TrackId) : (item.Right.TrackId, item.Left.TrackId);
-            if (pairs.ContainsKey(key)) continue;
+            if (pairs.ContainsKey(key) || !EntityCandidatePlausibility.InScope(item.Left, item.Right, catalogue)) continue;
             var verdict = EntityCandidatePlausibility.Evaluate(item.Left, item.Right, catalogue);
             if (verdict.Plausible) pairs[key] = (verdict, item.ObjectClass, score);
         }
@@ -350,6 +352,7 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
         public Guid TrackId { get; init; }
         public Guid ProcessingRunId { get; init; }
         public Guid CameraId { get; init; }
+        public string? SiteCode { get; init; }
         public ObjectClass ObjectClass { get; init; }
         public DateTimeOffset StartUtc { get; init; }
         public DateTimeOffset EndUtc { get; init; }
@@ -395,6 +398,7 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
             TrackId = x.track.Id,
             ProcessingRunId = x.track.ProcessingRunId,
             CameraId = x.camera.Id,
+            SiteCode = x.camera.SiteCode,
             ObjectClass = x.track.ObjectClass,
             StartUtc = x.track.StartTimestampUtc,
             EndUtc = x.track.EndTimestampUtc,

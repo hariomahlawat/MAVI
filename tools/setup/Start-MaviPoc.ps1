@@ -285,11 +285,13 @@ if ($Seed) {
     $created = 0
     foreach ($camera in $cameras) {
         if (@($existing | Where-Object { [string]$_.code -eq $camera.Code }).Count -gt 0) { continue }
-        $body = @{ code = $camera.Code; name = $camera.Name; timeZoneId = $camera.TimeZoneId } | ConvertTo-Json -Compress
+        $fields = @{ code = $camera.Code; name = $camera.Name; timeZoneId = $camera.TimeZoneId }
+        if ($camera.SiteCode) { $fields.siteCode = $camera.SiteCode }
+        $body = $fields | ConvertTo-Json -Compress
         [void](Invoke-RestMethod -Uri "$apiBaseUrl/api/cameras" -Method Post -ContentType "application/json" -Body $body -TimeoutSec 30)
         $created++
     }
-    Write-MaviSetupStatus -Name "Demo cameras" -Status "OK" -Detail "$created created, $($cameras.Count - $created) already present (names only; no scene configured)"
+    Write-MaviSetupStatus -Name "Demo cameras" -Status "OK" -Detail "$created created, $($cameras.Count - $created) already present (names and sites only; no scene configured)"
 }
 
 $deployment = Invoke-RestMethod -Uri "$apiBaseUrl/api/system/deployment" -Method Get -TimeoutSec 30

@@ -1,6 +1,6 @@
 # ADR-023: Entity semantics, ReID candidates and operator confirmation (PoC Stage 6)
 
-**Status:** **Accepted** owner decision, 2026-10-30. The owner ratified the decision text in §Owner decision as written ("Ratify, 0.85", relayed by the PoC coordinator session, and confirmed by the owner in the S7 session), with option (a) for the catalogue parameters (register C6.1; decisions D-S7-1 and D-S7-2), before any S7 code merged.
+**Status:** **Accepted** owner decision, 2026-10-30. The owner ratified the decision text in §Owner decision as written ("Ratify, 0.85", relayed by the PoC coordinator session, and confirmed by the owner in the S7 session), with option (a) for the catalogue parameters (register C6.1; decisions D-S7-1 and D-S7-2), before any S7 code merged. **Amended 2026-10-30** (owner decision D-S7-3; §Amendment 2026-10-30 below): status unchanged.
 
 **Date:** 2026-10-30
 
@@ -135,3 +135,28 @@ A person Entity links appearances of one person across recordings: it is sensiti
 > 7. S8's `repeated-visit` stays disabled (enabling it is `mavi-events-v2`, keyed on membership as §9 states); S9's Entity unit reads confirmed membership only.
 >
 > Accepted trade-off: recall and operator convenience are given up so that MAVI never asserts identity or sameness on its own.
+
+## Amendment 2026-10-30 (owner decision D-S7-3): catalogue `mavi-entity-candidates-v2`
+
+The owner accepted this change ("do that", 2026-10-30, relayed by the PoC coordinator session). The decision text above is otherwise unchanged; where it differs, this amendment governs. Status stays Accepted.
+
+**Why.** On a clean import of the 13 demo clips, catalogue v1 proposed **48,898** candidates (47,567 Vehicle, 1,331 Person); re-deriving gave a byte-identical set. The floor did not bound the operator's list, contrary to §3:
+- 41,076 (84 %) were same-camera pairs on one clip, the s2-04 night highway: every car paired with every later car, their headlights alike. At floor 0.95 that clip alone still gave 15,659.
+- Most of the rest paired cameras of unrelated places: the seven Commons clips come from different cities, given adjacent synthetic recording times. Such a pair is meaningless by construction, not merely implausible.
+
+Both come from two assumptions of v1's scope: that a same-camera revisit is plausible at any later time, and that any two cameras may be paired. Evidence: `E:\MAVI-Controlled\PoC\S7\corpus-run\` (v1 breakdown, the options compared, the same-site breakdown).
+
+**Decision.**
+1. **§2 and §3, scope.** Catalogue `mavi-entity-candidates-v2` proposes a pair only when the two Tracks are on **different cameras** that **declare the same site**. A camera with no declared site pairs with nothing. Floor 0.85, tolerance 2 s, no minimum travel time and no maximum gap are unchanged, and the rule stays pair-local. Every parameter names its source in the catalogue.
+2. **The site is configuration, never inference.** `cameras.site_code` is an optional, lower-case token set when the camera is created (`POST /api/cameras`, `siteCode`) and fixed afterwards: cameras have no update path in this slice. The PoC demo configuration declares it in `tools/poc/demo-corpus/demo-corpus-v1.json` and both byte-identical `demo-cameras-v1.json` copies, which the S1 installer seeds and the S2 import uses:
+   - the six MEVA clips s2-08 to s2-13 (one release, one capture slot, 2018-03-11 16:20) are site `meva-2018-03-11-1620`;
+   - each Commons clip s2-01 to s2-07 is its own site (`commons-poc-s2-01` …).
+3. **§4, plausibility.** The physical model is unchanged: a Track cannot be in two places at once. The scope rule is separate from it. Confirmation (§6) still checks only physical plausibility against every member, so an Entity may hold two Tracks of one camera when an operator linked each through another camera.
+4. **Recompute (§2).** v2 is a new catalogue version: its derivations and candidates are new rows beside v1's; decisions on v1 candidates stay with them and are not shown in v2 lists.
+5. **Recorded follow-up option, not part of v2.** A deterministic per-Track bound (top 3 per Track over the whole snapshot, ties by score then candidate id) would cut the demo's same-site cross-camera list from 502 to 127. It is not pair-local, so each new analysis would re-derive the site's whole set. It is to be taken only if 502 proves heavy in use.
+
+**What is lost.**
+- Same-camera revisit ("this person came back to the gate") and tracker-fragment linking are never proposed.
+- On the demo corpus there are **no vehicle candidates**: the only MEVA camera with vehicles is the car park s2-09, and nothing within the site pairs with it. Demonstration step 8 shows Person candidates across the MEVA cameras.
+- A camera without a declared site, including every camera of an installation that predates this amendment, gets no candidates until it is recreated with a site.
+

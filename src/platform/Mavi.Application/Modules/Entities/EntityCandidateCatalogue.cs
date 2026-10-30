@@ -11,11 +11,15 @@ public sealed record EntityCandidateParameter(string Name, string Value, string 
 /// A whole, immutable Entity-candidate catalogue version (ADR-023 §3). Changing any parameter is a new version; a
 /// version once shipped is never edited. Its SHA-256 over the canonical JSON is recorded with every derivation.
 /// </summary>
+/// <param name="CrossCameraOnly">Pairs on one camera are never proposed (v2).</param>
+/// <param name="RequireSharedSite">Both cameras must declare the same site; a camera with no site pairs with nothing (v2).</param>
 public sealed record EntityCandidateCatalogueDefinition(
     string CatalogueVersion,
     double AppearanceFloor,
     long ConcurrencyToleranceMs,
-    IReadOnlyList<EntityCandidateParameter> Parameters)
+    IReadOnlyList<EntityCandidateParameter> Parameters,
+    bool CrossCameraOnly = false,
+    bool RequireSharedSite = false)
 {
     private static readonly JsonSerializerOptions CanonicalJson = new()
     {
@@ -25,7 +29,11 @@ public sealed record EntityCandidateCatalogueDefinition(
 
     /// <summary>Computed from the values each time, so a copy made with <c>with</c> never carries a stale digest.</summary>
     public string Sha256 => Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
-        new { catalogueVersion = CatalogueVersion, appearanceFloor = AppearanceFloor, concurrencyToleranceMs = ConcurrencyToleranceMs, parameters = Parameters },
+        new
+        {
+            catalogueVersion = CatalogueVersion, appearanceFloor = AppearanceFloor, concurrencyToleranceMs = ConcurrencyToleranceMs,
+            crossCameraOnly = CrossCameraOnly, requireSharedSite = RequireSharedSite, parameters = Parameters,
+        },
         CanonicalJson)));
 }
 
@@ -51,11 +59,43 @@ public static class EntityCandidateCatalogue
             new("maximumGap", "none", SourceCatalogue, "The gap is shown as a factor, never used as a gate."),
         ]);
 
-    public static EntityCandidateCatalogueDefinition Current => V1;
+    /// <summary>
+    /// v2 (owner decision D-S7-3, 2026-10-30; ADR-023 amendment): on the demo corpus v1 proposed 48,898 pairs, 84 % of them
+    /// one night-highway camera pairing every car with every later car, and the rest look-alikes from unrelated places.
+    /// v2 pairs only different cameras that share a declared site; floor and tolerance are unchanged.
+    /// </summary>
+    public static EntityCandidateCatalogueDefinition V2 { get; } = new(
+        "mavi-entity-candidates-v2",
+        0.85,
+        2_000,
+        [
+            new("classes", "Person-Person, Vehicle-Vehicle", SourceCatalogue, "The classes ADR-021 embeds; a pair is always of one class."),
+            new("appearanceFloor", "0.85", SourceOwnerDecision,
+                "D-S7-2, kept by D-S7-3. From the frozen s4-confirm-80-v1 record before any demo pair was scored: 5th percentile of same-Track crop pairs 0.850; " +
+                "about 10% of different-object vehicle pairs from different videos also reach it (90th percentile 0.855). It does not bound the list by itself: the site rule does."),
+            new("cameras", "different cameras only", SourceOwnerDecision,
+                "D-S7-3. Same-camera pairs are not proposed: on a traffic stream they pair every vehicle with every later one. Same-camera revisit and fragment linking are given up."),
+            new("site", "both cameras declare the same site_code; a camera with no site pairs with nothing", SourceOwnerDecision,
+                "D-S7-3. MAVI has no topology; a site is declared camera configuration, never inferred. Cameras of unrelated places are never paired."),
+            new("concurrentElsewhere", "excluded beyond the tolerance", SourceCatalogue, "One object cannot be in two places at once."),
+            new("concurrencyToleranceMs", "2000", SourceOwnerDecision,
+                "D-S7-2. Recording starts are set to the second and a tracker starts or ends a Track a few frames off the true boundary."),
+            new("minimumTravelMs", "0", SourceOwnerDecision, "D-S7-2. MAVI has no camera topology to take a travel time from."),
+            new("maximumGap", "none", SourceCatalogue, "The gap is shown as a factor, never used as a gate."),
+            new("perTrackBound", "none", SourceOwnerDecision,
+                "D-S7-3. A deterministic per-Track bound (k = 3 over the whole snapshot, total tie-break) is a recorded follow-up option, not part of v2."),
+        ],
+        CrossCameraOnly: true,
+        RequireSharedSite: true);
+
+    public static EntityCandidateCatalogueDefinition Current => V2;
 }
 
-/// <summary>What the plausibility model reads of a Track: its camera and UTC interval, nothing else (ADR-023 §4).</summary>
-public sealed record PlausibilityTrack(Guid TrackId, Guid CameraId, DateTimeOffset StartUtc, DateTimeOffset EndUtc);
+/// <summary>
+/// What the plausibility model reads of a Track: its camera, the camera's declared site and its UTC interval, nothing
+/// else (ADR-023 §4 and its amendment).
+/// </summary>
+public sealed record PlausibilityTrack(Guid TrackId, Guid CameraId, DateTimeOffset StartUtc, DateTimeOffset EndUtc, string? SiteCode = null);
 
 /// <param name="Reason">Null when plausible, else <c>same_camera_concurrent</c> or <c>concurrent_elsewhere</c>.</param>
 /// <param name="GapMs">The later start minus the earlier end; negative when the intervals overlap.</param>
@@ -82,6 +122,22 @@ public static class EntityCandidatePlausibility
         if (sameCamera && gapMs < 0) return new PlausibilityVerdict(false, SameCameraConcurrent, true, gapMs);
         if (!sameCamera && -gapMs > catalogue.ConcurrencyToleranceMs) return new PlausibilityVerdict(false, ConcurrentElsewhere, false, gapMs);
         return new PlausibilityVerdict(true, null, sameCamera, gapMs);
+    }
+
+    /// <summary>
+    /// Whether the catalogue proposes a pair at all (its scope, before plausibility): v2 proposes only different cameras
+    /// that declare the same site. Confirmation does not use this: an Entity may hold two Tracks of one camera when an
+    /// operator linked each through another camera; only physical plausibility applies there.
+    /// </summary>
+    public static bool InScope(PlausibilityTrack first, PlausibilityTrack second, EntityCandidateCatalogueDefinition catalogue)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        ArgumentNullException.ThrowIfNull(second);
+        ArgumentNullException.ThrowIfNull(catalogue);
+        if (catalogue.CrossCameraOnly && first.CameraId == second.CameraId) return false;
+        if (catalogue.RequireSharedSite && (first.SiteCode is null || !string.Equals(first.SiteCode, second.SiteCode, StringComparison.Ordinal)))
+            return false;
+        return true;
     }
 }
 

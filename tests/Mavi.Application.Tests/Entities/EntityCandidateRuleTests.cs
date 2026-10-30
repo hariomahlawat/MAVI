@@ -11,7 +11,7 @@ public sealed class EntityCandidateRuleTests
     private static readonly DateTimeOffset T0 = new(2026, 10, 30, 9, 40, 0, TimeSpan.Zero);
     private static readonly Guid CameraA = Guid.Parse("00000000-0000-7000-8000-00000000000a");
     private static readonly Guid CameraB = Guid.Parse("00000000-0000-7000-8000-00000000000b");
-    private static readonly EntityCandidateCatalogueDefinition Catalogue = EntityCandidateCatalogue.V1;
+    private static readonly EntityCandidateCatalogueDefinition Catalogue = EntityCandidateCatalogue.Current;
 
     private static PlausibilityTrack Track(Guid camera, double start, double end, int id = 0) =>
         new(id == 0 ? Guid.CreateVersion7() : new Guid(id, 0, 0, new byte[8]), camera, T0.AddSeconds(start), T0.AddSeconds(end));
@@ -19,7 +19,9 @@ public sealed class EntityCandidateRuleTests
     [Fact]
     public void TheCatalogueNamesASourceForEveryParameterAndHasAStableDigest()
     {
-        Assert.Equal("mavi-entity-candidates-v1", Catalogue.CatalogueVersion);
+        Assert.Equal("mavi-entity-candidates-v2", Catalogue.CatalogueVersion);
+        Assert.True(Catalogue.CrossCameraOnly);
+        Assert.True(Catalogue.RequireSharedSite);
         Assert.Equal(0.85, Catalogue.AppearanceFloor);
         Assert.Equal(2_000, Catalogue.ConcurrencyToleranceMs);
         Assert.All(Catalogue.Parameters, parameter =>
@@ -27,11 +29,29 @@ public sealed class EntityCandidateRuleTests
             Assert.Contains(parameter.Source, new[] { EntityCandidateCatalogue.SourceCatalogue, EntityCandidateCatalogue.SourceOwnerDecision });
             Assert.False(string.IsNullOrWhiteSpace(parameter.Rationale));
         });
-        Assert.Equal(["appearanceFloor", "concurrencyToleranceMs", "minimumTravelMs"],
+        Assert.Equal(["appearanceFloor", "cameras", "site", "concurrencyToleranceMs", "minimumTravelMs", "perTrackBound"],
             Catalogue.Parameters.Where(item => item.Source == EntityCandidateCatalogue.SourceOwnerDecision).Select(item => item.Name));
         Assert.Matches("^[0-9a-f]{64}$", Catalogue.Sha256);
         Assert.Equal(Catalogue.Sha256, (Catalogue with { }).Sha256);
         Assert.NotEqual(Catalogue.Sha256, (Catalogue with { AppearanceFloor = 0.9 }).Sha256);
+        Assert.NotEqual(Catalogue.Sha256, (Catalogue with { RequireSharedSite = false }).Sha256);
+        Assert.NotEqual(EntityCandidateCatalogue.V1.Sha256, Catalogue.Sha256);
+    }
+
+    [Theory]
+    [InlineData(false, "site-a", "site-a", true)]
+    [InlineData(true, "site-a", "site-a", false)]
+    [InlineData(false, "site-a", "site-b", false)]
+    [InlineData(false, null, null, false)]
+    [InlineData(false, "site-a", null, false)]
+    public void VersionTwoProposesOnlyDifferentCamerasOfOneDeclaredSite(bool sameCamera, string? firstSite, string? secondSite, bool inScope)
+    {
+        var first = Track(CameraA, 0, 10) with { SiteCode = firstSite };
+        var second = Track(sameCamera ? CameraA : CameraB, 20, 30) with { SiteCode = secondSite };
+        Assert.Equal(inScope, EntityCandidatePlausibility.InScope(first, second, Catalogue));
+        Assert.Equal(inScope, EntityCandidatePlausibility.InScope(second, first, Catalogue));
+        // Version 1 had no scope rule.
+        Assert.True(EntityCandidatePlausibility.InScope(first, second, EntityCandidateCatalogue.V1));
     }
 
     [Theory]

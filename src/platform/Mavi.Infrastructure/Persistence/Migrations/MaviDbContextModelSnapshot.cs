@@ -142,6 +142,11 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("name");
 
+                    b.Property<string>("SiteCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("site_code");
+
                     b.Property<string>("TimeZoneId")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -158,6 +163,9 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.HasIndex("IsActive");
+
+                    b.HasIndex("SiteCode")
+                        .HasFilter("site_code IS NOT NULL");
 
                     b.ToTable("cameras", (string)null);
                 });

@@ -91,10 +91,26 @@ internal sealed class EntityApiHost : IAsyncDisposable
             await ((NpgsqlConnection)db.Database.GetDbConnection()).ReloadTypesAsync();
         }
 
+        // Every camera of these tests is in one declared site unless a test says otherwise (catalogue v2, D-S7-3).
+        await using (var db = host.World.Read())
+            await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE cameras SET site_code = {Site} WHERE id = {host.World.CameraId}");
+
         // Activate the embedding identity, so runs completed after this are queued.
         await host.Factory.Services.GetRequiredService<EmbeddingHostedService>().RunCycleAsync(CancellationToken.None);
         host.World.Clock.Advance(TimeSpan.FromSeconds(1));
         return host;
+    }
+
+    public const string Site = "site-a";
+
+    /// <summary>Another camera, in <paramref name="site"/> (null: no declared site).</summary>
+    public async Task<Guid> CameraAsync(string code, string? site = Site)
+    {
+        var camera = Mavi.Domain.Cameras.Camera.Create(code, "Entity test camera " + code, "UTC", World.Clock.GetUtcNow(), site);
+        await using var db = World.Read();
+        db.Cameras.Add(camera);
+        await db.SaveChangesAsync();
+        return camera.Id;
     }
 
     public string Fingerprint => Factory.Services.GetRequiredService<IEmbeddingRelease>().Resolution.Definition!.Identity.Fingerprint;
@@ -302,7 +318,7 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
     public async Task ACameraPairIsProposedListedAndConfirmedIntoAnEntityWithItsAuditInTheSameTransaction()
     {
         await using var host = await EntityApiHost.CreateAsync(fixture, T0);
-        var cameraB = await host.World.CreateCameraAsync("CAM-ENT-B");
+        var cameraB = await host.CameraAsync("CAM-ENT-B");
         var a = await host.SeedAsync(host.World.CameraId, [Person(0, 4)]);
         var b = await host.SeedAsync(cameraB, [Person(10, 14, tilt: 0.2), Vehicle(10, 14)]);
         await host.EmbedAllAsync();
@@ -311,7 +327,7 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
 
         var list = await host.GetJsonAsync("/api/entity-candidates");
         Assert.Equal(EntityCandidateLabels.Candidates, list.GetProperty("label").GetString());
-        Assert.Equal("mavi-entity-candidates-v1", list.GetProperty("catalogue").GetProperty("version").GetString());
+        Assert.Equal(EntityCandidateCatalogue.Current.CatalogueVersion, list.GetProperty("catalogue").GetProperty("version").GetString());
         Assert.Equal(EntityCandidateCatalogue.Current.Sha256, list.GetProperty("catalogue").GetProperty("sha256").GetString());
         var candidate = Assert.Single(list.GetProperty("candidates").EnumerateArray());
         Assert.Equal(Pair(a.TrackIds[0], b.TrackIds[0]), PairOf(candidate));
@@ -405,8 +421,8 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
     public async Task ThePlausibilityModelAndTheFloorDecideWhichPairsAreProposed()
     {
         await using var host = await EntityApiHost.CreateAsync(fixture, T0);
-        var cameraB = await host.World.CreateCameraAsync("CAM-ENT-B");
-        // Camera A: p0 and p1 overlap on one camera (excluded); p2 is later on the same camera (a revisit, proposed).
+        var cameraB = await host.CameraAsync("CAM-ENT-B");
+        // Camera A: p0 and p1 overlap on one camera; p2 is later on the same camera. Neither same-camera pair is proposed (v2).
         var a = await host.SeedAsync(host.World.CameraId, [Person(0, 10), Person(5, 15, tilt: 0.2), Person(100, 110, tilt: 0.3)]);
         // Camera B: p3 overlaps p0 by 1.5 s (inside the 2 s tolerance), p4 overlaps p2 by 5 s (elsewhere at once),
         // p5 is far later but below the floor, and a vehicle that is never paired with a person.
@@ -417,15 +433,15 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
 
         var pairs = (await host.CandidatesAsync("?limit=200")).Select(PairOf).ToHashSet();
         Assert.DoesNotContain(Pair(a.TrackIds[0], a.TrackIds[1]), pairs);   // same camera, concurrent
-        Assert.Contains(Pair(a.TrackIds[0], a.TrackIds[2]), pairs);         // same camera, later
+        Assert.DoesNotContain(Pair(a.TrackIds[0], a.TrackIds[2]), pairs);   // same camera, later: out of v2's scope
         Assert.Contains(Pair(a.TrackIds[0], b.TrackIds[0]), pairs);         // elsewhere, within the tolerance
         Assert.DoesNotContain(Pair(a.TrackIds[2], b.TrackIds[1]), pairs);   // elsewhere at the same time
         Assert.DoesNotContain(pairs, pair => pair.Item1 == b.TrackIds[2] || pair.Item2 == b.TrackIds[2]);   // below the floor
         Assert.DoesNotContain(pairs, pair => pair.Item1 == b.TrackIds[3] || pair.Item2 == b.TrackIds[3]);   // other class
 
-        var revisit = (await host.CandidatesAsync($"?trackId={a.TrackIds[2]}&cameraId={host.World.CameraId}&otherCameraId={host.World.CameraId}"))
-            .Single(item => PairOf(item) == Pair(a.TrackIds[0], a.TrackIds[2]));
-        Assert.True(revisit.GetProperty("factors").GetProperty("plausibility").GetProperty("sameCamera").GetBoolean());
+        Assert.Empty(await host.CandidatesAsync($"?cameraId={host.World.CameraId}&otherCameraId={host.World.CameraId}"));
+        Assert.All(await host.CandidatesAsync("?limit=200"),
+            item => Assert.False(item.GetProperty("factors").GetProperty("plausibility").GetProperty("sameCamera").GetBoolean()));
         var tolerated = (await host.CandidatesAsync()).Single(item => PairOf(item) == Pair(a.TrackIds[0], b.TrackIds[0]));
         Assert.Equal(-1_500, tolerated.GetProperty("factors").GetProperty("plausibility").GetProperty("gapMs").GetInt64());
 
@@ -435,10 +451,36 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task OnlyCamerasThatDeclareTheSameSiteArePaired()
+    {
+        await using var host = await EntityApiHost.CreateAsync(fixture, T0);
+        var sameSite = await host.CameraAsync("CAM-ENT-B");
+        var otherSite = await host.CameraAsync("CAM-ENT-X", "site-x");
+        var noSite = await host.CameraAsync("CAM-ENT-N", null);
+        var a = await host.SeedAsync(host.World.CameraId, [Person(0, 4)]);
+        var b = await host.SeedAsync(sameSite, [Person(10, 14, tilt: 0.05)]);
+        var x = await host.SeedAsync(otherSite, [Person(20, 24, tilt: 0.05)]);
+        var n = await host.SeedAsync(noSite, [Person(30, 34, tilt: 0.05), Person(40, 44, tilt: 0.05)]);
+        await host.EmbedAllAsync();
+        await host.DeriveAsync();
+
+        // Every vector is within the floor of every other, yet only the same-site cross-camera pair is proposed.
+        Assert.Equal(Pair(a.TrackIds[0], b.TrackIds[0]), PairOf(Assert.Single(await host.CandidatesAsync("?limit=200"))));
+        var list = await host.GetJsonAsync("/api/entity-candidates");
+        Assert.Equal("mavi-entity-candidates-v2", list.GetProperty("catalogue").GetProperty("version").GetString());
+        Assert.Contains(list.GetProperty("catalogue").GetProperty("parameters").EnumerateArray(),
+            item => item.GetProperty("name").GetString() == "site" && item.GetProperty("source").GetString() == "owner-decision");
+        var camera = await host.GetJsonAsync($"/api/cameras/{otherSite}");
+        Assert.Equal("site-x", camera.GetProperty("siteCode").GetString());
+        _ = x;
+        _ = n;
+    }
+
+    [Fact]
     public async Task ADismissalIsAttributableSuppressesTheCandidateAndIsNeverReProposed()
     {
         await using var host = await EntityApiHost.CreateAsync(fixture, T0);
-        var cameraB = await host.World.CreateCameraAsync("CAM-ENT-B");
+        var cameraB = await host.CameraAsync("CAM-ENT-B");
         await host.SeedAsync(host.World.CameraId, [Person(0, 4)]);
         var b = await host.SeedAsync(cameraB, [Person(10, 14, tilt: 0.2)]);
         await host.EmbedAllAsync();
@@ -470,8 +512,8 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
     public async Task ConfirmationExtendsAnEntityOnlyWhenPlausibleAgainstEveryMemberAndRefusesAMerge()
     {
         await using var host = await EntityApiHost.CreateAsync(fixture, T0);
-        var cameraB = await host.World.CreateCameraAsync("CAM-ENT-B");
-        var cameraC = await host.World.CreateCameraAsync("CAM-ENT-C");
+        var cameraB = await host.CameraAsync("CAM-ENT-B");
+        var cameraC = await host.CameraAsync("CAM-ENT-C");
         // p0 (A, 0–10) ~ p1 (B, 40–50) ~ p2 (C, 3–12): p2 is plausible with p1, but overlaps p0 on another camera by 7 s.
         var a = await host.SeedAsync(host.World.CameraId, [Person(0, 10), Person(200, 210, tilt: 0.1, axis: 2)]);
         var b = await host.SeedAsync(cameraB, [Person(40, 50, tilt: 0.1), Person(300, 310, tilt: 0.15, axis: 2)]);
@@ -507,7 +549,7 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
         {
             // Forge a cross-Entity candidate (the floor kept axes 1 and 2 apart) to exercise the merge refusal.
             var derivation = await db.EntityCandidateDerivations.FirstAsync();
-            db.EntityCandidates.Add(EntityCandidate.Create(derivation.Id, "mavi-entity-candidates-v1", host.Fingerprint, a.TrackIds[0], b.TrackIds[1],
+            db.EntityCandidates.Add(EntityCandidate.Create(derivation.Id, EntityCandidateCatalogue.Current.CatalogueVersion, host.Fingerprint, a.TrackIds[0], b.TrackIds[1],
                 ObjectClass.Person, 0.9, false, 290_000, T0));
             await db.SaveChangesAsync();
         }
@@ -523,7 +565,7 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
     public async Task ReprocessingCreatesNewTracksWithNoEntityAndNoCarriedOverDecision()
     {
         await using var host = await EntityApiHost.CreateAsync(fixture, T0);
-        var cameraB = await host.World.CreateCameraAsync("CAM-ENT-B");
+        var cameraB = await host.CameraAsync("CAM-ENT-B");
         var a = await host.SeedAsync(host.World.CameraId, [Person(0, 4)]);
         var b = await host.SeedAsync(cameraB, [Person(10, 14, tilt: 0.2)]);
         await host.EmbedAllAsync();
@@ -553,7 +595,7 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
         await using (var db = host.World.Read())
         {
             var derivation = await db.EntityCandidateDerivations.FirstAsync();
-            db.EntityCandidates.Add(EntityCandidate.Create(derivation.Id, "mavi-entity-candidates-v1", host.Fingerprint, b.TrackIds[0], again.TrackIds[0],
+            db.EntityCandidates.Add(EntityCandidate.Create(derivation.Id, EntityCandidateCatalogue.Current.CatalogueVersion, host.Fingerprint, b.TrackIds[0], again.TrackIds[0],
                 ObjectClass.Person, 0.9, true, 0, T0));
             await db.SaveChangesAsync();
         }
@@ -571,7 +613,7 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
     public async Task TheFaceFactorIsSeparateComputedOnRequestAuditedAndUnknownWithAReason()
     {
         await using var host = await EntityApiHost.CreateAsync(fixture, T0);
-        var cameraB = await host.World.CreateCameraAsync("CAM-ENT-B");
+        var cameraB = await host.CameraAsync("CAM-ENT-B");
         var faceA = FaceApiHost.Axis(3);
         var faceB = FaceApiHost.Axis(3, 0.4);
         var a = await host.SeedAsync(host.World.CameraId, [Person(0, 4), Person(50, 54, tilt: 0.1)], faces: [faceA, null]);
@@ -654,7 +696,7 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
     public async Task AConfirmationWhoseAuditCannotBeWrittenChangesNothing()
     {
         await using var host = await EntityApiHost.CreateAsync(fixture, T0);
-        var cameraB = await host.World.CreateCameraAsync("CAM-ENT-B");
+        var cameraB = await host.CameraAsync("CAM-ENT-B");
         var a = await host.SeedAsync(host.World.CameraId, [Person(0, 4)]);
         var b = await host.SeedAsync(cameraB, [Person(10, 14, tilt: 0.2)]);
         await host.EmbedAllAsync();
@@ -683,8 +725,8 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
     public async Task ConcurrentConfirmationsSharingATrackSerialiseIntoOneEntity()
     {
         await using var host = await EntityApiHost.CreateAsync(fixture, T0);
-        var cameraB = await host.World.CreateCameraAsync("CAM-ENT-B");
-        var cameraC = await host.World.CreateCameraAsync("CAM-ENT-C");
+        var cameraB = await host.CameraAsync("CAM-ENT-B");
+        var cameraC = await host.CameraAsync("CAM-ENT-C");
         var a = await host.SeedAsync(host.World.CameraId, [Person(0, 4)]);
         var b = await host.SeedAsync(cameraB, [Person(10, 14, tilt: 0.1)]);
         var c = await host.SeedAsync(cameraC, [Person(20, 24, tilt: 0.15)]);

@@ -26,7 +26,7 @@ public static class CameraEndpoints
         try
         {
             var result = await service.CreateAsync(
-                new CreateCameraCommand(request.Code, request.Name, request.TimeZoneId),
+                new CreateCameraCommand(request.Code, request.Name, request.TimeZoneId, request.SiteCode),
                 cancellationToken);
             if (!result.IsSuccess)
             {
@@ -67,7 +67,8 @@ public static class CameraEndpoints
         camera.IsActive,
         camera.CreatedAtUtc,
         camera.UpdatedAtUtc,
-        camera.FaceAnalysisEnabled);
+        camera.FaceAnalysisEnabled,
+        camera.SiteCode);
 
     private static IResult Problem(int statusCode, string code, string detail) =>
         Results.Problem(statusCode: statusCode, detail: detail, extensions: new Dictionary<string, object?>
