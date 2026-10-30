@@ -102,9 +102,9 @@ public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
         {
             throw new LanguageRuntimeUnavailableException(AskCodes.LanguageUnavailable, AskCodes.LanguageUnavailableMessage, exception);
         }
-        catch (JsonException exception)
+        catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
-            throw new LanguageRuntimeUnavailableException(AskCodes.LanguageUnavailable, "The language role's reply was not JSON.", exception);
+            throw new LanguageRuntimeUnavailableException(AskCodes.LanguageUnavailable, "The language role's reply was not a completion.", exception);
         }
     }
 

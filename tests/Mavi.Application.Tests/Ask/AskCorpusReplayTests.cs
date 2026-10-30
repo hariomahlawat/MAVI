@@ -59,6 +59,10 @@ public sealed class AskCorpusReplayTests
         var vocabulary = AskCorpus.LoadVocabulary();
         var siteTime = new AskSiteTime(zoneId, referenceDate);
         var byId = questions.ToDictionary(question => question.Id);
+        // A measured set holds every corpus question exactly once, in corpus order: nothing can be dropped or repeated
+        // with the summary edited to match.
+        Assert.Equal("all", (string)recording["split"]!);
+        Assert.Equal(questions.Select(question => question.Id), recording["results"]!.AsArray().Select(item => (string)item!["id"]!));
 
         var passed = new Dictionary<string, int> { ["development"] = 0, ["held"] = 0 };
         var total = new Dictionary<string, int> { ["development"] = 0, ["held"] = 0 };

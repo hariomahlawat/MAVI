@@ -117,14 +117,14 @@ public static class AskPrompt
             """);
         foreach (var camera in catalogue.Cameras)
         {
-            text.Append(CultureInfo.InvariantCulture, $"camera \"{camera.Name}\": \"cameraIds\":[\"{camera.CameraId:D}\"]\n");
+            text.Append(CultureInfo.InvariantCulture, $"camera \"{OneLine(camera.Name)}\": \"cameraIds\":[\"{camera.CameraId:D}\"]\n");
             foreach (var zone in camera.Zones)
-                text.Append(CultureInfo.InvariantCulture, $"  zone \"{zone.Name}\" (this camera): \"zone\":{{\"zoneId\":\"{zone.ZoneId:D}\"}}\n");
+                text.Append(CultureInfo.InvariantCulture, $"  zone \"{OneLine(zone.Name)}\" (this camera): \"zone\":{{\"zoneId\":\"{zone.ZoneId:D}\"}}\n");
             foreach (var line in camera.Lines)
             {
-                text.Append(CultureInfo.InvariantCulture, $"  line \"{line.Name}\" (this camera), {line.AToBLabel}: \"line\":{{\"lineId\":\"{line.LineId:D}\",\"direction\":\"aToB\"}}\n");
-                text.Append(CultureInfo.InvariantCulture, $"  line \"{line.Name}\" (this camera), {line.BToALabel}: \"line\":{{\"lineId\":\"{line.LineId:D}\",\"direction\":\"bToA\"}}\n");
-                text.Append(CultureInfo.InvariantCulture, $"  line \"{line.Name}\" (this camera), any direction: \"line\":{{\"lineId\":\"{line.LineId:D}\"}}\n");
+                text.Append(CultureInfo.InvariantCulture, $"  line \"{OneLine(line.Name)}\" (this camera), {OneLine(line.AToBLabel)}: \"line\":{{\"lineId\":\"{line.LineId:D}\",\"direction\":\"aToB\"}}\n");
+                text.Append(CultureInfo.InvariantCulture, $"  line \"{OneLine(line.Name)}\" (this camera), {OneLine(line.BToALabel)}: \"line\":{{\"lineId\":\"{line.LineId:D}\",\"direction\":\"bToA\"}}\n");
+                text.Append(CultureInfo.InvariantCulture, $"  line \"{OneLine(line.Name)}\" (this camera), any direction: \"line\":{{\"lineId\":\"{line.LineId:D}\"}}\n");
             }
         }
 
@@ -157,7 +157,7 @@ public static class AskPrompt
         if (cameras.LastOrDefault(camera => camera.Lines.Count > 0) is { } lineCamera)
         {
             var line = lineCamera.Lines[0];
-            yield return ($"Show the latest 10 people crossing the {line.Name} line {line.BToALabel} between 09:30 and 09:45",
+            yield return ($"Show the latest 10 people crossing the {OneLine(line.Name)} line {OneLine(line.BToALabel)} between 09:30 and 09:45",
                 QueryAnswer(
                     "track",
                     new()
@@ -196,7 +196,7 @@ public static class AskPrompt
         if (cameras.LastOrDefault(camera => camera.Zones.Count > 0) is { } zoneCamera)
         {
             var zone = zoneCamera.Zones[^1];
-            yield return ($"Dwell events per 30 minutes in the {zone.Name} zone between 08:00 and 12:00",
+            yield return ($"Dwell events per 30 minutes in the {OneLine(zone.Name)} zone between 08:00 and 12:00",
                 QueryAnswer(
                     "event",
                     new()

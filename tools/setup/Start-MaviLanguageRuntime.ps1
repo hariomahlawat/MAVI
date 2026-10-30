@@ -44,6 +44,24 @@ if ($nvidiaSmi) {
 }
 $device = Resolve-MaviPocLanguageDevice -Policy $DevicePolicy -NvidiaSmiLines $smiLines
 
+# Observed, not only asserted: the CUDA build must itself load its backend and see a GPU (an old driver, or a backend
+# that fails to load, would otherwise run on the CPU under a CUDA device record). Explicit CUDA fails closed; Auto
+# falls back to the CPU build with the reason recorded (ADR-008).
+$observedDevice = $null
+if ($device.Variant -eq "cuda") {
+    $env:CUDA_CACHE_PATH = [IO.Path]::GetFullPath($CudaCachePath)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { $listed = @(& (Join-Path (Join-Path $RuntimeRoot "cuda") "llama-server.exe") --list-devices 2>&1 | ForEach-Object { "$_" }) }
+    catch { $listed = @() }
+    finally { $ErrorActionPreference = $previous }
+    $observedDevice = @($listed | Where-Object { $_ -match '^\s*CUDA\d+:' } | ForEach-Object { $_.Trim() }) | Select-Object -First 1
+    if (-not $observedDevice) {
+        if ($DevicePolicy -eq "cuda") { throw "Language device policy CUDA: the llama.cpp CUDA build loaded no CUDA device (driver too old for CUDA 12.4, or the backend failed); refusing to fall back to CPU." }
+        $device = [pscustomobject]@{ Variant = "cpu"; Directory = "cpu"; Device = "cpu"; Reason = "auto_cuda_backend_unavailable" }
+    }
+}
+
 $verified = & $Python (Join-Path $RepositoryRoot "tools\language\language_packs.py") verify --runtime-root $RuntimeRoot --variant $device.Variant --model-root $ModelRoot --pack $Pack
 if ($LASTEXITCODE -ne 0) { throw "The Language Runtime Pack or Model Pack failed verification; the language role does not start." }
 $identity = $verified | ConvertFrom-Json
@@ -53,6 +71,8 @@ $report = [ordered]@{
     requestedDevicePolicy = $DevicePolicy
     resolvedDevicePolicy = $device.Variant
     device = $device.Device
+    # What the CUDA build itself reported (name, total and free memory), or null on CPU.
+    observedDevice = $observedDevice
     deviceResolutionReason = $device.Reason
     gpuLayerPolicy = if ($device.Variant -eq "cuda") { "fit (llama.cpp --fit on: as many layers as fit in free GPU memory)" } else { "none" }
     runtimeId = $identity.runtimeId
@@ -80,7 +100,9 @@ if ($device.Variant -eq "cuda") {
     $arguments += @("--fit", "on")
 }
 else {
-    $env:CUDA_VISIBLE_DEVICES = ""
+    # The CPU build carries no GPU backend; -1 hides any GPU from a stray CUDA library as well (an empty value would
+    # remove the variable in PowerShell rather than set it).
+    $env:CUDA_VISIBLE_DEVICES = "-1"
     $arguments += @("--n-gpu-layers", "0")
 }
 

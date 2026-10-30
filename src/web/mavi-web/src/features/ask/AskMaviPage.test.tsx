@@ -113,22 +113,27 @@ function answered(result: QueryEnvelope['result']): AskResponse {
 }
 
 /**
- * The numbers the answer may show: every number in the S9 envelope, and the declared formatting of the envelope's
- * instants (site-local timestamps) and durations. Anything else in the Answer panel would be a figure the browser made.
+ * The numbers the answer may show: the envelope's numeric fields, the declared formatting of its instants (site-local
+ * timestamps) and durations, and the digits inside its display names (camera codes and names, group labels). Ids and
+ * fingerprints contribute nothing, so a figure the browser computed cannot hide among their digits.
  */
+const OPAQUE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32,})$/i;
+const INSTANT = /^\d{4}-\d{2}-\d{2}T/;
+const NAME_KEYS = new Set(['label', 'cameraCode', 'cameraName', 'zoneName', 'lineName', 'key', 'message']);
+
 function groundedNumbers(value: QueryEnvelope): Set<string> {
   const allowed = new Set<string>();
   const add = (text: string) => { for (const token of text.match(/\d+(?:\.\d+)?/g) ?? []) allowed.add(token); };
   const walk = (node: unknown, key = '') => {
-    if (Array.isArray(node)) node.forEach((item) => walk(item));
+    if (Array.isArray(node)) node.forEach((item) => walk(item, key));
     else if (node && typeof node === 'object') Object.entries(node).forEach(([name, item]) => walk(item, name));
     else if (typeof node === 'number') {
       add(String(node));
       if (key.endsWith('Ms')) add(formatOffset(node));
       if (key === 'similarityScore') add(node.toFixed(3));
-    } else if (typeof node === 'string') {
-      add(node);
-      if (/^\d{4}-\d{2}-\d{2}T/.test(node)) add(displayTimestamp(node, zone));
+    } else if (typeof node === 'string' && !OPAQUE.test(node)) {
+      if (INSTANT.test(node)) add(displayTimestamp(node, zone));
+      else if (NAME_KEYS.has(key)) add(node);
     }
   };
   walk(value);
@@ -155,6 +160,14 @@ describe('Ask MAVI grounding (ADR-026 §5)', () => {
     const allowed = groundedNumbers(response.envelope!);
     const shown = textNodes(answerPanel).flatMap((text) => text.match(/\d+(?:\.\d+)?/g) ?? []);
     expect(shown.filter((token) => !allowed.has(token))).toEqual([]);
+  });
+
+  it('would catch a figure the browser computed (a sum is not an envelope value)', () => {
+    const groups = groundedNumbers(envelope(RESULTS.groups));
+    expect(groups.has('252')).toBe(false); // 19 + 233
+    const buckets = groundedNumbers(envelope(RESULTS.buckets));
+    expect(buckets.has('19')).toBe(false); // 3 + 11 + 0 + 5
+    expect(groups.has('233') && buckets.has('11')).toBe(true);
   });
 
   it('writes the summary sentence only from envelope values: a selection, never a sum', () => {

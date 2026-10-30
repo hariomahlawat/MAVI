@@ -52,8 +52,21 @@ public sealed class AskService(
             return Refused(AskCodes.StageRuntime, AskCodes.SiteTimeZoneAmbiguous, "",
                 "The cameras are in different time zones and no site time zone is configured (Ask:SiteTimeZoneId).");
 
-        var siteTime = new AskSiteTime(zoneId, referenceDate);
+        AskSiteTime siteTime;
+        try
+        {
+            siteTime = new AskSiteTime(zoneId, referenceDate);
+        }
+        catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return Refused(AskCodes.StageRuntime, AskCodes.SiteTimeZoneInvalid, "",
+                $"The site time zone '{zoneId}' is not known on this host (Ask:SiteTimeZoneId, or the cameras' zone).");
+        }
+
         var prompt = AskPrompt.Build(QueryContractVocabulary.Describe(attributeRelease), catalogue, siteTime, question);
+        if (prompt.Prompt.Length > AskCodes.MaximumPromptCharacters)
+            return Refused(AskCodes.StageRuntime, AskCodes.PromptTooLong, "",
+                "The site catalogue is too large for the language role's context; Ask MAVI cannot prompt for this site.", Model(prompt, null));
 
         var translation = Stopwatch.StartNew();
         LanguageCompletion completion;
@@ -74,7 +87,14 @@ public sealed class AskService(
 
         var translated = AskTranslator.Translate(completion.Text, siteTime);
         if (translated.Refusal is { } refusal)
-            return Refused(refusal.Stage, refusal.Code, refusal.Path, refusal.Message, model, translationMs);
+        {
+            // A model refusal already carries platform text. A translation or contract refusal is about what the model
+            // wrote, so its message is replaced by platform text and its path cut at the first segment the contract
+            // does not name: no model-written member name reaches the operator.
+            return refusal.Stage == AskCodes.StageModel
+                ? Refused(refusal.Stage, refusal.Code, refusal.Path, refusal.Message, model, translationMs)
+                : Refused(refusal.Stage, refusal.Code, ContractPath(refusal.Path), AskCodes.StageMessage(refusal.Stage, refusal.Code), model, translationMs);
+        }
 
         var evaluation = Stopwatch.StartNew();
         var outcome = await queries.EvaluateAsync(translated.Query!, cancellationToken);
@@ -117,6 +137,31 @@ public sealed class AskService(
             AskPrompt.TemplateVersion,
             SiteTimeZone(catalogue),
             QueryContract.Disclosure);
+    }
+
+    private static readonly HashSet<string> ContractSegments = new(StringComparer.Ordinal)
+    {
+        "answer", "reason", "query", "contractVersion", "unit", "where", "operation", "requireCompleteCoverage",
+        "timeWindow", "fromUtc", "toUtc", "cameraIds", "objectClass", "objectSubclass", "minDurationMs", "minConfidence",
+        "zone", "zoneId", "relation", "minDwellMs", "loitering", "line", "lineId", "direction", "motion", "minStationaryMs",
+        "attributes", "type", "value", "plateText", "text", "match", "similarTo", "trackId", "k", "ruleIds", "catalogueVersion",
+        "op", "limit", "order", "field", "by", "bucketSeconds", "baseline",
+    };
+
+    /// <summary>A JSON pointer cut at its first segment that is neither a contract member name nor an array index.</summary>
+    public static string ContractPath(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return path;
+        var kept = new List<string>();
+        foreach (var segment in path.Split('/').Skip(1))
+        {
+            if (!ContractSegments.Contains(segment) && !segment.All(char.IsAsciiDigit))
+                break;
+            kept.Add(segment);
+        }
+
+        return kept.Count == 0 ? "" : "/" + string.Join('/', kept);
     }
 
     /// <summary>The configured site zone, or the single zone all cameras share; null when they differ and none is configured.</summary>

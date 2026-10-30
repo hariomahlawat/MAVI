@@ -313,7 +313,8 @@ if ($state.PSObject.Properties["languageBound"] -and [bool]$state.languageBound)
             }
             try {
                 $languageHealth = Invoke-WebRequest -Uri "http://127.0.0.1:$languagePort/health" -UseBasicParsing -TimeoutSec 5
-                if ($languageHealth.StatusCode -eq 200) { break }
+                # A stale server on the port must not stand in for this start: the launcher started here must still run.
+                if ($languageHealth.StatusCode -eq 200 -and -not $languageRole.HasExited) { break }
             }
             catch { }
             if ([DateTime]::UtcNow -gt $deadline) { throw "The language role did not answer within the start-up timeout." }

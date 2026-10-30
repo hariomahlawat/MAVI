@@ -30,6 +30,25 @@ public static class AskCodes
     public const string LanguageTimeout = "language_timeout";
     public const string QuestionInvalid = "question_invalid";
     public const string SiteTimeZoneAmbiguous = "site_time_zone_ambiguous";
+    public const string SiteTimeZoneInvalid = "site_time_zone_invalid";
+    public const string PromptTooLong = "prompt_too_long";
+
+    /// <summary>
+    /// The largest prompt sent, in characters: about 6,400 tokens for the demo site's 12 cameras is about 25,000
+    /// characters; the role's context is 8,192 tokens of which 768 are kept for the answer. A larger site is refused
+    /// rather than truncated (ADR-026 §4; known limits).
+    /// </summary>
+    public const int MaximumPromptCharacters = 28_000;
+
+    /// <summary>Platform text for a refusal at the translation or contract stage; never text the model wrote.</summary>
+    public static string StageMessage(string stage, string code) => (stage, code) switch
+    {
+        (StageTranslation, TimeOffsetMismatch) => "An instant in the interpreted query does not carry the site time zone's offset.",
+        (StageTranslation, ModelOutputTruncated) => "The model's output stopped before the query was complete.",
+        (StageTranslation, _) => "The model's output was not a usable query or refusal.",
+        (StageContract, _) => $"The interpreted query is outside the query contract ({code}).",
+        _ => throw new ArgumentOutOfRangeException(nameof(stage)),
+    };
 
     public const int MaximumQuestionLength = 500;
 

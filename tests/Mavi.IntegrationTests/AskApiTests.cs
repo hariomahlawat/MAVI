@@ -127,7 +127,10 @@ public sealed class AskApiTests(PostgresFixture fixture)
         Assert.Equal((stage, code), (answer.Refusal!.Stage, answer.Refusal.Code));
         Assert.Null(answer.Envelope);
         Assert.Null(answer.Interpretation);
-        Assert.DoesNotContain("There were", JsonSerializer.Serialize(answer), StringComparison.Ordinal);
+        // No text the model wrote reaches the response: neither its prose nor a member name it invented.
+        var serialised = JsonSerializer.Serialize(answer);
+        Assert.DoesNotContain("There were", serialised, StringComparison.Ordinal);
+        Assert.DoesNotContain("speedKmh", serialised, StringComparison.Ordinal);
     }
 
     [Fact]
