@@ -56,3 +56,19 @@ public static class AuditPayload
         return CanonicalSha256.ToHex(SHA256.HashData(bytes));
     }
 }
+
+/// <summary>One audit entry as the read surface shows it (ADR-027 §3). The payload is not stored, only its hash.</summary>
+public sealed record AuditEntryView(Guid EntryId, string OperatorId, string OperatorDisplayName, string IdentitySource, string Action,
+    string SubjectType, string SubjectId, DateTimeOffset RecordedAtUtc, string PayloadSha256, string CorrelationId);
+
+/// <summary>Filters of the audit read surface; every given filter must hold, and an entry matches any of the subjects.</summary>
+public sealed record AuditQuery(IReadOnlyList<(string Type, string Id)> Subjects, string? Action, string? OperatorId,
+    (DateTimeOffset RecordedAtUtc, Guid EntryId)? Before, int Limit);
+
+public sealed record AuditPage(IReadOnlyList<AuditEntryView> Items, (DateTimeOffset RecordedAtUtc, Guid EntryId)? Next);
+
+/// <summary>Read-only access to <c>audit_entries</c>, newest first (ADR-027 §3).</summary>
+public interface IAuditReader
+{
+    Task<AuditPage> ReadAsync(AuditQuery query, CancellationToken cancellationToken);
+}

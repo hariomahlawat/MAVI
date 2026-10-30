@@ -2444,6 +2444,302 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Mavi.Domain.Review.CaseItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("AddedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("added_at_utc");
+
+                    b.Property<Guid>("AddedAuditEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("added_audit_entry_id");
+
+                    b.Property<string>("AddedByDisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("added_by_display_name");
+
+                    b.Property<string>("AddedByIdentitySource")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("added_by_identity_source");
+
+                    b.Property<string>("AddedByOperatorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("added_by_operator_id");
+
+                    b.Property<Guid>("CaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("case_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("note");
+
+                    b.Property<string>("RemovalNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("removal_note");
+
+                    b.Property<DateTimeOffset?>("RemovedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("removed_at_utc");
+
+                    b.Property<Guid?>("RemovedAuditEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("removed_audit_entry_id");
+
+                    b.Property<string>("RemovedByDisplayName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("removed_by_display_name");
+
+                    b.Property<string>("RemovedByIdentitySource")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("removed_by_identity_source");
+
+                    b.Property<string>("RemovedByOperatorId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("removed_by_operator_id");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subject_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AddedAuditEntryId");
+
+                    b.HasIndex("RemovedAuditEntryId");
+
+                    b.HasIndex("CaseId", "AddedAtUtc");
+
+                    b.HasIndex("Kind", "SubjectId")
+                        .HasDatabaseName("ix_case_items_subject");
+
+                    b.HasIndex("CaseId", "Kind", "SubjectId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_case_items_active_subject")
+                        .HasFilter("removed_at_utc IS NULL");
+
+                    b.ToTable("case_items", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_case_items_removal", "(removed_at_utc IS NULL AND removed_by_operator_id IS NULL AND removed_by_display_name IS NULL AND removed_by_identity_source IS NULL AND removed_audit_entry_id IS NULL AND removal_note IS NULL) OR (removed_at_utc IS NOT NULL AND removed_by_operator_id IS NOT NULL AND removed_by_display_name IS NOT NULL AND removed_by_identity_source IS NOT NULL AND removed_audit_entry_id IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Review.CaseNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AuditEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audit_entry_id");
+
+                    b.Property<string>("AuthorDisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("author_display_name");
+
+                    b.Property<string>("AuthorIdentitySource")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("author_identity_source");
+
+                    b.Property<string>("AuthorOperatorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("author_operator_id");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("body");
+
+                    b.Property<Guid>("CaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("case_id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuditEntryId");
+
+                    b.HasIndex("CaseId", "CreatedAtUtc");
+
+                    b.ToTable("case_notes", (string)null);
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Review.InvestigationCase", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AuditEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audit_entry_id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("CreatedByDisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("created_by_display_name");
+
+                    b.Property<string>("CreatedByIdentitySource")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("created_by_identity_source");
+
+                    b.Property<string>("CreatedByOperatorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("created_by_operator_id");
+
+                    b.Property<string>("Purpose")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("purpose");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuditEntryId");
+
+                    b.HasIndex("CreatedAtUtc");
+
+                    b.ToTable("cases", (string)null);
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Review.TrackReviewDecision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AuditEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audit_entry_id");
+
+                    b.Property<DateTimeOffset>("DecidedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at_utc");
+
+                    b.Property<string>("Decision")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("decision");
+
+                    b.Property<string>("IdentitySource")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("identity_source");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("note");
+
+                    b.Property<string>("OperatorDisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("operator_display_name");
+
+                    b.Property<string>("OperatorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("operator_id");
+
+                    b.Property<string>("PreviousStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("previous_status");
+
+                    b.Property<string>("RequestSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("request_sha256")
+                        .IsFixedLength();
+
+                    b.Property<string>("ResultingStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("resulting_status");
+
+                    b.Property<long>("Sequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("sequence");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Sequence"));
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuditEntryId")
+                        .IsUnique();
+
+                    b.HasIndex("Sequence")
+                        .IsUnique();
+
+                    b.HasIndex("TrackId", "Sequence")
+                        .HasDatabaseName("ix_track_review_decisions_track_sequence");
+
+                    b.ToTable("track_review_decisions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_track_review_decisions_request_sha256", "request_sha256 ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("ck_track_review_decisions_result", "(decision = 'Confirmed' AND resulting_status = 'Confirmed') OR (decision = 'Rejected' AND resulting_status = 'Rejected') OR (decision = 'Cleared' AND resulting_status = 'Unreviewed' AND previous_status <> 'Unreviewed')");
+                        });
+                });
+
             modelBuilder.Entity("Mavi.Domain.Scene.SceneConfiguration", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3973,6 +4269,65 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .WithOne()
                         .HasForeignKey("Mavi.Domain.Processing.VisionJob", "ProcessingRunId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Review.CaseItem", b =>
+                {
+                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
+                        .WithMany()
+                        .HasForeignKey("AddedAuditEntryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Review.InvestigationCase", null)
+                        .WithMany()
+                        .HasForeignKey("CaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
+                        .WithMany()
+                        .HasForeignKey("RemovedAuditEntryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Review.CaseNote", b =>
+                {
+                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
+                        .WithMany()
+                        .HasForeignKey("AuditEntryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Review.InvestigationCase", null)
+                        .WithMany()
+                        .HasForeignKey("CaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Review.InvestigationCase", b =>
+                {
+                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
+                        .WithMany()
+                        .HasForeignKey("AuditEntryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Review.TrackReviewDecision", b =>
+                {
+                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
+                        .WithMany()
+                        .HasForeignKey("AuditEntryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

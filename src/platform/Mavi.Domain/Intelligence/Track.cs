@@ -66,6 +66,18 @@ public sealed class Track
         RepresentativeObservationId = observationId;
     }
 
+    /// <summary>
+    /// Updates the review-status projection from a decision just recorded (ADR-027 §1). The decision must be about this
+    /// Track and start from its current status; the Track review service is the only caller.
+    /// </summary>
+    public void ApplyReviewDecision(Review.TrackReviewDecision decision)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        if (decision.TrackId != Id || decision.PreviousStatus != ReviewStatus)
+            throw new DomainValidationException("track_review_projection_invalid", "The decision does not follow the Track's current status.");
+        ReviewStatus = decision.ResultingStatus;
+    }
+
     public Guid Id { get; private set; }
     public Guid ProcessingRunId { get; private set; }
     public Guid VideoAssetId { get; private set; }
