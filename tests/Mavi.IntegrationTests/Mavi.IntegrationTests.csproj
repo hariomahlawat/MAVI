@@ -18,4 +18,8 @@
     <ProjectReference Include="..\..\src\platform\Mavi.Api\Mavi.Api.csproj" />
     <ProjectReference Include="..\..\tools\dotnet\Mavi.MeasurementExport\Mavi.MeasurementExport.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- PoC S10: the Ask MAVI corpus helper, shared with the replay tests so the recorder builds the same prompts. -->
+    <Compile Include="..\Mavi.Application.Tests\Ask\AskCorpus.cs" Link="Ask\AskCorpus.cs" />
+  </ItemGroup>
 </Project>
