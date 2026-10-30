@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "mavi-face-control-v1",
+  "analysisId": "01a1a000-0000-7000-8000-000000000002",
+  "processingRunId": "01a1a000-0000-7000-8000-0000000000a1",
+  "workerId": "mavi-faces-1",
+  "attemptCount": 1,
+  "leaseExpiresAtUtc": "2026-10-29T12:02:00Z",
+  "deadlineAtUtc": "2026-10-29T14:00:00Z",
+  "identity": {
+    "fingerprint": "03f627a39a8049120e8eec271fc8d25aa29d19ae9896259be21dece4a0347a00",
+    "model": {
+      "dimension": 512,
+      "id": "faces-yunet-adaface-ir50-webface4m",
+      "manifestSha256": "66a8e60a3d5d73e7df92bafdf83b14a1a762a31cf2e98d11c08b42672c725bf4",
+      "version": "60a65bef-dev.1"
+    },
+    "pipeline": {
+      "id": "faces-yunet-adaface-dev",
+      "sha256": "826057910042f8ad23fbcf81aa847d799f790654effb923a9968a22467ff493d",
+      "version": "1.0.0"
+    },
+    "schemaVersion": "mavi-face-identity-v1"
+  },
+  "tracks": [
+    {
+      "trackId": "01a1a000-0000-7000-8000-0000000000b1",
+      "objectClass": "Person",
+      "observations": [
+        {
+          "observationId": "01a1a000-0000-7000-8000-0000000000c1",
+          "role": "representative",
+          "evidenceRank": 0,
+          "sizeBytes": 18231,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "observationId": "01a1a000-0000-7000-8000-0000000000c2",
+          "role": "near-view",
+          "evidenceRank": 1,
+          "sizeBytes": 20112,
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ]
+    },
+    {
+      "trackId": "01a1a000-0000-7000-8000-0000000000b2",
+      "objectClass": "Person",
+      "observations": [
+        {
+          "observationId": "01a1a000-0000-7000-8000-0000000000c3",
+          "role": "representative",
+          "evidenceRank": 0,
+          "sizeBytes": 2210,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    },
+    {
+      "trackId": "01a1a000-0000-7000-8000-0000000000b3",
+      "objectClass": "Person",
+      "observations": []
+    }
+  ]
+}

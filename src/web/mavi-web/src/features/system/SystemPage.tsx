@@ -9,6 +9,7 @@ import KeyValue from '../../shared/components/KeyValue';
 import Panel from '../../shared/components/Panel';
 import { ContextBar } from '../../shared/workspace';
 import PlateKnownLimits from './PlateKnownLimits';
+import FaceKnownLimits from './FaceKnownLimits';
 
 const identityModeText: Record<DeploymentDisclosure['identity']['mode'], string> = {
   disabled: 'Disabled',
@@ -145,6 +146,7 @@ function SystemDetails({ disclosure }: { disclosure: DeploymentDisclosure }) {
         )}
       </Panel>
       <PlateKnownLimits profile={disclosure.profile} />
+      <FaceKnownLimits profile={disclosure.profile} />
     </div>
   );
 }

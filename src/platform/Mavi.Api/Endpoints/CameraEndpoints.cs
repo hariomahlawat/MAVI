@@ -66,7 +66,8 @@ public static class CameraEndpoints
         camera.TimeZoneId,
         camera.IsActive,
         camera.CreatedAtUtc,
-        camera.UpdatedAtUtc);
+        camera.UpdatedAtUtc,
+        camera.FaceAnalysisEnabled);
 
     private static IResult Problem(int statusCode, string code, string detail) =>
         Results.Problem(statusCode: statusCode, detail: detail, extensions: new Dictionary<string, object?>

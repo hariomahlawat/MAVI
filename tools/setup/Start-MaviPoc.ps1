@@ -47,7 +47,7 @@ Write-Host ""
 function Get-MaviPocRunningProcess {
     param([Parameter(Mandatory = $true)][string]$Name)
     $image = if ($Name -eq "api") { "Mavi.Api" } else { "powershell" }
-    $command = switch ($Name) { "api" { "Mavi.Api.exe" } "plates-worker" { "Start-MaviPlatesPilotWorker.ps1" } "embeddings-worker" { "Start-MaviEmbeddingsWorker.ps1" } "attributes-worker" { "Start-MaviAttributesWorker.ps1" } default { "Start-MaviVisionWorker.ps1" } }
+    $command = switch ($Name) { "api" { "Mavi.Api.exe" } "plates-worker" { "Start-MaviPlatesPilotWorker.ps1" } "embeddings-worker" { "Start-MaviEmbeddingsWorker.ps1" } "attributes-worker" { "Start-MaviAttributesWorker.ps1" } "faces-worker" { "Start-MaviFacesWorker.ps1" } default { "Start-MaviVisionWorker.ps1" } }
     Get-MaviPocRecordedProcess -Path (Join-Path $layout.RunRoot "$Name.pid") -ExpectedImageName $image -ExpectedCommandFragment $command
 }
 
@@ -244,6 +244,40 @@ if ($state.PSObject.Properties["embeddingsBound"] -and [bool]$state.embeddingsBo
     }
 }
 
+# Faces worker (PoC S6, ADR-022): bound by the installer; CPU ONNX Runtime on the embeddings-onnx-v1 environment. It
+# verifies its pack and leases only the platform's face identity, for runs of cameras an operator opted in; a failure
+# there never touches a ProcessingRun. Results are candidates, never identification.
+if ($state.PSObject.Properties["facesBound"] -and [bool]$state.facesBound) {
+    if (Get-MaviPocRunningProcess -Name "faces-worker") {
+        Write-MaviSetupStatus -Name "Faces worker" -Status "OK" -Detail "already running"
+    }
+    else {
+        $facesLauncher = Join-Path $layout.OverlayRoot "tools\setup\Start-MaviFacesWorker.ps1"
+        $facesArguments = @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $facesLauncher,
+            "-RepositoryRoot", $layout.OverlayRoot,
+            "-ApiBaseUrl", $apiBaseUrl,
+            "-WorkerId", "poc-faces-01",
+            "-Python", (Join-Path $layout.EmbeddingsEnvironmentRoot "Scripts\python.exe"),
+            "-ModelRoot", $layout.FacesModelRoot,
+            "-DevicePolicy", "cpu"
+        )
+        $quotedFaces = @($facesArguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
+        $facesWorker = Start-Process -FilePath "powershell.exe" -ArgumentList $quotedFaces -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput (Join-Path $layout.LogRoot "faces-worker-$stamp.out.log") -RedirectStandardError (Join-Path $layout.LogRoot "faces-worker-$stamp.err.log")
+        [void]$facesWorker.Handle
+        $startedHere += "faces-worker"
+        Write-MaviPocProcessRecord -Path (Join-Path $layout.RunRoot "faces-worker.pid") -Process $facesWorker
+        $settleUntil = [DateTime]::UtcNow.AddSeconds($WorkerSettleSeconds)
+        while ([DateTime]::UtcNow -lt $settleUntil) {
+            if ($facesWorker.HasExited) {
+                throw "The faces worker exited with code $($facesWorker.ExitCode) during start-up. See $(Join-Path $layout.LogRoot "faces-worker-$stamp.err.log")."
+            }
+            Start-Sleep -Seconds 2
+        }
+        Write-MaviSetupStatus -Name "Faces worker" -Status "OK" -Detail "YuNet + AdaFace IR-50 on CPU (Development; opt-in per camera)"
+    }
+}
 if ($Seed) {
     $cameras = Read-MaviPocDemoCameras -Path (Join-Path $layout.OverlayRoot "config\poc\demo-cameras-v1.json")
     # Windows PowerShell 5.1 hands a JSON array down the pipeline as one object; unroll it.

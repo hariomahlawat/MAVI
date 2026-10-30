@@ -163,3 +163,37 @@ If pass 4 (A1–A3) still yields no CC0 or model-released lobby/close-range clip
 **Fallback.** If G331 is not a fixed, populated view, it is not substituted silently. The finding goes back to the owner.
 
 **Note on A5 (2026-10-29, added after the cold review; A5 itself is left as pre-registered).** A5 says decisions 2(a) and 3(a) cover G331. Those decisions named the A4 clips: decision 3(a) named s2-10, s2-11 and s2-12. Extending them to G331 is the operator's inference, which was open as owner decision 13 (admissibility §12). The owner confirmed it on 2026-10-29 (13(a)).
+
+### A6 (2026-10-29, owner decision D-S6-2(a); recorded before any new MEVA media request)
+
+**Reason.** The S6 coverage measurement (`docs/qualification/poc/s6-face-coverage.md`, protocol `s6-face-coverage-v1`) found a usable face in 2 of 110 Person Tracks, all in s2-12. On 2026-10-29 the owner chose D-S6-2(a): add one or two close-range MEVA indoor clips from the same consented release, under this amendment, and re-measure.
+
+**Source and records, unchanged from A4/A5.**
+- **Release.** The same MEVA release `drops-123-r13`, under the release-level ADR-017 record (admissibility §7).
+- **Transfer.** The same HTTPS path, with SHA-256 recorded at acquisition (owner decision 2(a)).
+- **Consent.** The same IRB-consented actors (decision 3(a), extended to further clips of the release as for G331, decision 13(a)).
+- **Slot.** The same 5-minute slot, 2018-03-11 16:20.
+
+**Candidates, fixed here from the MEVID video list before any media is viewed.** These are the school-building views of that slot that are in `mevid-v1-video-URLS.txt` and not yet in the corpus: **G300, G328, G336, G420, G638**.
+
+**Selection, by viewpoint only:**
+1. For each candidate, fetch only the first 8 MB of the original by an HTTPS range request. Decode at most three frames from it.
+2. Choose the one or two **indoor** views whose fixed field of view shows a walkway, doorway or corridor within a few metres of the camera, where people pass close to it.
+3. If more than two qualify, take them in camera-id order.
+
+**What is not done during selection:**
+- No model is run.
+- No face is detected, counted or labelled.
+- No pipeline output is read.
+
+The screening frames are deleted after selection. The view chosen for each camera is recorded in admissibility §7.
+
+**Processing rules, unchanged from A4:**
+- trim the first 180 s, audio stripped, 1920 px maximum width;
+- demo cameras `POC-S2-13` (and `POC-S2-14`), time zone Asia/Kolkata;
+- the recording start keeps the real offset in the slot (09:40:0x);
+- scene geometry is drawn from one reference frame before any pipeline output is read, with any loitering threshold fixed at that point and within the half-window rule.
+
+**Count.** The plan's S2 row names 8–12 clips. This amendment records the corpus at **13 or 14 clips**, as the owner's decision allows, instead of dropping a clip. The cap check in `tools/poc/demo_corpus.py` and the seed-code check in `tools/setup/Test-MaviPocSetupContracts.ps1` follow this count.
+
+**Fallback.** If no candidate shows a close-range indoor view, nothing is substituted silently. The finding goes back to the owner with the coverage numbers unchanged.

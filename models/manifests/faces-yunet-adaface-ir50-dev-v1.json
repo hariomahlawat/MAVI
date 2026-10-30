@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "2.0",
+  "modelId": "faces-yunet-adaface-ir50-webface4m",
+  "modelVersion": "60a65bef-dev.1",
+  "capabilityIds": [
+    "embedding"
+  ],
+  "artifacts": [
+    {
+      "artifactRole": "licence-notice",
+      "relativePath": "faces-yunet-adaface-ir50-dev-v1/LICENSE",
+      "sha256": "95b6e493eb9dba27f2150304e790ae254bab18d1611f4d6e2ade28fa3a271583"
+    },
+    {
+      "artifactRole": "licence-notice-detector",
+      "relativePath": "faces-yunet-adaface-ir50-dev-v1/LICENSE-yunet",
+      "sha256": "c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958"
+    },
+    {
+      "artifactRole": "model-card",
+      "relativePath": "faces-yunet-adaface-ir50-dev-v1/README.md",
+      "sha256": "8233094a8c4af81879a5ef3976254c93ac27bc94163b6b874fd1bd51fe58e9f6"
+    },
+    {
+      "artifactRole": "model-card-detector",
+      "relativePath": "faces-yunet-adaface-ir50-dev-v1/README-yunet.md",
+      "sha256": "a140c9e9574ff99d3dc1c435d5e8b5e60690dc91597e66387cbbb52be12cce4c"
+    },
+    {
+      "artifactRole": "onnx-face-detector",
+      "relativePath": "faces-yunet-adaface-ir50-dev-v1/detector.onnx",
+      "sha256": "ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0"
+    },
+    {
+      "artifactRole": "onnx-face-embedder",
+      "relativePath": "faces-yunet-adaface-ir50-dev-v1/embedder.onnx",
+      "sha256": "fc9ced867d48dc3c5c35686d21f25d86d4df2fae5b738a9e6d26a61949faf344"
+    }
+  ],
+  "inputContract": {
+    "kind": "evidence-crop-jpeg",
+    "colourSpace": "RGB"
+  },
+  "outputContract": {
+    "schemaId": "face-embedding-v1"
+  },
+  "runtimeCompatibility": {
+    "runtimePackFamilyIds": [
+      "embeddings-onnx-v1"
+    ]
+  },
+  "licence": {
+    "spdxId": "MIT",
+    "noticeArtifactRole": "licence-notice",
+    "reviewStatus": "pending-review"
+  },
+  "provenance": {
+    "publisher": "AdaFace IR-50 WebFace4M by Minchul Kim (CVLface; code MIT; checkpoint terms follow WebFace4M: non-commercial research only, so Development-only per ADR-022) with YuNet 2026may by Shiqi Yu (OpenCV Zoo, MIT)",
+    "sourceRepository": "huggingface.co/minchul/cvlface_adaface_ir50_webface4m (model.safetensors; LICENSE from github.com/mk-minchul/CVLface); github.com/opencv/opencv_zoo models/face_detection_yunet",
+    "sourceRevision": "60a65befbcf7e19284c4f3ac730f56867ed29594 (AdaFace checkpoint); 308142aa50adf2e187711354f7524635d3414f1e (CVLface LICENSE); 48b10fa505aeb51fbd127fc60a5c660040e823b7 (opencv_zoo); ONNX export by tools/vision/build_face_packs.py (torch 2.6.0+cpu, opset 17)"
+  },
+  "verificationStatus": "unverified",
+  "qualificationId": null,
+  "capabilitySpecific": {
+    "embedding": {
+      "dimension": 512
+    }
+  }
+}

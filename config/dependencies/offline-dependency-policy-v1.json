@@ -256,6 +256,7 @@
           },
           "packagedBy": "tools/setup/Prepare-MaviDeveloperOfflineCache.ps1 (python-embeddings-wheelhouse: the lock's win_amd64 wheels, hash-checked; embeddings-payloads: tools/vision/embeddings_packs.py collect from the PoC controlled store, SHA-256 verified against models/manifests/embeddings-siglip2-base-p16-224-dev-v1.json); tools/setup/New-MaviPocSetupBundle.ps1 copies both into the bundle's embeddings\\",
           "installedBy": "tools/setup/Install-MaviEmbeddingsRuntime.ps1 (pip --no-index --require-hashes from the lock into a new venv; Model Pack staged by tools/vision/embeddings_packs.py), called by tools/setup/Install-MAVI-PoC.ps1",
+          "sharedBy": "PoC S6 (ADR-022): the faces role (python -m mavi_vision.faces.main, tools/setup/Start-MaviFacesWorker.ps1) runs on this same environment and lock: YuNet decoding, five-landmark alignment and the AdaFace embedder use only onnxruntime, numpy, Pillow, httpx and pydantic, so S6 adds no Python library and no OpenCV. Its Model Pack faces-yunet-adaface-ir50-dev-v1 (unverified, Development-only: research-only AdaFace checkpoint) is carried as developer cache faces-payloads (tools/vision/faces_packs.py collect from the PoC controlled store), copied into the PoC bundle's faces\\ by tools/setup/New-MaviPocSetupBundle.ps1 and staged SHA-256 verified by tools/setup/Install-MAVI-PoC.ps1",
           "verification": "the embeddings and zero-shot attributes workers verify every manifest artefact SHA-256 before loading and derives its identity from the manifest and profile bytes (contracts/test-vectors/embedding-identity-v1.json); the platform leases only its configured identity; tools/verify_repo.py holds this entry equal to the lock",
           "licences": {
             "onnxruntime": "MIT",
@@ -366,7 +367,7 @@
       ],
       "stagingPath": "vendor/developer-cache/win-x64",
       "packagedAs": "prerequisites/developer/win-x64/{nuget-packages,npm-cache,python-wheelhouse}",
-      "setupIntegration": "tools/setup/Mavi.Setup.Windows.psm1; PoC S1: the plates-onnx-v1 wheelhouse and plates-pilot payloads are also carried by the PoC setup bundle (plates\\) and installed, not bound, by Install-MAVI-PoC; pip --no-index --require-hashes and the committed manifests verify them.",
+      "setupIntegration": "tools/setup/Mavi.Setup.Windows.psm1; PoC S1: the plates-onnx-v1 wheelhouse and plates-pilot payloads are also carried by the PoC setup bundle (plates\\) and installed, not bound, by Install-MAVI-PoC; pip --no-index --require-hashes and the committed manifests verify them. PoC S6: faces-payloads (the face Model Pack, model bytes only) is carried by the bundle's faces\\ and staged by Install-MAVI-PoC; biometric derivatives never enter a cache, kit or bundle (ADR-022).",
       "verification": "offline restore/install followed by .NET build, frontend build and Python tests",
       "licenceHandling": "dependency licences remain governed by their upstream packages; release preparation must retain any redistribution notices required by a newly added package"
     },

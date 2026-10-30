@@ -143,11 +143,19 @@ public sealed class VisualAttributePersistenceTests(PostgresFixture fixture)
     {
         // Tables unchanged since the preceding schema are written with their own entity types.
         await using var db = fixture.CreateDbContext();
-        var camera = Mavi.Domain.Cameras.Camera.Create("CAM-VA-MIG", "Migration camera", "UTC");
+        // cameras has gained a column since (PoC S6, AddFaceIntelligence), so it too is inserted with the
+        // preceding column list.
+        var cameraId = Guid.CreateVersion7();
+        await ExecuteAsync(
+            """
+            INSERT INTO cameras (id, code, name, time_zone_id, is_active, created_at_utc, updated_at_utc)
+            VALUES ($1, 'CAM-VA-MIG', 'Migration camera', 'UTC', true, $2, $2)
+            """,
+            cameraId, Now.AddHours(-2));
         var source = Artifact.Create(ArtifactType.SourceVideo, $"source/CAM-VA-MIG/{Guid.CreateVersion7()}.mp4", "video/mp4", 1, new string('a', 64));
-        var video = VideoAsset.Create(camera.Id, source.Id, "m.mp4", Now.AddHours(-1), 1_000, 25, 1, 64, 64, "h264", TimestampSource.Manual, 1.0);
+        var video = VideoAsset.Create(cameraId, source.Id, "m.mp4", Now.AddHours(-1), 1_000, 25, 1, 64, 64, "h264", TimestampSource.Manual, 1.0);
         var run = Mavi.Domain.Processing.ProcessingRun.Create(video.Id, "phase1-detection-tracking-v1", "{}", Now.AddMinutes(-5));
-        db.AddRange(camera, source, video, run);
+        db.AddRange(source, video, run);
         await db.SaveChangesAsync();
 
         // tracks has gained columns since (Stage 3, AddTrackObjectSubclass), so the current

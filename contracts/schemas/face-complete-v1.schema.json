@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "face-complete-v1",
+  "description": "The face analysis completion request (mavi-face-control-v1; ADR-022 sections 1 and 3). Every leased Track appears exactly once, in lease order. A face is reported only when its detection score reaches the profile's detector.scoreThreshold (at most 8 per crop, highest score first, crops in lease order); it is usable when the shorter side of its reported box reaches minimumFaceSide, and only usable faces carry an embedding. 'observed' means at least one usable face; otherwise 'unknown' with a reason (never 'no match'). The completion digest is the SHA-256 of the exact request body; an identical replay is idempotent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "analysisId",
+    "workerId",
+    "attemptCount",
+    "provenance",
+    "tracks"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "mavi-face-control-v1"
+    },
+    "analysisId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "workerId": {
+      "$ref": "#/$defs/workerId"
+    },
+    "attemptCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roleId",
+        "identityFingerprint",
+        "runtimeProfileId",
+        "runtimeVariant",
+        "executionProvider",
+        "actualDevice",
+        "deviceResolutionReason",
+        "onnxRuntimeVersion",
+        "workerVersion"
+      ],
+      "properties": {
+        "roleId": {
+          "const": "faces"
+        },
+        "identityFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtimeProfileId": {
+          "$ref": "#/$defs/token"
+        },
+        "runtimeVariant": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]{1,64}$"
+        },
+        "executionProvider": {
+          "enum": [
+            "CPUExecutionProvider",
+            "CUDAExecutionProvider"
+          ]
+        },
+        "actualDevice": {
+          "type": "string",
+          "pattern": "^(cpu|cuda:[0-9]{1,2})$"
+        },
+        "deviceResolutionReason": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "onnxRuntimeVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "workerVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "trackId",
+              "outcome",
+              "faces"
+            ],
+            "properties": {
+              "trackId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "outcome": {
+                "const": "observed"
+              },
+              "faces": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 128,
+                "items": {
+                  "$ref": "#/$defs/trackFace"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "trackId",
+              "outcome",
+              "reason",
+              "faces"
+            ],
+            "properties": {
+              "trackId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "outcome": {
+                "const": "unknown"
+              },
+              "reason": {
+                "enum": [
+                  "no_evidence",
+                  "evidence_unavailable",
+                  "no_face_detected",
+                  "face_too_small"
+                ]
+              },
+              "faces": {
+                "type": "array",
+                "maxItems": 128,
+                "items": {
+                  "$ref": "#/$defs/unusableTrackFace"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,7})?Z$"
+    },
+    "token": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z](?:[a-z0-9]|-(?=[a-z0-9]))*$"
+    },
+    "workerId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "vector": {
+      "description": "Little-endian IEEE-754 float32 components, standard base64 with padding; finite, L2 norm 1 within 1e-3, exactly identity.model.dimension components (512 for AdaFace IR-50: 2732 characters; 128 for SFace).",
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 21848,
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+    },
+    "coordinate": {
+      "type": "number",
+      "minimum": -100000,
+      "maximum": 100000
+    },
+    "box": {
+      "description": "The detected face box in source pixels of its image (evidence crop or query image), clipped to the image; 3 decimals.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "landmarks": {
+      "description": "Five landmarks in source pixels: the subject's right eye, left eye, nose tip, right and left mouth corner (YuNet order); they may fall outside the clipped box.",
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+          "$ref": "#/$defs/coordinate"
+        }
+      }
+    },
+    "trackFace": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "box",
+            "landmarks",
+            "score",
+            "usable",
+            "embedding"
+          ],
+          "properties": {
+            "observationId": {
+              "$ref": "#/$defs/uuid"
+            },
+            "box": {
+              "$ref": "#/$defs/box"
+            },
+            "landmarks": {
+              "$ref": "#/$defs/landmarks"
+            },
+            "score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "usable": {
+              "const": true
+            },
+            "embedding": {
+              "$ref": "#/$defs/vector"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "box",
+            "landmarks",
+            "score",
+            "usable"
+          ],
+          "properties": {
+            "observationId": {
+              "$ref": "#/$defs/uuid"
+            },
+            "box": {
+              "$ref": "#/$defs/box"
+            },
+            "landmarks": {
+              "$ref": "#/$defs/landmarks"
+            },
+            "score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "usable": {
+              "const": false
+            }
+          }
+        }
+      ]
+    },
+    "unusableTrackFace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observationId",
+        "box",
+        "landmarks",
+        "score",
+        "usable"
+      ],
+      "properties": {
+        "observationId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "box": {
+          "$ref": "#/$defs/box"
+        },
+        "landmarks": {
+          "$ref": "#/$defs/landmarks"
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "usable": {
+          "const": false
+        }
+      }
+    }
+  }
+}

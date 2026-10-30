@@ -54,7 +54,7 @@ def test_definition_accepts_minimal_valid():
     dc.validate_definition(_definition())
 
 
-@pytest.mark.parametrize("count", [7, 13])
+@pytest.mark.parametrize("count", [7, 14])  # 13 clips allowed since S2 amendment A6
 def test_definition_clip_count_bounds(count):
     with pytest.raises(dc.CorpusError, match="definition_clip_count"):
         dc.validate_definition(_definition(count))

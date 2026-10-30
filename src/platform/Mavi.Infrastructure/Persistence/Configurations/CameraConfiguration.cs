@@ -16,6 +16,7 @@ public sealed class CameraConfiguration : IEntityTypeConfiguration<Camera>
         builder.Property(x => x.LocationName).HasColumnName("location_name").HasMaxLength(128);
         builder.Property(x => x.TimeZoneId).HasColumnName("time_zone_id").HasMaxLength(64).IsRequired();
         builder.Property(x => x.IsActive).HasColumnName("is_active");
+        builder.Property(x => x.FaceAnalysisEnabled).HasColumnName("face_analysis_enabled");
         builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         builder.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
         builder.HasIndex(x => x.Code).IsUnique(); builder.HasIndex(x => x.IsActive);

@@ -4,6 +4,31 @@
 
 This page is the PoC's record of what each capability does not do. The operator UI carries the same statements on the System / About page (`src/web/mavi-web/src/features/system/PlateKnownLimits.tsx`, which a test holds to the numbers here). Slices add their capability's section; S13 (register row D3) completes it.
 
+## Face intelligence (Stage 5A; slice S6, register rows C5A.1–C5A.5)
+
+- **Face candidates, never identification.**
+  - Every face result is a candidate: a cosine score next to the reference threshold and the model identity.
+  - "Find this face" lists candidate Person Tracks. A gallery comparison lists candidate gallery matches.
+  - Nothing stores a match or writes an `EntityId`, and nothing says "this is <name>" (ADR-022).
+- **Usable faces are rare in the demo corpus.** Protocols `s6-face-coverage-v1` (12 clips) and `s6-face-coverage-v2` (the A6 clip s2-13): YuNet score ≥ 0.9, face shorter side ≥ 32 px.
+  - **7 of 140** Person Tracks (5 %) have a usable face, all in the two indoor MEVA clips: the stairwell s2-12 (2 of 9) and the entrance hall s2-13 (5 of 30).
+  - The cafe lobby s2-10, the school hall s2-11 and every traffic clip have none.
+  - Most Person Tracks are therefore **Unknown (no usable face)**, which means "not analysable", not "no match".
+  - **Demonstration scope.** The demonstration opts in s2-10, s2-11, s2-12 and s2-13 (ADR-022 §3 as amended 2026-10-30; the owner confirmed G420 consent, D-S6-4). "Find this face" across s2-12 and s2-13 (same MEVA slot) works only for an actor whose face is usable in both, and no identity label confirms it is the same actor.
+  - The detector threshold stays at 0.9: the predeclared v2 rule found only 77 % of the 0.8–0.9 band to be faces, under its 90 % bar (`docs/qualification/poc/s6-face-coverage.md`).
+- **Opt-in per camera.** Face analysis runs only on cameras an operator has switched on. In the demonstration that is only the MEVA clips with consented actors.
+- **Model and threshold.**
+  - AdaFace IR-50 scores 99.8 % on LFW 10-fold and 99.7 % with faces downscaled to 32 px.
+  - The reference threshold is cosine 0.2121, the 32-px operating point at 0.1 % false accepts on LFW (`docs/qualification/poc/s6-face-embedder-spike.md`).
+  - LFW is frontal and well lit, and it may overlap the training identities. **The threshold is not calibrated on CCTV.**
+  - On the demo clips, two usable faces of the same Track scored 0.14, below the threshold (`s6-face-e2e-rehearsal.md`). A candidate below the threshold is not evidence of a different person, and one above it is not evidence of the same person.
+- **Research-only checkpoint.** The AdaFace weights follow WebFace4M's non-commercial research terms. The pack is Development-only and may be used only for non-commercial demonstration. SFace (Apache-2.0) is the built fallback.
+- **Biometric data stays on this machine.** Face templates, the gallery and query images live only in this installation's database:
+  - query images are erased once analysed;
+  - query vectors are purged after 1 hour;
+  - `Uninstall-MAVI-PoC` removes all of it.
+  - Every face search, comparison and gallery change is attributed to the operator and audited.
+
 ## Plate reading (Stage 4; slice S3, register rows C4.1–C4.3)
 
 - **Composition.** PD5 (PP-OCRv5 mobile detection, PaddlePaddle official ONNX, Apache-2.0) detects plates in a Vehicle Track's evidence crops; OC1-S (fast-plate-ocr `cct_s_v2_global`, MIT) reads them (plan decision D4). Both are unverified Development Model Packs; each licence is read from the pack's own LICENSE at install. They run on CPU (`plates-onnx-v1`); GPU plates are not available in the PoC yet.
