@@ -43,6 +43,12 @@ builder.Services.Configure<Mavi.Api.Events.AnalyticEventsOptions>(
     builder.Configuration.GetSection(Mavi.Api.Events.AnalyticEventsOptions.SectionName));
 builder.Services.AddSingleton<Mavi.Api.Events.AnalyticEventsHostedService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<Mavi.Api.Events.AnalyticEventsHostedService>());
+// Entity candidates (ADR-023): derived from completed embedding analyses; writes candidates only.
+// EntityCandidates:Enabled turns it off.
+builder.Services.Configure<Mavi.Api.Entities.EntityCandidatesOptions>(
+    builder.Configuration.GetSection(Mavi.Api.Entities.EntityCandidatesOptions.SectionName));
+builder.Services.AddSingleton<Mavi.Api.Entities.EntityCandidatesHostedService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<Mavi.Api.Entities.EntityCandidatesHostedService>());
 // Platform-owned reclamation of worker attempt staging (ADR-006 §6, S1.2 §6.5).
 // The VisionJob row is its sole authority; StagingJanitor:Enabled turns it off.
 builder.Services.AddHostedService<StagingJanitorHostedService>();
@@ -144,6 +150,7 @@ app.MapPlateEndpoints();
 app.MapEmbeddingEndpoints();
 app.MapFaceEndpoints();
 app.MapFaceOperatorEndpoints();
+app.MapEntityEndpoints();
 app.MapTrackEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapAnalyticEventEndpoints();

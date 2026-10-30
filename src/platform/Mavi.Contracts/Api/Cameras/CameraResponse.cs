@@ -10,4 +10,5 @@ public sealed record CameraResponse(
     bool IsActive,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
-    bool FaceAnalysisEnabled = false);
+    bool FaceAnalysisEnabled = false,
+    string? SiteCode = null);

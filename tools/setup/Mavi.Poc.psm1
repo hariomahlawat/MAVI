@@ -558,7 +558,7 @@ function Get-MaviPocPlatesPacks {
     return ,$packs
 }
 
-# The demo cameras: the S2 demo-corpus manifest, seeded as names and time zones only
+# The demo cameras: the S2 demo-corpus manifest, seeded as names, time zones and declared sites only
 # (S2's corpus definition carries each camera's media and scene geometry).
 function Read-MaviPocDemoCameras {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -571,7 +571,10 @@ function Read-MaviPocDemoCameras {
             if ([string]::IsNullOrWhiteSpace([string]$camera.$name)) { throw "Demo camera is missing '$name'." }
         }
         if (-not $codes.Add([string]$camera.code)) { throw "Duplicate demo camera code '$($camera.code)'." }
-        $cameras += [pscustomobject]@{ Code = [string]$camera.code; Name = [string]$camera.name; TimeZoneId = [string]$camera.timeZoneId }
+        # The optional declared site (ADR-023 amendment 2026-10-30): Entity candidates pair only cameras of one site.
+        $site = if ($null -ne $camera.PSObject.Properties["siteCode"]) { [string]$camera.siteCode } else { $null }
+        if ($null -ne $site -and $site -cnotmatch '\A[a-z0-9][a-z0-9._-]{0,63}\z') { throw "Demo camera '$($camera.code)' has an invalid siteCode." }
+        $cameras += [pscustomobject]@{ Code = [string]$camera.code; Name = [string]$camera.name; TimeZoneId = [string]$camera.timeZoneId; SiteCode = $site }
     }
     if ($cameras.Count -eq 0) { throw "The demo camera seed has no cameras." }
     return $cameras

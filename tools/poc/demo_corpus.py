@@ -46,6 +46,7 @@ MIN_CLIPS, MAX_CLIPS = 8, 13  # 13 since S2 amendment A6 (owner decision D-S6-2(
 MIN_TRIM_S, MAX_TRIM_S = 60, 180
 CLIP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 CAMERA_CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{0,31}$")
+SITE_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}\Z")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 TERMINAL_FAILURES = ("Failed", "Cancelled")
@@ -228,7 +229,11 @@ def validate_definition(document: Any) -> dict:
         require(isinstance(derivative, dict) and derivative.get("fileName") == f"{cid}.mp4", f"definition_derivative:{cid}")
         require(derivative.get("sha256") is None or SHA256_RE.match(derivative["sha256"]) is not None, f"definition_derivative_sha256:{cid}")
         camera = clip.get("camera")
-        require(isinstance(camera, dict) and set(camera) == {"code", "name", "timeZoneId"}, f"definition_camera:{cid}")
+        require(isinstance(camera, dict) and set(camera) in ({"code", "name", "timeZoneId"}, {"code", "name", "timeZoneId", "siteCode"}),
+                f"definition_camera:{cid}")
+        # The declared site (ADR-023 amendment 2026-10-30): Entity candidates pair only different cameras of one site.
+        require("siteCode" not in camera or (isinstance(camera["siteCode"], str) and SITE_CODE_RE.match(camera["siteCode"]) is not None),
+                f"definition_camera_site:{cid}")
         require(isinstance(camera["code"], str) and CAMERA_CODE_RE.match(camera["code"]) is not None and camera["code"] not in codes, f"definition_camera_code:{cid}")
         codes.add(camera["code"])
         require(isinstance(camera["name"], str) and 0 < len(camera["name"]) <= 128, f"definition_camera_name:{cid}")
@@ -468,6 +473,14 @@ def ensure_camera(api: Api, camera: dict) -> str:
         if isinstance(existing, dict) and existing.get("code") == camera["code"]:
             require(existing.get("name") == camera["name"] and existing.get("timeZoneId") == camera["timeZoneId"],
                     f"camera_mismatch:{camera['code']}")
+            site = existing.get("siteCode")
+            # A camera created before declared sites existed (ADR-023 amendment 2026-10-30) has none and cannot gain one:
+            # it is reused, and it gets no Entity candidates until the installation is reset. A different site is a mismatch.
+            require(site is None or site == camera.get("siteCode"), f"camera_mismatch:{camera['code']}")
+            if site is None and camera.get("siteCode") is not None:
+                print(f"  warning: camera {camera['code']} has no declared site; it gets no Entity candidates until the PoC is "
+                      "reinstalled (Uninstall-MAVI-PoC drops the database)",
+                      file=sys.stderr)
             return existing["id"]
     status, created = api.call("POST", "/api/cameras", json_body=camera)
     require(status == 201 and isinstance(created, dict) and created.get("id"), f"camera_create:{status}:{_problem(created)}")
