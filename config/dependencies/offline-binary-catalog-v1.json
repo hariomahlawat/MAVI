@@ -306,6 +306,22 @@
       "verification": "tools/vision/faces_packs.py collect/stage SHA-256 verification against the manifest; the faces worker re-verifies every artefact before loading; Install-MAVI-PoC reads both component licences from their installed LICENSE files; offline staging only",
       "licence": "MIT (YuNet, LICENSE-yunet from opencv_zoo models/face_detection_yunet); MIT for the AdaFace/CVLface code (LICENSE from mk-minchul/CVLface @ 308142aa). The AdaFace checkpoint ships no licence file and follows WebFace4M's non-commercial research terms: Development-only, non-commercial demonstration only (ADR-022 §2); SFace (Apache-2.0) is the built fallback. Model bytes only: no face crop, embedding, gallery or query image is ever cached, kitted or bundled. Not a Production release",
       "dependencyPolicyId": "developer-offline-caches"
+    },
+    {
+      "id": "developer-language-payloads",
+      "role": "development-offline-cache",
+      "profiles": [
+        "Development",
+        "poc-single-host"
+      ],
+      "versionPolicy": "exact-pinned",
+      "baselineVersion": "tools/language/language-payloads-v1.json",
+      "exactVersionSource": "the payload record's SHA-256 values: llama.cpp b12000 (68d20b88) llama-b12000-bin-win-cpu-x64.zip 6fb512a7..., llama-b12000-bin-win-cuda-12.4-x64.zip a10a292e..., cudart-llama-bin-win-cuda-12.4-x64.zip 8c79a9b2..., LICENSE 94f29bbe...; Qwen/Qwen2.5-1.5B-Instruct-GGUF @ 91cad511 qwen2.5-1.5b-instruct-q8_0.gguf d7efb072...; Qwen/Qwen2.5-7B-Instruct-GGUF @ bb5d59e0 qwen2.5-7b-instruct-q4_k_m-0000{1,2}-of-00002.gguf dfce12e3..., 539cf93f...; each model's LICENSE and README.md; the NVIDIA CUDA 12.4 EULA page 182734e0...",
+      "binaryKitPath": "vendor/developer-cache/win-x64/language-payloads",
+      "releasePath": "prerequisites/developer/win-x64/language-payloads",
+      "verification": "tools/language/language_packs.py collect/stage/verify SHA-256 verification against the payload record and the models/language manifests; every extracted runtime file is hashed; the language launcher re-verifies the runtime variant and the bound pack before every start; offline staging only",
+      "licence": "llama.cpp MIT (LICENSE retained); libomp Apache-2.0 WITH LLVM-exception; NVIDIA cudart/cuBLAS redistributables under the CUDA 12.4 EULA Attachment A (EULA retained); Qwen2.5-1.5B-Instruct and Qwen2.5-7B-Instruct Apache-2.0 (each LICENSE retained as the pack's licence notice). Never the research-licensed 3B or 72B sizes. Licence review pending; not a Production release",
+      "dependencyPolicyId": "language-runtime-llamacpp-win-x64"
     }
   ],
   "visionRuntime": {

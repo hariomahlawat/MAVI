@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "mavi-language-model-manifest-v1",
+  "$comment": "PoC S10 (ADR-026 \u00a72) Language Model Pack source manifest, in the ADR-014 \u00a73 shape. Not a vision Model Pack: the capability is served by the native language role (llama.cpp), so it lives outside models/manifests and is checked by tools/language/language_packs.py. Bytes never enter Git.",
+  "modelId": "qwen2-5-7b-instruct",
+  "modelVersion": "bb5d59e0-q4-k-m.dev-1",
+  "capabilityIds": [
+    "query-translation"
+  ],
+  "packDirectory": "language-qwen2.5-7b-instruct-q4-k-m-dev-v1",
+  "artifacts": [
+    {
+      "artifactRole": "gguf-weights-part-1",
+      "relativePath": "language-qwen2.5-7b-instruct-q4-k-m-dev-v1/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
+      "sha256": "dfce12e3862a5283ccfb88221b48480e58745165de856439950d0f22590580db"
+    },
+    {
+      "artifactRole": "gguf-weights-part-2",
+      "relativePath": "language-qwen2.5-7b-instruct-q4-k-m-dev-v1/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf",
+      "sha256": "539cf93f78e887edea1c04e2d7d8cdaca9d01dae9c9025bcb8accbe29df3d72a"
+    },
+    {
+      "artifactRole": "licence-notice",
+      "relativePath": "language-qwen2.5-7b-instruct-q4-k-m-dev-v1/LICENSE",
+      "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+    },
+    {
+      "artifactRole": "model-card",
+      "relativePath": "language-qwen2.5-7b-instruct-q4-k-m-dev-v1/README.md",
+      "sha256": "b813de546b5f0a1d8c49307d428582fd649be627d9b33a60ecf807a3381af05e"
+    }
+  ],
+  "inputContract": {
+    "kind": "chatml-prompt",
+    "promptTemplateVersion": "mavi-ask-prompt-v1"
+  },
+  "outputContract": {
+    "schemaId": "mavi-ask-translation-v1",
+    "decoding": "grammar-constrained JSON (ADR-026 \u00a74)"
+  },
+  "runtimeCompatibility": {
+    "runtimeIds": [
+      "llamacpp-b12000-win-x64"
+    ]
+  },
+  "quantisation": {
+    "type": "Q4_K_M",
+    "reason": "Q4_K_M: the standard size/quality point for 7B; 4.68 GB leaves most of the 4090's memory to the vision roles."
+  },
+  "hardware": "Demonstration host: RTX 4090 (sm_89) fully offloaded; on the laptop only with partial offload (--fit on), slowly",
+  "licence": {
+    "spdxId": "Apache-2.0",
+    "noticeArtifactRole": "licence-notice",
+    "reviewStatus": "pending-review",
+    "readFrom": "the LICENSE file of the model's own repository at the pinned revision (Apache License 2.0 text)"
+  },
+  "provenance": {
+    "publisher": "Qwen team, Alibaba Cloud (official GGUF conversion)",
+    "sourceRepository": "huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF",
+    "sourceRevision": "bb5d59e06d9551d752d08b292a50eb208b07ab1f"
+  },
+  "verificationStatus": "unverified",
+  "qualificationId": null
+}

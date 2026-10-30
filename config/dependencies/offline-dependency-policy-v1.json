@@ -367,7 +367,7 @@
       ],
       "stagingPath": "vendor/developer-cache/win-x64",
       "packagedAs": "prerequisites/developer/win-x64/{nuget-packages,npm-cache,python-wheelhouse}",
-      "setupIntegration": "tools/setup/Mavi.Setup.Windows.psm1; PoC S1: the plates-onnx-v1 wheelhouse and plates-pilot payloads are also carried by the PoC setup bundle (plates\\) and installed, not bound, by Install-MAVI-PoC; pip --no-index --require-hashes and the committed manifests verify them. PoC S6: faces-payloads (the face Model Pack, model bytes only) is carried by the bundle's faces\\ and staged by Install-MAVI-PoC; biometric derivatives never enter a cache, kit or bundle (ADR-022).",
+      "setupIntegration": "tools/setup/Mavi.Setup.Windows.psm1; PoC S1: the plates-onnx-v1 wheelhouse and plates-pilot payloads are also carried by the PoC setup bundle (plates\\) and installed, not bound, by Install-MAVI-PoC; pip --no-index --require-hashes and the committed manifests verify them. PoC S6: faces-payloads (the face Model Pack, model bytes only) is carried by the bundle's faces\\ and staged by Install-MAVI-PoC; biometric derivatives never enter a cache, kit or bundle (ADR-022). PoC S10 (ADR-026): language-payloads (the llama.cpp b12000 Windows archives, the retained NVIDIA CUDA 12.4 EULA notice and the Qwen2.5 1.5B/7B GGUF Language Model Packs) is carried by the bundle's language\\ and staged by Install-MAVI-PoC through tools/language/language_packs.py.",
       "verification": "offline restore/install followed by .NET build, frontend build and Python tests",
       "licenceHandling": "dependency licences remain governed by their upstream packages; release preparation must retain any redistribution notices required by a newly added package"
     },
@@ -382,6 +382,17 @@
       "setupIntegration": "Task-17 runtime qualification and deployment tooling; PoC S1 (ADR-020): tools/setup/Install-MAVI-PoC.ps1 installs it on poc-single-host hosts from the PoC setup bundle (tools/setup/New-MaviPocSetupBundle.ps1); not a Production use.",
       "verification": "runtime locks, hashes, component binding v2 relationships (P-17 variant classes, derived Runtime/Model Pack ids), model manifest relationships and disconnected CPU/CUDA qualification",
       "licenceHandling": "model/runtime licence approval is required before promotion; every Model Pack ships its licence notice as an identity-bearing artefact"
+    },
+    {
+      "id": "language-runtime-llamacpp-win-x64",
+      "scope": [
+        "poc-single-host"
+      ],
+      "stagingPath": "vendor/developer-cache/win-x64/language-payloads (from the controlled store E:\\MAVI-Controlled\\PoC\\S10\\store)",
+      "packagedAs": "PoC S10 (ADR-026): the Language Runtime Pack, llama.cpp b12000 (commit 68d20b884c3878217de79eade0a249efde96ab38) as published by the project: llama-b12000-bin-win-cpu-x64.zip and llama-b12000-bin-win-cuda-12.4-x64.zip with cudart-llama-bin-win-cuda-12.4-x64.zip, extracted to <install>\\language\\runtime\\{cpu,cuda}; and two Language Model Packs, Qwen2.5-1.5B-Instruct Q8_0 and Qwen2.5-7B-Instruct Q4_K_M (official Qwen GGUF repositories at pinned revisions), staged to <install>\\language\\models. No compiler, no build contract, no Python package; the CUDA build carries SASS for sm_86/sm_89 and PTX for sm_50-sm_90 (cuobjdump, recorded in the payload file)",
+      "setupIntegration": "Install-MAVI-PoC stages all payloads and binds one Language Model Pack (Auto: 7B on a GPU with 16 GiB or more, 1.5B otherwise; -LanguageModel overrides); Start-MAVI-PoC runs tools/setup/Start-MaviLanguageRuntime.ps1, which verifies the runtime variant and the bound pack before every start, resolves the device under ADR-008 (CUDA fails closed) and runs llama-server on 127.0.0.1 only; Stop-MAVI-PoC stops it; Uninstall-MAVI-PoC removes it with the install root. The API calls it through LlamaServerLanguageRuntime (HttpClient, loopback only); no NuGet, npm or Python dependency is added",
+      "verification": "tools/language/language-payloads-v1.json is the acquisition record: every archive, licence and model file with its SHA-256 (each compared with the publisher's own digest at acquisition: GitHub release asset digest, Hugging Face LFS oid), and the SHA-256 of every file each runtime variant extracts; tools/language/language_packs.py check (model files equal their models/language manifests), stage (refuses an unrecorded archive member or a hash mismatch) and verify (the launcher's preflight: the variant directory holds exactly the recorded files); verify_repo runs check",
+      "licenceHandling": "llama.cpp MIT (its LICENSE at tag b12000, retained); libomp Apache-2.0 WITH LLVM-exception (LICENSE-LLVM-OpenMP inside the archives); cudart64_12.dll, cublas64_12.dll and cublasLt64_12.dll are NVIDIA CUDA Toolkit 12.4 EULA Attachment A redistributables (the EULA page is retained with the CUDA variant); Qwen2.5-1.5B-Instruct and Qwen2.5-7B-Instruct Apache-2.0, each read from its own repository's LICENSE file and kept as the pack's licence-notice artefact. The research-licensed Qwen2.5 3B and 72B sizes are never acquired (plan D7; language_packs.py refuses them). Licence review pending; Development evidence only, not a Production release"
     },
     {
       "id": "nvidia-driver-win-x64",

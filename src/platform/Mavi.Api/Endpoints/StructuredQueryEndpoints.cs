@@ -59,53 +59,7 @@ public static class StructuredQueryEndpoints
         if (context.Request.Query.Count > 0)
             return Refused(new QueryRefusal(QueryRefusalCodes.UnknownMember, "", "This route takes no query parameters."));
 
-        var definition = services.GetService<IVisualAttributeRelease>()?.Resolution.Definition;
-        var attributes = definition is null
-            ? []
-            : definition.Schema.Attributes
-                .OrderBy(item => item.AttributeType, StringComparer.Ordinal)
-                .Select(item => new QueryAttributeVocabularyResponse(
-                    item.AttributeType,
-                    item.ObjectClass == "person" ? "Person" : "Vehicle",
-                    [.. item.Values]))
-                .ToList();
-
-        var units = new[] { QueryUnit.Track, QueryUnit.Event, QueryUnit.Entity }
-            .Select(unit => new QueryUnitVocabularyResponse(
-                QueryContract.ToWire(unit),
-                unit != QueryUnit.Entity,
-                unit == QueryUnit.Entity ? StructuredQueryService.EntityUnavailableReason : null,
-                QueryContract.Predicates[unit],
-                QueryContract.GroupDimensions[unit],
-                QueryContract.DistinctFields[unit]))
-            .ToList();
-
-        return Results.Ok(new QueryContractResponse(
-            QueryContract.Version,
-            units,
-            QueryContract.Operations,
-            QueryContract.ObjectClasses,
-            Application.Modules.Intelligence.VehicleSubclassExposurePolicy.ExposedSubclasses,
-            QueryContract.ZoneRelations,
-            QueryContract.CrossingDirections,
-            TrackSearchContractRules.MotionDirectionValues,
-            QueryContract.PlateMatches,
-            attributes,
-            definition?.Disclosure,
-            EventRuleIds.All,
-            RuleCatalogue.Current.CatalogueVersion,
-            new QueryBoundsResponse(
-                QueryContract.MaximumCameraIds,
-                QueryContract.DefaultFindLimit,
-                QueryContract.MaximumFindLimit,
-                QueryContract.MaximumTopK,
-                QueryContract.MaximumSimilarK,
-                QueryContract.MinimumBucketSeconds,
-                QueryContract.MaximumBucketSeconds,
-                QueryContract.MaximumBuckets,
-                QueryContract.MaximumMatchedRecords),
-            QueryRefusalCodes.All,
-            QueryContract.Disclosure));
+        return Results.Ok(QueryContractVocabulary.Describe(services.GetService<IVisualAttributeRelease>()));
     }
 
     /// <summary>The body as UTF-8 text, or null when it is longer than a query may be (whatever Content-Length said).</summary>

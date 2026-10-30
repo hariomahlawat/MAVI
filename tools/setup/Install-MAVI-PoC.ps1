@@ -21,6 +21,12 @@ param(
     # build whose contract targets this GPU (the sm_75 pack on sm_75, the sm_75;sm_89 pack on
     # sm_89); naming one installs that build only if it targets this GPU.
     [ValidateSet("Auto", "sm75", "sm75-sm89")][string]$CudaRuntimePack = "Auto",
+    # PoC S10 (ADR-026): which Language Model Pack Ask MAVI binds. Auto: the 7B pack on a GPU with 16 GiB or more (the
+    # RTX 4090 class), otherwise the 1.5B pack (the Development laptop, or CPU). Both are staged; one is bound.
+    [ValidateSet("Auto", "1.5B", "7B")][string]$LanguageModel = "Auto",
+    # ADR-008 for the language role: Auto prefers CUDA when an NVIDIA GPU answers; CUDA fails closed. Recorded for Start-MAVI-PoC.
+    [ValidateSet("Auto", "CUDA", "CPU")][string]$LanguageDevicePolicy = "Auto",
+    [int]$LanguagePort = 62301,
     # Resolve and print the plan; change nothing.
     [switch]$PlanOnly
 )
@@ -80,6 +86,7 @@ $platesCache = Join-Path $BundleRoot "plates"
 $cudaCandidates = Get-MaviPocCudaRuntimePackCandidates -OverlayRoot $bundleOverlay -BundleRoot $BundleRoot
 $embeddingsCache = Join-Path $BundleRoot "embeddings"
 $facesCache = Join-Path $BundleRoot "faces"
+$languageCache = Join-Path $BundleRoot "language"
 $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
 $smiLines = $null
 if ($nvidiaSmi) {
@@ -94,6 +101,20 @@ if ($nvidiaSmi) {
     catch { $smiLines = @() }
     finally { $ErrorActionPreference = $previousPreference }
 }
+# PoC S10: the language pack choice reads GPU memory as well (a separate query, so the CUDA pack selection above is unchanged).
+$languageSmiLines = $null
+if ($nvidiaSmi) {
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $languageSmiLines = @(& $nvidiaSmi.Source --query-gpu=index,name,compute_cap,memory.total --format=csv,noheader 2>$null)
+        if ($LASTEXITCODE -ne 0) { $languageSmiLines = @() }
+    }
+    catch { $languageSmiLines = @() }
+    finally { $ErrorActionPreference = $previousPreference }
+}
+$languagePayloadsPath = Join-Path $PSScriptRoot "..\language\language-payloads-v1.json"
+$languagePack = Select-MaviPocLanguagePack -Choice $LanguageModel -NvidiaSmiLines $languageSmiLines -PayloadsPath $languagePayloadsPath
 $requestedPack = $CudaRuntimePack
 if ($AdoptCudaRuntimeRoot) {
     # An adopted pack is served by the build whose native ABI it carries; it must target this GPU.
@@ -151,6 +172,8 @@ $plan = [ordered]@{
     embeddings = [ordered]@{ environment = $layout.EmbeddingsEnvironmentRoot; modelStore = $layout.EmbeddingsModelRoot; bound = $true; devicePolicy = "cpu" }
     # PoC S6 (ADR-022): the faces worker shares the embeddings-onnx-v1 environment; analysis is opt-in per camera.
     faces = [ordered]@{ environment = $layout.EmbeddingsEnvironmentRoot; modelStore = $layout.FacesModelRoot; bound = $true; devicePolicy = "cpu"; optInPerCamera = $true }
+    # PoC S10 (ADR-026): llama.cpp (cpu\, cuda\) and both Language Model Packs staged; one bound, by the recorded reason.
+    language = [ordered]@{ runtimeRoot = $layout.LanguageRuntimeRoot; modelStore = $layout.LanguageModelRoot; bound = $true; pack = $languagePack.PackDirectory; packReason = $languagePack.Reason; devicePolicy = $LanguageDevicePolicy; port = $LanguagePort }
     releaseMetadata = $layout.ReleaseMetadataPath
 }
 
@@ -325,11 +348,26 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Face Model Pack staging failed." }
     Write-MaviSetupStatus -Name "Faces Model Pack" -Status "OK" -Detail "installed and bound (YuNet + AdaFace IR-50, Development-only; opt-in per camera)"
 
+    # Language role (PoC S10, ADR-026): the llama.cpp Runtime Pack variants and both Language Model Packs, staged and
+    # SHA-256 verified offline (every extracted runtime file against the payload record); one pack is bound.
+    $languagePayloads = Join-Path $languageCache "language-payloads"
+    if (-not (Test-Path -LiteralPath $languagePayloads -PathType Container)) { throw "The PoC bundle carries no language payloads ('$languagePayloads')." }
+    & (Join-Path $layout.EmbeddingsEnvironmentRoot "Scripts\python.exe") (Join-Path $layout.OverlayRoot "tools\language\language_packs.py") stage --source $languagePayloads --runtime-root $layout.LanguageRuntimeRoot --model-root $layout.LanguageModelRoot
+    if ($LASTEXITCODE -ne 0) { throw "Language pack staging failed." }
+    $languagePackId = (& (Join-Path $layout.EmbeddingsEnvironmentRoot "Scripts\python.exe") (Join-Path $layout.OverlayRoot "tools\language\language_packs.py") identity --pack $languagePack.PackDirectory | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $languagePackId) { throw "The Language Model Pack identity could not be derived." }
+    $languageManifest = Read-MaviJson -Path (Join-Path $layout.OverlayRoot $languagePack.ManifestPath)
+    $languageBinding = [pscustomobject]@{
+        ModelPackId = $languagePackId; ModelId = [string]$languageManifest.modelId; Quantisation = [string]$languageManifest.quantisation.type
+        RuntimeId = [string](Read-MaviJson -Path (Join-Path $layout.OverlayRoot "tools\language\language-payloads-v1.json")).runtime.runtimeId
+    }
+    Write-MaviSetupStatus -Name "Language packs" -Status "OK" -Detail "llama.cpp (cpu, cuda) and Qwen2.5 1.5B/7B staged; bound $($languagePack.PackDirectory) ($($languagePack.Reason))"
+
     # Machine configuration (connection string, roots, cursor key, loopback URL, profile).
     $cursorSigningKey = Get-MaviExistingCursorSigningKey -MachineConfigPath $layout.MachineConfigPath
     if (-not $cursorSigningKey) { $cursorSigningKey = New-MaviCursorSigningKey }
     $connectionString = "Host=127.0.0.1;Port=$postgresPort;Database=$databaseName;Username=$databaseUser;Password=$databasePassword"
-    Write-MaviJson -Value (New-MaviPocMachineConfig -Layout $layout -ConnectionString $connectionString -CursorSigningKey $cursorSigningKey -HttpPort $HttpPort) -Path $layout.MachineConfigPath -Depth 8
+    Write-MaviJson -Value (New-MaviPocMachineConfig -Layout $layout -ConnectionString $connectionString -CursorSigningKey $cursorSigningKey -HttpPort $HttpPort -LanguagePack $languageBinding -LanguagePort $LanguagePort) -Path $layout.MachineConfigPath -Depth 8
     # Read for Authenticated Users, as on a Development workstation: whoever signs in starts
     # MAVI unelevated and the platform reads this file as that user (an installing
     # administrator is often not the operator). It holds the PoC database credentials; a
@@ -369,6 +407,8 @@ try {
     $packs += [ordered]@{ kind = "model"; role = "embeddings"; capabilityId = "embedding"; packId = "$($embeddingsManifest.modelId)@$($embeddingsManifest.modelVersion)"; variant = $null; verificationStatus = [string]$embeddingsManifest.verificationStatus; note = "$($embeddingsManifest.modelId) $($embeddingsManifest.modelVersion) (PoC S4, bound)"; licence = "$($embeddingsLicence.SpdxId), read from its LICENSE (SHA-256 $($embeddingsLicence.Sha256)); licence review $($embeddingsManifest.licence.reviewStatus)" }
     # The face Model Pack (ADR-022): both component licences read from their own installed LICENSE files.
     $packs += Get-MaviPocFacesPack -ManifestPath (Join-Path $manifestDirectory "faces-yunet-adaface-ir50-dev-v1.json") -ModelRoot $layout.FacesModelRoot
+    # The language packs (ADR-026): the llama.cpp Runtime Pack and the bound Language Model Pack, licences read from their files.
+    $packs += Get-MaviPocLanguagePacks -PayloadsPath (Join-Path $layout.OverlayRoot "tools\language\language-payloads-v1.json") -ManifestPath (Join-Path $layout.OverlayRoot $languagePack.ManifestPath) -ModelRoot $layout.LanguageModelRoot -RuntimeRoot $layout.LanguageRuntimeRoot -ModelPackId $languagePackId
     $metadata = New-MaviPocReleaseMetadata -ApplicationRevision $revision -BundleSha256 $bundleSha256 -DevicePolicy $DevicePolicy -CudaDecision $cudaDecision -Packs $packs -InstalledAtUtc ([DateTimeOffset]::UtcNow.ToString("O"))
     Write-MaviJson -Value $metadata -Path $layout.ReleaseMetadataPath -Depth 8
     Write-MaviSetupStatus -Name "Release metadata" -Status "OK" -Detail $layout.ReleaseMetadataPath
@@ -390,6 +430,11 @@ try {
         embeddingsBound = $true
         # PoC S6: Start-MAVI-PoC starts the faces worker for an installation that bound it.
         facesBound = $true
+        # PoC S10: Start-MAVI-PoC starts the language role for an installation that bound it.
+        languageBound = $true
+        languagePack = $languagePack.PackDirectory
+        languageDevicePolicy = $LanguageDevicePolicy
+        languagePort = $LanguagePort
     }
     Write-MaviJson -Value $state -Path $layout.InstallationStatePath -Depth 6
 

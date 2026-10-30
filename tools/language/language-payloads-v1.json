@@ -1,0 +1,248 @@
+{
+  "schemaVersion": "mavi-language-payloads-v1",
+  "$comment": "PoC S10 (ADR-026) language payloads: the acquisition record and the staging authority. Acquired once on the Development machine over HTTPS (2026-10-30); each SHA-256 was compared with the publisher's own digest (GitHub release asset digest; Hugging Face LFS oid) before it was recorded. Bytes never enter Git; they travel through the developer offline cache, the Offline Binary Kit and the PoC setup bundle. Model pack files must equal their manifest artefacts (tools/language/language_packs.py check). Every file a runtime variant extracts is listed, and the launcher refuses a variant directory that differs.",
+  "runtime": {
+    "runtimeId": "llamacpp-b12000-win-x64",
+    "project": "llama.cpp (ggml-org/llama.cpp)",
+    "release": "b12000",
+    "sourceCommit": "68d20b884c3878217de79eade0a249efde96ab38",
+    "buildInfo": "b12000-68d20b884",
+    "licence": {
+      "spdxId": "MIT",
+      "file": "LICENSE",
+      "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+      "bytes": 1078,
+      "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b12000/LICENSE"
+    },
+    "variants": [
+      {
+        "variant": "windows-x86_64-cpu",
+        "directory": "cpu",
+        "archives": [
+          {
+            "file": "llama-b12000-bin-win-cpu-x64.zip",
+            "sha256": "6fb512a768e6b93c9ced1d01e1f84a3a96bc16b5f0a5948e38fb320d6e067220",
+            "bytes": 24548752,
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12000/llama-b12000-bin-win-cpu-x64.zip"
+          }
+        ],
+        "files": {
+          "LICENSE-LLVM-OpenMP": "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4",
+          "ggml-base.dll": "b47003566e32efb32e2848c30d89a7700a1dd19e8f42fe9de8c6200ce562d3f6",
+          "ggml-cpu-alderlake.dll": "0c0710cbc3bb16f548a8018956453f5f10c4f8b91dbcd015d556c38808045048",
+          "ggml-cpu-cannonlake.dll": "f79b22505279b01f67b25b6aeb71e3c792bcccbe58e4578df8207f721888bd9e",
+          "ggml-cpu-cascadelake.dll": "121699dec8352fcd2fe704e8bae53d7dceb92da99c1e37e566f135a51532514a",
+          "ggml-cpu-cooperlake.dll": "85ea8832c40a6734b76600f026fd843921c8bb183010f0fba28428f014389d4c",
+          "ggml-cpu-haswell.dll": "5efbbbdcca1ea0c4e676cec6b3658ffb39a6631b61a863a19a1122c887e22c02",
+          "ggml-cpu-icelake.dll": "26fe0dcae6a9b2028afab2e519af1cb609e0b628ccb24e26236f8b37edc0d7c0",
+          "ggml-cpu-ivybridge.dll": "76f929f760c4dbd86b9b1330d079aba8353f0ff392278ad17d6dfdb4745d76e9",
+          "ggml-cpu-piledriver.dll": "9890b28febb4cad67f3829bc1e51666b4d1ae336a51272e2202d7423476185ab",
+          "ggml-cpu-sandybridge.dll": "671ae540a38da7fd42ec70c03325ee9c5d5283f47383ccc4f37a3a23e238e0c1",
+          "ggml-cpu-sapphirerapids.dll": "aac5b5ad396ccfec8cacba1bf871be83121e76620ba487f41f1e04f1f9d072f3",
+          "ggml-cpu-skylakex.dll": "d31c27ace622e8fe8feab0f5ab47f556df7bb33d9cafdc410be714074ee8af00",
+          "ggml-cpu-sse42.dll": "93181f0cf915719ecf332e55d54e290d09e8965d9e948fc24311464860f3c8ea",
+          "ggml-cpu-x64.dll": "2455b28ff97cbc764bf5e50de2b893856e91bf66052112021711a9145f15351b",
+          "ggml-cpu-zen4.dll": "1451227766432c771df28667bf5a414373be479abff3ede17cf4aa18c92b3436",
+          "ggml-rpc-server.exe": "da7366263363ba7e796bea8a3ef223ca5b272e887992383178d723ce4087012a",
+          "ggml-rpc.dll": "dbdc3ad026fd208e6bb12290b8d7420d7b68ebef8ed2fb69b37a34e7e8bf5333",
+          "ggml.dll": "6c656979e01ca0288a6777c8d17afdfd9ef8d36630ef29364c390f1c0466dbff",
+          "libomp.dll": "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c",
+          "llama-batched-bench-impl.dll": "70a207688e8bd541587a82bcc644aa2e6a4646d6099fa122160fddb6642f13d9",
+          "llama-batched-bench.exe": "3529060244a54b3a4f2ba6184b67b05e6af8ba8bbe0ce61e03454154d1863fdf",
+          "llama-bench-impl.dll": "0d76ded46632edd9c1a372e71a43bed61daa80ca8f4512a4f34bfd5f58db25da",
+          "llama-bench.exe": "f8d2e4f355711acd622feb256efa509ce73669cdad58d7c452cb10cf0783b474",
+          "llama-cli-impl.dll": "9f713d530ae03a6adf0d81b2a38242c2db4b54d14a08edec002100c82793ff61",
+          "llama-cli.exe": "1ceae0bb5881137539fe3161aa1559a4c3cffd2b55a7645da327ea39e599fd21",
+          "llama-common.dll": "1611a24d81af84e498dc783edc97606ec62e4c0c201185301e431162831f4542",
+          "llama-completion-impl.dll": "ba7fb45c31081883f0a1ac7a6b454452168330c7510d9fcd9196ce3785935d59",
+          "llama-completion.exe": "0cf09f1a01558fa2cf668730abae850cd6fd8afeacce95e309feb2395d23b133",
+          "llama-connect.exe": "9f2bdd778f96971995a80add8d6b2478c156f799933337a19dbf80cdaad21b1d",
+          "llama-fit-params-impl.dll": "2d1a2650f1689a05a5c86a4b3b076d54221eea732d9edee8cb23c4d3a97f8044",
+          "llama-fit-params.exe": "2eb15a8095e000aa054e027f05519c80c7f5393437e8ba2065a6e8b28e794832",
+          "llama-gemma3-cli.exe": "2200da4b7ee6cc6b7c796b0707637309af9fb2b4faef2b0836052f570b3030d7",
+          "llama-gguf-split.exe": "16ea4738f475bbeaa03fb976f94f1ced7ec5f1d97fcce83bd07d62f2f12d02d3",
+          "llama-imatrix.exe": "c044b4db7c14ae744ea6198ee5091d8c52d384b42d55fb3f45d623d786d0d690",
+          "llama-llava-cli.exe": "2200da4b7ee6cc6b7c796b0707637309af9fb2b4faef2b0836052f570b3030d7",
+          "llama-minicpmv-cli.exe": "2200da4b7ee6cc6b7c796b0707637309af9fb2b4faef2b0836052f570b3030d7",
+          "llama-mtmd-cli.exe": "736d50dfeefef34fca89df225d7246bd6a472b233c2b7a1858d80dc734af7c7d",
+          "llama-mtmd-debug.exe": "31f125849e28099410b59b6448805fe3d9301630c777cbef7e727177c10d8db5",
+          "llama-perplexity-impl.dll": "0b611a39f4fffcc42f7ea25a948836934faf65026d6dbe8fdaaf9effa4efcf5d",
+          "llama-perplexity.exe": "e88ff6017149e2cf9cc0acd19f61c9ff43999615c7a44a74bc2fe532bdc25c2a",
+          "llama-quantize-impl.dll": "503e085dd24fb988e7a9e3a5b39cc22e9074fd47fb95e5d36911f85e43d14af7",
+          "llama-quantize.exe": "524c76d977453575c73ae859cc781163578d5b2b5001b75d9173da6f4ee44208",
+          "llama-qwen2vl-cli.exe": "2200da4b7ee6cc6b7c796b0707637309af9fb2b4faef2b0836052f570b3030d7",
+          "llama-results.exe": "cdcb3652d27e2d3b9c35acc8ce4ac25fa4ef7aec4f0ddf31c663b4a85d53984f",
+          "llama-server-impl.dll": "c038594ca006214a802f653c86074fe06019203e1c133abe8b40373b871e031c",
+          "llama-server.exe": "7067c01956452430cd8c67b649f4cb13f86b173c63091123f852edaf5f038b1d",
+          "llama-tokenize.exe": "d31f36a8f0ca93155c4fb8485714a5962520d547a04ec41ff16bd3526d1cd675",
+          "llama-tts.exe": "865c23549d9b35c051be8ed7e96548d878b599991a0b490d7a2f1068784f6d25",
+          "llama.dll": "01b51ba9f02dbe039b61b2e09355a0888debfb73081ce46784fc2730c8d1ea87",
+          "llama.exe": "25353c3b2279e758dd7d45d50cedf4143715c627f579bc87420026638f57f115",
+          "mtmd.dll": "45cc6542f3719e6fe0acc6d57dcd1ba1552724bb3a95406b428abf44ac6b107d"
+        },
+        "notices": [
+          "LICENSE-LLVM-OpenMP (Apache-2.0 WITH LLVM-exception, libomp.dll; inside the archive)"
+        ]
+      },
+      {
+        "variant": "windows-x86_64-cuda",
+        "directory": "cuda",
+        "cuda": {
+          "toolkit": "12.4",
+          "sass": [
+            "sm_86",
+            "sm_89"
+          ],
+          "ptx": [
+            "sm_50",
+            "sm_61",
+            "sm_70",
+            "sm_75",
+            "sm_80",
+            "sm_90"
+          ],
+          "measuredWith": "cuobjdump --list-elf / --list-ptx ggml-cuda.dll (CUDA 12.4), 2026-10-30",
+          "note": "sm_89 (RTX 4090) runs native code; sm_75 (GTX 1650 Ti) runs through the driver's PTX JIT, cached under the PoC data root (CUDA_CACHE_PATH)."
+        },
+        "archives": [
+          {
+            "file": "llama-b12000-bin-win-cuda-12.4-x64.zip",
+            "sha256": "a10a292ef8a85c5563f7f8a03e2d286133c890025010ecf0492ea55dd78c31a2",
+            "bytes": 279912456,
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12000/llama-b12000-bin-win-cuda-12.4-x64.zip"
+          },
+          {
+            "file": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+            "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
+            "bytes": 391443627,
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12000/cudart-llama-bin-win-cuda-12.4-x64.zip"
+          }
+        ],
+        "files": {
+          "LICENSE-LLVM-OpenMP": "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4",
+          "cublas64_12.dll": "e40202fe4223c1cd2d2dce7beec59e1ed61c7801bd827309183be9b50e358f4c",
+          "cublasLt64_12.dll": "2a896460bef60ed57ef32b0875812f355a6984e671d638bb632f5e8c1d7a831f",
+          "cudart64_12.dll": "d28e42265da7462162a54da6b7a99ea4fa2caf8139d862bb500db875d0b32dfc",
+          "ggml-base.dll": "b47003566e32efb32e2848c30d89a7700a1dd19e8f42fe9de8c6200ce562d3f6",
+          "ggml-cpu-alderlake.dll": "0c0710cbc3bb16f548a8018956453f5f10c4f8b91dbcd015d556c38808045048",
+          "ggml-cpu-cannonlake.dll": "f79b22505279b01f67b25b6aeb71e3c792bcccbe58e4578df8207f721888bd9e",
+          "ggml-cpu-cascadelake.dll": "121699dec8352fcd2fe704e8bae53d7dceb92da99c1e37e566f135a51532514a",
+          "ggml-cpu-cooperlake.dll": "85ea8832c40a6734b76600f026fd843921c8bb183010f0fba28428f014389d4c",
+          "ggml-cpu-haswell.dll": "5efbbbdcca1ea0c4e676cec6b3658ffb39a6631b61a863a19a1122c887e22c02",
+          "ggml-cpu-icelake.dll": "26fe0dcae6a9b2028afab2e519af1cb609e0b628ccb24e26236f8b37edc0d7c0",
+          "ggml-cpu-ivybridge.dll": "76f929f760c4dbd86b9b1330d079aba8353f0ff392278ad17d6dfdb4745d76e9",
+          "ggml-cpu-piledriver.dll": "9890b28febb4cad67f3829bc1e51666b4d1ae336a51272e2202d7423476185ab",
+          "ggml-cpu-sandybridge.dll": "671ae540a38da7fd42ec70c03325ee9c5d5283f47383ccc4f37a3a23e238e0c1",
+          "ggml-cpu-sapphirerapids.dll": "aac5b5ad396ccfec8cacba1bf871be83121e76620ba487f41f1e04f1f9d072f3",
+          "ggml-cpu-skylakex.dll": "d31c27ace622e8fe8feab0f5ab47f556df7bb33d9cafdc410be714074ee8af00",
+          "ggml-cpu-sse42.dll": "93181f0cf915719ecf332e55d54e290d09e8965d9e948fc24311464860f3c8ea",
+          "ggml-cpu-x64.dll": "2455b28ff97cbc764bf5e50de2b893856e91bf66052112021711a9145f15351b",
+          "ggml-cpu-zen4.dll": "1451227766432c771df28667bf5a414373be479abff3ede17cf4aa18c92b3436",
+          "ggml-cuda.dll": "1fc1aadef844df44ce285010de11bb02d68c00a12d8bec0e1893dd522b062054",
+          "ggml-rpc-server.exe": "da7366263363ba7e796bea8a3ef223ca5b272e887992383178d723ce4087012a",
+          "ggml-rpc.dll": "dbdc3ad026fd208e6bb12290b8d7420d7b68ebef8ed2fb69b37a34e7e8bf5333",
+          "ggml.dll": "6c656979e01ca0288a6777c8d17afdfd9ef8d36630ef29364c390f1c0466dbff",
+          "libomp.dll": "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c",
+          "llama-batched-bench-impl.dll": "70a207688e8bd541587a82bcc644aa2e6a4646d6099fa122160fddb6642f13d9",
+          "llama-batched-bench.exe": "3529060244a54b3a4f2ba6184b67b05e6af8ba8bbe0ce61e03454154d1863fdf",
+          "llama-bench-impl.dll": "0d76ded46632edd9c1a372e71a43bed61daa80ca8f4512a4f34bfd5f58db25da",
+          "llama-bench.exe": "f8d2e4f355711acd622feb256efa509ce73669cdad58d7c452cb10cf0783b474",
+          "llama-cli-impl.dll": "9f713d530ae03a6adf0d81b2a38242c2db4b54d14a08edec002100c82793ff61",
+          "llama-cli.exe": "1ceae0bb5881137539fe3161aa1559a4c3cffd2b55a7645da327ea39e599fd21",
+          "llama-common.dll": "1611a24d81af84e498dc783edc97606ec62e4c0c201185301e431162831f4542",
+          "llama-completion-impl.dll": "ba7fb45c31081883f0a1ac7a6b454452168330c7510d9fcd9196ce3785935d59",
+          "llama-completion.exe": "0cf09f1a01558fa2cf668730abae850cd6fd8afeacce95e309feb2395d23b133",
+          "llama-connect.exe": "9f2bdd778f96971995a80add8d6b2478c156f799933337a19dbf80cdaad21b1d",
+          "llama-fit-params-impl.dll": "2d1a2650f1689a05a5c86a4b3b076d54221eea732d9edee8cb23c4d3a97f8044",
+          "llama-fit-params.exe": "2eb15a8095e000aa054e027f05519c80c7f5393437e8ba2065a6e8b28e794832",
+          "llama-gemma3-cli.exe": "2200da4b7ee6cc6b7c796b0707637309af9fb2b4faef2b0836052f570b3030d7",
+          "llama-gguf-split.exe": "16ea4738f475bbeaa03fb976f94f1ced7ec5f1d97fcce83bd07d62f2f12d02d3",
+          "llama-imatrix.exe": "c044b4db7c14ae744ea6198ee5091d8c52d384b42d55fb3f45d623d786d0d690",
+          "llama-llava-cli.exe": "2200da4b7ee6cc6b7c796b0707637309af9fb2b4faef2b0836052f570b3030d7",
+          "llama-minicpmv-cli.exe": "2200da4b7ee6cc6b7c796b0707637309af9fb2b4faef2b0836052f570b3030d7",
+          "llama-mtmd-cli.exe": "736d50dfeefef34fca89df225d7246bd6a472b233c2b7a1858d80dc734af7c7d",
+          "llama-mtmd-debug.exe": "31f125849e28099410b59b6448805fe3d9301630c777cbef7e727177c10d8db5",
+          "llama-perplexity-impl.dll": "0b611a39f4fffcc42f7ea25a948836934faf65026d6dbe8fdaaf9effa4efcf5d",
+          "llama-perplexity.exe": "e88ff6017149e2cf9cc0acd19f61c9ff43999615c7a44a74bc2fe532bdc25c2a",
+          "llama-quantize-impl.dll": "503e085dd24fb988e7a9e3a5b39cc22e9074fd47fb95e5d36911f85e43d14af7",
+          "llama-quantize.exe": "524c76d977453575c73ae859cc781163578d5b2b5001b75d9173da6f4ee44208",
+          "llama-qwen2vl-cli.exe": "2200da4b7ee6cc6b7c796b0707637309af9fb2b4faef2b0836052f570b3030d7",
+          "llama-results.exe": "cdcb3652d27e2d3b9c35acc8ce4ac25fa4ef7aec4f0ddf31c663b4a85d53984f",
+          "llama-server-impl.dll": "c038594ca006214a802f653c86074fe06019203e1c133abe8b40373b871e031c",
+          "llama-server.exe": "7067c01956452430cd8c67b649f4cb13f86b173c63091123f852edaf5f038b1d",
+          "llama-tokenize.exe": "d31f36a8f0ca93155c4fb8485714a5962520d547a04ec41ff16bd3526d1cd675",
+          "llama-tts.exe": "865c23549d9b35c051be8ed7e96548d878b599991a0b490d7a2f1068784f6d25",
+          "llama.dll": "01b51ba9f02dbe039b61b2e09355a0888debfb73081ce46784fc2730c8d1ea87",
+          "llama.exe": "25353c3b2279e758dd7d45d50cedf4143715c627f579bc87420026638f57f115",
+          "mtmd.dll": "45cc6542f3719e6fe0acc6d57dcd1ba1552724bb3a95406b428abf44ac6b107d"
+        },
+        "notices": [
+          "LICENSE-LLVM-OpenMP (Apache-2.0 WITH LLVM-exception, libomp.dll; inside the archive)",
+          "NVIDIA CUDA Toolkit 12.4 EULA, Attachment A: cudart64_12.dll (CUDA Runtime), cublas64_12.dll and cublasLt64_12.dll (cuBLAS) are listed redistributables; the EULA page is retained as cuda-eula-12.4.html"
+        ],
+        "nvidiaEula": {
+          "file": "cuda-eula-12.4.html",
+          "sha256": "182734e0cee7c6217b911ef88fc92c4a1f487d1003c24dd9dab1597a399fb7c5",
+          "bytes": 82548,
+          "url": "https://docs.nvidia.com/cuda/archive/12.4.0/eula/index.html"
+        }
+      }
+    ]
+  },
+  "models": [
+    {
+      "manifest": "models/language/language-qwen2.5-1.5b-instruct-q8-0-dev-v1.json",
+      "packDirectory": "language-qwen2.5-1.5b-instruct-q8-0-dev-v1",
+      "files": [
+        {
+          "file": "LICENSE",
+          "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+          "bytes": 11343,
+          "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/LICENSE"
+        },
+        {
+          "file": "README.md",
+          "sha256": "57c72d4010fb11a98fc8e62dc8ef112b23a7a7525b71e571ca978d35cb3b2eec",
+          "bytes": 4856,
+          "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/README.md"
+        },
+        {
+          "file": "qwen2.5-1.5b-instruct-q8_0.gguf",
+          "sha256": "d7efb072e7724d25048a4fda0a3e10b04bdef5d06b1403a1c93bd9f1240a63c8",
+          "bytes": 1894532128,
+          "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q8_0.gguf"
+        }
+      ]
+    },
+    {
+      "manifest": "models/language/language-qwen2.5-7b-instruct-q4-k-m-dev-v1.json",
+      "packDirectory": "language-qwen2.5-7b-instruct-q4-k-m-dev-v1",
+      "files": [
+        {
+          "file": "LICENSE",
+          "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+          "bytes": 11343,
+          "url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/bb5d59e06d9551d752d08b292a50eb208b07ab1f/LICENSE"
+        },
+        {
+          "file": "README.md",
+          "sha256": "b813de546b5f0a1d8c49307d428582fd649be627d9b33a60ecf807a3381af05e",
+          "bytes": 5633,
+          "url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/bb5d59e06d9551d752d08b292a50eb208b07ab1f/README.md"
+        },
+        {
+          "file": "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
+          "sha256": "dfce12e3862a5283ccfb88221b48480e58745165de856439950d0f22590580db",
+          "bytes": 3993201344,
+          "url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/bb5d59e06d9551d752d08b292a50eb208b07ab1f/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+        },
+        {
+          "file": "qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf",
+          "sha256": "539cf93f78e887edea1c04e2d7d8cdaca9d01dae9c9025bcb8accbe29df3d72a",
+          "bytes": 689872288,
+          "url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/bb5d59e06d9551d752d08b292a50eb208b07ab1f/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf"
+        }
+      ]
+    }
+  ]
+}
