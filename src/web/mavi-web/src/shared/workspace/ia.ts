@@ -12,7 +12,7 @@ import type { IconName } from '../components/Icon';
  * document title and the `g` destination keys are all derived from it, and
  * nothing else in the product spells them.
  *
- * It is deliberately small and closed: twelve surfaces, three sections. It is not
+ * It is deliberately small and closed: fourteen surfaces, three sections. It is not
  * a routing framework — route paths stay in the router, which names each
  * route's surface through its `handle` — and a new surface is one row here by
  * amendment of §5, under its owning section.
@@ -22,7 +22,7 @@ import type { IconName } from '../components/Icon';
  */
 
 /** A primary destination: one rail item, one root crumb, one `g` key. */
-export type DestinationId = 'overview' | 'cameras' | 'videos' | 'import' | 'processing' | 'search' | 'system';
+export type DestinationId = 'overview' | 'cameras' | 'videos' | 'import' | 'processing' | 'search' | 'query' | 'system';
 
 /** Every surface the product renders, including the one that owns nothing. */
 export type SurfaceId =
@@ -53,7 +53,7 @@ export type Section = { label: string; destinations: Destination[] };
 /**
  * Grouped per §5 and ordered by operator workflow rather than alphabetically:
  * know what you have, bring media in, watch it process, then investigate what
- * came out. Investigate holds Search alone; Events, Entities and Cases join it
+ * came out. Investigate holds Search and Query (Stage 8 Advanced Search); Events, Entities and Cases join it
  * only when they are real routes.
  */
 export const SECTIONS: readonly Section[] = [
@@ -71,6 +71,8 @@ export const SECTIONS: readonly Section[] = [
     label: 'Investigate',
     destinations: [
       { id: 'search', label: 'Search', to: '/search', icon: 'search', key: 's' },
+      // Stage 8 (ADR-024): the Advanced Search builder over the structured query contract.
+      { id: 'query', label: 'Query', to: '/query', icon: 'filter', key: 'q' },
     ],
   },
   {
@@ -104,6 +106,7 @@ export const SURFACES: Readonly<Record<SurfaceId, SurfaceRow>> = {
   processing: { owner: 'processing' },
   'processing-detail': { owner: 'processing' },
   search: { owner: 'search' },
+  query: { owner: 'query' },
   review: { owner: 'search', child: 'Review' },
   system: { owner: 'system' },
   'not-found': { owner: null },
