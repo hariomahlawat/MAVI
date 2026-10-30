@@ -113,7 +113,12 @@ function FaceFactor({ candidate }: { candidate: EntityCandidate }) {
   );
 }
 
-function CandidateDetail({ candidate, onDecided, onRefresh }: { candidate: EntityCandidate; onDecided: (message: string) => void; onRefresh: () => void }) {
+function CandidateDetail({ candidate, onDecided, onRefresh }: {
+  candidate: EntityCandidate;
+  onDecided: (message: string) => void;
+  /** Another operator decided first: the page keeps the message, since the candidate leaves the open list. */
+  onRefresh: (message: string) => void;
+}) {
   const [note, setNote] = useState('');
   const [pending, setPending] = useState<'confirm' | 'dismiss' | null>(null);
   const decide = useMutation({
@@ -126,7 +131,7 @@ function CandidateDetail({ candidate, onDecided, onRefresh }: { candidate: Entit
     },
     onError: (error) => {
       // A decision recorded first by someone else: refresh, so the list shows it as the message says.
-      if (error instanceof ApiError && error.code === 'entity_candidate_already_decided') onRefresh();
+      if (error instanceof ApiError && error.code === 'entity_candidate_already_decided') onRefresh(decisionRefusalText(error.code));
     },
     onSettled: () => setPending(null),
   });
@@ -377,7 +382,11 @@ export default function EntitiesPage() {
               setSelected(null);
               refresh();
             }}
-            onRefresh={refresh}
+            onRefresh={(text) => {
+              setMessage(text);
+              setSelected(null);
+              refresh();
+            }}
           />
         ) : null}
         <p className="small muted">{ENTITY_LABEL}: an Entity groups Tracks an operator confirmed; it never names anyone.</p>

@@ -60,7 +60,10 @@ public static class StructuredQueryEndpoints
         // The Entity unit is an Entity surface: refused without an operator (401 with the scheme's challenge, 403 for an
         // authenticated non-operator), so S9 never reads what /api/entities would refuse (ADR-023 §6, ADR-024 §8).
         if (parsed.Query!.Unit == QueryUnit.Entity && !await IsOperatorAsync(context, authorization))
-            return context.User.Identity is { IsAuthenticated: true } ? Results.Forbid() : Results.Challenge();
+            return context.User.Identity is { IsAuthenticated: true }
+                ? Results.Problem(statusCode: 403, detail: "Entities are shown to MAVI operators only.",
+                    extensions: new Dictionary<string, object?> { ["code"] = "entity_operator_required" })
+                : Results.Challenge();
 
         var outcome = await service.EvaluateAsync(parsed.Query!, cancellationToken);
         return outcome.Envelope is { } envelope

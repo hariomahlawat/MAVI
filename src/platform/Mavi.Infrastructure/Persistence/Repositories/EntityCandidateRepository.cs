@@ -256,11 +256,10 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
                 existingEntity = await db.Entities
                     .FromSqlInterpolated($"SELECT * FROM entities WHERE id = {entityId} FOR NO KEY UPDATE")
                     .SingleAsync(cancellationToken);
-                // Visible members only: a member on an earlier run of its video stays in the Entity (§7) but is the same object
-                // as its reprocessed copy, so checking a new Track against it would refuse the copy as "in two places at once".
+                // Every member, as ADR-023 §6 ratified, including members on an earlier run of their video. That refuses a
+                // reprocessed copy of a member's object (fail-closed); narrowing to visible members is an open owner option.
                 var memberIds = await db.Tracks.AsNoTracking().Where(x => x.EntityId == entityId).Select(x => x.Id).ToListAsync(cancellationToken);
-                var visibleMembers = await VisibleTrackIdsAsync(memberIds, cancellationToken);
-                var memberTracks = await PlausibilityTracksAsync([.. memberIds.Where(visibleMembers.Contains)], cancellationToken);
+                var memberTracks = await PlausibilityTracksAsync(memberIds, cancellationToken);
                 members = new EntityMembers(entityId, existingEntity.EntityType, memberTracks.Values.ToList());
             }
 

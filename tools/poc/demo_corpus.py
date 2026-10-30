@@ -478,7 +478,8 @@ def ensure_camera(api: Api, camera: dict) -> str:
             # it is reused, and it gets no Entity candidates until the installation is reset. A different site is a mismatch.
             require(site is None or site == camera.get("siteCode"), f"camera_mismatch:{camera['code']}")
             if site is None and camera.get("siteCode") is not None:
-                print(f"  warning: camera {camera['code']} has no declared site; it gets no Entity candidates until the database is reset",
+                print(f"  warning: camera {camera['code']} has no declared site; it gets no Entity candidates until the PoC is "
+                      "reinstalled (Uninstall-MAVI-PoC drops the database)",
                       file=sys.stderr)
             return existing["id"]
     status, created = api.call("POST", "/api/cameras", json_body=camera)

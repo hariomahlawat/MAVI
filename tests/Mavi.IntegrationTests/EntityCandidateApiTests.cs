@@ -591,15 +591,19 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
         Assert.True(members[a.TrackIds[0]]);
         Assert.False(members[b.TrackIds[0]]);
 
-        // The reprocessed copy of B's Track can join the Entity: it is checked against visible members only, not against
-        // its own earlier-run copy (same camera, same interval).
-        using (var extended = await host.DecideAsync(Id(fresh), "confirm"))
+        // The ratified rule checks every member, including an earlier-run one: the reprocessed copy of B's Track is the same
+        // camera and interval as its earlier-run copy, so joining is refused (fail-closed) and nothing is written.
+        var audits = await host.AuditCountAsync();
+        using (var refused = await host.DecideAsync(Id(fresh), "confirm"))
         {
-            Assert.Equal(HttpStatusCode.OK, extended.StatusCode);
-            Assert.False((await extended.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("entityCreated").GetBoolean());
+            Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+            var problem = await refused.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(EntityConfirmationRules.ExtensionImplausible, problem.GetProperty("code").GetString());
+            Assert.Equal(b.TrackIds[0], problem.GetProperty("conflictingTrackId").GetGuid());
         }
 
-        Assert.Equal(entityId, (await host.EntityIdsAsync(again.TrackIds[0]))[again.TrackIds[0]]);
+        Assert.Equal(audits, await host.AuditCountAsync());
+        Assert.Null((await host.EntityIdsAsync(again.TrackIds[0]))[again.TrackIds[0]]);
 
         // A candidate whose Track is no longer visible cannot be confirmed.
         await using (var db = host.World.Read())

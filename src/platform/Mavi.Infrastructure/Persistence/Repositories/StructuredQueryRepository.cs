@@ -39,14 +39,15 @@ public sealed class StructuredQueryRepository(MaviDbContext db, TimeProvider tim
     /// latest completed run per video, the base candidate set Track search uses) that carry a confirmed
     /// <c>EntityId</c>, overlap the window and are on an included camera, grouped by Entity. Candidates are never read.
     /// Membership is an operator decision, not a published fact, so it carries no visibility sequence: it is read as of
-    /// evaluation, in one REPEATABLE READ transaction so that every window of one query sees the same membership.
+    /// evaluation. Every window is read by one statement over their union (one statement, one snapshot, taken after the
+    /// shared barrier is granted) and split in memory, so the windows of one query see the same membership.
     /// </summary>
     public async Task<QueryEntityRead> ReadEntitiesAsync(
         QueryPredicates where,
         IReadOnlyList<QueryReadWindow> windows,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await ProcessingVisibilityBarrier.AcquireSearchSharedAsync(db, cancellationToken);
         var sequence = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
         var cameras = await StructuredQueryScope.ResolveCamerasAsync(db, where.CameraIds, cancellationToken);
@@ -55,12 +56,10 @@ public sealed class StructuredQueryRepository(MaviDbContext db, TimeProvider tim
         var anyConfirmed = await AnyConfirmedEntityAsync(cancellationToken);
 
         var cameraIds = where.CameraIds.ToArray();
-        var reads = new List<QueryWindowRead<QueryEntityRecord>>();
-        foreach (var window in windows)
-        {
-            var scope = new AnalyticsScopeRequest(null, null, null, null, window.Window.FromUtc, window.Window.ToUtc, null, null);
-            var members = await (
-                    from x in AnalyticsScopeQuery.BaseCandidates(db, scope, sequence)
+        var union = new AnalyticsScopeRequest(null, null, null, null, windows.Min(window => window.Window.FromUtc),
+            windows.Max(window => window.Window.ToUtc), null, null);
+        var all = await (
+                    from x in AnalyticsScopeQuery.BaseCandidates(db, union, sequence)
                     where x.track.EntityId != null && (cameraIds.Length == 0 || cameraIds.Contains(x.camera.Id))
                     join entity in db.Entities.AsNoTracking() on x.track.EntityId equals entity.Id
                     select new
@@ -76,6 +75,11 @@ public sealed class StructuredQueryRepository(MaviDbContext db, TimeProvider tim
                         x.track.EndTimestampUtc,
                     })
                 .ToListAsync(cancellationToken);
+        var reads = new List<QueryWindowRead<QueryEntityRecord>>();
+        foreach (var window in windows)
+        {
+            // The overlap rule Track search uses (end at or after from, start before to), applied to the union's rows.
+            var members = all.Where(member => member.EndTimestampUtc >= window.Window.FromUtc && member.StartTimestampUtc < window.Window.ToUtc);
             var records = members
                 .GroupBy(member => member.EntityId)
                 .OrderBy(group => group.Key)

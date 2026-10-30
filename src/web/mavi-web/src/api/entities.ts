@@ -197,7 +197,7 @@ export function decisionRefusalText(code: string | undefined): string {
     case 'entity_merge_unsupported':
       return 'Not linked: the two Tracks already belong to different Entities, and merging Entities is not available yet.';
     case 'entity_candidate_superseded':
-      return 'Not linked: this candidate belongs to an earlier candidate rule; only current candidates can be decided.';
+      return 'Not decided: this candidate belongs to an earlier candidate rule or appearance model; only current candidates can be decided.';
     case 'entity_candidate_not_visible':
       return 'Not linked: a Track of this candidate is no longer in the latest run of its video.';
     default:

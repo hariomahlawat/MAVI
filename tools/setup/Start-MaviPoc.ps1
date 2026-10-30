@@ -288,7 +288,7 @@ if ($Seed) {
         if ($present.Count -gt 0) {
             # A camera seeded before declared sites existed keeps none (cameras cannot be updated): it gets no Entity
             # candidates until the PoC database is reset (ADR-023 amendment 2026-10-30).
-            if ($camera.SiteCode -and -not $present[0].siteCode) { Write-Warning "Demo camera $($camera.Code) has no declared site; reset the PoC database for Entity candidates." }
+            if ($camera.SiteCode -and -not $present[0].siteCode) { Write-Warning "Demo camera $($camera.Code) has no declared site; run Uninstall-MAVI-PoC and install again for Entity candidates." }
             continue
         }
         $fields = @{ code = $camera.Code; name = $camera.Name; timeZoneId = $camera.TimeZoneId }
