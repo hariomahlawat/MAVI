@@ -74,6 +74,15 @@ public static class DependencyInjection
         // The structured query contract (ADR-024): a read layer over Track search and the events read.
         services.AddScoped<Mavi.Application.Modules.Query.IStructuredQueryRepository, StructuredQueryRepository>();
         services.AddScoped<Mavi.Application.Modules.Query.StructuredQueryService>();
+        // Ask MAVI (ADR-026): the site catalogue, the language role (unbound unless Language:Enabled) and the service.
+        services.Configure<Mavi.Application.Modules.Ask.AskOptions>(configuration.GetSection(Mavi.Application.Modules.Ask.AskOptions.SectionName));
+        services.Configure<Language.LanguageOptions>(configuration.GetSection(Language.LanguageOptions.SectionName));
+        services.AddScoped<Mavi.Application.Modules.Ask.IAskCatalogueSource, AskCatalogueSource>();
+        if (configuration.GetSection(Language.LanguageOptions.SectionName).GetValue<bool>(nameof(Language.LanguageOptions.Enabled)))
+            services.AddSingleton<Mavi.Application.Modules.Ask.ILanguageRuntime, Language.LlamaServerLanguageRuntime>();
+        else
+            services.AddSingleton<Mavi.Application.Modules.Ask.ILanguageRuntime, Mavi.Application.Modules.Ask.UnboundLanguageRuntime>();
+        services.AddScoped<Mavi.Application.Modules.Ask.AskService>();
         services.AddScoped<SceneAnalysisExecutor>();
         services.AddScoped<ISceneAnalyticsStatusReader, SceneAnalyticsStatusReader>();
         services.AddScoped<SceneAnalyticsStatusService>();

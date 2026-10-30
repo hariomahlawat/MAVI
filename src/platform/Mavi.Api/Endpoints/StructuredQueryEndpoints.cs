@@ -32,7 +32,7 @@ public static class StructuredQueryEndpoints
     /// The contract's reason for an Entity unit a caller may not read: confirmed Entities link a person's appearances,
     /// so only an operator reads them (ADR-023 §6, §8), as on every other Entity surface.
     /// </summary>
-    public const string EntityOperatorRequiredReason = "operator_required";
+    public const string EntityOperatorRequiredReason = StructuredQueryService.EntityOperatorRequiredReason;
 
     private static async Task<IResult> EvaluateAsync(
         HttpContext context,
@@ -80,61 +80,14 @@ public static class StructuredQueryEndpoints
         if (context.Request.Query.Count > 0)
             return Refused(new QueryRefusal(QueryRefusalCodes.UnknownMember, "", "This route takes no query parameters."));
 
-        var definition = services.GetService<IVisualAttributeRelease>()?.Resolution.Definition;
-        var attributes = definition is null
-            ? []
-            : definition.Schema.Attributes
-                .OrderBy(item => item.AttributeType, StringComparer.Ordinal)
-                .Select(item => new QueryAttributeVocabularyResponse(
-                    item.AttributeType,
-                    item.ObjectClass == "person" ? "Person" : "Vehicle",
-                    [.. item.Values]))
-                .ToList();
-
         // The Entity unit has data once an operator has confirmed an Entity here (ADR-023 §9).
         // Where no operator can exist (Identity:Mode disabled, or no operator configured) the Entity unit is never readable
         // and the contract says so. Otherwise it states only whether a confirmed Entity exists, never which: this anonymous
         // route is not challenged, so it cannot tell an operator from anyone else, and the unit itself is operator-only.
         var operatorsPossible = Mavi.Application.Modules.Identity.OperatorIdentityPolicy.Disclose(identity.Value, null).OperatorsConfigured;
         var entitiesAvailable = operatorsPossible && await repository.AnyConfirmedEntityAsync(cancellationToken);
-        var entityReason = !operatorsPossible ? EntityOperatorRequiredReason
-            : entitiesAvailable ? null : StructuredQueryService.EntityUnavailableReason;
-        var units = new[] { QueryUnit.Track, QueryUnit.Event, QueryUnit.Entity }
-            .Select(unit => new QueryUnitVocabularyResponse(
-                QueryContract.ToWire(unit),
-                unit != QueryUnit.Entity || entitiesAvailable,
-                unit == QueryUnit.Entity ? entityReason : null,
-                QueryContract.Predicates[unit],
-                QueryContract.GroupDimensions[unit],
-                QueryContract.DistinctFields[unit]))
-            .ToList();
-
-        return Results.Ok(new QueryContractResponse(
-            QueryContract.Version,
-            units,
-            QueryContract.Operations,
-            QueryContract.ObjectClasses,
-            Application.Modules.Intelligence.VehicleSubclassExposurePolicy.ExposedSubclasses,
-            QueryContract.ZoneRelations,
-            QueryContract.CrossingDirections,
-            TrackSearchContractRules.MotionDirectionValues,
-            QueryContract.PlateMatches,
-            attributes,
-            definition?.Disclosure,
-            EventRuleIds.All,
-            RuleCatalogue.Current.CatalogueVersion,
-            new QueryBoundsResponse(
-                QueryContract.MaximumCameraIds,
-                QueryContract.DefaultFindLimit,
-                QueryContract.MaximumFindLimit,
-                QueryContract.MaximumTopK,
-                QueryContract.MaximumSimilarK,
-                QueryContract.MinimumBucketSeconds,
-                QueryContract.MaximumBucketSeconds,
-                QueryContract.MaximumBuckets,
-                QueryContract.MaximumMatchedRecords),
-            QueryRefusalCodes.All,
-            QueryContract.Disclosure));
+        var entityReason = !operatorsPossible ? EntityOperatorRequiredReason : StructuredQueryService.EntityUnavailableReason;
+        return Results.Ok(QueryContractVocabulary.Describe(services.GetService<IVisualAttributeRelease>(), entitiesAvailable, entityReason));
     }
 
     /// <summary>The body as UTF-8 text, or null when it is longer than a query may be (whatever Content-Length said).</summary>

@@ -136,7 +136,7 @@ public sealed class StructuredQueryEvaluatorTests
             {"contractVersion":"mavi-query-v1","unit":"entity",
              "where":{"timeWindow":{"fromUtc":"2026-09-21T08:00:00Z","toUtc":"2026-09-21T14:00:00Z"}},"operation":{"op":"count"}}
             """).Query!;
-        var outcome = await new StructuredQueryService(repository, TimeProvider.System).EvaluateAsync(query, default);
+        var outcome = await new StructuredQueryService(repository, TimeProvider.System, entityAccess: new Operator()).EvaluateAsync(query, default);
 
         Assert.Equal(("empty", StructuredQueryService.EntityUnavailableReason), (outcome.Envelope!.Result.Kind, outcome.Envelope.Result.Reason));
         Assert.Null(outcome.Envelope.Result.Value);
@@ -158,7 +158,7 @@ public sealed class StructuredQueryEvaluatorTests
             ],
         };
         async Task<QueryResultResponse> Run(string operation) =>
-            (await new StructuredQueryService(repository, TimeProvider.System).EvaluateAsync(EntityQuery(operation), default)).Envelope!.Result;
+            (await new StructuredQueryService(repository, TimeProvider.System, entityAccess: new Operator()).EvaluateAsync(EntityQuery(operation), default)).Envelope!.Result;
 
         Assert.Equal(2, (await Run("{\"op\":\"count\"}")).Value);
         Assert.Equal(2, (await Run("{\"op\":\"countDistinct\",\"field\":\"camera\"}")).Value);
@@ -209,6 +209,21 @@ public sealed class StructuredQueryEvaluatorTests
 
     private static QueryEventRecord Event(int id, string rule, Guid? track) => new(
         Id(id), rule, 1, CameraA, "A", "Camera", Id(900), track, "Person", null, null, null, null, null, From, From, 0);
+
+    [Fact]
+    public async Task ANonOperatorReadsNoEntityDataWhicheverRouteAsks()
+    {
+        var repository = new FakeRepository(complete: true) { Entities = [new QueryEntityRecord(Id(50), "P-1", EntityType.Person, [])] };
+        var outcome = await new StructuredQueryService(repository, TimeProvider.System).EvaluateAsync(EntityQuery("{\"op\":\"count\"}"), default);
+        Assert.Equal(("empty", StructuredQueryService.EntityOperatorRequiredReason), (outcome.Envelope!.Result.Kind, outcome.Envelope.Result.Reason));
+        Assert.Null(outcome.Envelope.Result.Value);
+        Assert.Equal(0, repository.Reads);
+    }
+
+    private sealed class Operator : IQueryEntityAccess
+    {
+        public Task<bool> MayReadEntitiesAsync(CancellationToken cancellationToken) => Task.FromResult(true);
+    }
 
     private sealed class FakeRepository(bool complete) : IStructuredQueryRepository
     {

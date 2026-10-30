@@ -1,0 +1,293 @@
+{
+  "schemaVersion": "mavi-ask-site-catalogue-v1",
+  "$comment": "PoC S10 (ADR-026) CI fixture: the Ask MAVI site catalogue of the S9/S10 Development evidence database (12 demo cameras of the S2 corpus imported into mavi_poc_s9; ids as created there; enabled zones and lines of each active scene revision). The recordings' prompts are built from it, so it is frozen with them. Names are operator configuration, not annotation.",
+  "cameras": [
+    {
+      "cameraId": "01a18a77-190d-753a-84a2-44bbad4c8073",
+      "code": "POC-S2-01",
+      "name": "PoC demo 01 - Worringer Platz junction",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18a77-1f3e-7e43-bab9-cb0411b3388a",
+          "name": "Corner pavement",
+          "kind": "General"
+        },
+        {
+          "zoneId": "01a18a77-1f36-737d-b732-589102c153ca",
+          "name": "Tram box",
+          "kind": "Restricted"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18a77-1f3f-77ba-8bc5-aedd99c92235",
+          "name": "Junction exit",
+          "aToBLabel": "Outbound",
+          "bToALabel": "Inbound"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18a7b-68b5-71bd-9e10-280d88e8e626",
+      "code": "POC-S2-02",
+      "name": "PoC demo 02 - Macedonia Square junction",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18a7b-6b70-75d2-992f-8083c7b9493c",
+          "name": "Junction box",
+          "kind": "Restricted"
+        },
+        {
+          "zoneId": "01a18a7b-6b70-7f3e-928e-2d1cc49767ae",
+          "name": "Right pavement",
+          "kind": "General"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18a7b-6b70-7908-b925-a8a4d18beab3",
+          "name": "Crosswalk",
+          "aToBLabel": "Away",
+          "bToALabel": "Toward"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18a7f-648a-79e4-8897-278399024189",
+      "code": "POC-S2-03",
+      "name": "PoC demo 03 - Caton Farm Road",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18a7f-6731-726e-8a15-de6eabd9882c",
+          "name": "Roadside lot bays",
+          "kind": "Restricted"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18a7f-6731-7c8b-abe6-f3bd9af89f22",
+          "name": "Count line",
+          "aToBLabel": "Rightward",
+          "bToALabel": "Leftward"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18a83-11ff-731e-afae-8c2ab0b02599",
+      "code": "POC-S2-04",
+      "name": "PoC demo 04 - Highway at night",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18a83-175e-701c-a59d-e93efa1909c7",
+          "name": "Near carriageway",
+          "kind": "General"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18a83-175e-7f02-af55-8142f1077c0b",
+          "name": "Overpass line",
+          "aToBLabel": "Away",
+          "bToALabel": "Toward"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18a8b-f792-71a6-9330-423b120b5197",
+      "code": "POC-S2-05",
+      "name": "PoC demo 05 - Archway gate",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18a8b-fb1d-7373-90e7-d7532b8b0b83",
+          "name": "Gate approach",
+          "kind": "General"
+        },
+        {
+          "zoneId": "01a18a8b-fb1d-74ee-9bc8-3f1542a8c8a1",
+          "name": "Parking bay",
+          "kind": "Restricted"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18a8b-fb1d-712e-905e-73b8fc3837d1",
+          "name": "Arch gate",
+          "aToBLabel": "Exit",
+          "bToALabel": "Entry"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18a90-93bd-7a6d-998d-4aa8083f61a7",
+      "code": "POC-S2-06",
+      "name": "PoC demo 06 - Level crossing barrier",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18a90-9981-7af2-81fd-ed5791b8cd75",
+          "name": "Crossing box",
+          "kind": "Restricted"
+        },
+        {
+          "zoneId": "01a18a90-9981-7242-bad3-e05a96d0a1f3",
+          "name": "Waiting area",
+          "kind": "General"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18a90-9981-7e81-93c8-4ff8a0d79248",
+          "name": "Barrier line",
+          "aToBLabel": "Away",
+          "bToALabel": "Toward"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18a93-d016-7c82-9b8d-300203cffe53",
+      "code": "POC-S2-07",
+      "name": "PoC demo 07 - Scramble crossing",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18a93-d1d0-7282-bb05-a9f1ff39f6d2",
+          "name": "Crossing",
+          "kind": "General"
+        },
+        {
+          "zoneId": "01a18a93-d1d0-78d6-bc4c-3bcff234ec34",
+          "name": "Near corner",
+          "kind": "General"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18a93-d1d0-7573-bdf3-0cd7fae4cd36",
+          "name": "Crossing midline",
+          "aToBLabel": "Away",
+          "bToALabel": "Toward"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18a97-0774-7c05-a5ff-6ac408d563f3",
+      "code": "POC-S2-08",
+      "name": "PoC demo 08 - Bus stop waiting room (MEVA G331)",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18a97-0a55-7640-8bd7-becbb8adf908",
+          "name": "Waiting area",
+          "kind": "General"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18a97-0a55-7295-b888-90c79cdcac3f",
+          "name": "Hall midline",
+          "aToBLabel": "Rightward",
+          "bToALabel": "Leftward"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18a9f-233e-717e-ba33-7e678b5bf3f7",
+      "code": "POC-S2-09",
+      "name": "PoC demo 09 - School parking lot (MEVA G424)",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18a9f-25b6-7c74-9ca7-66e68c11399e",
+          "name": "Lower bays",
+          "kind": "Restricted"
+        },
+        {
+          "zoneId": "01a18a9f-25b5-7586-9475-44d73921a7f0",
+          "name": "Upper bays",
+          "kind": "Restricted"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18a9f-25b6-7f11-ae88-5a6f2282fea4",
+          "name": "Lot lane",
+          "aToBLabel": "Rightward",
+          "bToALabel": "Leftward"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18aa7-db8e-7f6d-b283-4a7d46b490c2",
+      "code": "POC-S2-10",
+      "name": "PoC demo 10 - School cafe lobby (MEVA G421)",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18aa7-df1c-7d17-ae95-13162e4ec22a",
+          "name": "Entrance floor",
+          "kind": "Entrance"
+        },
+        {
+          "zoneId": "01a18aa7-df1c-709d-b627-21b76304aee6",
+          "name": "Seating area",
+          "kind": "General"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18aa7-df1c-7521-99b7-5ec3b21f670d",
+          "name": "Doorway line",
+          "aToBLabel": "Out",
+          "bToALabel": "In"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18aaf-5c88-7281-a374-932863e32b07",
+      "code": "POC-S2-11",
+      "name": "PoC demo 11 - School hallway (MEVA G423)",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18aaf-5f7e-72f3-9210-25995f0b597e",
+          "name": "Corridor near",
+          "kind": "General"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18aaf-5f7e-7edb-8b65-dcf5b0d94392",
+          "name": "Hall midline",
+          "aToBLabel": "Away",
+          "bToALabel": "Toward"
+        }
+      ]
+    },
+    {
+      "cameraId": "01a18ab6-b50f-72d4-a397-6d17f3481b1d",
+      "code": "POC-S2-12",
+      "name": "PoC demo 12 - School stairwell (MEVA G419)",
+      "timeZoneId": "Asia/Kolkata",
+      "zones": [
+        {
+          "zoneId": "01a18ab6-b7f3-71c8-ae3a-6a5529270692",
+          "name": "Landing",
+          "kind": "General"
+        }
+      ],
+      "lines": [
+        {
+          "lineId": "01a18ab6-b7f3-7d4d-a335-18e04e07cf8c",
+          "name": "Landing line",
+          "aToBLabel": "To door",
+          "bToALabel": "From door"
+        }
+      ]
+    }
+  ]
+}

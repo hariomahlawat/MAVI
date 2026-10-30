@@ -23,6 +23,15 @@ public sealed record StructuredQueryOutcome(QueryEnvelopeResponse? Envelope, Que
 }
 
 /// <summary>
+/// Whether the caller may read the Entity unit (ADR-023 §6, §9): an operator only, whichever route evaluates the
+/// query. Without an implementation, nobody may.
+/// </summary>
+public interface IQueryEntityAccess
+{
+    Task<bool> MayReadEntitiesAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// Evaluates structured queries (ADR-024): resolves the capability identities, reads the matching records in one
 /// snapshot, applies the operation with the pure evaluator and builds the envelope. Coverage gates the answer: an
 /// operation about the whole scope is withheld when coverage is incomplete, and is refused outright when the caller
@@ -33,7 +42,8 @@ public sealed class StructuredQueryService(
     TimeProvider timeProvider,
     IVisualAttributeRelease? attributeRelease = null,
     IPlateRelease? plateRelease = null,
-    TrackSimilarityService? similarity = null)
+    TrackSimilarityService? similarity = null,
+    IQueryEntityAccess? entityAccess = null)
 {
     public const string EntityUnavailableReason = "entity_data_unavailable";
 
@@ -44,6 +54,11 @@ public sealed class StructuredQueryService(
     public const string EntityConfirmedOnlyReason = "operator_confirmed_membership_only";
 
     public const string CoverageIncompleteReason = "coverage_incomplete";
+
+    /// <summary>The Entity unit's answer to a caller that is not an operator: no Entity data, not even a count.</summary>
+    public const string EntityOperatorRequiredReason = "operator_required";
+
+    public const string EntityOperatorRequiredMessage = "Entities are shown to MAVI operators only (ADR-023).";
 
     public async Task<StructuredQueryOutcome> EvaluateAsync(StructuredQuery query, CancellationToken cancellationToken)
     {
@@ -135,6 +150,15 @@ public sealed class StructuredQueryService(
     private async Task<StructuredQueryOutcome> EvaluateEntitiesAsync(
         StructuredQuery query, string canonical, string fingerprint, DateTimeOffset evaluatedAtUtc, CancellationToken cancellationToken)
     {
+        // Every route that evaluates a query (/api/query, Ask MAVI) reaches this; a non-operator reads nothing.
+        if (entityAccess is null || !await entityAccess.MayReadEntitiesAsync(cancellationToken))
+            return StructuredQueryOutcome.Answer(Envelope(
+                query, canonical, fingerprint,
+                new QuerySnapshotResponse(null, evaluatedAtUtc),
+                new QueryIdentityResponse([]),
+                [new QueryCoverageComponentResponse("entities", "query", false, Reason: EntityOperatorRequiredReason)],
+                new QueryResultResponse("empty", Reason: EntityOperatorRequiredReason, Message: EntityOperatorRequiredMessage)));
+
         var entities = await repository.ReadEntitiesAsync(query.Where, Windows(query), cancellationToken);
         if (entities.Read.Refusal is { } refusal)
             return StructuredQueryOutcome.Refuse(refusal);

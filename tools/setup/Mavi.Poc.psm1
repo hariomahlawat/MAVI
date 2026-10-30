@@ -47,6 +47,9 @@ function Get-MaviPocLayout {
         EmbeddingsModelRoot = Join-Path $install "embeddings\models"
         # PoC S6 (ADR-022): the face Model Pack's store; the faces worker runs on the embeddings environment.
         FacesModelRoot = Join-Path $install "faces\models"
+        # PoC S10 (ADR-026): the Language Runtime Pack (llama.cpp cpu\ and cuda\ variants) and the Language Model Packs.
+        LanguageRuntimeRoot = Join-Path $install "language\runtime"
+        LanguageModelRoot = Join-Path $install "language\models"
         PostgreSqlDataRoot = Join-Path $data "PostgreSQL\18\data"
         MediaRoot = Join-Path $data "Media"
         EvidenceRoot = Join-Path $data "Evidence"
@@ -59,6 +62,9 @@ function Get-MaviPocLayout {
         DeviceResolutionPath = Join-Path $data "run\device-resolution.json"
         # The plates role resolves its own device (ADR-008 per runtime); its record sits beside the Vision worker's.
         PlatesDeviceResolutionPath = Join-Path $data "run\plates-device-resolution.json"
+        LanguageDeviceResolutionPath = Join-Path $data "run\language-device-resolution.json"
+        # The driver's PTX JIT cache for a GPU without native code in the llama.cpp CUDA build (sm_75).
+        LanguageCudaCachePath = Join-Path $data "language\cuda-cache"
         SetupRoot = Join-Path $data "setup"
         LogRoot = Join-Path $data "logs"
         RunRoot = Join-Path $data "run"
@@ -295,9 +301,12 @@ function New-MaviPocMachineConfig {
         [Parameter(Mandatory = $true)]$Layout,
         [Parameter(Mandatory = $true)][string]$ConnectionString,
         [Parameter(Mandatory = $true)][string]$CursorSigningKey,
-        [Parameter(Mandatory = $true)][int]$HttpPort
+        [Parameter(Mandatory = $true)][int]$HttpPort,
+        # PoC S10 (ADR-026): the bound Language Model Pack (Select-MaviPocLanguagePack), or $null for none.
+        $LanguagePack = $null,
+        [int]$LanguagePort = 62301
     )
-    [ordered]@{
+    $config = [ordered]@{
         ConnectionStrings = [ordered]@{ Mavi = $ConnectionString }
         # Loopback names only: a page on another host name (DNS rebinding) is refused before any endpoint.
         AllowedHosts = "localhost;127.0.0.1"
@@ -341,6 +350,22 @@ function New-MaviPocMachineConfig {
             Operators = [ordered]@{ AuthorizedGroups = @($script:PocOperatorGroups) }
         }
     }
+    # PoC S10 (ADR-026): Ask MAVI calls the language role on loopback; the identity here is what the API reports with
+    # every answer, and the launcher's device record supplies the device.
+    if ($LanguagePack) {
+        $config.Language = [ordered]@{
+            Enabled = $true
+            Port = $LanguagePort
+            TimeoutSeconds = 300
+            ModelPackId = [string]$LanguagePack.ModelPackId
+            ModelId = [string]$LanguagePack.ModelId
+            Quantisation = [string]$LanguagePack.Quantisation
+            RuntimeId = [string]$LanguagePack.RuntimeId
+            DeviceReportPath = $Layout.LanguageDeviceResolutionPath
+        }
+        $config.Deployment.RoleDeviceResolutionPaths.language = $Layout.LanguageDeviceResolutionPath
+    }
+    $config
 }
 
 # The licence a Model Pack's own notice states, read from the notice file itself (PoC S3: "licence read from its own
@@ -362,6 +387,104 @@ function Get-MaviPocNoticeLicence {
     if (-not $stated) { throw "The licence notice '$Path' states no licence this installer recognises." }
     if ($stated -ne $DeclaredSpdxId) { throw "The licence notice '$Path' states $stated, but its manifest declares $DeclaredSpdxId." }
     [pscustomobject]@{ SpdxId = $stated; Sha256 = $sha256 }
+}
+
+# PoC S10 (ADR-026 §2): which Language Model Pack an installation binds. Auto takes the 7B pack only on a GPU with the
+# memory to hold it fully (16 GiB or more: the RTX 4090 class), and the 1.5B pack otherwise (the Development laptop's
+# 4 GiB GPU, or CPU). An explicit choice is honoured; the reason is recorded either way.
+function Select-MaviPocLanguagePack {
+    param(
+        [ValidateSet("Auto", "1.5B", "7B")][string]$Choice = "Auto",
+        # nvidia-smi --query-gpu=index,name,compute_cap,memory.total --format=csv,noheader lines; $null when absent.
+        [AllowNull()][string[]]$NvidiaSmiLines,
+        [Parameter(Mandatory = $true)][string]$PayloadsPath
+    )
+    $payloads = Get-Content -LiteralPath $PayloadsPath -Raw | ConvertFrom-Json
+    $small = @($payloads.models | Where-Object { [string]$_.packDirectory -like "*1.5b*" })[0]
+    $large = @($payloads.models | Where-Object { [string]$_.packDirectory -like "*7b*" })[0]
+    $largestMiB = 0
+    foreach ($line in @($NvidiaSmiLines)) {
+        if (-not $line) { continue }
+        $fields = @($line -split "," | ForEach-Object { $_.Trim() })
+        if ($fields.Count -ge 4 -and $fields[3] -match '^(\d+)') { $largestMiB = [Math]::Max($largestMiB, [int]$Matches[1]) }
+    }
+    $pick, $reason = switch ($Choice) {
+        "1.5B" { $small, "operator_choice_1_5b" }
+        "7B" { $large, "operator_choice_7b" }
+        default {
+            if ($largestMiB -ge 16000) { $large, "gpu_memory_${largestMiB}_mib_holds_7b" }
+            elseif ($null -eq $NvidiaSmiLines) { $small, "no_nvidia_gpu_1_5b" }
+            else { $small, "gpu_memory_${largestMiB}_mib_below_16000_1_5b" }
+        }
+    }
+    [pscustomobject]@{ PackDirectory = [string]$pick.packDirectory; ManifestPath = [string]$pick.manifest; Reason = $reason }
+}
+
+# PoC S10 (ADR-026 §3): the language role's device under ADR-008 policy. CUDA needs an NVIDIA GPU that answers; the
+# published llama.cpp CUDA build carries native code for sm_86/sm_89 and PTX for sm_50 to sm_90, so any such GPU runs.
+function Resolve-MaviPocLanguageDevice {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet("auto", "cuda", "cpu")][string]$Policy,
+        [AllowNull()][string[]]$NvidiaSmiLines
+    )
+    $gpu = $null
+    foreach ($line in @($NvidiaSmiLines)) {
+        if (-not $line) { continue }
+        $fields = @($line -split "," | ForEach-Object { $_.Trim() })
+        if ($fields.Count -ge 3 -and $fields[2] -match '^\d+\.\d+$' -and [double]$fields[2] -ge 5.0) { $gpu = $fields; break }
+    }
+    if ($Policy -eq "cpu") {
+        return [pscustomobject]@{ Variant = "cpu"; Directory = "cpu"; Device = "cpu"; Reason = "policy_cpu" }
+    }
+    if (-not $gpu) {
+        if ($Policy -eq "cuda") { throw "Language device policy CUDA: no NVIDIA GPU answered (nvidia-smi); refusing to fall back to CPU." }
+        $why = if ($null -eq $NvidiaSmiLines) { "auto_nvidia_smi_absent" } else { "auto_no_cuda_gpu" }
+        return [pscustomobject]@{ Variant = "cpu"; Directory = "cpu"; Device = "cpu"; Reason = $why }
+    }
+    $arch = "sm_" + ($gpu[2] -replace '\.', '')
+    $path = if ($arch -in @("sm_86", "sm_89")) { "native" } else { "ptx-jit" }
+    [pscustomobject]@{
+        Variant = "cuda"; Directory = "cuda"
+        Device = "cuda:$($gpu[0]) $($gpu[1]) ($arch, $path)"
+        Reason = if ($Policy -eq "cuda") { "policy_cuda" } else { "auto_cuda_gpu_present" }
+    }
+}
+
+# The language packs as release metadata entries (PoC S10, C9.1): the Runtime Pack and the bound Language Model Pack,
+# its licence read from its installed LICENSE file and the runtime's from llama.cpp's LICENSE.
+function Get-MaviPocLanguagePacks {
+    param(
+        [Parameter(Mandatory = $true)][string]$PayloadsPath,
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$ModelRoot,
+        [Parameter(Mandatory = $true)][string]$RuntimeRoot,
+        [Parameter(Mandatory = $true)][string]$ModelPackId
+    )
+    $payloads = Get-Content -LiteralPath $PayloadsPath -Raw | ConvertFrom-Json
+    $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    if (@($manifest.capabilityIds) -join "," -ne "query-translation" -or [string]$manifest.verificationStatus -ne "unverified") {
+        throw "'$ManifestPath' is not an unverified Language Model Pack."
+    }
+    $notice = @(@($manifest.artifacts) | Where-Object { [string]$_.artifactRole -eq [string]$manifest.licence.noticeArtifactRole })
+    if ($notice.Count -ne 1) { throw "'$ManifestPath' names no single licence notice." }
+    $modelLicence = Get-MaviPocNoticeLicence -Path (Join-Path $ModelRoot ([string]$notice[0].relativePath)) -ExpectedSha256 ([string]$notice[0].sha256) -DeclaredSpdxId ([string]$manifest.licence.spdxId)
+    $runtimeLicence = Get-MaviPocNoticeLicence -Path (Join-Path $RuntimeRoot ([string]$payloads.runtime.licence.file)) -ExpectedSha256 ([string]$payloads.runtime.licence.sha256) -DeclaredSpdxId ([string]$payloads.runtime.licence.spdxId)
+    @(
+        [ordered]@{
+            kind = "runtime"; role = "language"; capabilityId = "query-translation"
+            packId = [string]$payloads.runtime.runtimeId; variant = "windows-x86_64-cpu;windows-x86_64-cuda"
+            verificationStatus = "unverified"
+            note = "llama.cpp $($payloads.runtime.release) published Windows builds (PoC S10, ADR-026); CUDA 12.4 runtime DLLs under the NVIDIA CUDA EULA Attachment A"
+            licence = "$($runtimeLicence.SpdxId), read from its LICENSE (SHA-256 $($runtimeLicence.Sha256)); cudart/cuBLAS redistributables per the retained NVIDIA CUDA 12.4 EULA"
+        },
+        [ordered]@{
+            kind = "model"; role = "language"; capabilityId = "query-translation"
+            packId = $ModelPackId; variant = $null
+            verificationStatus = [string]$manifest.verificationStatus
+            note = "$($manifest.modelId) $($manifest.modelVersion), $($manifest.quantisation.type) (PoC S10, bound; translates questions into structured queries only, never answers)"
+            licence = "$($modelLicence.SpdxId), read from its LICENSE (SHA-256 $($modelLicence.Sha256)); licence review $($manifest.licence.reviewStatus)"
+        }
+    )
 }
 
 # The faces role's Model Pack as a release metadata entry (PoC S6, ADR-022, C5A.3): one pack per face pipeline,
@@ -751,4 +874,4 @@ function New-MaviPocUninstallPlan {
     }
 }
 
-Export-ModuleMember -Function Assert-MaviPocRemovableRoot, ConvertFrom-MaviPocConnectionString, New-MaviPocUninstallPlan, Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks, Get-MaviPocFacesPack
+Export-ModuleMember -Function Assert-MaviPocRemovableRoot, ConvertFrom-MaviPocConnectionString, New-MaviPocUninstallPlan, Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks, Get-MaviPocFacesPack, Select-MaviPocLanguagePack, Resolve-MaviPocLanguageDevice, Get-MaviPocLanguagePacks

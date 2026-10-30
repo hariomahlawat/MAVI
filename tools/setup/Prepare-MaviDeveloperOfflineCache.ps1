@@ -11,7 +11,12 @@ param(
     # PoC S6 (ADR-022): the controlled store holding the face Model Pack (YuNet + AdaFace IR-50, built once by
     # tools\vision\build_face_packs.py; there is no upstream URL for the exported embedder). Collected SHA-256 verified.
     # The faces worker runs on the embeddings-onnx-v1 wheels above; it needs no further wheel.
-    [string]$FacesPackSource = "E:\MAVI-Controlled\PoC\S6\pack"
+    [string]$FacesPackSource = "E:\MAVI-Controlled\PoC\S6\pack",
+
+    # PoC S10 (ADR-026): the controlled store the language payloads were acquired into (tools\language\language_packs.py
+    # acquire: llama.cpp b12000 Windows archives, the CUDA EULA notice, the Qwen2.5 1.5B/7B GGUF packs). Collected
+    # SHA-256 verified against tools\language\language-payloads-v1.json; standard library only.
+    [string]$LanguagePayloadSource = "E:\MAVI-Controlled\PoC\S10\store"
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +37,7 @@ $platesPayloadRoot = Join-Path $destination "plates-pilot-payloads"
 $embeddingsWheelRoot = Join-Path $destination "python-embeddings-wheelhouse"
 $embeddingsPayloadRoot = Join-Path $destination "embeddings-payloads"
 $facesPayloadRoot = Join-Path $destination "faces-payloads"
+$languagePayloadRoot = Join-Path $destination "language-payloads"
 
 if (Test-Path -LiteralPath $destination) {
     Remove-Item -LiteralPath $destination -Recurse -Force
@@ -46,6 +52,7 @@ New-Item -ItemType Directory -Path $platesPayloadRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $embeddingsWheelRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $embeddingsPayloadRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $facesPayloadRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $languagePayloadRoot -Force | Out-Null
 
 Push-Location $repoRoot
 try {
@@ -122,6 +129,12 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Face Model Pack payload preparation failed."
     }
+    # PoC S10 (ADR-026): the Language Runtime Pack archives and the Language Model Packs, copied from the controlled
+    # store only when every byte matches the payload record. Staged offline by Install-MAVI-PoC.
+    & $Python (Join-Path $repoRoot "tools\language\language_packs.py") collect --source $LanguagePayloadSource --dest $languagePayloadRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Language payload preparation failed."
+    }
 
     $visionRoot = Join-Path $repoRoot "src\vision"
     $visionEggInfo = Join-Path $visionRoot "mavi_vision.egg-info"
@@ -160,6 +173,7 @@ $sourceInputs = [ordered]@{
     embeddingsLockSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "src\vision\runtime\embeddings-onnx-v1\windows-x86_64-cpu.lock") -Algorithm SHA256).Hash.ToLowerInvariant()
     embeddingsManifestSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "models\manifests\embeddings-siglip2-base-p16-224-dev-v1.json") -Algorithm SHA256).Hash.ToLowerInvariant()
     facesManifestSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "models\manifests\faces-yunet-adaface-ir50-dev-v1.json") -Algorithm SHA256).Hash.ToLowerInvariant()
+    languagePayloadsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\language\language-payloads-v1.json") -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
 $nugetPackages = @()
@@ -280,6 +294,15 @@ foreach ($file in @(Get-ChildItem -LiteralPath $facesPayloadRoot -File -Recurse 
     }
 }
 
+$languageArtifacts = @()
+foreach ($file in @(Get-ChildItem -LiteralPath $languagePayloadRoot -File -Recurse | Sort-Object FullName)) {
+    $languageArtifacts += [ordered]@{
+        path = $file.FullName.Substring($destination.Length).TrimStart('\').Replace('\', '/')
+        sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = [long]$file.Length
+    }
+}
+
 $cacheManifest = [ordered]@{
     schemaVersion = "mavi-developer-offline-cache-v1"
     sourceInputs = $sourceInputs
@@ -290,6 +313,7 @@ $cacheManifest = [ordered]@{
     platesPilotArtifacts = @($platesArtifacts)
     embeddingsArtifacts = @($embeddingsArtifacts)
     facesArtifacts = @($facesArtifacts)
+    languageArtifacts = @($languageArtifacts)
 }
 $cacheManifestPath = Join-Path $destination "developer-cache-manifest.json"
 $cacheManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $cacheManifestPath -Encoding UTF8
@@ -303,6 +327,7 @@ Write-Host "  Benchmark instrument artifacts: $($instrumentArtifacts.Count)"
 Write-Host "  Plates pilot artifacts: $($platesArtifacts.Count)"
 Write-Host "  Embeddings artifacts: $($embeddingsArtifacts.Count)"
 Write-Host "  Faces artifacts: $($facesArtifacts.Count)"
+Write-Host "  Language artifacts: $($languageArtifacts.Count)"
 Write-Host "  NuGet : $nugetRoot"
 Write-Host "  npm   : $npmRoot"
 Write-Host "  Python: $pythonRoot"

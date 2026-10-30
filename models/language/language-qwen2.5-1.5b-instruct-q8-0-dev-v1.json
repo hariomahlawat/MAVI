@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "mavi-language-model-manifest-v1",
+  "$comment": "PoC S10 (ADR-026 \u00a72) Language Model Pack source manifest, in the ADR-014 \u00a73 shape. Not a vision Model Pack: the capability is served by the native language role (llama.cpp), so it lives outside models/manifests and is checked by tools/language/language_packs.py. Bytes never enter Git.",
+  "modelId": "qwen2-5-1-5b-instruct",
+  "modelVersion": "91cad511-q8-0.dev-1",
+  "capabilityIds": [
+    "query-translation"
+  ],
+  "packDirectory": "language-qwen2.5-1.5b-instruct-q8-0-dev-v1",
+  "artifacts": [
+    {
+      "artifactRole": "gguf-weights",
+      "relativePath": "language-qwen2.5-1.5b-instruct-q8-0-dev-v1/qwen2.5-1.5b-instruct-q8_0.gguf",
+      "sha256": "d7efb072e7724d25048a4fda0a3e10b04bdef5d06b1403a1c93bd9f1240a63c8"
+    },
+    {
+      "artifactRole": "licence-notice",
+      "relativePath": "language-qwen2.5-1.5b-instruct-q8-0-dev-v1/LICENSE",
+      "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+    },
+    {
+      "artifactRole": "model-card",
+      "relativePath": "language-qwen2.5-1.5b-instruct-q8-0-dev-v1/README.md",
+      "sha256": "57c72d4010fb11a98fc8e62dc8ef112b23a7a7525b71e571ca978d35cb3b2eec"
+    }
+  ],
+  "inputContract": {
+    "kind": "chatml-prompt",
+    "promptTemplateVersion": "mavi-ask-prompt-v1"
+  },
+  "outputContract": {
+    "schemaId": "mavi-ask-translation-v1",
+    "decoding": "grammar-constrained JSON (ADR-026 \u00a74)"
+  },
+  "runtimeCompatibility": {
+    "runtimeIds": [
+      "llamacpp-b12000-win-x64"
+    ]
+  },
+  "quantisation": {
+    "type": "Q8_0",
+    "reason": "Q8_0: at 1.5B parameters quantisation error costs more accuracy than at 7B; 1.89 GB still fits a 4 GiB GPU with an 8k context."
+  },
+  "hardware": "Development laptop: GTX 1650 Ti (sm_75, 4 GiB) fully offloaded, or CPU",
+  "licence": {
+    "spdxId": "Apache-2.0",
+    "noticeArtifactRole": "licence-notice",
+    "reviewStatus": "pending-review",
+    "readFrom": "the LICENSE file of the model's own repository at the pinned revision (Apache License 2.0 text)"
+  },
+  "provenance": {
+    "publisher": "Qwen team, Alibaba Cloud (official GGUF conversion)",
+    "sourceRepository": "huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+    "sourceRevision": "91cad51170dc346986eccefdc2dd33a9da36ead9"
+  },
+  "verificationStatus": "unverified",
+  "qualificationId": null
+}

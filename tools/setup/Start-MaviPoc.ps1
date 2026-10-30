@@ -47,7 +47,7 @@ Write-Host ""
 function Get-MaviPocRunningProcess {
     param([Parameter(Mandatory = $true)][string]$Name)
     $image = if ($Name -eq "api") { "Mavi.Api" } else { "powershell" }
-    $command = switch ($Name) { "api" { "Mavi.Api.exe" } "plates-worker" { "Start-MaviPlatesPilotWorker.ps1" } "embeddings-worker" { "Start-MaviEmbeddingsWorker.ps1" } "attributes-worker" { "Start-MaviAttributesWorker.ps1" } "faces-worker" { "Start-MaviFacesWorker.ps1" } default { "Start-MaviVisionWorker.ps1" } }
+    $command = switch ($Name) { "api" { "Mavi.Api.exe" } "plates-worker" { "Start-MaviPlatesPilotWorker.ps1" } "embeddings-worker" { "Start-MaviEmbeddingsWorker.ps1" } "attributes-worker" { "Start-MaviAttributesWorker.ps1" } "faces-worker" { "Start-MaviFacesWorker.ps1" } "language-runtime" { "Start-MaviLanguageRuntime.ps1" } default { "Start-MaviVisionWorker.ps1" } }
     Get-MaviPocRecordedProcess -Path (Join-Path $layout.RunRoot "$Name.pid") -ExpectedImageName $image -ExpectedCommandFragment $command
 }
 
@@ -276,6 +276,52 @@ if ($state.PSObject.Properties["facesBound"] -and [bool]$state.facesBound) {
             Start-Sleep -Seconds 2
         }
         Write-MaviSetupStatus -Name "Faces worker" -Status "OK" -Detail "YuNet + AdaFace IR-50 on CPU (Development; opt-in per camera)"
+    }
+}
+# Language role (PoC S10, ADR-026): llama-server on loopback for Ask MAVI, after its launcher verified the Runtime and
+# Model Packs byte for byte and recorded the device. It answers only the API; Ask MAVI refuses while it is down.
+if ($state.PSObject.Properties["languageBound"] -and [bool]$state.languageBound) {
+    if (Get-MaviPocRunningProcess -Name "language-runtime") {
+        Write-MaviSetupStatus -Name "Language role" -Status "OK" -Detail "already running"
+    }
+    else {
+        $languagePort = [int]$state.languagePort
+        $languageLauncher = Join-Path $layout.OverlayRoot "tools\setup\Start-MaviLanguageRuntime.ps1"
+        $languageArguments = @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $languageLauncher,
+            "-RepositoryRoot", $layout.OverlayRoot,
+            "-Python", (Join-Path $layout.EmbeddingsEnvironmentRoot "Scripts\python.exe"),
+            "-RuntimeRoot", $layout.LanguageRuntimeRoot,
+            "-ModelRoot", $layout.LanguageModelRoot,
+            "-Pack", [string]$state.languagePack,
+            "-Port", "$languagePort",
+            "-DevicePolicy", ([string]$state.languageDevicePolicy).ToLowerInvariant(),
+            "-DeviceReportPath", $layout.LanguageDeviceResolutionPath,
+            "-CudaCachePath", $layout.LanguageCudaCachePath
+        )
+        $quotedLanguage = @($languageArguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
+        $languageRole = Start-Process -FilePath "powershell.exe" -ArgumentList $quotedLanguage -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput (Join-Path $layout.LogRoot "language-runtime-$stamp.out.log") -RedirectStandardError (Join-Path $layout.LogRoot "language-runtime-$stamp.err.log")
+        [void]$languageRole.Handle
+        $startedHere += "language-runtime"
+        Write-MaviPocProcessRecord -Path (Join-Path $layout.RunRoot "language-runtime.pid") -Process $languageRole
+        # Loading the model (and, on a GPU without native code, the first PTX JIT) can take minutes.
+        $deadline = [DateTime]::UtcNow.AddSeconds([Math]::Max($WorkerTimeoutSeconds, 600))
+        while ($true) {
+            if ($languageRole.HasExited) {
+                throw "The language role exited with code $($languageRole.ExitCode) during start-up. See $(Join-Path $layout.LogRoot "language-runtime-$stamp.out.log")."
+            }
+            try {
+                $languageHealth = Invoke-WebRequest -Uri "http://127.0.0.1:$languagePort/health" -UseBasicParsing -TimeoutSec 5
+                # A stale server on the port must not stand in for this start: the launcher started here must still run.
+                if ($languageHealth.StatusCode -eq 200 -and -not $languageRole.HasExited) { break }
+            }
+            catch { }
+            if ([DateTime]::UtcNow -gt $deadline) { throw "The language role did not answer within the start-up timeout." }
+            Start-Sleep -Seconds 3
+        }
+        $languageReport = Read-MaviJson -Path $layout.LanguageDeviceResolutionPath
+        Write-MaviSetupStatus -Name "Language role" -Status "OK" -Detail "$($languageReport.modelId) $($languageReport.quantisation) on $($languageReport.device) ($($languageReport.deviceResolutionReason)); Ask MAVI translates, MAVI computes"
     }
 }
 if ($Seed) {

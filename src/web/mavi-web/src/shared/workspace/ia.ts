@@ -12,7 +12,7 @@ import type { IconName } from '../components/Icon';
  * document title and the `g` destination keys are all derived from it, and
  * nothing else in the product spells them.
  *
- * It is deliberately small and closed: sixteen surfaces, three sections. It is not
+ * It is deliberately small and closed: seventeen surfaces, three sections. It is not
  * a routing framework — route paths stay in the router, which names each
  * route's surface through its `handle` — and a new surface is one row here by
  * amendment of §5, under its owning section.
@@ -22,7 +22,7 @@ import type { IconName } from '../components/Icon';
  */
 
 /** A primary destination: one rail item, one root crumb, one `g` key. */
-export type DestinationId = 'overview' | 'cameras' | 'videos' | 'import' | 'processing' | 'search' | 'query' | 'faces' | 'entities' | 'system';
+export type DestinationId = 'overview' | 'cameras' | 'videos' | 'import' | 'processing' | 'search' | 'query' | 'ask' | 'faces' | 'entities' | 'system';
 
 /** Every surface the product renders, including the one that owns nothing. */
 export type SurfaceId =
@@ -53,7 +53,7 @@ export type Section = { label: string; destinations: Destination[] };
 /**
  * Grouped per §5 and ordered by operator workflow rather than alphabetically:
  * know what you have, bring media in, watch it process, then investigate what
- * came out. Investigate holds Search, Query (Stage 8 Advanced Search), Faces (PoC S6) and Entities (PoC S7); Events and Cases join it
+ * came out. Investigate holds Search, Query (Stage 8 Advanced Search), Ask (Stage 9 Ask MAVI), Faces (PoC S6) and Entities (PoC S7); Events and Cases join it
  * only when they are real routes.
  */
 export const SECTIONS: readonly Section[] = [
@@ -73,6 +73,8 @@ export const SECTIONS: readonly Section[] = [
       { id: 'search', label: 'Search', to: '/search', icon: 'search', key: 's' },
       // Stage 8 (ADR-024): the Advanced Search builder over the structured query contract.
       { id: 'query', label: 'Query', to: '/query', icon: 'filter', key: 'q' },
+      // PoC S10 (ADR-026; spec §17.1): Ask MAVI, the ordinary-language surface over the same contract. `g k`: `a` is About's.
+      { id: 'ask', label: 'Ask', to: '/ask', icon: 'list', key: 'k' },
       // PoC S6 (ADR-022): find a face from an image, the gallery and the per-camera opt-in.
       { id: 'faces', label: 'Faces', to: '/faces', icon: 'person', key: 'f' },
       // PoC S7 (ADR-023): Entity candidates and the operator's confirm or dismiss.
@@ -111,6 +113,7 @@ export const SURFACES: Readonly<Record<SurfaceId, SurfaceRow>> = {
   'processing-detail': { owner: 'processing' },
   search: { owner: 'search' },
   query: { owner: 'query' },
+  ask: { owner: 'ask' },
   review: { owner: 'search', child: 'Review' },
   faces: { owner: 'faces' },
   entities: { owner: 'entities' },

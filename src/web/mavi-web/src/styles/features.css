@@ -1410,3 +1410,15 @@
 .query-page__table th, .query-page__table td { text-align: left; padding: var(--s-1) var(--s-2); border-bottom: 1px solid var(--border-subtle); }
 .query-page__links { display: flex; gap: var(--s-3); }
 .query-page__resolved { margin: 0; padding: var(--s-2); max-height: 20rem; overflow: auto; background: var(--surface-inset); font-family: var(--font-mono); font-size: var(--fs-1); white-space: pre-wrap; }
+
+/* PoC S10 (ADR-026): Ask MAVI, one question over the query contract (spec §17.1). */
+.ask-page__form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--s-3); align-items: end; }
+.ask-page__question, .ask-page__date { display: grid; gap: var(--s-1); }
+.ask-page__question textarea { width: 100%; resize: vertical; font: inherit; padding: var(--s-2); }
+.ask-page__date small { color: var(--text-secondary); max-width: 18rem; }
+.ask-page__interpretation { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-2); }
+.ask-page__interpretation > div { display: contents; }
+.ask-page__interpretation dt { color: var(--text-secondary); }
+.ask-page__interpretation dd { margin: 0; }
+.ask-page__sentence { margin: 0 0 var(--s-3); font-size: var(--fs-3); }
+@media (max-width: 720px) { .ask-page__form { grid-template-columns: 1fr; } }

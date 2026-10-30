@@ -2,7 +2,7 @@
 param(
     [string]$DataRoot = (Join-Path $env:ProgramData "MAVI\PoC"),
     # Stop only these (Start-MaviPoc's rollback stops only what it started). Default: all six.
-    [ValidateSet("faces-worker", "attributes-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")][string[]]$Only = @("faces-worker", "attributes-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")
+    [ValidateSet("language-runtime", "faces-worker", "attributes-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")][string[]]$Only = @("language-runtime", "faces-worker", "attributes-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")
 )
 
 # Stops what Start-MaviPoc.ps1 started (the Vision worker, then the platform), each with
@@ -17,10 +17,10 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
 
 $runRoot = Join-Path ([IO.Path]::GetFullPath($DataRoot)) "run"
-$images = @{ "faces-worker" = "powershell"; "attributes-worker" = "powershell"; "embeddings-worker" = "powershell"; "plates-worker" = "powershell"; "vision-worker" = "powershell"; "api" = "Mavi.Api" }
-$commands = @{ "faces-worker" = "Start-MaviFacesWorker.ps1"; "attributes-worker" = "Start-MaviAttributesWorker.ps1"; "embeddings-worker" = "Start-MaviEmbeddingsWorker.ps1"; "plates-worker" = "Start-MaviPlatesPilotWorker.ps1"; "vision-worker" = "Start-MaviVisionWorker.ps1"; "api" = "Mavi.Api.exe" }
+$images = @{ "language-runtime" = "powershell"; "faces-worker" = "powershell"; "attributes-worker" = "powershell"; "embeddings-worker" = "powershell"; "plates-worker" = "powershell"; "vision-worker" = "powershell"; "api" = "Mavi.Api" }
+$commands = @{ "language-runtime" = "Start-MaviLanguageRuntime.ps1"; "faces-worker" = "Start-MaviFacesWorker.ps1"; "attributes-worker" = "Start-MaviAttributesWorker.ps1"; "embeddings-worker" = "Start-MaviEmbeddingsWorker.ps1"; "plates-worker" = "Start-MaviPlatesPilotWorker.ps1"; "vision-worker" = "Start-MaviVisionWorker.ps1"; "api" = "Mavi.Api.exe" }
 $failures = @()
-foreach ($name in @("faces-worker", "attributes-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")) {
+foreach ($name in @("language-runtime", "faces-worker", "attributes-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")) {
     if ($Only -notcontains $name) { continue }
     $recordPath = Join-Path $runRoot "$name.pid"
     $process = Get-MaviPocRecordedProcess -Path $recordPath -ExpectedImageName $images[$name] -ExpectedCommandFragment $commands[$name]
@@ -52,6 +52,9 @@ if ($Only -contains "vision-worker" -and @($failures | Where-Object { $_ -like "
 }
 if ($Only -contains "plates-worker" -and @($failures | Where-Object { $_ -like "plates-worker*" }).Count -eq 0) {
     Remove-Item -LiteralPath (Join-Path $runRoot "plates-device-resolution.json") -Force -ErrorAction SilentlyContinue
+}
+if ($Only -contains "language-runtime" -and @($failures | Where-Object { $_ -like "language-runtime*" }).Count -eq 0) {
+    Remove-Item -LiteralPath (Join-Path $runRoot "language-device-resolution.json") -Force -ErrorAction SilentlyContinue
 }
 $global:LASTEXITCODE = 0
 if ($failures.Count -gt 0) { throw "Could not stop: $($failures -join '; '). Stop it from an elevated prompt." }
