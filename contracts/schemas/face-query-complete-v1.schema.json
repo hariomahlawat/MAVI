@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "face-query-complete-v1",
+  "description": "The transient query-image completion request (mavi-face-control-v1; ADR-022 sections 4-5). Faces in score order, at most 16, each at or above the profile's detector.scoreThreshold. A usable face carries its embedding and a thumbnail: the aligned 112x112 face as a standard-base64 JPEG (quality 90), the only face image the role produces. An image with no face completes with an empty list.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "queryId",
+    "workerId",
+    "attemptCount",
+    "faces"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "mavi-face-control-v1"
+    },
+    "queryId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "workerId": {
+      "$ref": "#/$defs/workerId"
+    },
+    "attemptCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "faces": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/queryFace"
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "workerId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "vector": {
+      "description": "Little-endian IEEE-754 float32 components, standard base64 with padding; finite, L2 norm 1 within 1e-3, exactly identity.model.dimension components (512 for AdaFace IR-50: 2732 characters; 128 for SFace).",
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 21848,
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+    },
+    "coordinate": {
+      "type": "number",
+      "minimum": -100000,
+      "maximum": 100000
+    },
+    "box": {
+      "description": "The detected face box in source pixels of its image (evidence crop or query image), clipped to the image; 3 decimals.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "landmarks": {
+      "description": "Five landmarks in source pixels: the subject's right eye, left eye, nose tip, right and left mouth corner (YuNet order); they may fall outside the clipped box.",
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+          "$ref": "#/$defs/coordinate"
+        }
+      }
+    },
+    "thumbnail": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 65536,
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+    },
+    "queryFace": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "box",
+            "landmarks",
+            "score",
+            "usable",
+            "embedding",
+            "thumbnail"
+          ],
+          "properties": {
+            "box": {
+              "$ref": "#/$defs/box"
+            },
+            "landmarks": {
+              "$ref": "#/$defs/landmarks"
+            },
+            "score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "usable": {
+              "const": true
+            },
+            "embedding": {
+              "$ref": "#/$defs/vector"
+            },
+            "thumbnail": {
+              "$ref": "#/$defs/thumbnail"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "box",
+            "landmarks",
+            "score",
+            "usable"
+          ],
+          "properties": {
+            "box": {
+              "$ref": "#/$defs/box"
+            },
+            "landmarks": {
+              "$ref": "#/$defs/landmarks"
+            },
+            "score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "usable": {
+              "const": false
+            }
+          }
+        }
+      ]
+    }
+  }
+}

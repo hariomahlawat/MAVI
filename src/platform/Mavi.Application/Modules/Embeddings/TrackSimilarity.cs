@@ -195,6 +195,9 @@ public static class SimilaritySnapshotCodec
 {
     public const string SimilarKind = "similar";
     public const string AppearanceKind = "appearance";
+
+    /// <summary>"Find this face" (ADR-022 §7) reuses the token, under its own kind.</summary>
+    public const string FaceKind = "face";
     public const string MacKeyLabel = "mavi-similarity-snapshot-v1/mac";
     public const string FingerprintKeyLabel = "mavi-similarity-snapshot-v1/filter-fingerprint";
     public const int MaximumEncodedLength = 512;
@@ -254,7 +257,7 @@ public static class SimilaritySnapshotCodec
         try
         {
             var parsed = JsonSerializer.Deserialize<SnapshotPayload>(envelope.AsSpan(MacByteLength), JsonOptions);
-            if (parsed is null || parsed.V != Version || parsed.K is not (SimilarKind or AppearanceKind) ||
+            if (parsed is null || parsed.V != Version || parsed.K is not (SimilarKind or AppearanceKind or FaceKind) ||
                 !EmbeddingContractRules.IsCanonicalSha256(parsed.F) || !EmbeddingContractRules.IsCanonicalSha256(parsed.I) ||
                 parsed.Q < 1 || parsed.S.Offset != TimeSpan.Zero || parsed.S > nowUtc || parsed.S < nowUtc - Validity)
                 return null;

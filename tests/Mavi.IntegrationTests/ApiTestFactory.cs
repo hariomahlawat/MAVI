@@ -167,6 +167,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                              x.ImplementationFactory?.Method.ReturnType == typeof(Mavi.Api.Plates.PlateHostedService)).ToList())
                     services.Remove(descriptor);
             }
+            // The face loop always runs when a face release is configured; face tests drive RunCycleAsync themselves.
+            foreach (var descriptor in services.Where(x => x.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService) &&
+                         x.ImplementationFactory?.Method.ReturnType == typeof(Mavi.Api.Faces.FaceHostedService)).ToList())
+                services.Remove(descriptor);
             services.RemoveAll<DbContextOptions<MaviDbContext>>();
             services.AddDbContext<MaviDbContext>(options =>
             {

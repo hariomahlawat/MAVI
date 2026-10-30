@@ -48,6 +48,10 @@ export const queryKeys = {
    * second press is a second request (`serial`), never a cached answer.
    */
   similarTracks: (id: string, request: string, serial: number) => ['track-similar', id, request, serial] as const,
+  /** PoC S6 (ADR-022): a Track's face state, a transient query image, and the gallery. */
+  trackFaces: (id: string) => ['track-faces', id] as const,
+  faceQuery: (queryId: string) => ['face-query', queryId] as const,
+  faceGallery: ['face-gallery'] as const,
   cameraScene: (cameraId: string) => ['camera-scene', cameraId] as const,
   cameraSceneRevision: (cameraId: string, revisionNumber: number) =>
     ['camera-scene-revision', cameraId, revisionNumber] as const,

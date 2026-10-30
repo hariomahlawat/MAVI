@@ -9,4 +9,5 @@ public sealed record CameraResponse(
     string TimeZoneId,
     bool IsActive,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    bool FaceAnalysisEnabled = false);

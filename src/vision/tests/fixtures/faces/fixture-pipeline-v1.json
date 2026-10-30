@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "mavi-face-pipeline-v1",
+  "pipelineId": "faces-fixture",
+  "pipelineVersion": "1.0.0",
+  "developmentOnly": true,
+  "modelManifest": "src/vision/tests/fixtures/model-manifests/embedding-fixture-v2.json",
+  "dimension": 512,
+  "detector": {
+    "scoreThreshold": 0.9,
+    "nmsThreshold": 0.3,
+    "topK": 5000
+  },
+  "minimumFaceSide": 32,
+  "alignment": "arcface-112-similarity-v1",
+  "preprocessing": "adaface-ir50-v1",
+  "referenceThreshold": {
+    "cosine": 0.3,
+    "provenance": "Test fixture only: not a measured operating point."
+  },
+  "objectClasses": [
+    "Person"
+  ],
+  "queryImageMaximumBytes": 2097152
+}

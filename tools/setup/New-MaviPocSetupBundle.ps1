@@ -161,7 +161,7 @@ try {
 
     if ([string]::IsNullOrWhiteSpace($PlatesCache)) { $PlatesCache = Join-Path $BinaryKitRoot "vendor\developer-cache\win-x64" }
     $PlatesCache = [IO.Path]::GetFullPath($PlatesCache)
-    foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads", "python-embeddings-wheelhouse", "embeddings-payloads")) {
+    foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads", "python-embeddings-wheelhouse", "embeddings-payloads", "faces-payloads")) {
         if (-not (Test-Path -LiteralPath (Join-Path $PlatesCache $name) -PathType Container)) { throw "The plates cache '$PlatesCache' has no $name\ (Prepare-MaviDeveloperOfflineCache.ps1)." }
     }
     if ($SmokeClip -and [string]::IsNullOrWhiteSpace($SmokeClipLicence)) { throw "A shipped smoke clip needs -SmokeClipLicence (CC0 / CC-BY attribution text)." }
@@ -206,6 +206,8 @@ try {
     foreach ($name in @("python-embeddings-wheelhouse", "embeddings-payloads")) {
         Copy-MaviPocTree -Source (Join-Path $PlatesCache $name) -Target (Join-Path $destination "embeddings\$name")
     }
+    # PoC S6 (ADR-022): the face Model Pack payloads (model bytes only; biometric derivatives never enter a bundle).
+    Copy-MaviPocTree -Source (Join-Path $PlatesCache "faces-payloads") -Target (Join-Path $destination "faces\faces-payloads")
     foreach ($name in @("python-plates-pilot-wheelhouse", "plates-pilot-payloads")) {
         Copy-MaviPocTree -Source (Join-Path $PlatesCache $name) -Target (Join-Path $destination "plates\$name")
     }

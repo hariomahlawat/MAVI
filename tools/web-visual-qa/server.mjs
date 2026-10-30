@@ -56,6 +56,8 @@ export const TEXT_SPACING_CSS = '* { line-height: 1.5 !important; letter-spacing
  * Images and media streams are answered as they come, outside the order.
  */
 const ORIGIN_BASE = 'http://127.0.0.1';
+/** The review's Faces panel route (PoC S6): `/api/tracks/{id}/faces`. */
+const TRACK_FACES = /^\/api\/tracks\/[^/]+\/faces$/;
 export const RESPONSE_ORDERS = Object.freeze(['natural', 'forward']);
 export const RESPONSE_SPACING_MS = 120;
 
@@ -318,6 +320,9 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
           const method = spaced === -1 ? null : key.slice(0, spaced);
           const keyPath = spaced === -1 ? key : key.slice(spaced + 1);
           if (method && method !== req.method) return false;
+          // A Track's details override must not answer its Faces panel's own
+          // route (PoC S6) with the Track: only an exact key does.
+          if (path !== keyPath && TRACK_FACES.test(path)) return false;
           return path === keyPath || path.startsWith(keyPath + '/');
         })
         // A method-qualified key is more specific than a bare one of the same
@@ -492,6 +497,16 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
       if (existsSync(file)) {
         res.writeHead(200, { 'content-type': TYPES['.json'] });
         res.end(readFileSync(file));
+        return;
+      }
+      // The review's Faces panel (PoC S6) asks every Track for its faces. The fixture world has no face
+      // release, so the platform's own answer for that case stands in unless a state supplies a fixture.
+      if (TRACK_FACES.test(path)) {
+        res.writeHead(200, { 'content-type': TYPES['.json'] });
+        res.end(JSON.stringify({
+          label: 'Face candidates — not identification — Development',
+          state: 'notConfigured', reason: null, identity: null, referenceThreshold: null, faces: [],
+        }));
         return;
       }
       if (process.env.MAVI_VQA_DEBUG) process.stderr.write('  no fixture: ' + path + '\n');

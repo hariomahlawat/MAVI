@@ -136,6 +136,7 @@ public static class DependencyInjection
         services.AddVisualAttributes(configuration);
         services.AddPlates(configuration);
         services.AddEmbeddings(configuration);
+        services.AddFaces(configuration);
         services.AddTrackSearchOptions(configuration);
         services.AddOptions<LocalizationOptions>()
             .Bind(configuration.GetSection(LocalizationOptions.SectionName))
@@ -360,6 +361,36 @@ public static class EmbeddingRegistration
         services.AddScoped<Mavi.Application.Modules.Embeddings.ITrackSimilarityRepository, TrackSimilarityRepository>();
         services.AddScoped<Mavi.Application.Modules.Embeddings.TrackSimilarityService>();
         return services;
+    }
+}
+
+/// <summary>
+/// The face lifecycle's registrations (PoC S6; ADR-022). Validated at start whether or not the host loop is enabled.
+/// </summary>
+public static class FaceRegistration
+{
+    public static IServiceCollection AddFaces(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddOptions<Mavi.Application.Modules.Faces.FaceOptions>()
+            .Bind(configuration.GetSection(Mavi.Application.Modules.Faces.FaceOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<Mavi.Application.Modules.Faces.FaceOptions>, FaceOptionsValidator>();
+        services.AddSingleton<Mavi.Application.Modules.Faces.IFaceRelease, Mavi.Infrastructure.Faces.FaceReleaseSource>();
+        services.AddScoped<Mavi.Application.Modules.Faces.IFaceLifecycle, FaceLifecycle>();
+        services.AddScoped<Mavi.Application.Modules.Faces.IFaceRepository, FaceRepository>();
+        services.AddScoped<Mavi.Application.Modules.Faces.FaceSearchService>();
+        return services;
+    }
+}
+
+internal sealed class FaceOptionsValidator : IValidateOptions<Mavi.Application.Modules.Faces.FaceOptions>
+{
+    public ValidateOptionsResult Validate(string? name, Mavi.Application.Modules.Faces.FaceOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var problems = options.Validate();
+        return problems.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(problems);
     }
 }
 

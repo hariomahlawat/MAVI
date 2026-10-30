@@ -188,3 +188,55 @@ The worker contract of the `embeddings` role (PoC S4; ADR-021). It is capability
   - Every leased Track appears exactly once, in lease order.
   - An `embedded` Track names only leased observations of that Track; each is a crop whose shorter side is at least the profile's `minimumCropSide`.
   - An `unavailable` Track gives `no_evidence` (nothing leased), `evidence_too_small` (no crop met the floor) or `evidence_unavailable` (every adequate crop failed integrity or transport).
+
+## PoC Stage 5A face control plane (`mavi-face-control-v1`)
+
+The worker contract of the `faces` role (PoC S6; ADR-022), built like the embedding plane. The C# records are in `Mavi.Contracts/Worker/Faces`. The lease capability travels only in `X-Mavi-Lease-Capability`. Worker and attempt travel in `X-Mavi-Worker-Id` and `X-Mavi-Attempt` on evidence and query-image reads.
+
+| Schema | Example | Pinned by |
+|---|---|---|
+| `face-lease-v1` (analysis lease response, Person Tracks only) | `face-lease-v1.example.json` | `test-vectors/face-identity-v1.json`: canonical identity (`mavi-face-identity-v1`) and fingerprint from the manifest and profile bytes. The examples carry the first vector's fingerprint. |
+| `face-complete-v1` (analysis completion request) | `face-complete-v1.example.json` | Completion digest = SHA-256 of the exact request body |
+| `face-query-lease-v1` (transient query-image lease response) | `face-query-lease-v1.example.json` | — |
+| `face-query-complete-v1` (query-image completion) | `face-query-complete-v1.example.json` | — |
+
+**Routes**
+
+| Route | Request | Response |
+|---|---|---|
+| `POST /api/faces/analyses/lease` | `{schemaVersion, workerId, identityFingerprint}` | 204 if nothing is queued; 200 with `face-lease-v1` and the capability header |
+| `POST …/{analysisId}/heartbeat` | `{schemaVersion, analysisId, workerId, attemptCount}` | `{schemaVersion, leaseExpiresAtUtc}` |
+| `POST …/{analysisId}/fail` | `{schemaVersion, analysisId, workerId, attemptCount, failureCode, failureMessage?}` | `{schemaVersion, outcome: "requeued" \| "failed"}` |
+| `GET …/{analysisId}/evidence/{observationId}` | — | The accepted JPEG crop, through the shared lease-scoped handler |
+| `POST …/{analysisId}/complete` | `face-complete-v1` | `{schemaVersion, analysisId, processingRunId, status: "completed" \| "superseded", completedAtUtc, tracksObserved, tracksUnknown}` |
+| `POST /api/faces/queries/lease` | `{schemaVersion, workerId, identityFingerprint}` | 204, or 200 with `face-query-lease-v1` and the capability header |
+| `GET /api/faces/queries/{queryId}/image` | — | The query image bytes (`image.mimeType`, exactly `image.sizeBytes`) |
+| `POST /api/faces/queries/{queryId}/complete` | `face-query-complete-v1` | `{schemaVersion, status: "completed"}` |
+| `POST /api/faces/queries/{queryId}/fail` | `{schemaVersion, queryId, workerId, attemptCount, failureCode, failureMessage?}` | `{schemaVersion, outcome}` |
+
+**Rules**
+
+- **Failure codes** (code: retryable):
+  - Analysis: `face_runtime_failed`: true; `face_evidence_transport_failed`: true; `face_model_unavailable`: true; `face_cancelled`: true; `face_output_invalid`: false.
+  - Query: `face_query_runtime_failed`: true; `face_query_image_invalid`: false.
+- **Lease refusals:**
+  - 409 with `face_lease_invalid`, `face_not_running`, `face_attempt_stale` or `face_deadline_exceeded`;
+  - 404 with `face_analysis_not_found` or `face_query_not_found`.
+- **Integrity refusals:**
+  - 422 with `face_evidence_missing` or `face_evidence_integrity_failed` makes the crop unavailable, not the run.
+  - 422 with `face_query_image_missing` fails the query as `face_query_image_invalid`.
+- **Completion:**
+  - 422 `face_completion_invalid` is the only refusal the worker treats as its own bad output.
+- **Faces:**
+  - Every reported face has a detection score at least the profile's `detector.scoreThreshold`. A crop reports at most 8 faces, highest score first; crops are in lease order. A query reports at most 16.
+  - Boxes and landmarks are in source pixels, at 3 decimals. A face is `usable` exactly when the shorter side of its *reported* box is at least `minimumFaceSide`.
+  - Only usable faces carry `embedding`: float32 little-endian, standard base64, L2 norm 1 ± 1e-3, `identity.model.dimension` components.
+  - A usable query face also carries `thumbnail`, its aligned 112×112 JPEG. It is the only face image the role produces.
+- **Track outcomes:**
+  - Every leased Track appears once, in lease order.
+  - `observed` ⇔ at least one usable face.
+  - Otherwise the Track is `unknown` with one of these reasons. Unknown is never "no match".
+    - `no_evidence`: nothing was leased.
+    - `evidence_unavailable`: no crop could be read and decoded.
+    - `no_face_detected`.
+    - `face_too_small`: faces were found, but none was usable. They are reported without vectors.

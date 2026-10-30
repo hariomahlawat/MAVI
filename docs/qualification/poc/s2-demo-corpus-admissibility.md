@@ -428,3 +428,38 @@ The threshold was **not** changed after the audit (A5).
 | 13 | **Confirm decisions 2(a) and 3(a) for G331.** Decision 2(a) accepted the MEVA transfer path, and 3(a) accepted MEVA consent for s2-10, s2-11 and s2-12. The operator applied both to G331 (s2-08) as a consequence of 5(b), but the owner has not said so. Options:<br>(a) confirm both for G331;<br>(b) the non-relaxing alternative: keep s2-08 owner-machine-only, out of the kit. It enters the kit only after the owner separately confirms both its consent (3(a)) and its acquisition path (2(a), or re-acquisition through an extended helper). | B1, B3 | (a) | **(a)** (2026-10-29). Decisions 2(a) and 3(a) are confirmed for G331 (s2-08). |
 
 **Person loitering, stated plainly.** Under the audit's same-zone rule it is still demonstrable **once** (s2-09, 1 / 1). On s2-08 it fires on 3 persons, but that zone has no same-zone negative.
+
+## 13. Amendment A6: a close-range indoor MEVA clip for Stage 5A (owner decision D-S6-2(a), 2026-10-29/30)
+
+**Why.** S6's coverage measurement (`s6-face-coverage-v1`) found a usable face in 2 of 110 Person Tracks. The owner chose D-S6-2(a): add one or two close-range MEVA indoor clips from the same consented release and re-measure.
+
+**Order of events.**
+1. **Amendment A6 was committed first** (`060e02bd`), before any new media request. It fixed the five candidate cameras from the MEVID video list: G300, G328, G336, G420 and G638. These are the slot's school-building views that MEVID lists and the corpus did not yet use.
+2. **Screening, by viewpoint only.**
+   - Only the first 8 MB of each candidate was fetched, by an HTTPS range request. Three frames were decoded per camera at 2 s intervals.
+   - No model was run, and no face was detected, counted or labelled.
+   - The frames were looked at once and then deleted (B5 rationale: decide whether the view is indoor and passes people close to the camera).
+3. **Result of the screening:**
+   - G300 (loading area), G328 (car park and lawn), G336 (drive and lawn) and G638 (courtyard) are **outdoor**, so they are excluded by A6.
+   - **G420** is the school **entrance hall**: an elevated indoor view of two double doors, a landing and a staircase, with people a few metres from the camera.
+   - Only G420 qualifies, so **one clip** is added and the corpus has **13 clips**.
+4. **Acquisition.** The original was fetched over HTTPS without credentials.
+   - Its size matches the bucket's `Content-Length`: 75 749 322 bytes, ETag `ad7208714d38a525fdcad5511fea35e5-10`.
+   - Its SHA-256 is `3e1cd6ebc9900a1c7582e3975537602ad7fae272d0e91a513d107d9802052f77`, appended to `approvals\meva-originals.sha256`. The fetch is logged in `approvals\meva-a6-fetch.log`, with UTC times.
+5. **Trim.** The first 180 s, using the corpus tool's pinned FFmpeg argv. The derivative `s2-13-meva-entrance-hall.mp4` has SHA-256 `60505f749a054f66af37753895901f42dc843ed3d87ef0257bd331fb0fb6a3f2`. The full 13-clip `trim` pass afterwards re-derived the same bytes, and all twelve earlier derivatives reproduced. `demo_corpus.py verify` found no problems.
+   - Evidence: `E:\MAVI-Controlled\PoC\Corpus\evidence-2026-10-30-a6\`, `SHA256SUMS` = `1e2da4c71e6465ba175fbebc12937589d2aeeb9b276386573e9ea2c2bf72b620`.
+6. **Scene geometry.** It was drawn on the 5 s frame before any pipeline output for G420 was read: an "Entrance floor" zone with a 60 s loitering threshold (within the half-window rule), and a "Door line". The reference frame was deleted.
+7. **Recording start.** 09:40:01, which keeps the real offset in the slot (G420's object starts at 16-20-01).
+
+**Records and decisions.**
+- The MEVA release-level ADR-017 record (§7) covers G420.
+- The transfer path (decision 2(a)) and consent (3(a)) are applied to G420 as decision 13(a) applied them to G331: as the operator's inference under D-S6-2(a), which named "the same consented release". **Owner confirmation is requested** with the S6 report.
+- The added attribution text awaits the owner's acceptance (B2).
+
+| Clip | Camera / view | Object (`drops-123-r13/2018-03-11/16/…`) | Bytes | Original SHA-256 |
+|---|---|---|---|---|
+| s2-13 (A6) | G420 school entrance hall | `2018-03-11.16-20-01.16-25-01.school.G420.r13.avi` | 75 749 322 | `3e1cd6ebc9900a1c7582e3975537602ad7fae272d0e91a513d107d9802052f77` |
+
+**Count.** The plan's S2 row names 8–12 clips. A6 records 13, as the owner's decision allows. The cap in `tools/poc/demo_corpus.py` is now 13. The setup contract test `tools/setup/Test-MaviPocSetupContracts.ps1` now expects the codes POC-S2-01..13 (S6 PR).
+
+**Import.** Only s2-13 was imported, into the S2 Development database `mavi_poc_s2_20261029`. It used the same Development API build (`Mavi.Api.dll` SHA-256 `4a1f1f0f…90aa`, S2 worktree), the same Runtime Pack `mavi-runtime-v2-89fd8bfc…` (`windows-x86_64-cuda`, `cuda_selected`) and the same RTMDet Model Pack `mavi-model-v2-86754e36…` as the clean re-import (§11). The clips already in that database are untouched. A clean 13-clip re-import on a fresh database (B4) is still to be done.

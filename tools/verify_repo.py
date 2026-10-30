@@ -1373,6 +1373,8 @@ def check_contracts(errors: list[str]) -> None:
         "embedding-lease-v1", "embedding-complete-v1", "embedding-text-query-lease-v1", "embedding-text-query-complete-v1",
         # PoC S9 structured query contract (ADR-024).
         "structured-query-v1",
+        # PoC S6 face control plane (ADR-022).
+        "face-lease-v1", "face-complete-v1", "face-query-lease-v1", "face-query-complete-v1",
     ]
     pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:
@@ -1398,6 +1400,7 @@ def check_contracts(errors: list[str]) -> None:
     check_plate_contract(errors)
     check_zero_shot_attribute_release(errors)
     check_embedding_contract(errors)
+    check_face_contract(errors)
     check_structured_query_corpus(errors)
 
 
@@ -1476,6 +1479,95 @@ def check_embedding_contract(errors: list[str]) -> None:
         fail("Embedding contract examples do not carry the development identity fingerprint.", errors)
     if [track["trackId"] for track in lease["tracks"]] != [track["trackId"] for track in complete["tracks"]]:
         fail("The embedding completion example does not describe the lease example's Tracks in order.", errors)
+
+
+def face_identity(manifest_path: Path, profile_path: Path) -> tuple[str, str]:
+    """ADR-022 identity: the ADR-021 identity shape under ``mavi-face-identity-v1``, and its SHA-256."""
+    canonical, _ = embedding_identity(manifest_path, profile_path)
+    identity = json.loads(canonical)
+    identity["schemaVersion"] = "mavi-face-identity-v1"
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":")) + "\n"
+    return canonical, hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def check_face_contract(errors: list[str]) -> None:
+    """The face identity vectors re-derive from the committed files, and the examples agree with them and each other."""
+    vectors = json.loads((ROOT / "contracts/test-vectors/face-identity-v1.json").read_text(encoding="utf-8"))
+    for vector in vectors["vectors"]:
+        manifest_path, profile_path = ROOT / vector["modelManifest"], ROOT / vector["pipelineProfile"]
+        if not (ROOT / "models").is_dir() and not (ROOT / "src").is_dir():
+            continue
+        if not (manifest_path.is_file() and profile_path.is_file()):
+            fail(f"Face identity vector {vector['name']} names a missing manifest or profile.", errors)
+            continue
+        canonical, fingerprint = face_identity(manifest_path, profile_path)
+        if canonical != vector["canonicalIdentity"] or fingerprint != vector["fingerprint"]:
+            fail(f"Face identity vector {vector['name']} no longer matches its manifest and profile.", errors)
+    examples = ROOT / "contracts/examples"
+    lease = json.loads((examples / "face-lease-v1.example.json").read_text(encoding="utf-8"))
+    complete = json.loads((examples / "face-complete-v1.example.json").read_text(encoding="utf-8"))
+    query_lease = json.loads((examples / "face-query-lease-v1.example.json").read_text(encoding="utf-8"))
+    first = vectors["vectors"][0]["fingerprint"]
+    if {lease["identity"]["fingerprint"], complete["provenance"]["identityFingerprint"], query_lease["identity"]["fingerprint"]} != {first}:
+        fail("Face contract examples do not carry the first face identity vector's fingerprint.", errors)
+    if [track["trackId"] for track in lease["tracks"]] != [track["trackId"] for track in complete["tracks"]]:
+        fail("The face completion example does not describe the lease example's Tracks in order.", errors)
+    leased = {track["trackId"]: {o["observationId"] for o in track["observations"]} for track in lease["tracks"]}
+    for track in complete["tracks"]:
+        if any(face["observationId"] not in leased[track["trackId"]] for face in track["faces"]):
+            fail("The face completion example names an observation its Track did not lease.", errors)
+        if (track["outcome"] == "observed") != any(face["usable"] for face in track["faces"]):
+            fail("A face completion example Track is 'observed' exactly when it has a usable face.", errors)
+
+
+def check_face_profiles(tracked: list[Path], manifests: dict, errors: list[str], root: Path = ROOT) -> set[str]:
+    """PoC S6 (ADR-022 §2-§3): the faces role is composed from explicit paths, like the embeddings role.
+
+    Every tracked face pipeline profile is a developmentOnly ``mavi-face-pipeline-v1`` that names a tracked, unverified
+    ``embedding`` manifest with no qualification ID, whose dimension it repeats, whose runtime family is a declared
+    Development runtime family, and which carries the face detector and embedder artefact roles. Returns the Model
+    Pack ids those profiles bind.
+    """
+    bound: set[str] = set()
+    by_path = {manifest_path.resolve(): (pack_id, manifest) for pack_id, (manifest_path, manifest, _hash) in manifests.items()}
+    policy_path = root / "config/dependencies/offline-dependency-policy-v1.json"
+    policy = json.loads(policy_path.read_text(encoding="utf-8")) if policy_path.is_file() else {}
+    families = ((policy.get("ecosystemStrategies") or {}).get("python") or {}).get("developmentRuntimeFamilies") or {}
+    tracked_set = {path.resolve() for path in tracked}
+    for path in tracked:
+        relative = path.relative_to(root).as_posix()
+        if not (relative.startswith("src/vision/config/faces/") and relative.endswith(".json")):
+            continue
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            fail(f"Face pipeline profile {relative} is not valid JSON.", errors)
+            continue
+        if profile.get("schemaVersion") != "mavi-face-pipeline-v1" or profile.get("developmentOnly") is not True:
+            fail(f"Face pipeline profile {relative} must be mavi-face-pipeline-v1 and developmentOnly.", errors)
+            continue
+        threshold = profile.get("referenceThreshold") or {}
+        if not isinstance(threshold.get("cosine"), float) or not str(threshold.get("provenance") or "").strip():
+            fail(f"Face pipeline profile {relative} must state a reference threshold and its provenance (ADR-022 §7).", errors)
+            continue
+        manifest_path = (root / str(profile.get("modelManifest"))).resolve()
+        if manifest_path not in tracked_set or manifest_path not in by_path:
+            fail(f"Face pipeline profile {relative} names no tracked model manifest.", errors)
+            continue
+        pack_id, manifest = by_path[manifest_path]
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        family_ids = (document.get("runtimeCompatibility") or {}).get("runtimePackFamilyIds") or []
+        roles = {artifact.get("artifactRole") for artifact in document.get("artifacts") or []}
+        if (document.get("capabilityIds") != ["embedding"] or manifest.verification_status != "unverified"
+                or manifest.qualification_id is not None
+                or ((document.get("capabilitySpecific") or {}).get("embedding") or {}).get("dimension") != profile.get("dimension")
+                or not {"onnx-face-detector", "onnx-face-embedder", "licence-notice", "licence-notice-detector"} <= roles
+                or not family_ids or any(family not in families for family in family_ids)):
+            fail(f"Face pipeline profile {relative} binds a manifest that is not an unverified, unqualified face pipeline "
+                 "pack of its dimension on a declared Development runtime family.", errors)
+            continue
+        bound.add(pack_id)
+    return bound
 
 
 def check_embedding_profiles(tracked: list[Path], manifests: dict, errors: list[str], root: Path = ROOT) -> set[str]:
@@ -2621,6 +2713,7 @@ def check_vision_release_metadata(
         if qualification_id not in bound_records:
             fail(f"Qualification record {rel(record_path)} is bound by no capability binding.", errors)
     bound_packs |= check_embedding_profiles(tracked, manifests, errors, root)
+    bound_packs |= check_face_profiles(tracked, manifests, errors, root)
     for model_pack_id, (manifest_path, _manifest, _hash) in manifests.items():
         if model_pack_id not in bound_packs:
             fail(f"Model manifest {rel(manifest_path)} is bound by no capability binding.", errors)
@@ -2670,7 +2763,7 @@ def main() -> int:
     print(" - direct dependency/offline packaging policy: synchronized")
     print(" - offline binary/version catalog: synchronized")
     print(" - ordinary Git executable/archive/large-file gate: clean")
-    print(" - contract examples: 40 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors, the S3.2 measurement, media, derivation and T9 artefacts, the S3.2d-1 benchmark harness contracts, the Stage-4 plate control plane and the PoC S4 embedding control plane)")
+    print(" - contract examples: 44 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors, the S3.2 measurement, media, derivation and T9 artefacts, the S3.2d-1 benchmark harness contracts, the Stage-4 plate control plane, the PoC S4 embedding and the PoC S6 face control planes)")
     print(" - Task-17 acceptance schemas/configuration: validated")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret/wheel scan: clean")

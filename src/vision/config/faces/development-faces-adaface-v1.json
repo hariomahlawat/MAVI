@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "mavi-face-pipeline-v1",
+  "pipelineId": "faces-yunet-adaface-dev",
+  "pipelineVersion": "1.0.0",
+  "developmentOnly": true,
+  "modelManifest": "models/manifests/faces-yunet-adaface-ir50-dev-v1.json",
+  "dimension": 512,
+  "detector": {
+    "scoreThreshold": 0.9,
+    "nmsThreshold": 0.3,
+    "topK": 5000
+  },
+  "minimumFaceSide": 32,
+  "alignment": "arcface-112-similarity-v1",
+  "preprocessing": "adaface-ir50-v1",
+  "referenceThreshold": {
+    "cosine": 0.2121,
+    "provenance": "s6-embedder-spike-v1: LFW 6,000 pairs, faces downscaled to 32 px, FAR 0.1 % (TAR 0.9957); not calibrated on CCTV"
+  },
+  "objectClasses": [
+    "Person"
+  ],
+  "queryImageMaximumBytes": 2097152
+}

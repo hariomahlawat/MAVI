@@ -21,6 +21,7 @@ import TrackEvidenceSet from './TrackEvidenceSet';
 import TrackPlateReadings from './TrackPlateReadings';
 import TrackAttributesPanel from './TrackAttributesPanel';
 import TrackSimilarCandidates from './TrackSimilarCandidates';
+import TrackFaces from '../faces/TrackFaces';
 import TrackAnalyticsExplanation from './TrackAnalyticsExplanation';
 import { buildAnalyticsEvidence } from './analyticsEvidence';
 import { pinnedNames, pinnedRevision, useAnalyticsScene } from './useAnalyticsScene';
@@ -320,6 +321,11 @@ export default function VideoReviewPage() {
                 displayTimeZoneId={displayTimeZoneId}
                 returnFrom={searchParams.get('from')}
               />
+              {/* ADR-022: face candidates, Person Tracks only; keyed so a
+                  followed candidate starts with no answer from another Track. */}
+              {detail.objectClass === 'Person' ? (
+                <TrackFaces key={`faces:${detail.id}`} detail={detail} displayTimeZoneId={displayTimeZoneId} />
+              ) : null}
               <ProvenancePanel detail={detail} displayTimeZoneId={displayTimeZoneId} />
             </>
           )}

@@ -61,6 +61,11 @@
       "code": "POC-S2-12",
       "name": "PoC demo 12 - School stairwell (MEVA G419)",
       "timeZoneId": "Asia/Kolkata"
+    },
+    {
+      "code": "POC-S2-13",
+      "name": "PoC demo 13 - School entrance hall (MEVA G420)",
+      "timeZoneId": "Asia/Kolkata"
     }
   ]
 }

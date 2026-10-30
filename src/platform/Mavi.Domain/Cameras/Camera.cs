@@ -37,8 +37,19 @@ public sealed class Camera
     public string? LocationName { get; private set; }
     public string TimeZoneId { get; private set; } = string.Empty;
     public bool IsActive { get; private set; }
+
+    /// <summary>Face analysis runs only on this camera's runs when switched on; off by default (ADR-022 §3).</summary>
+    public bool FaceAnalysisEnabled { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset UpdatedAtUtc { get; private set; }
+
+    /// <summary>The attributable opt-in switch of ADR-022 §3; the caller deletes the camera's face rows on opt-out.</summary>
+    public void SetFaceAnalysis(bool enabled, DateTimeOffset nowUtc)
+    {
+        if (FaceAnalysisEnabled == enabled) return;
+        FaceAnalysisEnabled = enabled;
+        UpdatedAtUtc = nowUtc.ToUniversalTime();
+    }
 
     // Validation
     private static string Required(string? value, int maximumLength, string requiredCode, string lengthCode)

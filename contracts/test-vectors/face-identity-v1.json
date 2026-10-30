@@ -1,0 +1,19 @@
+{
+  "description": "Cross-language pin of the face analysis identity (ADR-022; the shape of the ADR-021 identity under schema version mavi-face-identity-v1). The .NET platform and the Python worker must derive exactly these canonical bytes (sorted keys, no whitespace, UTF-8, trailing LF) and this SHA-256 fingerprint from the named model manifest and pipeline profile files (their raw bytes for the two SHA-256 fields). The contract examples carry the first vector's fingerprint.",
+  "vectors": [
+    {
+      "name": "development-adaface",
+      "modelManifest": "models/manifests/faces-yunet-adaface-ir50-dev-v1.json",
+      "pipelineProfile": "src/vision/config/faces/development-faces-adaface-v1.json",
+      "canonicalIdentity": "{\"model\":{\"dimension\":512,\"id\":\"faces-yunet-adaface-ir50-webface4m\",\"manifestSha256\":\"66a8e60a3d5d73e7df92bafdf83b14a1a762a31cf2e98d11c08b42672c725bf4\",\"version\":\"60a65bef-dev.1\"},\"pipeline\":{\"id\":\"faces-yunet-adaface-dev\",\"sha256\":\"826057910042f8ad23fbcf81aa847d799f790654effb923a9968a22467ff493d\",\"version\":\"1.0.0\"},\"schemaVersion\":\"mavi-face-identity-v1\"}\n",
+      "fingerprint": "03f627a39a8049120e8eec271fc8d25aa29d19ae9896259be21dece4a0347a00"
+    },
+    {
+      "name": "fixture",
+      "modelManifest": "src/vision/tests/fixtures/model-manifests/embedding-fixture-v2.json",
+      "pipelineProfile": "src/vision/tests/fixtures/faces/fixture-pipeline-v1.json",
+      "canonicalIdentity": "{\"model\":{\"dimension\":512,\"id\":\"embedding-fixture\",\"manifestSha256\":\"daee9b1206a9536018521b3882dec503279c7fca3af3e97cb3e26577e419b5ac\",\"version\":\"0.0.1\"},\"pipeline\":{\"id\":\"faces-fixture\",\"sha256\":\"849208383a1ccac345bf5131001f3be169e797062bd700da0fab46fc269722ba\",\"version\":\"1.0.0\"},\"schemaVersion\":\"mavi-face-identity-v1\"}\n",
+      "fingerprint": "a912e4f32c161dfdb03886115113996a2a4381edebe98a8115f869fefe5ff230"
+    }
+  ]
+}

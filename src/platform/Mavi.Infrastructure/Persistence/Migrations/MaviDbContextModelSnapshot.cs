@@ -123,6 +123,10 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(512)")
                         .HasColumnName("description");
 
+                    b.Property<bool>("FaceAnalysisEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("face_analysis_enabled");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
@@ -682,6 +686,409 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_analytic_event_derivations_count", "event_count >= 0");
 
                             t.HasCheckConstraint("ck_analytic_event_derivations_rule_states", "jsonb_typeof(rule_states) = 'array'");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Faces.EnrolledPerson", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("note");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("enrolled_persons", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_enrolled_persons_label", "char_length(label) BETWEEN 1 AND 100");
+
+                            t.HasCheckConstraint("ck_enrolled_persons_note", "note IS NULL OR char_length(note) <= 500");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Faces.EnrolledPersonFace", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<Vector>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("vector")
+                        .HasColumnName("embedding");
+
+                    b.Property<Guid>("EnrolledPersonId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("enrolled_person_id");
+
+                    b.Property<string>("IdentityFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("identity_fingerprint")
+                        .IsFixedLength();
+
+                    b.Property<Guid?>("SourceFaceObservationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_face_observation_id");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("source_kind");
+
+                    b.Property<byte[]>("Thumbnail")
+                        .HasColumnType("bytea")
+                        .HasColumnName("thumbnail");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnrolledPersonId")
+                        .HasDatabaseName("ix_enrolled_person_faces_person");
+
+                    b.ToTable("enrolled_person_faces", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_enrolled_person_faces_fingerprint", "identity_fingerprint ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("ck_enrolled_person_faces_source", "(source_kind = 'Evidence' AND source_face_observation_id IS NOT NULL AND thumbnail IS NULL) OR (source_kind = 'Query' AND source_face_observation_id IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Faces.FaceAnalysis", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<Guid>("CameraId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("camera_id");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at_utc");
+
+                    b.Property<string>("CompletionDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("completion_digest")
+                        .IsFixedLength();
+
+                    b.Property<int>("Dimension")
+                        .HasColumnType("integer")
+                        .HasColumnName("dimension");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("FailureDetails")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("failure_details");
+
+                    b.Property<DateTimeOffset?>("FirstClaimedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_claimed_at_utc");
+
+                    b.Property<string>("IdentityFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("identity_fingerprint")
+                        .IsFixedLength();
+
+                    b.Property<int?>("LastFailedAttempt")
+                        .HasColumnType("integer")
+                        .HasColumnName("last_failed_attempt");
+
+                    b.Property<string>("LastFailedCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("last_failed_code");
+
+                    b.Property<string>("LastFailedDetails")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("last_failed_details");
+
+                    b.Property<string>("LastFailedOutcome")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("last_failed_outcome");
+
+                    b.Property<byte[]>("LastFailedTokenHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("last_failed_token_hash");
+
+                    b.Property<string>("LastFailedWorkerId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("last_failed_worker_id");
+
+                    b.Property<DateTimeOffset?>("LastHeartbeatUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_heartbeat_utc");
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_expires_at_utc");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<byte[]>("LeaseTokenHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("lease_token_hash");
+
+                    b.Property<string>("ManifestSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("manifest_sha256")
+                        .IsFixedLength();
+
+                    b.Property<string>("ModelId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("model_id");
+
+                    b.Property<string>("ModelVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("model_version");
+
+                    b.Property<string>("PipelineId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("pipeline_id");
+
+                    b.Property<string>("PipelineSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("pipeline_sha256")
+                        .IsFixedLength();
+
+                    b.Property<string>("PipelineVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("pipeline_version");
+
+                    b.Property<Guid>("ProcessingRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("processing_run_id");
+
+                    b.Property<string>("ProvenanceJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("provenance_json");
+
+                    b.Property<DateTimeOffset>("QueuedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("queued_at_utc");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<int>("TracksObserved")
+                        .HasColumnType("integer")
+                        .HasColumnName("tracks_observed");
+
+                    b.Property<int>("TracksUnknown")
+                        .HasColumnType("integer")
+                        .HasColumnName("tracks_unknown");
+
+                    b.Property<long?>("VisibilitySequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("visibility_sequence");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CameraId")
+                        .HasDatabaseName("ix_face_analyses_camera");
+
+                    b.HasIndex("VisibilitySequence")
+                        .IsUnique()
+                        .HasDatabaseName("ux_face_analyses_visibility_sequence")
+                        .HasFilter("visibility_sequence IS NOT NULL");
+
+                    b.HasIndex("ProcessingRunId", "IdentityFingerprint")
+                        .IsUnique()
+                        .HasDatabaseName("ux_face_analyses_identity");
+
+                    b.HasIndex("IdentityFingerprint", "Status", "QueuedAtUtc")
+                        .HasDatabaseName("ix_face_analyses_claim")
+                        .HasFilter("status IN ('Queued', 'Running')");
+
+                    b.ToTable("face_analyses", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_face_analyses_attempt_count", "attempt_count >= 0");
+
+                            t.HasCheckConstraint("ck_face_analyses_counts", "tracks_observed >= 0 AND tracks_unknown >= 0");
+
+                            t.HasCheckConstraint("ck_face_analyses_dimension", "dimension BETWEEN 1 AND 4096");
+
+                            t.HasCheckConstraint("ck_face_analyses_fact_bearing", "status NOT IN ('Completed', 'Superseded') OR (completion_digest IS NOT NULL AND visibility_sequence IS NOT NULL AND provenance_json IS NOT NULL AND completed_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_face_analyses_failed", "status <> 'Failed' OR (failure_code IS NOT NULL AND completed_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_face_analyses_running_lease", "status <> 'Running' OR (lease_owner IS NOT NULL AND lease_token_hash IS NOT NULL AND lease_expires_at_utc IS NOT NULL AND first_claimed_at_utc IS NOT NULL AND attempt_count > 0)");
+
+                            t.HasCheckConstraint("ck_face_analyses_sha256", "identity_fingerprint ~ '^[0-9a-f]{64}$' AND manifest_sha256 ~ '^[0-9a-f]{64}$' AND pipeline_sha256 ~ '^[0-9a-f]{64}$' AND (completion_digest IS NULL OR completion_digest ~ '^[0-9a-f]{64}$')");
+
+                            t.HasCheckConstraint("ck_face_analyses_status", "status IN ('Queued', 'Running', 'Completed', 'Failed', 'Superseded')");
+
+                            t.HasCheckConstraint("ck_face_analyses_token_hashes", "(lease_token_hash IS NULL OR octet_length(lease_token_hash) = 32) AND (last_failed_token_hash IS NULL OR octet_length(last_failed_token_hash) = 32)");
+
+                            t.HasCheckConstraint("ck_face_analyses_unpublished", "status IN ('Completed', 'Superseded') OR visibility_sequence IS NULL");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Faces.FaceQuery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at_utc");
+
+                    b.Property<string>("CompletionDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("completion_digest")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("FacesJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("faces");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("IdentityFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("identity_fingerprint")
+                        .IsFixedLength();
+
+                    b.Property<byte[]>("Image")
+                        .HasColumnType("bytea")
+                        .HasColumnName("image");
+
+                    b.Property<string>("ImageSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("image_sha256")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_expires_at_utc");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<byte[]>("LeaseTokenHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("lease_token_hash");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("mime_type");
+
+                    b.Property<DateTimeOffset>("PurgeAfterUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("purge_after_utc");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurgeAfterUtc")
+                        .HasDatabaseName("ix_face_queries_purge");
+
+                    b.HasIndex("IdentityFingerprint", "Status", "CreatedAtUtc")
+                        .HasDatabaseName("ix_face_queries_claim")
+                        .HasFilter("status IN ('Pending', 'Running')");
+
+                    b.ToTable("face_queries", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_face_queries_completed", "(status = 'Completed') = (faces IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_face_queries_finished_image_erased", "status IN ('Pending', 'Running') OR image IS NULL");
+
+                            t.HasCheckConstraint("ck_face_queries_mime", "mime_type IN ('image/jpeg', 'image/png')");
+
+                            t.HasCheckConstraint("ck_face_queries_size", "size_bytes BETWEEN 1 AND 2097152");
+
+                            t.HasCheckConstraint("ck_face_queries_status", "status IN ('Pending', 'Running', 'Completed', 'Failed')");
                         });
                 });
 
@@ -3140,6 +3547,151 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.FaceEmbeddingRow", b =>
+                {
+                    b.Property<Guid>("FaceObservationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("face_observation_id");
+
+                    b.Property<Vector>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("vector")
+                        .HasColumnName("embedding");
+
+                    b.HasKey("FaceObservationId");
+
+                    b.ToTable("face_embeddings", (string)null);
+                });
+
+            modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.FaceObservationRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<float>("BoxHeight")
+                        .HasColumnType("real")
+                        .HasColumnName("box_h");
+
+                    b.Property<float>("BoxWidth")
+                        .HasColumnType("real")
+                        .HasColumnName("box_w");
+
+                    b.Property<float>("BoxX")
+                        .HasColumnType("real")
+                        .HasColumnName("box_x");
+
+                    b.Property<float>("BoxY")
+                        .HasColumnType("real")
+                        .HasColumnName("box_y");
+
+                    b.PrimitiveCollection<float[]>("Landmarks")
+                        .IsRequired()
+                        .HasColumnType("real[]")
+                        .HasColumnName("landmarks");
+
+                    b.Property<float>("MinSide")
+                        .HasColumnType("real")
+                        .HasColumnName("min_side");
+
+                    b.Property<Guid>("ObservationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("observation_id");
+
+                    b.Property<float>("Score")
+                        .HasColumnType("real")
+                        .HasColumnName("score");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.Property<bool>("Usable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("usable");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ObservationId")
+                        .HasDatabaseName("ix_face_observations_observation");
+
+                    b.HasIndex("TrackId")
+                        .HasDatabaseName("ix_face_observations_track");
+
+                    b.HasIndex("AnalysisId", "TrackId")
+                        .HasDatabaseName("ix_face_observations_analysis_track");
+
+                    b.ToTable("face_observations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_face_observations_box", "box_x >= 0 AND box_y >= 0 AND box_w > 0 AND box_h > 0");
+
+                            t.HasCheckConstraint("ck_face_observations_landmarks", "cardinality(landmarks) = 10");
+
+                            t.HasCheckConstraint("ck_face_observations_score", "score > 0 AND score <= 1");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.FaceQueryEmbeddingRow", b =>
+                {
+                    b.Property<Guid>("QueryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("query_id");
+
+                    b.Property<int>("FaceIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("face_index");
+
+                    b.Property<Vector>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("vector")
+                        .HasColumnName("embedding");
+
+                    b.Property<byte[]>("Thumbnail")
+                        .HasColumnType("bytea")
+                        .HasColumnName("thumbnail");
+
+                    b.HasKey("QueryId", "FaceIndex");
+
+                    b.ToTable("face_query_embeddings", (string)null);
+                });
+
+            modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.FaceTrackOutcomeRow", b =>
+                {
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("reason");
+
+                    b.HasKey("AnalysisId", "TrackId");
+
+                    b.HasIndex("TrackId")
+                        .HasDatabaseName("ix_face_track_outcomes_track");
+
+                    b.ToTable("face_track_outcomes", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_face_track_outcomes_outcome", "(outcome = 'Observed' AND reason IS NULL) OR (outcome = 'Unknown' AND reason IN ('no_evidence', 'evidence_unavailable', 'no_face_detected', 'face_too_small'))");
+                        });
+                });
+
             modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.TrackEmbeddingRow", b =>
                 {
                     b.Property<Guid>("AnalysisId")
@@ -3213,6 +3765,30 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     b.HasOne("Mavi.Domain.SceneAnalytics.SceneAnalysis", null)
                         .WithMany()
                         .HasForeignKey("SceneAnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Faces.EnrolledPersonFace", b =>
+                {
+                    b.HasOne("Mavi.Domain.Faces.EnrolledPerson", null)
+                        .WithMany()
+                        .HasForeignKey("EnrolledPersonId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Faces.FaceAnalysis", b =>
+                {
+                    b.HasOne("Mavi.Domain.Cameras.Camera", null)
+                        .WithMany()
+                        .HasForeignKey("CameraId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Processing.ProcessingRun", null)
+                        .WithMany()
+                        .HasForeignKey("ProcessingRunId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -3592,6 +4168,60 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TrackId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.FaceEmbeddingRow", b =>
+                {
+                    b.HasOne("Mavi.Infrastructure.Persistence.Configurations.FaceObservationRow", null)
+                        .WithOne()
+                        .HasForeignKey("Mavi.Infrastructure.Persistence.Configurations.FaceEmbeddingRow", "FaceObservationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.FaceObservationRow", b =>
+                {
+                    b.HasOne("Mavi.Domain.Faces.FaceAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Observation", null)
+                        .WithMany()
+                        .HasForeignKey("ObservationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.FaceQueryEmbeddingRow", b =>
+                {
+                    b.HasOne("Mavi.Domain.Faces.FaceQuery", null)
+                        .WithMany()
+                        .HasForeignKey("QueryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Infrastructure.Persistence.Configurations.FaceTrackOutcomeRow", b =>
+                {
+                    b.HasOne("Mavi.Domain.Faces.FaceAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

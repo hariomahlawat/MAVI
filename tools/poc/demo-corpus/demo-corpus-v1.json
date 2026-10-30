@@ -1043,6 +1043,80 @@
           }
         ]
       }
+    },
+    {
+      "clipId": "s2-13-meva-entrance-hall",
+      "sceneClass": "lobby",
+      "kit": true,
+      "source": {
+        "provider": "meva",
+        "objectUrl": "https://mevadata-public-01.s3.amazonaws.com/drops-123-r13/2018-03-11/16/2018-03-11.16-20-01.16-25-01.school.G420.r13.avi",
+        "contentLength": 75749322,
+        "originalSha256": "3e1cd6ebc9900a1c7582e3975537602ad7fae272d0e91a513d107d9802052f77",
+        "storeRelativePath": "media/meva/drops-123-r13/2018-03-11/16/2018-03-11.16-20-01.16-25-01.school.G420.r13.avi",
+        "licenceCode": "cc-by-4.0",
+        "release": "MEVA (Kitware/IARPA) drops-123-r13",
+        "camera": "G420",
+        "captureSlot": "2018-03-11 16:20 (5 min)"
+      },
+      "trim": {
+        "startSeconds": 0,
+        "durationSeconds": 180,
+        "maxWidth": 1920,
+        "fps": null
+      },
+      "derivative": {
+        "fileName": "s2-13-meva-entrance-hall.mp4",
+        "sha256": "60505f749a054f66af37753895901f42dc843ed3d87ef0257bd331fb0fb6a3f2"
+      },
+      "camera": {
+        "code": "POC-S2-13",
+        "name": "PoC demo 13 - School entrance hall (MEVA G420)",
+        "timeZoneId": "Asia/Kolkata"
+      },
+      "recordingStartLocal": "2026-10-01T09:40:01",
+      "scene": {
+        "zones": [
+          {
+            "name": "Entrance floor",
+            "kind": "General",
+            "vertices": [
+              [
+                0.34,
+                0.62
+              ],
+              [
+                0.78,
+                0.7
+              ],
+              [
+                0.74,
+                0.94
+              ],
+              [
+                0.34,
+                0.82
+              ]
+            ],
+            "loiteringThresholdSeconds": 60
+          }
+        ],
+        "tripLines": [
+          {
+            "name": "Door line",
+            "a": [
+              0.43,
+              0.64
+            ],
+            "b": [
+              0.79,
+              0.78
+            ],
+            "aToBLabel": "Toward the stairs",
+            "bToALabel": "Toward the doors"
+          }
+        ]
+      }
     }
   ]
 }

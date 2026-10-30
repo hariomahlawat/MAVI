@@ -203,6 +203,52 @@ try {
         if (-not $stopScript.Contains($fragment)) { throw "Stop-MaviPoc.ps1 does not stop the plates worker ('$fragment')." }
     }
 
+    # --- Faces role (PoC S6, ADR-022, C5A.3/C5A.5): bound, opt-in per camera, on the embeddings environment, both
+    #     component licences read from their own LICENSE files, the worker started and stopped with the stack. ---
+    if ($config.Faces.Enabled -ne $true -or -not $config.Faces.ModelManifestPath.EndsWith("models\manifests\faces-yunet-adaface-ir50-dev-v1.json") -or
+        -not $config.Faces.PipelineProfilePath.EndsWith("src\vision\config\faces\development-faces-adaface-v1.json")) {
+        throw "The machine configuration must bind the faces role to the overlay's committed manifest and profile."
+    }
+    if (@($config.Faces.Keys) -join "," -ne "Enabled,ModelManifestPath,PipelineProfilePath") { throw "The Faces section carries a key the installer does not own." }
+    if (-not $layout.FacesModelRoot.EndsWith("faces\models") -or -not $layout.FacesModelRoot.StartsWith($layout.InstallRoot)) { throw "The face Model Pack store must live under the install root." }
+    $facesManifestPath = Join-Path $repoRoot "models\manifests\faces-yunet-adaface-ir50-dev-v1.json"
+    $facesManifest = Get-Content -LiteralPath $facesManifestPath -Raw | ConvertFrom-Json
+    if ($facesManifest.licence.spdxId -ne "MIT" -or $facesManifest.verificationStatus -ne "unverified" -or (@($facesManifest.capabilityIds) -join ",") -ne "embedding") { throw "The face manifest must be an unverified MIT embedding pack." }
+    # A staged face pack built from fixture notices: both licences are read, and a detector notice stating another
+    # licence refuses the pack.
+    $facesRoot = Join-Path $tempRoot "faces-models"
+    $facesPackDir = Join-Path $facesRoot "faces-yunet-adaface-ir50-dev-v1"
+    New-Item -ItemType Directory -Path $facesPackDir -Force | Out-Null
+    Copy-Item -LiteralPath $mit -Destination (Join-Path $facesPackDir "LICENSE")
+    Copy-Item -LiteralPath $mit -Destination (Join-Path $facesPackDir "LICENSE-yunet")
+    $fixtureManifest = Get-Content -LiteralPath $facesManifestPath -Raw | ConvertFrom-Json
+    foreach ($artifact in @($fixtureManifest.artifacts)) { if ([string]$artifact.artifactRole -like "licence-notice*") { $artifact.sha256 = $mitSha } }
+    $fixtureManifestPath = Join-Path $tempRoot "faces-manifest.json"
+    $fixtureManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $fixtureManifestPath -Encoding UTF8
+    $facesEntry = Get-MaviPocFacesPack -ManifestPath $fixtureManifestPath -ModelRoot $facesRoot
+    if ($facesEntry.role -ne "faces" -or $facesEntry.capabilityId -ne "embedding" -or $facesEntry.verificationStatus -ne "unverified" -or
+        $facesEntry.licence -notmatch "^embedder MIT, read from its LICENSE .*; detector MIT, read from its LICENSE-yunet" -or $facesEntry.licence -notmatch "non-commercial research" -or
+        $facesEntry.note -notmatch "Development-only" -or $facesEntry.note -notmatch "candidates, never identification") {
+        throw "The face pack disclosure must read both licences and state the research-only, candidate-only scope: $($facesEntry.licence) / $($facesEntry.note)"
+    }
+    Copy-Item -LiteralPath $apache -Destination (Join-Path $facesPackDir "LICENSE-yunet") -Force
+    foreach ($artifact in @($fixtureManifest.artifacts)) { if ([string]$artifact.artifactRole -eq "licence-notice-detector") { $artifact.sha256 = $apacheSha } }
+    $fixtureManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $fixtureManifestPath -Encoding UTF8
+    Assert-Throws { Get-MaviPocFacesPack -ManifestPath $fixtureManifestPath -ModelRoot $facesRoot } "states Apache-2.0, but its manifest declares MIT" "A detector notice contradicting the face manifest"
+    $facesLauncher = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviFacesWorker.ps1") -Raw
+    foreach ($fragment in @('$env:MAVI_FACE_MANIFEST_PATH', '$env:MAVI_FACE_PIPELINE_PROFILE_PATH', '$env:MAVI_MODEL_ROOT', '$env:MAVI_PRODUCTION_MODE = "false"', '-m mavi_vision.faces.main', 'faces-yunet-adaface-ir50-dev-v1.json', 'development-faces-adaface-v1.json')) {
+        if (-not $facesLauncher.Contains($fragment)) { throw "Start-MaviFacesWorker.ps1 lost '$fragment'." }
+    }
+    foreach ($fragment in @('"faces-worker"', 'Start-MaviFacesWorker.ps1', '$state.facesBound', '$layout.FacesModelRoot', '$layout.EmbeddingsEnvironmentRoot "Scripts\python.exe"')) {
+        if (-not $startScript.Contains($fragment)) { throw "Start-MaviPoc.ps1 does not start the faces worker ('$fragment')." }
+    }
+    # Stop-MaviPoc stops the faces worker first: Uninstall-MAVI-PoC drops the database only after it.
+    if (-not $stopScript.Contains('"faces-worker" = "Start-MaviFacesWorker.ps1"') -or -not $stopScript.Contains('foreach ($name in @("faces-worker", "attributes-worker", "embeddings-worker"')) { throw "Stop-MaviPoc.ps1 does not stop the faces worker first." }
+    foreach ($fragment in @('tools\vision\faces_packs.py") stage', 'facesBound = $true', 'Get-MaviPocFacesPack -ManifestPath', '"faces-payloads"')) {
+        if (-not $installText.Contains($fragment)) { throw "Install-MAVI-PoC.ps1 does not install and disclose the face pack ('$fragment')." }
+    }
+    $bundleText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "New-MaviPocSetupBundle.ps1") -Raw
+    if (-not $bundleText.Contains('(Join-Path $PlatesCache "faces-payloads") -Target (Join-Path $destination "faces\faces-payloads")')) { throw "The PoC bundle must carry the face pack payloads." }
     # --- PoC S5 attributes worker: zero-shot on the embeddings runtime and pack, started and stopped with the stack. ---
     $attributesLauncher = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviAttributesWorker.ps1") -Raw
     foreach ($fragment in @('$env:MAVI_PRODUCTION_MODE = "false"', 'development-attributes-siglip2-binding-v1.json', 'development-attributes-siglip2-zero-shot-v1.json', 'embeddings-siglip2-base-p16-224-dev-v1.json', 'mavi_vision.attributes.main')) {
@@ -219,9 +265,9 @@ try {
 
     # --- Demo cameras: the S2 demo-corpus manifest (copied byte-identical), unique codes. ---
     $cameras = Read-MaviPocDemoCameras -Path (Join-Path $repoRoot "config\poc\demo-cameras-v1.json")
-    $expectedCodes = @(1..12 | ForEach-Object { "POC-S2-{0:D2}" -f $_ })
+    $expectedCodes = @(1..13 | ForEach-Object { "POC-S2-{0:D2}" -f $_ })
     if ((@($cameras.Code) -join ",") -ne ($expectedCodes -join ",") -or @($cameras | Where-Object { $_.TimeZoneId -ne "Asia/Kolkata" }).Count -gt 0) {
-        throw "The seed must be the S2 demo-corpus manifest: POC-S2-01..12, Asia/Kolkata."
+        throw "The seed must be the S2 demo-corpus manifest: POC-S2-01..13, Asia/Kolkata."
     }
     $corpusCameras = Join-Path $repoRoot "tools\poc\demo-corpus\demo-cameras-v1.json"
     if ((Test-Path -LiteralPath $corpusCameras) -and ([IO.File]::ReadAllText($corpusCameras).Replace("`r", "")) -cne ([IO.File]::ReadAllText((Join-Path $repoRoot "config\poc\demo-cameras-v1.json")).Replace("`r", ""))) {
@@ -406,7 +452,7 @@ try {
     if ($plan.profile -ne "poc-single-host" -or $plan.productionQualified -ne $false -or $plan.evidenceClass -ne "Development") { throw "The plan does not disclose the PoC profile." }
     if ($plan.postgresql.serviceName -ne "MAVI-PoC-PostgreSQL-18" -or $plan.postgresql.port -ne 55434) { throw "The PoC must own its own PostgreSQL service and port." }
     if ($plan.platform.url -ne "http://localhost:8090" -or $plan.plates.bound -ne $true -or $plan.plates.devicePolicy -ne "Auto") { throw "Plan defaults changed: $($plan.platform.url), plates bound $($plan.plates.bound), plates device $($plan.plates.devicePolicy)." }
-    if (Test-Path -LiteralPath $installRoot) { throw "Plan-only created the install root." }
+    if ($plan.faces.bound -ne $true -or $plan.faces.optInPerCamera -ne $true -or $plan.faces.devicePolicy -ne "cpu" -or $plan.faces.environment -ne $plan.embeddings.environment) { throw "The plan must bind the faces role, opt-in per camera, on the embeddings environment." }    if (Test-Path -LiteralPath $installRoot) { throw "Plan-only created the install root." }
     if (Test-Path -LiteralPath $dataRoot) { throw "Plan-only created the data root." }
     # Windows PowerShell turns a native command's stderr into a terminating error under Stop.
     $ErrorActionPreference = "Continue"
@@ -417,6 +463,72 @@ try {
     $platesCudaOutput = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -BundleRoot $bundle -InstallRoot $installRoot -DataRoot $dataRoot -PlatesDevicePolicy CUDA -PlanOnly 2>&1 | Out-String)
     $ErrorActionPreference = "Stop"
     if ($LASTEXITCODE -eq 0 -or $platesCudaOutput -notmatch "Plates device policy CUDA requested") { throw "Explicit plates CUDA must fail closed, also in plan-only." }
+
+    # --- Uninstall (PoC S6; ADR-022 section 5; C5A.5): only the recorded installation, fail closed. ---
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path "" -Name "data root" } "no path is recorded" "An empty root"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path "relative\Data" -Name "data root" } "not an absolute local path" "A relative root"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path "\\server\share\MAVI\PoC" -Name "data root" } "not an absolute local path" "A UNC root"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path "C:\" -Name "data root" } "drive root or a top-level" "A drive root"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path "C:\MAVI" -Name "data root" } "drive root or a top-level" "A top-level directory"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path $env:ProgramData -Name "data root" } "system directory|top-level" "ProgramData itself"
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path (Split-Path $env:LOCALAPPDATA -Parent) -Name "data root" } "system directory" "An ancestor of a profile directory"
+    $uninstallLinkTarget = Join-Path $tempRoot "uninstall-target"
+    $uninstallLink = Join-Path $tempRoot "uninstall-link"
+    New-Item -ItemType Directory -Path $uninstallLinkTarget -Force | Out-Null
+    & cmd.exe /c mklink /J "$uninstallLink" "$uninstallLinkTarget" | Out-Null
+    Assert-Throws { Assert-MaviPocRemovableRoot -Path (Join-Path $uninstallLink "Data") -Name "data root" } "junction or symbolic link" "A root under a junction"
+    $uninstallInstall = Join-Path $tempRoot "uninstall\Program"
+    $uninstallData = Join-Path $tempRoot "uninstall\Data"
+    if ((Assert-MaviPocRemovableRoot -Path ($uninstallData + "\") -Name "data root") -ne $uninstallData) { throw "A removable root must be returned normalised." }
+
+    $connection = ConvertFrom-MaviPocConnectionString -ConnectionString "Host=127.0.0.1;Port=55434;Database=mavi_poc;Username=mavi_poc;Password=secret"
+    if ($connection.Database -ne "mavi_poc" -or $connection.Port -ne 55434 -or $connection.Username -ne "mavi_poc") { throw "The connection string was not read." }
+    Assert-Throws { ConvertFrom-MaviPocConnectionString -ConnectionString "Host=127.0.0.1;Port=1;Username=x" } "has no database" "A connection string without a database"
+    $uninstallState = [pscustomobject]@{ schemaVersion = "mavi-poc-installation-v1"; profile = "poc-single-host"; installRoot = $uninstallInstall; dataRoot = $uninstallData; postgresqlServiceName = "MAVI-PoC-PostgreSQL-18" }
+    $uninstallLayout = Get-MaviPocLayout -InstallRoot $uninstallInstall -DataRoot $uninstallData
+    $absent = New-MaviPocUninstallPlan -State $uninstallState -DataRoot $uninstallData -Connection $connection -Service $null
+    if ($absent.database.action -ne "drop" -or $absent.database.name -ne "mavi_poc" -or -not $absent.database.dropRole -or -not $absent.stopMavi) { throw "The uninstall plan must stop MAVI and drop the database and its role." }
+    if (@($absent.removeDirectories).Count -ne 2 -or $absent.removeDirectories[0] -ne $uninstallData -or $absent.removeDirectories[1] -ne $uninstallInstall) { throw "The uninstall plan must remove both recorded roots: $($absent.removeDirectories -join ', ')" }
+    if ($absent.postgresqlService.action -ne "keep" -or $absent.postgresqlService.reason -ne "absent") { throw "An absent service is not removed." }
+    $ownedService = [pscustomobject]@{ PathName = "`"$($uninstallLayout.PostgreSqlInstallRoot)\bin\pg_ctl.exe`" runservice -N `"MAVI-PoC-PostgreSQL-18`" -D `"$($uninstallLayout.PostgreSqlDataRoot)`" -w" }
+    $owned = New-MaviPocUninstallPlan -State $uninstallState -DataRoot $uninstallData -Connection $connection -Service $ownedService
+    if ($owned.postgresqlService.action -ne "remove" -or $owned.database.psql -ne (Join-Path $uninstallLayout.PostgreSqlInstallRoot "bin\psql.exe")) { throw "The installation's own PostgreSQL service must be removed." }
+    $sharedService = [pscustomobject]@{ PathName = "`"C:\Program Files\MAVI\Development\PostgreSQL\18\bin\pg_ctl.exe`" runservice -N `"MAVI-Dev-PostgreSQL-18`" -D `"C:\ProgramData\MAVI\Development\PostgreSQL\18\data`" -w" }
+    $shared = New-MaviPocUninstallPlan -State $uninstallState -DataRoot $uninstallData -Connection $connection -Service $sharedService
+    if ($shared.postgresqlService.action -ne "keep" -or $shared.postgresqlService.owned -or $shared.database.psql -ne "C:\Program Files\MAVI\Development\PostgreSQL\18\bin\psql.exe") { throw "A shared PostgreSQL service is kept; only the database is dropped through its psql." }
+    Assert-Throws { New-MaviPocUninstallPlan -State $uninstallState -DataRoot (Join-Path $tempRoot "elsewhere\Data") -Connection $connection -Service $null } "records data root" "A data root other than the recorded one"
+    $overlapping = [pscustomobject]@{ schemaVersion = "mavi-poc-installation-v1"; profile = "poc-single-host"; installRoot = (Join-Path $uninstallData "Program"); dataRoot = $uninstallData; postgresqlServiceName = "x" }
+    Assert-Throws { New-MaviPocUninstallPlan -State $overlapping -DataRoot $uninstallData -Connection $connection -Service $null } "overlap" "Nested roots"
+    $notPoc = [pscustomobject]@{ schemaVersion = "mavi-installation-v1"; profile = "p1"; installRoot = $uninstallInstall; dataRoot = $uninstallData; postgresqlServiceName = "x" }
+    Assert-Throws { New-MaviPocUninstallPlan -State $notPoc -DataRoot $uninstallData -Connection $connection -Service $null } "not a poc-single-host installation" "A non-PoC installation"
+    Assert-Throws { New-MaviPocUninstallPlan -State $uninstallState -DataRoot $uninstallData -Connection ([pscustomobject]@{ Host = "db.example"; Port = 5432; Database = "mavi_poc"; Username = "u" }) -Service $null } "only the local instance" "A remote database"
+    Assert-Throws { New-MaviPocUninstallPlan -State $uninstallState -DataRoot $uninstallData -Connection ([pscustomobject]@{ Host = "127.0.0.1"; Port = 5432; Database = "postgres"; Username = "u" }) -Service $null } "Refusing to drop database" "The postgres database"
+
+    # The script: a missing installation state fails closed; plan-only and an unconfirmed run change nothing.
+    $uninstaller = Join-Path $PSScriptRoot "Uninstall-MAVI-PoC.ps1"
+    $ErrorActionPreference = "Continue"
+    $missingOutput = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstaller -DataRoot (Join-Path $tempRoot "never-installed\Data") -PlanOnly 2>&1 | Out-String)
+    $ErrorActionPreference = "Stop"
+    if ($LASTEXITCODE -eq 0 -or $missingOutput -notmatch "No MAVI PoC installation is recorded") { throw "Uninstall without an installation state must fail closed: $missingOutput" }
+    if (Test-Path -LiteralPath (Join-Path $tempRoot "never-installed")) { throw "A refused uninstall created a directory." }
+    New-Item -ItemType Directory -Path (Join-Path $uninstallData "config"), (Join-Path $uninstallInstall "overlay") -Force | Out-Null
+    $uninstallState.postgresqlServiceName = "MAVI-PoC-Contract-Test-NoSuchService"
+    $uninstallState | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $uninstallData "config\poc-installation.json") -Encoding UTF8
+    @{ ConnectionStrings = @{ Mavi = "Host=127.0.0.1;Port=55434;Database=mavi_poc;Username=mavi_poc;Password=secret" } } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $uninstallData "config\appsettings.poc.machine.json") -Encoding UTF8
+    $uninstallPlanJson = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstaller -DataRoot $uninstallData -PlanOnly 6>$null | Out-String)
+    if ($LASTEXITCODE -ne 0) { throw "Uninstall plan-only failed: $uninstallPlanJson" }
+    $uninstallPlan = $uninstallPlanJson.Substring($uninstallPlanJson.IndexOf("{")) | ConvertFrom-Json
+    if ($uninstallPlan.database.name -ne "mavi_poc" -or $uninstallPlan.postgresqlService.action -ne "keep" -or @($uninstallPlan.removeDirectories).Count -ne 2) { throw "The uninstall plan is not the recorded installation's." }
+    if ($uninstallPlanJson -match "secret") { throw "The uninstall plan must not print the database password." }
+    $ErrorActionPreference = "Continue"
+    $unconfirmed = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstaller -DataRoot $uninstallData 2>&1 | Out-String)
+    $ErrorActionPreference = "Stop"
+    if ($LASTEXITCODE -eq 0 -or $unconfirmed -notmatch "-RemoveAllData") { throw "An uninstall without -RemoveAllData must refuse." }
+    if (-not (Test-Path -LiteralPath $uninstallData) -or -not (Test-Path -LiteralPath $uninstallInstall)) { throw "Plan-only or an unconfirmed uninstall removed a root." }
+    $uninstallText = Get-Content -LiteralPath $uninstaller -Raw
+    foreach ($required in @("Stop-MaviPoc.ps1", "drop database if exists", "with (force)", "sc.exe", "Assert-MaviPocNoReparsePoint -Path `$root -Recurse", "exit 1")) {
+        if ($uninstallText.IndexOf($required, [StringComparison]::Ordinal) -lt 0) { throw "The uninstaller must keep '$required'." }
+    }
 
     # The plan-only CUDA case above exits 1 by design; the caller's shell reports this
     # script's last exit code.
