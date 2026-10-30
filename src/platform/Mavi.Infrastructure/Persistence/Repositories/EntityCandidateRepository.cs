@@ -13,10 +13,11 @@ namespace Mavi.Infrastructure.Persistence.Repositories;
 
 /// <summary>
 /// Entity candidates and confirmed Entities (ADR-023). Candidate derivation reads the existing S4 vectors and writes
-/// only <c>entity_candidates</c>; <see cref="ConfirmAsync"/> is the one place in the platform that writes
-/// <c>Track.EntityId</c> (a source test enforces it).
+/// only <c>entity_candidates</c>; <see cref="ConfirmAsync"/> and the audited corrections of ADR-027 §4 (unlink, merge, in
+/// <c>EntityCandidateRepository.Corrections.cs</c>) are the only places in the platform that write <c>Track.EntityId</c>
+/// (a source test enforces it), and each records the change in the append-only membership history.
 /// </summary>
-public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandidateRepository
+public sealed partial class EntityCandidateRepository(MaviDbContext db) : IEntityCandidateRepository
 {
     private const string UniqueViolation = "23505";
     private const string DerivationUniqueIndex = "ux_entity_candidate_derivations_analysis_catalogue";
@@ -211,12 +212,17 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
         var memberIds = await db.Tracks.AsNoTracking().Where(x => x.EntityId == entityId).Select(x => x.Id).ToListAsync(cancellationToken);
         var members = (await TrackViewsAsync(memberIds, cancellationToken)).Values
             .OrderBy(x => x.StartTimestampUtc).ThenBy(x => x.TrackId).ToList();
+        // The confirmations of this Entity and of every Entity merged into it (ADR-027 §4): a merge keeps their candidates' own Entity.
+        var lineage = await MergedLineageAsync(entityId, cancellationToken);
         var confirmations = await db.EntityCandidates.AsNoTracking()
-            .Where(x => x.EntityId == entityId && x.Status == EntityCandidateStatus.Confirmed)
+            .Where(x => x.EntityId != null && lineage.Contains(x.EntityId.Value) && x.Status == EntityCandidateStatus.Confirmed)
             .OrderBy(x => x.DecidedAtUtc).ThenBy(x => x.Id)
             .ToListAsync(cancellationToken);
+        var history = await db.EntityMembershipChanges.AsNoTracking().Where(x => x.EntityId == entityId).OrderBy(x => x.Sequence)
+            .ToListAsync(cancellationToken);
         return new EntityView(entity.Id, entity.DisplayCode, entity.EntityType, entity.CreatedAtUtc, entity.UpdatedAtUtc, members,
-            await ViewsAsync(confirmations, null, cancellationToken));
+            await ViewsAsync(confirmations, null, cancellationToken), entity.State, entity.MergedIntoEntityId,
+            history.Select(ChangeView).ToList());
     }
 
     public async Task<EntityDecisionResult> ConfirmAsync(Guid candidateId, string? note, EntityCandidateDecider decider,
@@ -293,6 +299,19 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
             }
 
             candidate.Confirm(resultEntityId, decider, note, receipt.AuditEntryId, nowUtc);
+            // ADR-027 §4: the decision and every join it causes are appended to the histories the projections come from.
+            var actor = Actor(decider, nowUtc, receipt);
+            db.EntityCandidateDecisions.Add(EntityCandidateDecisionRecord.Record(candidate.Id, EntityCandidateDecisionKind.Confirmed, resultEntityId,
+                note, actor));
+            var joined = plan.Kind switch
+            {
+                EntityConfirmationKind.CreateEntity => new[] { lower.Id, higher.Id },
+                EntityConfirmationKind.ExtendEntity => new[] { plan.JoiningTrackId!.Value },
+                _ => [],
+            };
+            foreach (var trackId in joined)
+                db.EntityMembershipChanges.Add(EntityMembershipChange.Record(trackId, resultEntityId, EntityMembershipChangeKind.Joined,
+                    EntityMembershipCause.CandidateConfirmed, candidate.Id, note, actor));
             await db.SaveChangesAsync(cancellationToken);
             if (owned is not null) await owned.CommitAsync(cancellationToken);
             db.ChangeTracker.Clear();
@@ -322,6 +341,8 @@ public sealed class EntityCandidateRepository(MaviDbContext db) : IEntityCandida
                 return new EntityDecisionResult(EntityConfirmationRules.Superseded, null, null, false);
             var receipt = await appendAudit(cancellationToken);
             candidate.Dismiss(decider, note, receipt.AuditEntryId, nowUtc);
+            db.EntityCandidateDecisions.Add(EntityCandidateDecisionRecord.Record(candidate.Id, EntityCandidateDecisionKind.Dismissed, null, note,
+                Actor(decider, nowUtc, receipt)));
             await db.SaveChangesAsync(cancellationToken);
             if (owned is not null) await owned.CommitAsync(cancellationToken);
             db.ChangeTracker.Clear();

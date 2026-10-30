@@ -48,6 +48,8 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<PlateReading> PlateReadings => Set<PlateReading>();
     public DbSet<PlateTrackText> PlateTrackTexts => Set<PlateTrackText>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+    public DbSet<EntityMembershipChange> EntityMembershipChanges => Set<EntityMembershipChange>();
+    public DbSet<EntityCandidateDecisionRecord> EntityCandidateDecisions => Set<EntityCandidateDecisionRecord>();
     public DbSet<Mavi.Domain.Review.InvestigationCase> Cases => Set<Mavi.Domain.Review.InvestigationCase>();
     public DbSet<Mavi.Domain.Review.CaseItem> CaseItems => Set<Mavi.Domain.Review.CaseItem>();
     public DbSet<Mavi.Domain.Review.CaseNote> CaseNotes => Set<Mavi.Domain.Review.CaseNote>();

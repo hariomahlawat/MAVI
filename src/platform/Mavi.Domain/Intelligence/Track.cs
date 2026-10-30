@@ -80,14 +80,30 @@ public sealed class Track
 
     /// <summary>
     /// Joins the Track to an operator-confirmed Entity (ADR-023 §1, §6). The confirmation of an Entity candidate is
-    /// the only caller; a test fails the build if any other code path calls this or writes <c>entity_id</c>.
-    /// A Track joins at most one Entity and never leaves it in this slice.
+    /// the only caller; a test fails the build if any other code path calls the membership methods or writes <c>entity_id</c>.
+    /// A Track belongs to at most one Entity; it leaves one only by an audited unlink or merge (ADR-027 §4).
     /// </summary>
     public void JoinEntityByConfirmation(Guid entityId)
     {
         if (entityId == Guid.Empty || (EntityId.HasValue && EntityId.Value != entityId))
             throw new DomainValidationException("track_entity_assignment_invalid", "The Track already belongs to another Entity.");
         EntityId = entityId;
+    }
+
+    /// <summary>The Track leaves its Entity by an operator's unlink (ADR-027 §4); the Entity correction repository is the only caller.</summary>
+    public void LeaveEntityByUnlink(Guid entityId)
+    {
+        if (entityId == Guid.Empty || EntityId != entityId)
+            throw new DomainValidationException("entity_track_not_member", "The Track is not a member of the Entity.");
+        EntityId = null;
+    }
+
+    /// <summary>The Track moves to the Entity it was merged into by an operator's merge (ADR-027 §4); same single caller.</summary>
+    public void MoveEntityByMerge(Guid fromEntityId, Guid intoEntityId)
+    {
+        if (fromEntityId == Guid.Empty || intoEntityId == Guid.Empty || fromEntityId == intoEntityId || EntityId != fromEntityId)
+            throw new DomainValidationException("entity_track_not_member", "The Track is not a member of the Entity being merged.");
+        EntityId = intoEntityId;
     }
 
     public Guid Id { get; private set; }

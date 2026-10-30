@@ -85,3 +85,11 @@ All of it is local to the installation's database; the PoC uninstall removes it 
 > **Options for the single-member case (3):** (a) keep the Entity with one or no member, as ADR-023 §7 does for an empty one — **recommended**: no implicit write the operator did not ask for; (b) dissolve an Entity automatically when it falls below two members — every remaining member is unlinked by the same decision, one more implicit change per unlink.
 >
 > Accepted trade-off: corrections are recorded, never edits; merge is refused rather than trusted when any cross pair is physically impossible.
+
+## Implementation notes (2026-10-31; they change no decision above)
+
+- **No separate `entity_operations` table.** §6 lists one; the merge and unlink rows of `entity_membership_changes` carry the operation's note, operator, time and audit entry id (one audit entry for all rows of a merge), and a reopen is a row of `entity_candidate_decisions`, so a third table would only repeat them.
+- **Enum name.** The Entity's state is `EntityMergeState` (`Active` | `Merged`) in code, to avoid EF Core's own `EntityState`; the column is `entities.state`.
+- **Restricting foreign keys.** The history rows (`track_review_decisions`, `entity_membership_changes`, `entity_candidate_decisions`) reference their Track, Entity and candidate by restricting foreign keys, so history cannot vanish under a deletion: a run whose Tracks carry decisions cannot be deleted. No code path deletes runs today; ADR-023 §7's cascade still applies to Tracks without history. Case items reference by kind and id with no foreign key (§2).
+- **Merge ordering.** A merge saves every Track's leave before any join in the same transaction, so each join is its Track's latest change by sequence.
+- **Times.** Entity history rows carry the decision's server time (the same instant as the candidate's `decided_at_utc`); review decisions and case rows carry the audit entry's own time.
