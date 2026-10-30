@@ -65,7 +65,8 @@ def test_crosscheck_compares_counts_with_track_search_timeline_and_stage3(monkey
 
     def get(api, path):
         if path.startswith("/api/cameras/C1/events?"):
-            return {"ruleCounts": [{"ruleId": "line-crossing", "count": 2}], "coverage": {"complete": True}}
+            return {"ruleCounts": [{"ruleId": "line-crossing", "count": 2}, {"ruleId": "zone-dwell", "count": 0}],
+                    "coverage": {"complete": True}}
         if path.startswith("/api/cameras/C1/analytics/aggregates?"):
             return {"lines": [{"lineId": "L1", "aToBCounts": [1, 0], "bToACounts": [0, 1]}]}
         if path.startswith("/api/tracks?"):

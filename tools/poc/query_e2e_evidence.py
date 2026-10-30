@@ -260,7 +260,9 @@ def crosscheck(api: str, cameras: list[dict], videos: list[dict]) -> list[dict]:
         aggregate = get(api, f"/api/cameras/{camera['id']}/analytics/aggregates?" + urllib.parse.urlencode(
             {"fromUtc": window[0], "toUtc": window[1], "bucketSeconds": bucket}))
         searched = _paged_track_count(api, camera["id"], window)
-        timeline_rules = {item["ruleId"]: item["count"] for item in timeline["ruleCounts"]}
+        # The timeline lists every rule that ran, with its zero; groupBy has a group only where a record exists. Under
+        # complete coverage an absent group is that zero, so the two agree when the timeline's non-zero counts do.
+        timeline_rules = {item["ruleId"]: item["count"] for item in timeline["ruleCounts"] if item["count"] > 0}
         query_rules = {group["key"]: group["count"] for group in (by_rule["result"].get("groups") or [])}
         lines = []
         for line in aggregate.get("lines", []):
