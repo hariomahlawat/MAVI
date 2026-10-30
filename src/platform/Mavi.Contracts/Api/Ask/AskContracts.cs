@@ -49,7 +49,8 @@ public sealed record AskReferenceResponse(
     string? BToALabel = null);
 
 /// <param name="Stage">
-/// <c>runtime</c> (the language role is not available), <c>model</c> (the model refused), <c>translation</c> (the
+/// <c>runtime</c> (the language role is not available), <c>question</c> (the platform refused the question before the
+/// model: it names a place the site does not have), <c>model</c> (the model refused), <c>translation</c> (the
 /// model's output is not a translation document), <c>contract</c> (the S9 parser refused the query) or <c>service</c>
 /// (the S9 service refused it).
 /// </param>

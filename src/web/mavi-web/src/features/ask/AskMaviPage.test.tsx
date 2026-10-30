@@ -22,7 +22,7 @@ const videoId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21420';
 const status: AskStatus = {
   bound: true, answering: true, reason: null, modelPackId: 'mavi-language-v1-abc', modelId: 'qwen2-5-1-5b-instruct',
   quantisation: 'Q8_0', runtimeId: 'llamacpp-b12000-win-x64', device: 'cuda:0', deviceReason: 'auto_cuda_gpu_present',
-  promptTemplateVersion: 'mavi-ask-prompt-v1', siteTimeZoneId: zone, disclosure: 'PoC profile, Development evidence, not Production-qualified.',
+  promptTemplateVersion: 'mavi-ask-prompt-v2', siteTimeZoneId: zone, disclosure: 'PoC profile, Development evidence, not Production-qualified.',
 };
 
 const resolvedQuery: AskResponse['interpretation'] extends infer T ? T extends { resolvedQuery: infer Q } ? Q : never : never = {
@@ -104,7 +104,7 @@ function answered(result: QueryEnvelope['result']): AskResponse {
     refusal: null,
     model: {
       modelPackId: 'mavi-language-v1-abc', modelId: 'qwen2-5-1-5b-instruct', quantisation: 'Q8_0', runtimeId: 'llamacpp-b12000-win-x64',
-      device: 'cuda:0', promptTemplateVersion: 'mavi-ask-prompt-v1', promptSha256: 'c'.repeat(64), temperature: 0, topK: 1, seed: 42,
+      device: 'cuda:0', promptTemplateVersion: 'mavi-ask-prompt-v2', promptSha256: 'c'.repeat(64), temperature: 0, topK: 1, seed: 42,
       promptTokens: 6400, generatedTokens: 120,
     },
     timings: { translationMs: 4321, evaluationMs: 87, totalMs: 4420 },
@@ -209,7 +209,9 @@ describe('Ask MAVI grounding (ADR-026 §5)', () => {
 
 describe('Ask MAVI refusals', () => {
   it.each([
+    ['question', 'unknown_reference', 'MAVI cannot ask that'],
     ['model', 'outside_contract', 'MAVI cannot ask that'],
+    ['translation', 'plate_text_ungrounded', 'The question could not be turned into a query'],
     ['translation', 'time_offset_mismatch', 'The question could not be turned into a query'],
     ['contract', 'geometry_requires_single_camera', 'The interpreted query is outside the query contract'],
     ['service', 'unknown_reference', 'The query was refused'],

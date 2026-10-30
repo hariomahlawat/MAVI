@@ -104,10 +104,28 @@ public sealed class AskApiTests(PostgresFixture fixture)
         Assert.Equal(AskPrompt.Sha256(request.Prompt), answer.Model.PromptSha256);
     }
 
+    [Fact]
+    public async Task AQuestionNamingAPlaceTheSiteLacksIsRefusedBeforeTheModel()
+    {
+        var (_, client, runtime, factory) = await HostAsync(world => CountQuery(world.CameraId));
+        await using var _ = factory;
+
+        var answer = await AskAsync(client, "How many vehicles were in the Loading dock zone today?");
+
+        Assert.Equal("refused", answer.Outcome);
+        Assert.Equal((AskCodes.StageQuestion, AskCodes.UnknownReference, "/question"), (answer.Refusal!.Stage, answer.Refusal.Code, answer.Refusal.Path));
+        Assert.Equal(AskCodes.ModelRefusalMessage(AskCodes.UnknownReference), answer.Refusal.Message);
+        Assert.Null(answer.Envelope);
+        Assert.Null(answer.Interpretation);
+        Assert.Empty(runtime!.Requests); // decided by the platform; the model is never asked
+        Assert.Null(answer.Model.PromptSha256);
+    }
+
     [Theory]
     [InlineData("model", "outside_contract")]
     [InlineData("translation", "model_output_invalid")]
     [InlineData("translation", "time_offset_mismatch")]
+    [InlineData("translation", "plate_text_ungrounded")]
     [InlineData("contract", "unknown_member")]
     [InlineData("service", "unknown_reference")]
     public async Task EveryRefusalStageIsReportedWithItsCodeAndNoAnswer(string stage, string code)
@@ -118,6 +136,8 @@ public sealed class AskApiTests(PostgresFixture fixture)
             "model_output_invalid" => "There were 12 vehicles at the gate.",
             "time_offset_mismatch" => CountQuery(world.CameraId).Replace("+00:00", "+05:30", StringComparison.Ordinal),
             "unknown_member" => CountQuery(world.CameraId, ",\"speedKmh\":50"),
+            // Prompt v2 (m2): the question says no plate, so a plate text the model wrote is refused.
+            "plate_text_ungrounded" => CountQuery(world.CameraId, ",\"plateText\":{\"text\":\"KA01\"}"),
             _ => CountQuery(Guid.Parse("01a18a8b-0000-7000-8000-000000000001")),
         });
         await using var _ = factory;

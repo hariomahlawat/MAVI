@@ -12,6 +12,12 @@ namespace Mavi.Application.Modules.Ask;
 /// ("events", "crossings"), so a Track question that says "dwelled" is not offered event rules. A pure function of the question and the catalogue: it
 /// only ever removes choices, and a predicate it removes cannot be written, so the query (shown as "Interpreted as")
 /// lacks it rather than gaining one nobody asked for.
+/// <para>Prompt v2 (ADR-026 amendment D-S10-9) tightens and extends it: a name with one significant word ("Crossing")
+/// is named only by "&lt;name&gt; &lt;kind&gt;" ("crossing zone"), and one that ends in its kind ("Count line") only by
+/// that phrase; a line side labelled "In" or "Out" only through a
+/// synonym or a verb phrase ("went in"), and "To door" or "From door" only through its phrase; and every place the
+/// question refers to (<see cref="AskPlaceReferences"/>: "the Highway camera", "camera 7", "Macedonia Square") names
+/// the items whose names contain its words. v1 is kept unchanged for its recordings.</para>
 /// </summary>
 public sealed record AskQuestionScope(
     IReadOnlySet<Guid> Cameras,
@@ -69,12 +75,29 @@ public sealed record AskQuestionScope(
     private static readonly string[] AttributeTypeHeadwear = ["hat", "hats", "cap", "caps", "helmet", "headwear", "hood"];
     private static readonly string[] DurationWords = ["longer", "duration", "lasting", "lasted", "seconds", "second", "minutes", "minute"];
 
-    public static AskQuestionScope From(string question, AskSiteCatalogue catalogue, QueryContractResponse vocabulary)
+    public static AskQuestionScope From(string question, AskSiteCatalogue catalogue, QueryContractResponse vocabulary) =>
+        From(question, catalogue, vocabulary, AskPrompt.TemplateVersion);
+
+    public static AskQuestionScope From(string question, AskSiteCatalogue catalogue, QueryContractResponse vocabulary, string promptVersion)
     {
         ArgumentNullException.ThrowIfNull(question);
         ArgumentNullException.ThrowIfNull(catalogue);
         ArgumentNullException.ThrowIfNull(vocabulary);
-        var words = Words(question).ToHashSet(StringComparer.Ordinal);
+        var v2 = AskPrompt.IsVersion2(promptVersion);
+        var sequence = Words(question).ToList();
+        var words = sequence.ToHashSet(StringComparer.Ordinal);
+        // v2: the places the question refers to name the items whose names contain their words.
+        var referenced = (Cameras: new HashSet<Guid>(), Zones: new HashSet<Guid>(), Lines: new HashSet<Guid>());
+        if (v2)
+        {
+            foreach (var reference in AskPlaceReferences.Extract(question))
+            {
+                var (namedCameras, namedZones, namedLines) = AskPlaceReferences.Named(reference, catalogue);
+                referenced.Cameras.UnionWith(namedCameras);
+                referenced.Zones.UnionWith(namedZones);
+                referenced.Lines.UnionWith(namedLines);
+            }
+        }
 
         var cameras = new HashSet<Guid>();
         var zones = new HashSet<Guid>();
@@ -82,22 +105,22 @@ public sealed record AskQuestionScope(
         var lineSides = new Dictionary<Guid, IReadOnlyList<string>>();
         foreach (var camera in catalogue.Cameras)
         {
-            if (Names(ShortName(camera.Name), words))
+            if (Names(ShortName(camera.Name), "camera", sequence, words, v2) || referenced.Cameras.Contains(camera.CameraId))
                 cameras.Add(camera.CameraId);
-            foreach (var zone in camera.Zones.Where(zone => Names(zone.Name, words)))
+            foreach (var zone in camera.Zones.Where(zone => Names(zone.Name, "zone", sequence, words, v2) || referenced.Zones.Contains(zone.ZoneId)))
             {
                 zones.Add(zone.ZoneId);
                 cameras.Add(camera.CameraId);
             }
 
-            foreach (var line in camera.Lines.Where(line => Names(line.Name, words)))
+            foreach (var line in camera.Lines.Where(line => Names(line.Name, "line", sequence, words, v2) || referenced.Lines.Contains(line.LineId)))
             {
                 lines.Add(line.LineId);
                 cameras.Add(camera.CameraId);
                 var sides = new List<string>();
-                if (Side(line.AToBLabel, words))
+                if (Side(line.AToBLabel, sequence, words, v2))
                     sides.Add("aToB");
-                if (Side(line.BToALabel, words))
+                if (Side(line.BToALabel, sequence, words, v2))
                     sides.Add("bToA");
                 lineSides[line.LineId] = sides;
             }
@@ -131,6 +154,18 @@ public sealed record AskQuestionScope(
             DurationWords.Any(words.Contains));
     }
 
+    /// <summary>Whether the words occur consecutively in the sequence.</summary>
+    private static bool Phrase(IReadOnlyList<string> sequence, IReadOnlyList<string> phrase)
+    {
+        for (var start = 0; start + phrase.Count <= sequence.Count; start++)
+        {
+            if (phrase.Select((word, offset) => sequence[start + offset] == word).All(same => same))
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>Lower-case words; hyphenated words are kept whole and also split.</summary>
     public static IEnumerable<string> Words(string text)
     {
@@ -154,14 +189,47 @@ public sealed record AskQuestionScope(
         return bracket >= 0 ? shortName[..bracket] : shortName;
     }
 
-    private static bool Names(string name, HashSet<string> words)
+    public static bool IsStopWord(string word) => StopWords.Contains(word);
+
+    private static bool Names(string name, string kind, IReadOnlyList<string> sequence, HashSet<string> words, bool v2)
     {
         var significant = Words(name).Where(word => !StopWords.Contains(word) && !word.Contains('-', StringComparison.Ordinal)).ToList();
+        if (v2 && significant.Count == 1)
+            return Phrase(sequence, [significant[0], kind]);
+        // v2: a name that ends in its own kind ("Count line") is said as a phrase, not by "count ... line" anywhere.
+        if (v2 && significant.Count > 1 && significant[^1] == kind)
+            return Phrase(sequence, significant);
         return significant.Count > 0 && significant.All(words.Contains);
     }
 
-    private static bool Side(string label, HashSet<string> words)
+    /// <summary>v2: verb phrases that say a line side labelled "In" or "Out" without the synonyms.</summary>
+    private static readonly Dictionary<string, string[][]> SidePhrases = new(StringComparer.Ordinal)
     {
+        ["in"] = [.. new[] { "went", "go", "goes", "going", "came", "come", "comes", "coming", "walked", "walking", "walk", "walks", "moved", "moving" }.Select(verb => new[] { verb, "in" })],
+        ["out"] = [.. new[] { "went", "go", "goes", "going", "came", "come", "comes", "coming", "walked", "walking", "walk", "walks", "moved", "moving" }.Select(verb => new[] { verb, "out" })],
+    };
+
+    private static bool Side(string label, IReadOnlyList<string> sequence, HashSet<string> words, bool v2)
+    {
+        if (v2)
+        {
+            var labelWords = Words(label).ToList();
+            // "To door", "From door": the phrase itself (articles in the question ignored), never the bare noun.
+            if (labelWords.Count > 1 && labelWords[0] is "to" or "from")
+            {
+                var bare = sequence.Where(word => word is not ("the" or "a")).ToList();
+                return Phrase(bare, labelWords) ||
+                    (labelWords[0] == "to" && (Phrase(bare, ["towards", .. labelWords.Skip(1)]) || Phrase(bare, ["toward", .. labelWords.Skip(1)])));
+            }
+
+            // "In", "Out": a synonym or a verb phrase, never the bare preposition.
+            if (labelWords is [var only] && SidePhrases.TryGetValue(only, out var phrases))
+            {
+                return (DirectionSynonyms.TryGetValue(only, out var synonyms) && synonyms.Any(words.Contains)) ||
+                    phrases.Any(phrase => Phrase(sequence, phrase));
+            }
+        }
+
         var significant = Words(label).Where(word => word is not ("to" or "from" or "the")).ToList();
         if (significant.Count > 0 && significant.All(words.Contains))
             return true;

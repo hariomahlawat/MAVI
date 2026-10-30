@@ -11,7 +11,7 @@ import type { QueryEnvelope, StructuredQuery } from './query';
  * every message is platform text.
  */
 
-export type AskStage = 'runtime' | 'model' | 'translation' | 'contract' | 'service';
+export type AskStage = 'runtime' | 'question' | 'model' | 'translation' | 'contract' | 'service';
 
 export type AskReference = {
   kind: 'camera' | 'zone' | 'line';
@@ -79,6 +79,7 @@ export function ask(question: string, referenceDate: string | null, signal?: Abo
 export function stageText(stage: AskStage): string {
   switch (stage) {
     case 'runtime': return 'Ask MAVI is not available';
+    case 'question': return 'MAVI cannot ask that';
     case 'model': return 'MAVI cannot ask that';
     case 'translation': return 'The question could not be turned into a query';
     case 'contract': return 'The interpreted query is outside the query contract';

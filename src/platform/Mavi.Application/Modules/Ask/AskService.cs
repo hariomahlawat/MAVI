@@ -19,7 +19,8 @@ public sealed class AskOptions
 /// <summary>
 /// Ask MAVI (ADR-026): one question becomes one structured query or a refusal. The service reads the site catalogue,
 /// builds the prompt and grammar, asks the language role once, translates its output, and evaluates the query with the
-/// S9 service unchanged. Nothing the model writes is returned; there is no retry.
+/// S9 service unchanged. Nothing the model writes is returned; there is no retry. Prompt v2 (D-S10-9) first refuses a
+/// question that refers to a place the site does not have, without calling the model (<see cref="AskPlaceReferences"/>).
 /// </summary>
 public sealed class AskService(
     IAskCatalogueSource catalogueSource,
@@ -60,6 +61,10 @@ public sealed class AskService(
                 $"The site time zone '{zoneId}' is not known on this host (Ask:SiteTimeZoneId, or the cameras' zone).");
         var siteTime = new AskSiteTime(zoneId, referenceDate);
 
+        // A place the site does not have is refused, never answered for the whole site.
+        if (AskPlaceReferences.Unknown(question, catalogue).Count > 0)
+            return Refused(AskCodes.StageQuestion, AskCodes.UnknownReference, "/question", AskCodes.ModelRefusalMessage(AskCodes.UnknownReference));
+
         var prompt = AskPrompt.Build(QueryContractVocabulary.Describe(attributeRelease), catalogue, siteTime, question);
         if (prompt.Prompt.Length > AskCodes.MaximumPromptCharacters)
             return Refused(AskCodes.StageRuntime, AskCodes.PromptTooLong, "",
@@ -82,7 +87,7 @@ public sealed class AskService(
             return Refused(AskCodes.StageTranslation, AskCodes.ModelOutputTruncated, "",
                 "The model's output stopped before the translation document ended.", model, translationMs);
 
-        var translated = AskTranslator.Translate(completion.Text, siteTime);
+        var translated = AskTranslator.Translate(completion.Text, siteTime, question);
         if (translated.Refusal is { } refusal)
         {
             // A model refusal already carries platform text. A translation or contract refusal is about what the model
