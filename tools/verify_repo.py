@@ -1417,7 +1417,7 @@ def check_structured_query_corpus(errors: list[str]) -> None:
         if name in names:
             fail(f"Structured query golden case {name} is not unique.", errors)
         names.add(name)
-        if case["setup"] not in ("none", "derived", "underived"):
+        if case["setup"] not in ("none", "derived", "underived", "pending", "two-camera"):
             fail(f"Structured query golden case {name} has an unknown setup.", errors)
         expect = case["expect"]
         if expect["status"] == 200 and ("refusal" in expect or "envelope" not in expect):

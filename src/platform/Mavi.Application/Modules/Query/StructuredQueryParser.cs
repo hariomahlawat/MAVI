@@ -32,6 +32,9 @@ public static class StructuredQueryParser
     private static readonly Regex InstantPattern = new(
         @"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,3})?(Z|\+00:00)$", RegexOptions.CultureInvariant);
 
+    private static readonly Regex LowerCaseUuid = new(
+        "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", RegexOptions.CultureInvariant);
+
     private static readonly string[] OperationParameters = ["limit", "order", "field", "by", "bucketSeconds", "k", "baseline"];
 
     public static StructuredQueryParseResult Parse(string json)
@@ -445,6 +448,12 @@ public static class StructuredQueryParser
         if (unit != QueryUnit.Track)
             return;
 
+        // As on Track search, a plate predicate is never combined with attributes: no existing surface answers the
+        // combination, so neither does the contract.
+        if (where.Attributes is not null && where.Plate is not null)
+            throw Refusal(QueryRefusalCodes.AttributeCombinationInvalid, "/where/plateText",
+                "Attributes and a plate text cannot be combined, as on Track search.");
+
         if (where.SimilarTo is not null)
         {
             if (operation.Kind != QueryOperationKind.Find)
@@ -513,18 +522,34 @@ public static class StructuredQueryParser
 
     private static Guid Guid(JsonElement element, string path)
     {
+        // Lower case only, as the canonical form writes it, so two spellings of one id can never both be accepted.
         if (element.ValueKind != JsonValueKind.String ||
-            !System.Guid.TryParseExact(element.GetString(), "D", out var value) ||
+            element.GetString() is not { } text ||
+            !LowerCaseUuid.IsMatch(text) ||
+            !System.Guid.TryParseExact(text, "D", out var value) ||
             value == System.Guid.Empty)
-            throw Refusal(QueryRefusalCodes.InvalidValue, path, "Must be a non-empty UUID.");
+            throw Refusal(QueryRefusalCodes.InvalidValue, path, "Must be a non-empty lower-case UUID.");
         return value;
     }
 
     private static long Integer(JsonElement element, string path, long minimum, long maximum)
     {
-        if (element.ValueKind != JsonValueKind.Number || !element.TryGetInt64(out var value) || value < minimum || value > maximum)
-            throw Refusal(QueryRefusalCodes.InvalidValue, path,
-                maximum == long.MaxValue ? $"Must be an integer of at least {minimum}." : $"Must be an integer from {minimum} to {maximum}.");
+        var message = maximum == long.MaxValue
+            ? $"Must be an integer of at least {minimum}."
+            : $"Must be an integer from {minimum} to {maximum}.";
+        if (element.ValueKind != JsonValueKind.Number)
+            throw Refusal(QueryRefusalCodes.InvalidValue, path, message);
+
+        // JSON Schema's "integer" includes an integral number written with a fraction (10.0); the parser agrees.
+        if (!element.TryGetInt64(out var value))
+        {
+            if (!element.TryGetDouble(out var number) || Math.Floor(number) != number || Math.Abs(number) >= 9e15)
+                throw Refusal(QueryRefusalCodes.InvalidValue, path, message);
+            value = (long)number;
+        }
+
+        if (value < minimum || value > maximum)
+            throw Refusal(QueryRefusalCodes.InvalidValue, path, message);
         return value;
     }
 
@@ -550,7 +575,7 @@ public static class StructuredQueryParser
         var members = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
         {
-            var memberPath = $"{path}/{property.Name}";
+            var memberPath = $"{path}/{Escape(property.Name)}";
             if (!known.Contains(property.Name, StringComparer.Ordinal))
                 throw Refusal(QueryRefusalCodes.UnknownMember, memberPath, $"{property.Name} is not a member of the contract.");
             if (!members.TryAdd(property.Name, property.Value))
@@ -559,6 +584,9 @@ public static class StructuredQueryParser
 
         return members;
     }
+
+    /// <summary>One JSON Pointer reference token (RFC 6901): "~" and "/" escaped.</summary>
+    private static string Escape(string name) => name.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal);
 
     private static StructuredQueryParseResult Refuse(string code, string path, string message) =>
         new(null, new QueryRefusal(code, path, message));

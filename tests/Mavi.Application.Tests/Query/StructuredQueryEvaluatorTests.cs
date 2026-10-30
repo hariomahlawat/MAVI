@@ -114,7 +114,9 @@ public sealed class StructuredQueryEvaluatorTests
         }
         else
         {
+            // The rows are real, but their total covers only the analysed part: a lower bound, never the scope's count.
             Assert.Single(outcome.Envelope.Result.Tracks!);
+            Assert.True(outcome.Envelope.Result.Truncation!.TotalIsLowerBound);
         }
     }
 
@@ -140,6 +142,14 @@ public sealed class StructuredQueryEvaluatorTests
         Assert.Null(outcome.Envelope.Result.Value);
         Assert.False(outcome.Envelope.Coverage.Complete);
         Assert.Equal(0, repository.Reads);
+    }
+
+    [Fact]
+    public async Task CompleteCoverageKeepsAnExactFindTotal()
+    {
+        var outcome = await new StructuredQueryService(new FakeRepository(complete: true), TimeProvider.System)
+            .EvaluateAsync(Query("{\"op\":\"find\"}"), default);
+        Assert.False(outcome.Envelope!.Result.Truncation!.TotalIsLowerBound);
     }
 
     [Fact]
@@ -174,6 +184,9 @@ public sealed class StructuredQueryEvaluatorTests
         public int Reads { get; private set; }
 
         public QueryRefusal? Refusal { get; init; }
+
+        public Task<QueryRefusal?> CheckCamerasAsync(IReadOnlyList<Guid> cameraIds, CancellationToken cancellationToken) =>
+            Task.FromResult<QueryRefusal?>(null);
 
         public Task<QueryRead<QueryTrackRecord>> ReadTracksAsync(
             QueryPredicates where, IReadOnlyList<QueryReadWindow> windows, QueryCapabilityIdentities identities, CancellationToken cancellationToken)

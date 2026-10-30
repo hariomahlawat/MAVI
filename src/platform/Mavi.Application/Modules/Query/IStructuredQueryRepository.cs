@@ -39,6 +39,11 @@ public static class QueryRead
 /// </summary>
 public interface IStructuredQueryRepository
 {
+    /// <summary>
+    /// A refusal for the first camera id (in canonical order) that names no camera, or null when every one exists.
+    /// </summary>
+    Task<QueryRefusal?> CheckCamerasAsync(IReadOnlyList<Guid> cameraIds, CancellationToken cancellationToken);
+
     Task<QueryRead<QueryTrackRecord>> ReadTracksAsync(
         QueryPredicates where,
         IReadOnlyList<QueryReadWindow> windows,

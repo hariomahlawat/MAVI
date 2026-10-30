@@ -17,6 +17,7 @@ public sealed partial class AnalyticEventRepository
     internal async Task<QueryRead<QueryEventRecord>> ReadQueryEventsAsync(
         QueryPredicates where,
         IReadOnlyList<QueryReadWindow> windows,
+        int maximumMatchedRecords,
         CancellationToken cancellationToken)
     {
         var catalogueVersion = where.CatalogueVersion
@@ -45,6 +46,13 @@ public sealed partial class AnalyticEventRepository
             return QueryRead.Refused<QueryEventRecord>(StructuredQueryScope.NotInRevision("/where/zone/zoneId", "zone"));
         if (where.Line is { } line && !scopes.Any(item => item.Scope.Revision?.TripLines.Any(candidate => candidate.LineId == line.LineId) == true))
             return QueryRead.Refused<QueryEventRecord>(StructuredQueryScope.NotInRevision("/where/line/lineId", "line"));
+
+        // A zone or line is one camera's geometry: only the cameras whose revision owns it can hold its events, so only
+        // their coverage bears on the answer. Another camera's gap cannot hide or add one of these events.
+        if (where.Zone is { } ownedZone)
+            scopes = [.. scopes.Where(item => item.Scope.Revision?.Zones.Any(candidate => candidate.ZoneId == ownedZone.ZoneId) == true)];
+        if (where.Line is { } ownedLine)
+            scopes = [.. scopes.Where(item => item.Scope.Revision?.TripLines.Any(candidate => candidate.LineId == ownedLine.LineId) == true)];
 
         var identities = scopes
             .Select(item => new QueryCameraIdentityResponse(
@@ -128,7 +136,7 @@ public sealed partial class AnalyticEventRepository
 
                 var rows = await events
                     .OrderBy(item => item.Id)
-                    .Take(QueryContract.MaximumMatchedRecords + 1 - records.Count)
+                    .Take(maximumMatchedRecords + 1 - records.Count)
                     .Select(item => new
                     {
                         item.Id,
@@ -166,8 +174,8 @@ public sealed partial class AnalyticEventRepository
                     row.StartUtc,
                     row.EndUtc,
                     row.StartOffsetMs)));
-                if (records.Count > QueryContract.MaximumMatchedRecords)
-                    return QueryRead.Refused<QueryEventRecord>(StructuredQueryScope.TooLarge(window.Name));
+                if (records.Count > maximumMatchedRecords)
+                    return QueryRead.Refused<QueryEventRecord>(StructuredQueryScope.TooLarge(window.Name, maximumMatchedRecords));
             }
 
             reads.Add(new QueryWindowRead<QueryEventRecord>(records, coverage));

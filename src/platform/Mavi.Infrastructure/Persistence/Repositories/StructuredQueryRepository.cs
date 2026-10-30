@@ -9,18 +9,24 @@ namespace Mavi.Infrastructure.Persistence.Repositories;
 /// </summary>
 public sealed class StructuredQueryRepository(MaviDbContext db, TimeProvider timeProvider) : IStructuredQueryRepository
 {
+    /// <summary>The matched-record bound (ADR-024 §5); tests shrink it to reach the refusal over a small fixture.</summary>
+    internal int MaximumMatchedRecords { get; init; } = QueryContract.MaximumMatchedRecords;
+
+    public async Task<QueryRefusal?> CheckCamerasAsync(IReadOnlyList<Guid> cameraIds, CancellationToken cancellationToken) =>
+        (await StructuredQueryScope.ResolveCamerasAsync(db, cameraIds, cancellationToken)).Refusal;
+
     public Task<QueryRead<QueryTrackRecord>> ReadTracksAsync(
         QueryPredicates where,
         IReadOnlyList<QueryReadWindow> windows,
         QueryCapabilityIdentities identities,
         CancellationToken cancellationToken) =>
-        new TrackSearchRepository(db, timeProvider).ReadQueryTracksAsync(where, windows, identities, cancellationToken);
+        new TrackSearchRepository(db, timeProvider).ReadQueryTracksAsync(where, windows, identities, MaximumMatchedRecords, cancellationToken);
 
     public Task<QueryRead<QueryEventRecord>> ReadEventsAsync(
         QueryPredicates where,
         IReadOnlyList<QueryReadWindow> windows,
         CancellationToken cancellationToken) =>
-        new AnalyticEventRepository(db).ReadQueryEventsAsync(where, windows, cancellationToken);
+        new AnalyticEventRepository(db).ReadQueryEventsAsync(where, windows, MaximumMatchedRecords, cancellationToken);
 }
 
 /// <summary>A camera named by a query, with what the envelope shows of it.</summary>
@@ -68,7 +74,7 @@ internal static class StructuredQueryScope
     public static QueryRefusal NotInRevision(string path, string kind) =>
         new(QueryRefusalCodes.UnknownReference, path, $"The {kind} is not part of the scene revision the query resolved to.");
 
-    public static QueryRefusal TooLarge(string window) =>
+    public static QueryRefusal TooLarge(string window, int bound) =>
         new(QueryRefusalCodes.QueryScopeTooLarge, window == "baseline" ? "/operation/baseline" : "/where",
-            $"More than {QueryContract.MaximumMatchedRecords} records match; narrow the window, cameras or predicates.");
+            $"More than {bound} records match; narrow the window, cameras or predicates.");
 }

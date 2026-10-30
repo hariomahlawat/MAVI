@@ -20,6 +20,7 @@ public sealed partial class TrackSearchRepository
         QueryPredicates where,
         IReadOnlyList<QueryReadWindow> windows,
         QueryCapabilityIdentities identities,
+        int maximumMatchedRecords,
         CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -98,9 +99,9 @@ public sealed partial class TrackSearchRepository
                 coverage.Add(await PlateCoverageAsync(query, where.CameraIds, identities.PlateFingerprint, snapshotVisibilitySequence, window.Name, cancellationToken));
 
             var records = await MatchingTracksAsync(
-                query, where.CameraIds, identities, scope, identity, snapshotVisibilitySequence, cancellationToken);
-            if (records.Count > QueryContract.MaximumMatchedRecords)
-                return QueryRead.Refused<QueryTrackRecord>(StructuredQueryScope.TooLarge(window.Name));
+                query, where.CameraIds, identities, scope, identity, snapshotVisibilitySequence, maximumMatchedRecords, cancellationToken);
+            if (records.Count > maximumMatchedRecords)
+                return QueryRead.Refused<QueryTrackRecord>(StructuredQueryScope.TooLarge(window.Name, maximumMatchedRecords));
             reads.Add(new QueryWindowRead<QueryTrackRecord>(records, coverage));
         }
 
@@ -119,6 +120,7 @@ public sealed partial class TrackSearchRepository
         ResolvedScope? scope,
         TrackAnalyticsPinnedIdentity? identity,
         long snapshotVisibilitySequence,
+        int maximumMatchedRecords,
         CancellationToken cancellationToken)
     {
         var candidates = BaseCandidates(query, snapshotVisibilitySequence);
@@ -181,7 +183,7 @@ public sealed partial class TrackSearchRepository
                 ThumbnailArtifactId = x.observation == null ? null : x.observation.ThumbnailArtifactId,
             })
             .OrderBy(x => x.Id)
-            .Take(QueryContract.MaximumMatchedRecords + 1)
+            .Take(maximumMatchedRecords + 1)
             .ToListAsync(cancellationToken);
 
         return [.. rows.Select(x => new QueryTrackRecord(

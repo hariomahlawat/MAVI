@@ -85,9 +85,8 @@ export default function AdvancedSearchPage() {
   const unitInfo = vocabulary.units.find((item) => item.unit === state.unit);
   const zones = scene.data?.activeRevision?.zones.filter((zone) => zone.enabled) ?? [];
   const lines = scene.data?.activeRevision?.tripLines.filter((line) => line.enabled) ?? [];
-  const attributeTypes = vocabulary.attributes.filter(
-    (attribute) => state.objectClass === '' || attribute.objectClass === state.objectClass,
-  );
+  // Attributes apply to one class: they are offered once a class is chosen, so a mix the server refuses is never built.
+  const attributeTypes = vocabulary.attributes.filter((attribute) => attribute.objectClass === state.objectClass);
 
   const setUnit = (unit: QueryUnit) => {
     // Predicates the new unit does not take are cleared, so nothing hidden is ever sent.
@@ -268,7 +267,10 @@ export default function AdvancedSearchPage() {
                   ))}
                 </div>
               ) : null}
-              {has('attributes') && attributeTypes.length > 0 ? (
+              {has('attributes') && state.objectClass === '' && vocabulary.attributes.length > 0 ? (
+                <p className="query-page__muted">Choose a class to filter by its zero-shot attributes.</p>
+              ) : null}
+              {has('attributes') && state.objectClass !== '' && attributeTypes.length > 0 ? (
                 <div className="query-page__attributes" role="group" aria-label="Attributes">
                   <p className="query-page__muted">Attributes are zero-shot, uncalibrated, Development: Unknown is not counted either way.</p>
                   {attributeTypes.map((attribute) => (
@@ -394,6 +396,8 @@ function Answer({
   const abstentions = envelope.coverage.components
     .flatMap((component) => component.attributes?.unknown ?? [])
     .filter((item) => item.tracks > 0);
+  const unreadable = envelope.coverage.components
+    .reduce((sum, component) => sum + (component.attributes?.unavailable ?? 0), 0);
 
   return (
     <>
@@ -404,6 +408,7 @@ function Answer({
         {abstentions.length > 0
           ? ` Unknown, not counted either way: ${abstentions.map((item) => `${item.tracks} Track(s) for ${item.type}`).join(', ')}.`
           : ''}
+        {unreadable > 0 ? ` ${unreadable} Track(s) could not be read for attributes and are not counted either way.` : ''}
       </div>
 
       <Panel title="Answer">
@@ -477,8 +482,9 @@ function Result({ envelope, displayTimeZoneId }: { envelope: QueryEnvelope; disp
     case 'rows':
       return (
         <>
-          {result.truncation?.truncated ? (
-            <p className="query-page__muted">Showing {result.truncation.returned} of {result.truncation.total}; open Tracks or Events to page through all of them.</p>
+          {result.truncation ? <p className="query-page__muted">{truncationText(result.truncation)}</p> : null}
+          {result.tracks && searchPath(envelope) ? (
+            <p><Link to={searchPath(envelope)!}>Open these Tracks in Search</Link> to page through all of them.</p>
           ) : null}
           {result.tracks ? <TrackTable rows={result.tracks} displayTimeZoneId={displayTimeZoneId} /> : null}
           {result.events ? <EventTable envelope={envelope} rows={result.events} displayTimeZoneId={displayTimeZoneId} /> : null}
@@ -490,6 +496,31 @@ function Result({ envelope, displayTimeZoneId }: { envelope: QueryEnvelope; disp
     default:
       return null;
   }
+}
+
+/** What a row result shows of the matching set; under incomplete coverage the total is only "at least". */
+export function truncationText(truncation: NonNullable<QueryEnvelope['result']['truncation']>): string {
+  if (truncation.totalIsLowerBound) {
+    return `Showing ${truncation.returned} of at least ${truncation.total} found so far: not every part of the scope has been analysed.`;
+  }
+  return truncation.truncated ? `Showing ${truncation.returned} of ${truncation.total}.` : `${truncation.total} found.`;
+}
+
+/**
+ * The same Tracks in Search, for paging (ADR-024 §5): only for a query Search can express with its ordinary keys —
+ * at most one camera, the window and the class, with no derived or geometric predicate. Otherwise null.
+ */
+export function searchPath(envelope: QueryEnvelope): string | null {
+  const where = envelope.resolvedQuery.where;
+  if (envelope.unit !== 'track' || (where.cameraIds?.length ?? 0) > 1 || where.zone || where.line || where.motion ||
+    where.attributes || where.plateText || where.similarTo || where.objectSubclass || where.minDurationMs !== undefined ||
+    where.minConfidence !== undefined) return null;
+  const params = new URLSearchParams();
+  if (where.cameraIds?.length === 1) params.set('cameraId', where.cameraIds[0]);
+  if (where.objectClass) params.set('objectClass', where.objectClass);
+  params.set('fromUtc', where.timeWindow.fromUtc);
+  params.set('toUtc', where.timeWindow.toUtc);
+  return `/search?${params.toString()}`;
 }
 
 /** Horizontal bars with a table twin, as the Analytics page draws them; the table is the accessible form. */

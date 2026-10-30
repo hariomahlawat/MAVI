@@ -49,6 +49,12 @@ public sealed class StructuredQueryService(
         var fingerprint = StructuredQueryCanonical.Fingerprint(canonical);
         var evaluatedAtUtc = timeProvider.GetUtcNow().ToUniversalTime();
 
+        // References are checked before anything is answered, for every unit: an unknown camera is refused as unknown,
+        // never answered empty (ADR-024 §7).
+        if (query.Where.CameraIds.Count > 0 &&
+            await repository.CheckCamerasAsync(query.Where.CameraIds, cancellationToken) is { } unknownCamera)
+            return StructuredQueryOutcome.Refuse(unknownCamera);
+
         return query.Unit switch
         {
             QueryUnit.Entity => StructuredQueryOutcome.Answer(Envelope(
@@ -84,6 +90,12 @@ public sealed class StructuredQueryService(
                 where = where with { ObjectClass = objectClass };
                 attributeFingerprint = definition.Identity.Fingerprint;
                 attributeDisclosure = definition.Disclosure;
+
+                // The class the attributes imply is stated, as a plate's is by the parser, so equivalent queries
+                // share one resolved form and one fingerprint.
+                query = query with { Where = where };
+                canonical = StructuredQueryCanonical.Write(query);
+                fingerprint = StructuredQueryCanonical.Fingerprint(canonical);
             }
         }
 
@@ -193,6 +205,12 @@ public sealed class StructuredQueryService(
         if (!complete && query.RequireCompleteCoverage)
             return Refuse(QueryRefusalCodes.CoverageIncomplete, "/requireCompleteCoverage",
                 "Not every part of the scope has been analysed, and complete coverage was required.");
+        if (!complete && result.Truncation is { } truncation)
+        {
+            // A list keeps its real rows, but its total covers only what was analysed: never the scope's count.
+            result = result with { Truncation = truncation with { TotalIsLowerBound = true } };
+        }
+
         if (!complete && QueryContract.IsWholeScope(query.Operation.Kind))
             result = new QueryResultResponse(
                 "withheld",

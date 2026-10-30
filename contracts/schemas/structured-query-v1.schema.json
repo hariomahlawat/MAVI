@@ -76,6 +76,10 @@
       }
     },
     {
+      "$comment": "As on Track search, attributes and a plate text are never combined.",
+      "not": { "required": ["where"], "properties": { "where": { "required": ["attributes", "plateText"] } } }
+    },
+    {
       "$comment": "A plate or subclass predicate implies Vehicle.",
       "if": {
         "required": ["where"],
@@ -87,7 +91,7 @@
   "$defs": {
     "uuid": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
       "not": { "const": "00000000-0000-0000-0000-000000000000" }
     },
     "instant": {

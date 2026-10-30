@@ -33,8 +33,9 @@ public static class StructuredQueryEndpoints
     {
         if (context.Request.Query.Count > 0)
             return Refused(new QueryRefusal(QueryRefusalCodes.UnknownMember, "", "This route takes no query parameters."));
-        if (context.Request.ContentType is not { } contentType ||
-            !contentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
+        // The media type itself, not a prefix: "application/jsonx" is not JSON. A charset parameter is allowed.
+        if (!Microsoft.Net.Http.Headers.MediaTypeHeaderValue.TryParse(context.Request.ContentType, out var mediaType) ||
+            !string.Equals(mediaType.MediaType.Value, "application/json", StringComparison.OrdinalIgnoreCase))
             return Refused(new QueryRefusal(QueryRefusalCodes.MalformedJson, "", "The body must be application/json."));
         if (context.Request.ContentLength is > MaximumBodyBytes)
             return Refused(new QueryRefusal(QueryRefusalCodes.MalformedJson, "", $"A query is at most {MaximumBodyBytes} bytes."));

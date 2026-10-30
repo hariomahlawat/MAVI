@@ -154,7 +154,8 @@ export type QueryResult = {
   kind: 'rows' | 'value' | 'groups' | 'buckets' | 'comparison' | 'withheld' | 'empty';
   tracks: QueryTrackRow[] | null;
   events: QueryEventRow[] | null;
-  truncation: { truncated: boolean; returned: number; total: number; limit: number } | null;
+  /** `totalIsLowerBound`: coverage is incomplete, so `total` counts only the analysed part ("at least"). */
+  truncation: { truncated: boolean; returned: number; total: number; limit: number; totalIsLowerBound: boolean } | null;
   value: number | null;
   dimension: string | null;
   groups: { key: string | null; label: string; count: number }[] | null;

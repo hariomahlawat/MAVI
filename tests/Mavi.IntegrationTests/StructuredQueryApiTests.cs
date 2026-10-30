@@ -6,7 +6,14 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Mavi.Application.Modules.Events;
 using Mavi.Application.Modules.SceneAnalytics.Lifecycle;
+using Mavi.Application.Modules.Query;
 using Mavi.Contracts.Api.Query;
+using Mavi.Domain.Cameras;
+using Mavi.Domain.Intelligence;
+using Mavi.Domain.Media;
+using Mavi.Domain.Processing;
+using Mavi.Infrastructure.Persistence.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Mavi.IntegrationTests;
@@ -25,20 +32,31 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
     private static readonly SceneAnalysisLeasePolicy Policy =
         new(TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(1), maximumAttempts: 3);
 
+    /// <summary>
+    /// The fixtures the corpus names. <c>derived</c>: one camera, one Person Track, scene facts committed and events
+    /// derived. <c>underived</c>: the same, events not derived. <c>pending</c>: the same camera and Track, scene facts
+    /// not committed. <c>two-camera</c>: <c>derived</c> plus a second camera with no scene, recorded three hours
+    /// earlier, holding two Vehicle Tracks that start at the same instant.
+    /// </summary>
     [Theory]
     [InlineData("derived")]
     [InlineData("underived")]
+    [InlineData("pending")]
+    [InlineData("two-camera")]
     public async Task TheGoldenCorpusAnswersExactlyAsFrozen(string setup)
     {
         var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
-        await CommitFactsAsync(world);
+        if (setup != "pending")
+            await CommitFactsAsync(world);
         await using var factory = CreateFactory(world);
         using var client = factory.CreateClient();
-        if (setup == "derived")
+        if (setup is "derived" or "two-camera")
         {
             await using var scope = factory.Services.CreateAsyncScope();
             Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<AnalyticEventService>().DeriveDueAsync(50, default));
         }
+
+        var second = setup == "two-camera" ? await AddSecondCameraAsync(world) : null;
 
         using var corpus = JsonDocument.Parse(File.ReadAllText(CorpusPath()));
         var placeholders = corpus.RootElement.GetProperty("placeholders");
@@ -60,6 +78,15 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
             [world.RunId.ToString("D")] = placeholders.GetProperty("run").GetString()!,
             [placeholders.GetProperty("unknown").GetString()!] = placeholders.GetProperty("unknown").GetString()!,
         };
+        if (second is not null)
+        {
+            toWorld[placeholders.GetProperty("camera2").GetString()!] = second.CameraId.ToString("D");
+            fromWorld[second.CameraId.ToString("D")] = placeholders.GetProperty("camera2").GetString()!;
+            fromWorld[second.VideoId.ToString("D")] = placeholders.GetProperty("video2").GetString()!;
+            fromWorld[second.RunId.ToString("D")] = placeholders.GetProperty("run2").GetString()!;
+            fromWorld[second.LowTrackId.ToString("D")] = placeholders.GetProperty("track2Low").GetString()!;
+            fromWorld[second.HighTrackId.ToString("D")] = placeholders.GetProperty("track2High").GetString()!;
+        }
 
         var blessPath = Environment.GetEnvironmentVariable("MAVI_QUERY_GOLDEN_BLESS");
         var blessed = new JsonObject();
@@ -122,6 +149,31 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task AScopeOverTheBoundIsRefusedByTheRealRepositoryNeverTruncated()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        await CommitFactsAsync(world);
+        await AddSecondCameraAsync(world);
+        await using var db = world.Read();
+        var where = StructuredQueryParser.Parse(
+            "{\"contractVersion\":\"mavi-query-v1\",\"unit\":\"track\"," +
+            "\"where\":{\"timeWindow\":{\"fromUtc\":\"2026-09-21T02:00:00Z\",\"toUtc\":\"2026-09-21T07:00:00Z\"}}," +
+            "\"operation\":{\"op\":\"count\"}}").Query!.Where;
+        QueryReadWindow[] windows = [new("query", where.Window)];
+        var identities = new QueryCapabilityIdentities(null, null, null);
+
+        // Three Tracks match and the bound is two: refused at the window, never answered from two of them.
+        var refused = await new StructuredQueryRepository(db, world.Clock) { MaximumMatchedRecords = 2 }
+            .ReadTracksAsync(where, windows, identities, default);
+        Assert.Equal((QueryRefusalCodes.QueryScopeTooLarge, "/where"), (refused.Refusal!.Code, refused.Refusal.Path));
+        Assert.Empty(refused.Windows);
+
+        var exact = await new StructuredQueryRepository(db, world.Clock) { MaximumMatchedRecords = 3 }
+            .ReadTracksAsync(where, windows, identities, default);
+        Assert.Equal(3, Assert.Single(exact.Windows).Records.Count);
+    }
+
+    [Fact]
     public async Task TheContractRouteListsTheVocabularyTheBuilderComposesFrom()
     {
         var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
@@ -148,8 +200,9 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
         using var text = await client.PostAsync("/api/query", new StringContent("count people", Encoding.UTF8, "text/plain"));
         using var big = await client.PostAsync("/api/query", new StringContent(new string(' ', 70_000) + "{}", Encoding.UTF8, "application/json"));
         using var parameters = await client.PostAsync("/api/query?unit=track", new StringContent("{}", Encoding.UTF8, "application/json"));
+        using var lookalike = await client.PostAsync("/api/query", new StringContent("{}", Encoding.UTF8, "application/jsonx"));
 
-        foreach (var response in new[] { text, big, parameters })
+        foreach (var response in new[] { text, big, parameters, lookalike })
         {
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
             var problem = JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
@@ -174,7 +227,8 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
     private static string Substitute(string text, Dictionary<string, string> map)
     {
         foreach (var (from, to) in map)
-            text = text.Replace(from, to, StringComparison.OrdinalIgnoreCase);
+            // Case-sensitive: a corpus case may spell a placeholder in upper case to be refused, and must reach the API so.
+            text = text.Replace(from, to, StringComparison.Ordinal);
         return text;
     }
 
@@ -198,6 +252,45 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
         var claim = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         var result = await lifecycle.CommitFactsAsync(claim!, world.Facts(claim!.AnalysisId), default);
         Assert.True(result.IsSuccess);
+    }
+
+    private sealed record SecondCamera(Guid CameraId, Guid VideoId, Guid RunId, Guid LowTrackId, Guid HighTrackId);
+
+    /// <summary>
+    /// A second camera with no scene configuration, recorded from 02:30 (three and a half hours before the first
+    /// camera's clock), whose one completed, visible run holds two Vehicle Tracks starting at the same instant: the
+    /// tie-break and the not-configured coverage path, against real data.
+    /// </summary>
+    private static async Task<SecondCamera> AddSecondCameraAsync(SceneAnalyticsWorld world)
+    {
+        await using var db = world.Read();
+        var recordingStart = Now.AddHours(-3).AddMinutes(-30);
+        var camera = Camera.Create("CAM-LC-02", "Second Test Camera", "UTC");
+        var source = Artifact.Create(
+            ArtifactType.SourceVideo, $"source/CAM-LC-02/{Guid.CreateVersion7()}.mp4", "video/mp4", 1, new string('b', 64));
+        var video = VideoAsset.Create(
+            camera.Id, source.Id, "second.mp4", recordingStart, 600_000, 25, 1, 640, 360, "h264", TimestampSource.Manual, 1.0);
+        var completedAtUtc = Now.AddMinutes(-5);
+        var run = ProcessingRun.Create(video.Id, "phase1-detection-tracking-v1", "{}", Now.AddMinutes(-9));
+        run.MarkRunning("worker-02", Now.AddMinutes(-8));
+        run.MarkCompleted(250, 2, 5_000, completedAtUtc);
+        // Published as a completion is: its sequence comes from the database sequence, so later snapshots include it.
+        var sequence = await db.Database
+            .SqlQueryRaw<long>("SELECT nextval('processing_visibility_sequence') AS \"Value\"")
+            .SingleAsync();
+        run.AssignCompletionVisibilitySequence(sequence);
+        var first = Track.Create(run.Id, video.Id, 1, ObjectClass.Vehicle, 60_000, 70_000, recordingStart.AddMinutes(1),
+            detectionCount: 8, meanConfidence: 0.7, maxConfidence: 0.9, createdAtUtc: completedAtUtc);
+        // Identical in every field an envelope reports, so only the tie-break tells them apart.
+        var second = Track.Create(run.Id, video.Id, 2, ObjectClass.Vehicle, 60_000, 70_000, recordingStart.AddMinutes(1),
+            detectionCount: 8, meanConfidence: 0.7, maxConfidence: 0.9, createdAtUtc: completedAtUtc);
+        var job = VisionJob.Create(run.Id, "phase1-detection-tracking", Now.AddMinutes(-9));
+        db.AddRange(camera, source, video, run, job, first, second);
+        await db.SaveChangesAsync();
+
+        // Guid order is the "D" form's lexical order, the evaluator's tie-break; the corpus names the two by it.
+        var ordered = new[] { first.Id, second.Id }.Order().ToArray();
+        return new SecondCamera(camera.Id, video.Id, run.Id, ordered[0], ordered[1]);
     }
 
     private static ApiTestFactory CreateFactory(SceneAnalyticsWorld world) => new()

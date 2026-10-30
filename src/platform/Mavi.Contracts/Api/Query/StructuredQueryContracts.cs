@@ -91,7 +91,11 @@ public sealed record QueryResultResponse(
     string? Reason = null,
     string? Message = null);
 
-public sealed record QueryTruncationResponse(bool Truncated, int Returned, int Total, int Limit);
+/// <summary>
+/// How much of the matching set a row result shows. When coverage is incomplete <paramref name="TotalIsLowerBound"/> is
+/// true: <paramref name="Total"/> counts only the analysed part of the scope, so it is "at least", never the scope's count.
+/// </summary>
+public sealed record QueryTruncationResponse(bool Truncated, int Returned, int Total, int Limit, bool TotalIsLowerBound = false);
 
 /// <summary>A group: its key (an id or a vocabulary value; null for records without one) and a display label.</summary>
 public sealed record QueryGroupResponse(string? Key, string Label, long Count);

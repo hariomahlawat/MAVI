@@ -73,7 +73,7 @@ public sealed class StructuredQueryParserTests
         // the attribute vocabulary and capability wiring (host-dependent) and the scope bound; each has its own test.
         var elsewhere = new[]
         {
-            QueryRefusalCodes.MalformedJson, QueryRefusalCodes.DuplicateMember, QueryRefusalCodes.AttributeCombinationInvalid,
+            QueryRefusalCodes.MalformedJson, QueryRefusalCodes.DuplicateMember,
             QueryRefusalCodes.CapabilityNotConfigured, QueryRefusalCodes.QueryScopeTooLarge,
         };
         Assert.Empty(QueryRefusalCodes.All.Except(refused).Except(elsewhere));

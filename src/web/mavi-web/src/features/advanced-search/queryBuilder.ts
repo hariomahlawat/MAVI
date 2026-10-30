@@ -130,6 +130,14 @@ export function buildQuery(state: BuilderState, contract: QueryContract): BuildR
   if (state.ruleIds.length > 0 && has('ruleIds')) where.ruleIds = [...state.ruleIds].sort();
 
   const operation: QueryOperation = { op: state.op };
+  // A number the contract would refuse is not sent: the builder says what is wrong instead.
+  const whole = (value: number, maximum: number) => Number.isInteger(value) && value >= 1 && value <= maximum;
+  if (state.op === 'find' && !whole(state.limit, contract.bounds.maximumFindLimit)) {
+    return { query: null, problem: `Rows must be a whole number from 1 to ${contract.bounds.maximumFindLimit}.` };
+  }
+  if (state.op === 'top' && !whole(state.k, contract.bounds.maximumTopK)) {
+    return { query: null, problem: `How many must be a whole number from 1 to ${contract.bounds.maximumTopK}.` };
+  }
   switch (state.op) {
     case 'find':
       operation.limit = state.limit;

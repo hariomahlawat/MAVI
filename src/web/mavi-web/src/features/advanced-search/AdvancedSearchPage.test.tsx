@@ -8,7 +8,7 @@ import { getCameraScene } from '../../api/scene';
 import { getSystemConfig } from '../../api/system';
 import { listVideos, type VideoAsset } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
-import AdvancedSearchPage from './AdvancedSearchPage';
+import AdvancedSearchPage, { truncationText } from './AdvancedSearchPage';
 import { buildQuery, initialBuilderState } from './queryBuilder';
 
 vi.mock('../../api/cameras', () => ({ listCameras: vi.fn() }));
@@ -132,6 +132,18 @@ describe('the query builder', () => {
     });
   });
 
+  it('does not send a row count or rank size the contract would refuse', () => {
+    const base = initialBuilderState({ fromUtc: '2026-09-21T08:00:00Z', toUtc: '2026-09-21T14:00:00Z' });
+    expect(buildQuery({ ...base, op: 'find', limit: Number('') || Number.NaN }, contract).query).toBeNull();
+    expect(buildQuery({ ...base, op: 'find', limit: 201 }, contract).problem).toMatch(/1 to 200/);
+    expect(buildQuery({ ...base, op: 'top', k: 0 }, contract).query).toBeNull();
+  });
+
+  it('says a partial list total is only a lower bound', () => {
+    expect(truncationText({ truncated: false, returned: 2, total: 2, limit: 50, totalIsLowerBound: true }))
+      .toBe('Showing 2 of at least 2 found so far: not every part of the scope has been analysed.');
+  });
+
   it('refuses to build a window without an explicit UTC offset', () => {
     const built = buildQuery({ ...initialBuilderState({ fromUtc: '2026-09-21T08:00:00', toUtc: '2026-09-21T14:00:00Z' }) }, contract);
     expect(built.query).toBeNull();
@@ -220,7 +232,7 @@ describe('Advanced Search', () => {
   it('drills through from Track and Event rows', async () => {
     vi.mocked(runQuery).mockResolvedValueOnce(envelope({}, {
       kind: 'rows', value: null,
-      truncation: { truncated: true, returned: 1, total: 4, limit: 1 },
+      truncation: { truncated: true, returned: 1, total: 4, limit: 1, totalIsLowerBound: false },
       tracks: [{
         trackId, cameraId, cameraCode: 'GATE', cameraName: 'Main gate', videoAssetId: videoId, processingRunId: videoId,
         objectClass: 'Person', objectSubclass: null, startTimestampUtc: '2026-09-21T08:10:00Z', endTimestampUtc: '2026-09-21T08:10:08Z',
@@ -232,7 +244,9 @@ describe('Advanced Search', () => {
     await waitFor(() => expect(screen.getByLabelText('From (UTC)')).not.toHaveValue(''));
     await user.click(screen.getByRole('button', { name: 'Run query' }));
 
-    expect(await screen.findByText('Showing 1 of 4; open Tracks or Events to page through all of them.')).toBeInTheDocument();
+    expect(await screen.findByText('Showing 1 of 4.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open these Tracks in Search' })).toHaveAttribute(
+      'href', '/search?fromUtc=2026-09-21T08%3A00%3A00.000Z&toUtc=2026-09-21T14%3A00%3A00.000Z');
     expect(screen.getByRole('link', { name: 'Review Track' })).toHaveAttribute('href', `/review/video/${videoId}?trackId=${trackId}`);
 
     vi.mocked(runQuery).mockResolvedValueOnce(envelope({
@@ -242,7 +256,7 @@ describe('Advanced Search', () => {
         attributeIdentityFingerprint: null, attributeDisclosure: null, plateIdentityFingerprint: null, embeddingIdentityFingerprint: null, eventCatalogueVersion: 'mavi-events-v1',
       },
     }, {
-      kind: 'rows', value: null, truncation: { truncated: false, returned: 1, total: 1, limit: 50 },
+      kind: 'rows', value: null, truncation: { truncated: false, returned: 1, total: 1, limit: 50, totalIsLowerBound: false },
       events: [{
         eventId, ruleId: 'line-crossing', ruleVersion: 1, cameraId, cameraCode: 'GATE', cameraName: 'Main gate', videoAssetId: videoId,
         primaryTrackId: trackId, objectClass: 'Person', zoneId: null, zoneName: null, lineId, lineName: 'Main Gate', direction: 'AToB',
