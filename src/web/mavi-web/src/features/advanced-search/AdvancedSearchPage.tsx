@@ -8,6 +8,7 @@ import {
   queryRefusal,
   reasonText,
   runQuery,
+  type QueryCameraIdentity,
   type QueryContract,
   type QueryEnvelope,
   type QueryEventRow,
@@ -491,7 +492,7 @@ function Result({ envelope, displayTimeZoneId }: { envelope: QueryEnvelope; disp
           {result.tracks && searchPath(envelope) ? (
             <p><Link to={searchPath(envelope)!}>Open these Tracks in Search</Link> to page through all of them.</p>
           ) : null}
-          {result.tracks ? <TrackTable rows={result.tracks} displayTimeZoneId={displayTimeZoneId} /> : null}
+          {result.tracks ? <TrackTable envelope={envelope} rows={result.tracks} displayTimeZoneId={displayTimeZoneId} /> : null}
           {result.events ? <EventTable envelope={envelope} rows={result.events} displayTimeZoneId={displayTimeZoneId} /> : null}
           {(result.tracks?.length ?? result.events?.length ?? 0) === 0 ? (
             <p>{envelope.coverage.complete ? 'Nothing matches in this scope.' : 'Nothing matches in the analysed part of the scope so far.'}</p>
@@ -553,11 +554,24 @@ function Bars({ caption, rows }: { caption: string; rows: { key: string; label: 
   );
 }
 
-function trackReviewPath(row: QueryTrackRow): string {
-  return `/review/video/${row.videoAssetId.toLowerCase()}?trackId=${encodeURIComponent(row.trackId.toLowerCase())}`;
+/**
+ * Review for one Track. A geometric query matched it against a resolved scene revision and analytics version; the
+ * link pins that identity, as Track search and the Event links do, so Review shows the analytics the match rested on
+ * even after the camera's active revision changes.
+ */
+export function trackReviewPath(row: QueryTrackRow, identity?: QueryCameraIdentity): string {
+  const params = new URLSearchParams();
+  params.set('trackId', row.trackId.toLowerCase());
+  if (identity?.sceneRevisionId) {
+    params.set('sceneRevisionId', identity.sceneRevisionId.toLowerCase());
+    params.set('analyticsAlgorithmVersion', identity.algorithmVersion);
+  }
+  return `/review/video/${row.videoAssetId.toLowerCase()}?${params.toString()}`;
 }
 
-function TrackTable({ rows, displayTimeZoneId }: { rows: QueryTrackRow[]; displayTimeZoneId: string | undefined }) {
+function TrackTable({ envelope, rows, displayTimeZoneId }: { envelope: QueryEnvelope; rows: QueryTrackRow[]; displayTimeZoneId: string | undefined }) {
+  // Only a geometric Track query resolves a camera identity; any other Track query names none, and its links stay plain.
+  const identityOf = (cameraId: string) => envelope.identity.cameras.find((camera) => camera.cameraId.toLowerCase() === cameraId.toLowerCase());
   return (
     <table className="query-page__table" aria-label="Tracks">
       <thead><tr><th>Start</th><th>Camera</th><th>Class</th><th>Duration</th>{rows.some((row) => row.similarityScore !== null) ? <th>Score</th> : null}<th /></tr></thead>
@@ -569,7 +583,7 @@ function TrackTable({ rows, displayTimeZoneId }: { rows: QueryTrackRow[]; displa
             <td>{row.objectClass}{row.objectSubclass ? ` · ${row.objectSubclass}` : ''}</td>
             <td>{formatOffset(row.durationMs)}</td>
             {row.similarityScore !== null ? <td>{row.similarityScore.toFixed(3)}</td> : null}
-            <td><Link to={trackReviewPath(row)}>Review Track</Link></td>
+            <td><Link to={trackReviewPath(row, identityOf(row.cameraId))}>Review Track</Link></td>
           </tr>
         ))}
       </tbody>

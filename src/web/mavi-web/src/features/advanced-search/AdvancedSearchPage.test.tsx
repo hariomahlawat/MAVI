@@ -8,7 +8,7 @@ import { getCameraScene } from '../../api/scene';
 import { getSystemConfig } from '../../api/system';
 import { listVideos, type VideoAsset } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
-import AdvancedSearchPage, { truncationText } from './AdvancedSearchPage';
+import AdvancedSearchPage, { trackReviewPath, truncationText } from './AdvancedSearchPage';
 import { buildQuery, initialBuilderState } from './queryBuilder';
 
 vi.mock('../../api/cameras', () => ({ listCameras: vi.fn() }));
@@ -145,6 +145,18 @@ describe('the query builder', () => {
       objectClass: 'Person' as const, attributes: { 'upper-colour': 'red' }, plateText: 'AB12C',
     };
     expect(buildQuery(state, contract).problem).toMatch(/cannot be combined/);
+  });
+
+  it('pins a geometric match to the revision it was matched against in the Review link', () => {
+    const row = {
+      trackId, cameraId, cameraCode: 'GATE', cameraName: 'Main gate', videoAssetId: videoId, processingRunId: videoId,
+      objectClass: 'Person', objectSubclass: null, startTimestampUtc: '', endTimestampUtc: '', startOffsetMs: 0,
+      durationMs: 0, meanConfidence: 0, thumbnailArtifactId: null, similarityScore: null,
+    };
+    expect(trackReviewPath(row)).toBe(`/review/video/${videoId}?trackId=${trackId}`);
+    expect(trackReviewPath(row, {
+      cameraId, cameraCode: 'GATE', cameraName: 'Main gate', sceneRevisionId: revisionId, sceneRevisionNumber: 2, algorithmVersion: 'scene-analytics-v1',
+    })).toBe(`/review/video/${videoId}?trackId=${trackId}&sceneRevisionId=${revisionId}&analyticsAlgorithmVersion=scene-analytics-v1`);
   });
 
   it('says a partial list total is only a lower bound', () => {

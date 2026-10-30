@@ -154,6 +154,32 @@ LATENCY_SET = [
 ]
 
 
+def protocol_settings() -> dict:
+    """What a run executes: the settings the predeclared protocol must state exactly."""
+    return {
+        "contract": CONTRACT,
+        "warmup": WARMUP,
+        "repetitions": REPETITIONS,
+        "budgetMilliseconds": BUDGET_P95_MS,
+        "set": [{"name": n, "unit": u, "operation": o, "where": w, "scope": s} for n, u, o, w, s in LATENCY_SET],
+    }
+
+
+def check_protocol(protocol: dict) -> None:
+    """Refuses a run whose settings differ from the predeclared protocol it would cite: the hash in the record must
+    name the experiment that was actually performed, never an earlier one."""
+    declared = {
+        "contract": protocol.get("contract"),
+        "warmup": protocol.get("warmup"),
+        "repetitions": protocol.get("repetitions"),
+        "budgetMilliseconds": (protocol.get("budget") or {}).get("milliseconds"),
+        "set": protocol.get("set"),
+    }
+    differing = [key for key, value in protocol_settings().items() if declared[key] != value]
+    if differing:
+        raise SystemExit(f"REFUSED: this run would differ from the predeclared protocol in: {', '.join(differing)}.")
+
+
 def write_protocol(out: Path) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     path = out / "latency-protocol.json"
@@ -322,6 +348,7 @@ def run(api: str, out: Path) -> int:
     protocol = out / "latency-protocol.json"
     if not protocol.is_file():
         raise SystemExit("REFUSED: write the predeclared protocol first (`protocol --out`).")
+    check_protocol(json.loads(protocol.read_text(encoding="utf-8")))
     contract = get(api, "/api/query/contract")
     cameras = sorted((c for c in get(api, "/api/cameras/") if c["code"].startswith(DEMO_PREFIX)), key=lambda c: c["code"])
     camera_ids = {c["id"].lower() for c in cameras}

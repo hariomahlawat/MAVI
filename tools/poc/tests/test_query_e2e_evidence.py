@@ -140,3 +140,21 @@ def test_a_measurement_must_return_the_kind_its_operation_implies():
     assert qe.kind_as_expected({"unit": "track", "operation": {"op": "count"}}, unconfigured)
     assert qe.kind_as_expected({"unit": "entity", "operation": {"op": "count"}}, {"result": {"kind": "empty"}})
     assert not qe.kind_as_expected({"unit": "track", "operation": {"op": "groupBy"}}, {"result": {"kind": "value"}})
+
+
+def test_a_run_refuses_settings_that_differ_from_the_predeclared_protocol(tmp_path, monkeypatch):
+    qe.write_protocol(tmp_path)
+    protocol = json.loads((tmp_path / "latency-protocol.json").read_text(encoding="utf-8"))
+    qe.check_protocol(protocol)  # the settings it was written from: accepted
+    monkeypatch.setattr(qe, "REPETITIONS", qe.REPETITIONS + 1)
+    with pytest.raises(SystemExit, match="repetitions"):
+        qe.check_protocol(protocol)
+    monkeypatch.setattr(qe, "REPETITIONS", qe.REPETITIONS - 1)
+    edited = dict(protocol, set=protocol["set"][1:])
+    with pytest.raises(SystemExit, match="set"):
+        qe.check_protocol(edited)
+    # run() checks before it reads the API: a changed budget is refused with nothing measured.
+    (tmp_path / "latency-protocol.json").write_text(
+        json.dumps(dict(protocol, budget={"milliseconds": 2000})), encoding="utf-8")
+    with pytest.raises(SystemExit, match="budgetMilliseconds"):
+        qe.run("http://127.0.0.1:1", tmp_path)
