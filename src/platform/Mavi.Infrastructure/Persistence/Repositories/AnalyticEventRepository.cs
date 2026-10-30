@@ -27,7 +27,7 @@ namespace Mavi.Infrastructure.Persistence.Repositories;
 /// Stage-3 aggregates do, so Events and Analytics cannot disagree about one camera and window.
 /// </para>
 /// </remarks>
-public sealed class AnalyticEventRepository(MaviDbContext db) : IAnalyticEventRepository
+public sealed partial class AnalyticEventRepository(MaviDbContext db) : IAnalyticEventRepository
 {
     private const string UniqueViolation = "23505";
     private const string DerivationUniqueIndex = "ux_analytic_event_derivations_unit_catalogue";

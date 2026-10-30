@@ -71,6 +71,9 @@ public static class DependencyInjection
         // Deterministic analytic events (ADR-025).
         services.AddScoped<Mavi.Application.Modules.Events.IAnalyticEventRepository, AnalyticEventRepository>();
         services.AddScoped<Mavi.Application.Modules.Events.AnalyticEventService>();
+        // The structured query contract (ADR-024): a read layer over Track search and the events read.
+        services.AddScoped<Mavi.Application.Modules.Query.IStructuredQueryRepository, StructuredQueryRepository>();
+        services.AddScoped<Mavi.Application.Modules.Query.StructuredQueryService>();
         services.AddScoped<SceneAnalysisExecutor>();
         services.AddScoped<ISceneAnalyticsStatusReader, SceneAnalyticsStatusReader>();
         services.AddScoped<SceneAnalyticsStatusService>();

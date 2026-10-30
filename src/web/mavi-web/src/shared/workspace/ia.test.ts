@@ -31,6 +31,7 @@ describe('the IA map', () => {
       processing: 'Processing',
       'processing-detail': 'Processing',
       search: 'Search',
+      query: 'Query',
       review: 'Search',
       faces: 'Faces',
       system: 'About',
@@ -41,7 +42,7 @@ describe('the IA map', () => {
   it('groups the rail Operate, Investigate, then Administer, in workflow order', () => {
     expect(SECTIONS.map((section) => [section.label, section.destinations.map((entry) => entry.label)])).toEqual([
       ['Operate', ['Overview', 'Cameras', 'Videos', 'Import', 'Processing']],
-      ['Investigate', ['Search', 'Faces']],
+      ['Investigate', ['Search', 'Query', 'Faces']],
       ['Administer', ['About']],
     ]);
   });
