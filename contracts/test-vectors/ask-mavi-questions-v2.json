@@ -1,0 +1,990 @@
+{
+  "schemaVersion": "mavi-ask-questions-v1",
+  "contractVersion": "mavi-query-v1",
+  "$comment": "PoC S10 v2 fresh held split (owner decision D-S10-8). Written 2026-10-31 by an independent author who read only the authoring kit (contract, schema, attribute vocabulary, site catalogue and the v1 corpus), never the translator's prompt, rules or outputs. Held only: used once, not for tuning. Placeholders {camera:CODE}, {zone:CODE/Name} and {line:CODE/Name} resolve against ask-mavi-site-catalogue-v1. Expected queries are compared after canonicalisation by the S9 strict parser, so defaults may be omitted. Instants are UTC; the site zone is Asia/Kolkata (+05:30) and the reference date is 2026-10-01.",
+  "site": {
+    "timeZoneId": "Asia/Kolkata",
+    "referenceDate": "2026-10-01"
+  },
+  "refusalReasons": [
+    "outside_contract",
+    "unknown_reference"
+  ],
+  "questions": [
+    {
+      "id": "n01",
+      "split": "held",
+      "question": "how many vehicles crossed the count line on caton farm road going leftward between 07:00 and 09:00?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-10-01T01:30:00Z",
+              "toUtc": "2026-10-01T03:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-03}"
+            ],
+            "objectClass": "Vehicle",
+            "line": {
+              "lineId": "{line:POC-S2-03/Count line}",
+              "direction": "bToA"
+            }
+          },
+          "operation": {
+            "op": "count"
+          }
+        }
+      },
+      "note": "Leftward is the bToA label of the Count line."
+    },
+    {
+      "id": "n02",
+      "split": "held",
+      "question": "Give me the 10 earliest repeated-visit events from yesterday",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-29T18:30:00Z",
+              "toUtc": "2026-09-30T18:30:00Z"
+            },
+            "ruleIds": [
+              "repeated-visit"
+            ]
+          },
+          "operation": {
+            "op": "find",
+            "limit": 10,
+            "order": "oldest"
+          }
+        }
+      },
+      "note": "'10 earliest' is a find ordered oldest with limit 10, not the single-row first operation."
+    },
+    {
+      "id": "n03",
+      "split": "held",
+      "question": "find people in a yellow shirt carrying a bag between 12:00 and 13:00",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-10-01T06:30:00Z",
+              "toUtc": "2026-10-01T07:30:00Z"
+            },
+            "objectClass": "Person",
+            "attributes": [
+              {
+                "type": "person-upper-colour",
+                "value": "yellow"
+              },
+              {
+                "type": "person-carried-bag",
+                "value": "present"
+              }
+            ]
+          },
+          "operation": {
+            "op": "find"
+          }
+        }
+      },
+      "note": "A shirt is the upper garment; carrying a bag is person-carried-bag present."
+    },
+    {
+      "id": "n04",
+      "split": "held",
+      "question": "break down today's events on the school parking lot camera per line",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-09}"
+            ]
+          },
+          "operation": {
+            "op": "groupBy",
+            "by": "line"
+          }
+        }
+      }
+    },
+    {
+      "id": "n05",
+      "split": "held",
+      "question": "Who parked the silver car in the Parking bay at the Archway gate?",
+      "expect": {
+        "answer": "refusal",
+        "reason": "outside_contract"
+      },
+      "note": "Asks for a person's identity."
+    },
+    {
+      "id": "n06",
+      "split": "held",
+      "question": "list any vehicles today with 7788 somewhere in the plate",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "objectClass": "Vehicle",
+            "plateText": {
+              "text": "7788",
+              "match": "contains"
+            }
+          },
+          "operation": {
+            "op": "find"
+          }
+        }
+      },
+      "note": "A request to list the matching vehicles (find with the default limit and order)."
+    },
+    {
+      "id": "n07",
+      "split": "held",
+      "question": "Pedestrians on the Landing at the stairwell, every 15 minutes from 10:00 to 11:00",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-10-01T04:30:00Z",
+              "toUtc": "2026-10-01T05:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-12}"
+            ],
+            "objectClass": "Person",
+            "zone": {
+              "zoneId": "{zone:POC-S2-12/Landing}"
+            }
+          },
+          "operation": {
+            "op": "timeBucket",
+            "bucketSeconds": 900
+          }
+        }
+      },
+      "note": "'On the Landing' is presence in the zone, with no relation."
+    },
+    {
+      "id": "n08",
+      "split": "held",
+      "question": "how many cars went past camera 14 this morning?",
+      "expect": {
+        "answer": "refusal",
+        "reason": "unknown_reference"
+      },
+      "note": "The site has cameras 01 to 12 only."
+    },
+    {
+      "id": "n09",
+      "split": "held",
+      "question": "Did more vehicles enter the Parking bay at the Archway gate between 08:00 and 12:00 than in the same hours yesterday?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-10-01T02:30:00Z",
+              "toUtc": "2026-10-01T06:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-05}"
+            ],
+            "objectClass": "Vehicle",
+            "zone": {
+              "zoneId": "{zone:POC-S2-05/Parking bay}",
+              "relation": "entered"
+            }
+          },
+          "operation": {
+            "op": "compare",
+            "baseline": {
+              "fromUtc": "2026-09-30T02:30:00Z",
+              "toUtc": "2026-09-30T06:30:00Z"
+            }
+          }
+        }
+      },
+      "note": "Today's 08:00-12:00 is the query window and yesterday's same hours the baseline."
+    },
+    {
+      "id": "n10",
+      "split": "held",
+      "question": "Which rule fired most often at the Worringer Platz junction today?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-01}"
+            ]
+          },
+          "operation": {
+            "op": "top",
+            "by": "rule",
+            "k": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "n11",
+      "split": "held",
+      "question": "How many people were in the Crossing box or the Waiting area at the level crossing this afternoon?",
+      "expect": {
+        "answer": "refusal",
+        "reason": "outside_contract"
+      },
+      "note": "OR between two places is not expressible (predicates combine with AND)."
+    },
+    {
+      "id": "n12",
+      "split": "held",
+      "question": "How many different kinds of event were raised across the site yesterday?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-29T18:30:00Z",
+              "toUtc": "2026-09-30T18:30:00Z"
+            }
+          },
+          "operation": {
+            "op": "countDistinct",
+            "field": "rule"
+          }
+        }
+      },
+      "note": "'Kinds of event' are rules."
+    },
+    {
+      "id": "n13",
+      "split": "held",
+      "question": "Show cars that were visible for more than 2 minutes on the Highway at night camera between 20:00 and midnight",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-10-01T14:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-04}"
+            ],
+            "objectClass": "Vehicle",
+            "objectSubclass": "car",
+            "minDurationMs": 120000
+          },
+          "operation": {
+            "op": "find"
+          }
+        }
+      },
+      "note": "Midnight is the end of the reference day (2026-10-02 00:00 local); 'more than 2 minutes' maps to minDurationMs 120000 as v1 maps 'longer than 30 seconds' to 30000."
+    },
+    {
+      "id": "n14",
+      "split": "held",
+      "question": "When did the first person go in through the Doorway line at the cafe lobby?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-10}"
+            ],
+            "objectClass": "Person",
+            "line": {
+              "lineId": "{line:POC-S2-10/Doorway line}",
+              "direction": "bToA"
+            }
+          },
+          "operation": {
+            "op": "first"
+          }
+        }
+      },
+      "note": "'In' is the bToA label of the Doorway line; no time given, so today."
+    },
+    {
+      "id": "n15",
+      "split": "held",
+      "question": "Split today's line-crossing events into people versus vehicles",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "ruleIds": [
+              "line-crossing"
+            ]
+          },
+          "operation": {
+            "op": "groupBy",
+            "by": "objectClass"
+          }
+        }
+      }
+    },
+    {
+      "id": "n16",
+      "split": "held",
+      "question": "Vehicles at Archway gate whose number plate begins KA05, newest first, just 5",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-05}"
+            ],
+            "objectClass": "Vehicle",
+            "plateText": {
+              "text": "KA05",
+              "match": "prefix"
+            }
+          },
+          "operation": {
+            "op": "find",
+            "limit": 5,
+            "order": "newest"
+          }
+        }
+      }
+    },
+    {
+      "id": "n17",
+      "split": "held",
+      "question": "please rename the Tram box zone to Tram stop and recount",
+      "expect": {
+        "answer": "refusal",
+        "reason": "outside_contract"
+      },
+      "note": "Changes site configuration; the contract is read-only."
+    },
+    {
+      "id": "n18",
+      "split": "held",
+      "question": "How many events came from the Tram box at Worringer Platz yesterday?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-29T18:30:00Z",
+              "toUtc": "2026-09-30T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-01}"
+            ],
+            "zone": {
+              "zoneId": "{zone:POC-S2-01/Tram box}"
+            }
+          },
+          "operation": {
+            "op": "count"
+          }
+        }
+      },
+      "note": "As v1 does for Event line predicates, the zone's camera is also given in cameraIds."
+    },
+    {
+      "id": "n19",
+      "split": "held",
+      "question": "How many people walked out of the Corridor near zone on the school hallway camera between 13:30 and 14:00?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-10-01T08:00:00Z",
+              "toUtc": "2026-10-01T08:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-11}"
+            ],
+            "objectClass": "Person",
+            "zone": {
+              "zoneId": "{zone:POC-S2-11/Corridor near}",
+              "relation": "exited"
+            }
+          },
+          "operation": {
+            "op": "count"
+          }
+        }
+      }
+    },
+    {
+      "id": "n20",
+      "split": "held",
+      "question": "Show line crossings on the North gate line yesterday",
+      "expect": {
+        "answer": "refusal",
+        "reason": "unknown_reference"
+      },
+      "note": "No line is named North gate (the Archway gate camera's line is 'Arch gate')."
+    },
+    {
+      "id": "n21",
+      "split": "held",
+      "question": "When was the most recent wrong-way alert on the level crossing camera?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-06}"
+            ],
+            "ruleIds": [
+              "wrong-way"
+            ]
+          },
+          "operation": {
+            "op": "last"
+          }
+        }
+      },
+      "note": "'Most recent' single event is the last operation; no time given, so today."
+    },
+    {
+      "id": "n22",
+      "split": "held",
+      "question": "On how many cameras did co-occurrence events happen today?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "ruleIds": [
+              "co-occurrence"
+            ]
+          },
+          "operation": {
+            "op": "countDistinct",
+            "field": "camera"
+          }
+        }
+      }
+    },
+    {
+      "id": "n23",
+      "split": "held",
+      "question": "Find anyone wearing sunglasses in the School cafe lobby today",
+      "expect": {
+        "answer": "refusal",
+        "reason": "outside_contract"
+      },
+      "note": "Sunglasses are not in the attribute vocabulary, and appearance text is excluded from v1."
+    },
+    {
+      "id": "n24",
+      "split": "held",
+      "question": "Show outbound line-crossing events for vehicles at the Junction exit, newest first",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-01}"
+            ],
+            "objectClass": "Vehicle",
+            "line": {
+              "lineId": "{line:POC-S2-01/Junction exit}",
+              "direction": "aToB"
+            },
+            "ruleIds": [
+              "line-crossing"
+            ]
+          },
+          "operation": {
+            "op": "find",
+            "order": "newest"
+          }
+        }
+      },
+      "note": "Outbound is the aToB label of the Junction exit line."
+    },
+    {
+      "id": "n25",
+      "split": "held",
+      "question": "per-camera totals of person tracks yesterday from 14:00 to 16:00",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T08:30:00Z",
+              "toUtc": "2026-09-30T10:30:00Z"
+            },
+            "objectClass": "Person"
+          },
+          "operation": {
+            "op": "groupBy",
+            "by": "camera"
+          }
+        }
+      }
+    },
+    {
+      "id": "n26",
+      "split": "held",
+      "question": "count red cars at the level crossing barrier between 06:00 and 08:00",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-10-01T00:30:00Z",
+              "toUtc": "2026-10-01T02:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-06}"
+            ],
+            "objectClass": "Vehicle",
+            "objectSubclass": "car",
+            "attributes": [
+              {
+                "type": "vehicle-colour",
+                "value": "red"
+              }
+            ]
+          },
+          "operation": {
+            "op": "count"
+          }
+        }
+      }
+    },
+    {
+      "id": "n27",
+      "split": "held",
+      "question": "Count people wearing a hat today",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "objectClass": "Person",
+            "attributes": [
+              {
+                "type": "person-headwear",
+                "value": "present"
+              }
+            ]
+          },
+          "operation": {
+            "op": "count"
+          }
+        }
+      }
+    },
+    {
+      "id": "n28",
+      "split": "held",
+      "question": "zone-dwell events at the School cafe lobby per half hour yesterday between 15:00 and 18:00",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T09:30:00Z",
+              "toUtc": "2026-09-30T12:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-10}"
+            ],
+            "ruleIds": [
+              "zone-dwell"
+            ]
+          },
+          "operation": {
+            "op": "timeBucket",
+            "bucketSeconds": 1800
+          }
+        }
+      }
+    },
+    {
+      "id": "n29",
+      "split": "held",
+      "question": "What's the longest any vehicle stayed in the Roadside lot bays today?",
+      "expect": {
+        "answer": "refusal",
+        "reason": "outside_contract"
+      },
+      "note": "A maximum duration is not an operation of the contract."
+    },
+    {
+      "id": "n30",
+      "split": "held",
+      "question": "Count vehicles that dwelled at least 10 minutes in the Upper bays at the school parking lot yesterday",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-29T18:30:00Z",
+              "toUtc": "2026-09-30T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-09}"
+            ],
+            "objectClass": "Vehicle",
+            "zone": {
+              "zoneId": "{zone:POC-S2-09/Upper bays}",
+              "relation": "dwelled",
+              "minDwellMs": 600000
+            }
+          },
+          "operation": {
+            "op": "count"
+          }
+        }
+      }
+    },
+    {
+      "id": "n31",
+      "split": "held",
+      "question": "Which 2 cameras raised the most stopped-vehicle events today?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "ruleIds": [
+              "stopped-vehicle"
+            ]
+          },
+          "operation": {
+            "op": "top",
+            "by": "camera",
+            "k": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "n32",
+      "split": "held",
+      "question": "Anyone in a black top and white trousers on the Scramble crossing between 11:00 and 12:00? List them.",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-10-01T05:30:00Z",
+              "toUtc": "2026-10-01T06:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-07}"
+            ],
+            "objectClass": "Person",
+            "attributes": [
+              {
+                "type": "person-upper-colour",
+                "value": "black"
+              },
+              {
+                "type": "person-lower-colour",
+                "value": "white"
+              }
+            ]
+          },
+          "operation": {
+            "op": "find"
+          }
+        }
+      },
+      "note": "'List them' asks for the matching people (find). 'The Scramble crossing' is the camera, not its zone named Crossing."
+    },
+    {
+      "id": "n33",
+      "split": "held",
+      "question": "people loitering near the bike shed this afternoon",
+      "expect": {
+        "answer": "refusal",
+        "reason": "unknown_reference"
+      },
+      "note": "The site has no bike shed."
+    },
+    {
+      "id": "n34",
+      "split": "held",
+      "question": "Pull up sightings of the exact plate MH04XY9087 yesterday",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-29T18:30:00Z",
+              "toUtc": "2026-09-30T18:30:00Z"
+            },
+            "objectClass": "Vehicle",
+            "plateText": {
+              "text": "MH04XY9087",
+              "match": "exact"
+            }
+          },
+          "operation": {
+            "op": "find"
+          }
+        }
+      },
+      "note": "Sightings are a plain find with the default limit and order."
+    },
+    {
+      "id": "n35",
+      "split": "held",
+      "question": "How many separate video files from the Macedonia Square camera have vehicles in them today?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-30T18:30:00Z",
+              "toUtc": "2026-10-01T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-02}"
+            ],
+            "objectClass": "Vehicle"
+          },
+          "operation": {
+            "op": "countDistinct",
+            "field": "video"
+          }
+        }
+      }
+    },
+    {
+      "id": "n36",
+      "split": "held",
+      "question": "Show me people who appeared on both the Scramble crossing and the Worringer Platz cameras today",
+      "expect": {
+        "answer": "refusal",
+        "reason": "outside_contract"
+      },
+      "note": "Needs the same person matched across two cameras (identity / cross-camera join)."
+    },
+    {
+      "id": "n37",
+      "split": "held",
+      "question": "First 15 people heading To door across the Landing line on the stairwell, 08:00 to 10:00",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-10-01T02:30:00Z",
+              "toUtc": "2026-10-01T04:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-12}"
+            ],
+            "objectClass": "Person",
+            "line": {
+              "lineId": "{line:POC-S2-12/Landing line}",
+              "direction": "aToB"
+            }
+          },
+          "operation": {
+            "op": "find",
+            "limit": 15,
+            "order": "oldest"
+          }
+        }
+      },
+      "note": "'First 15' is a find ordered oldest with limit 15; 'To door' is the aToB label."
+    },
+    {
+      "id": "n38",
+      "split": "held",
+      "question": "When did the last car leave the Lower bays at the school parking lot yesterday?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "track",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-29T18:30:00Z",
+              "toUtc": "2026-09-30T18:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-09}"
+            ],
+            "objectClass": "Vehicle",
+            "objectSubclass": "car",
+            "zone": {
+              "zoneId": "{zone:POC-S2-09/Lower bays}",
+              "relation": "exited"
+            }
+          },
+          "operation": {
+            "op": "last"
+          }
+        }
+      }
+    },
+    {
+      "id": "n39",
+      "split": "held",
+      "question": "How many crossing events went Rightward on the Hall midline at the bus stop waiting room from 12:00 to 17:00?",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "event",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-10-01T06:30:00Z",
+              "toUtc": "2026-10-01T11:30:00Z"
+            },
+            "cameraIds": [
+              "{camera:POC-S2-08}"
+            ],
+            "line": {
+              "lineId": "{line:POC-S2-08/Hall midline}",
+              "direction": "aToB"
+            },
+            "ruleIds": [
+              "line-crossing"
+            ]
+          },
+          "operation": {
+            "op": "count"
+          }
+        }
+      },
+      "note": "Two cameras have a Hall midline; the bus stop waiting room names POC-S2-08, whose Rightward label is aToB."
+    },
+    {
+      "id": "n40",
+      "split": "held",
+      "question": "Break confirmed entities down by camera for yesterday",
+      "expect": {
+        "answer": "query",
+        "query": {
+          "contractVersion": "mavi-query-v1",
+          "unit": "entity",
+          "where": {
+            "timeWindow": {
+              "fromUtc": "2026-09-29T18:30:00Z",
+              "toUtc": "2026-09-30T18:30:00Z"
+            }
+          },
+          "operation": {
+            "op": "groupBy",
+            "by": "camera"
+          }
+        }
+      }
+    }
+  ]
+}

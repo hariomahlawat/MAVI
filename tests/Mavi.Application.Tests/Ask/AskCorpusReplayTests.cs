@@ -45,6 +45,21 @@ public sealed class AskCorpusReplayTests
             Assert.NotEmpty(AskCorpus.ExpectedOutcome(AskCorpus.Resolve(question.Expect, catalogue)));
     }
 
+    [Fact]
+    public void TheV2HeldSplitKeepsTheV1HeldProportionsAndEveryExpectedQueryIsValid()
+    {
+        // Owner's edit to D-S10-9: 31 in contract, 6 outside_contract, 3 unknown_reference, as the v1 held split.
+        var (zoneId, referenceDate, questions) = AskCorpus.LoadQuestions(AskCorpus.QuestionsPathV2);
+        var catalogue = AskCorpus.LoadCatalogue();
+        Assert.Equal(("Asia/Kolkata", new DateOnly(2026, 10, 1)), (zoneId, referenceDate));
+        Assert.Equal(40, questions.Select(question => question.Id).Distinct().Count());
+        Assert.All(questions, question => Assert.Equal("held", question.Split));
+        var outcomes = questions.Select(question => AskCorpus.ExpectedOutcome(AskCorpus.Resolve(question.Expect, catalogue))).ToList();
+        Assert.Equal(31, outcomes.Count(outcome => outcome.StartsWith('{')));
+        Assert.Equal(6, outcomes.Count(outcome => outcome == "refusal:" + AskCodes.OutsideContract));
+        Assert.Equal(3, outcomes.Count(outcome => outcome == "refusal:" + AskCodes.UnknownReference));
+    }
+
     [Theory]
     [MemberData(nameof(RecordingSets))]
     public void RecordingSetReplaysExactly(string fileName)
