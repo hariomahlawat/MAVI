@@ -23,7 +23,8 @@ public sealed record EntityCandidateCatalogueDefinition(
         WriteIndented = false,
     };
 
-    public string Sha256 { get; } = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
+    /// <summary>Computed from the values each time, so a copy made with <c>with</c> never carries a stale digest.</summary>
+    public string Sha256 => Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
         new { catalogueVersion = CatalogueVersion, appearanceFloor = AppearanceFloor, concurrencyToleranceMs = ConcurrencyToleranceMs, parameters = Parameters },
         CanonicalJson)));
 }
