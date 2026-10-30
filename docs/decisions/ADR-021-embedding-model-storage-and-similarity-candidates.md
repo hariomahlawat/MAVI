@@ -133,3 +133,38 @@ The role follows ADR-013 §8–§12 and the plate role's control plane (`mavi-em
 > 3. Vectors are stored in pgvector table `track_embeddings`, searched exactly by cosine distance with deterministic ordering and a signed snapshot. No ANN index until a measured p95 > 300 ms requires one; this deliberately departs from the plan's "HNSW".
 > 4. `GET /api/tracks/{id}/similar` and the `appearanceQuery` search key return *Similarity candidates* with scores. They are never identity, never grouped automatically, and never write `EntityId`.
 > 5. A specialist ReID model is a later swap under ADR-014, after a labelled-benchmark comparison.
+
+## Amendment 2026-10-29 (PoC S5): zero-shot attributes on the same Model Pack
+
+**Status:** **Accepted**: the owner ratified this amendment as written on 2026-10-30 (register owner decisions, S5-ADR). Nothing below changes §1–§5 or the decision ratified above.
+
+**Context.** Plan slice S5 replaces the S2b fixture inferencer of the existing `attributes` role with SigLIP 2 zero-shot scoring and adds attribute search (Stage-2 plan §16) and its UI. D5 says one Model Pack serves Stages 2, 5 and 6. Stage-2's frozen register rows (E5–E8, F, G) and the S2c learned-pack work are not touched. This amendment states how the role is composed, what a row means and how search is paged.
+
+**Decision.**
+
+1. **One Model Pack, no copy.** The attributes role binds the S4 pack `embeddings-siglip2-base-p16-224-dev-v1` (manifest `models/manifests/embeddings-siglip2-base-p16-224-dev-v1.json`, unchanged) for both `person-attributes` and `vehicle-attributes`. The binding names that manifest's derived `modelPackId`. The worker refuses any other manifest, checked by file name, by SHA-256 and by the pinned `modelPackId`. The manifest still declares only `embedding`: the pack is capability-neutral, and the zero-shot semantics live in the identity-bearing attribute pipeline (schema, `mean-score-argmax` policy, parameters with prompts and thresholds).
+2. **Explicit Development composition.** The role is composed the way §3 composes the `embeddings` role, not through the Component Binding resolver.
+   - **Runtime and gating.** It runs from the locked `embeddings-onnx-v1` environment. Production mode is refused. The profile must be `developmentOnly` and must name `siglip2-zero-shot-v1`.
+   - **Release.** The binding `src/vision/config/attributes/development-attributes-siglip2-binding-v1.json` is the one document both the platform (`VisualAttributeReleaseParser`) and the worker read. Its role names the `embeddings-onnx-v1` family.
+   - **Truthful provenance.** The runtime is `unpacked-environment` with no Runtime Pack id, and the capabilities are `unverified`. A Development record (`attributes-siglip2-zero-shot-development.json`, `status: development-unqualified`) stands where a qualification record would.
+   - **Verification.** Every pack artefact is SHA-256 verified before ONNX Runtime loads it. `tools/verify_repo.py` holds the release to its generator (`tools/poc/attributes_zero_shot_profile.py`) and to the identity vector `contracts/test-vectors/poc-zero-shot-attribute-identity-v1.json`.
+3. **Row semantics.**
+   - **Colours.** `p = softmax(logitScale · cos(image, prototype))` over the schema's values, with prompt-ensembled prototypes.
+   - **Bag and headwear.** These emit only `present`, so a Track is `present` or Unknown. No negative is claimed (Stage-2 plan §13).
+   - **Abstention and confidence.** A monotone map puts each attribute's abstention threshold at the policy's 0.5. A row's confidence is therefore an abstention-normalised score, not a probability, and the UI calls it "score".
+   - **Small crops.** A crop with shorter side under 80 px contributes zero scores (§1's scope). This can only move a Track towards Unknown.
+4. **Disclosure.** The parameters state `disclosure: "zero-shot, Development"`. The platform reads it into the release definition, and the attribute rail, coverage line, every matched result row and the detail panels show it.
+5. **Search.**
+   - **Grammar and cursor.** Repeated `attribute=type:value` predicates are ANDed and canonically ordered. They are paged by the v4 cursor with a new `attributes` derived pin: the identity fingerprint, plus coverage of in-scope / analysed / unavailable / not analysed and one Unknown count per predicate. This uses the capability-tagged pin list the v4 cursor was designed to extend, so there is no v5.
+   - **Scope.** Attribute-only search spans cameras. A combination with analytic predicates keeps the analytic camera scope and pins both identities.
+   - **Combinations refused.** Attribute plus plate, and attribute plus appearance query, are refused (400).
+   - **Matching and coverage.** `Unknown` never matches, and a Track with no visible analysis never matches; both are counted in coverage.
+   - **Execution.** The predicate is an EF correlated EXISTS per predicate through `ix_visual_attributes_track`. It has no new index and is measured only at demo scale.
+
+**Trade-offs accepted.**
+- The pack's manifest does not list the attribute capabilities it is bound to. The alternative was a second manifest over the same bytes, which is a second pack identity for one set of weights. That was judged worse than one pack, one identity.
+- The resolver's Runtime Pack, qualification and gate-set checks do not apply to this role, exactly as for `embeddings`. Moving both roles into the binding machinery is the promotion path.
+- Calibration is only as good as its held set. The method and numbers are in `docs/qualification/poc/s5-zero-shot-attributes.md`, and the result is a Development scope, not qualification.
+- Stage-2 E5–E8 behaviour is implemented here for the PoC, but rows E5–E8 stay OPEN. E8 (measured plans at realistic and worst-supported volume) in particular is not attempted.
+
+**Note 2026-10-30 (owner decision S5-1, option D; this note is outside the ratified text).** The abstention is predeclared and uncalibrated. Every attribute uses threshold 0.5, and the disclosure value is now `"zero-shot, uncalibrated, Development"` (release identity `aa9a83bc…d82a`). The trial calibration against UPAR over PA-100K is kept only as feasibility evidence (`docs/qualification/poc/s5-zero-shot-attributes.md` §5).

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "mavi-vision-component-binding-v2",
+  "bindingId": "poc-attributes-siglip2-zero-shot-v1",
+  "runtimePacks": [],
+  "roles": [
+    {
+      "roleId": "attributes",
+      "runtimePackFamilyId": "embeddings-onnx-v1",
+      "capabilityIds": [
+        "person-attributes",
+        "vehicle-attributes"
+      ],
+      "entryPoint": "mavi_vision.attributes.main",
+      "readinessContract": "worker-health-v2",
+      "provenanceContract": "visual-attribute-complete-v1"
+    }
+  ],
+  "capabilityBindings": [
+    {
+      "capabilityId": "person-attributes",
+      "roleId": "attributes",
+      "modelPackId": "mavi-model-v2-a39060d4f1a04862ec2c102ae92faf296092875e45b419a492644c193a2bb48b",
+      "qualificationId": "attributes-siglip2-zero-shot-development",
+      "enabled": true
+    },
+    {
+      "capabilityId": "vehicle-attributes",
+      "roleId": "attributes",
+      "modelPackId": "mavi-model-v2-a39060d4f1a04862ec2c102ae92faf296092875e45b419a492644c193a2bb48b",
+      "qualificationId": "attributes-siglip2-zero-shot-development",
+      "enabled": true
+    }
+  ]
+}

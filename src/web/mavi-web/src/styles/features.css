@@ -301,6 +301,8 @@
   font-size: var(--fs-1); overflow-wrap: anywhere; line-height: 1.4;
 }
 .track-plate-match .mono { font-variant-numeric: tabular-nums; }
+/* PoC S5: an attribute match is plain secondary text on the row (UI/UX §29), never a badge. */
+.track-card__explanation { margin: 0; color: var(--text-secondary); font-size: var(--fs-1); overflow-wrap: anywhere; line-height: 1.4; }
 .plate-region {
   display: flex; justify-content: center; align-items: center;
   min-height: 42px; max-height: 124px; overflow: hidden; padding: var(--s-2);

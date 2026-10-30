@@ -78,10 +78,13 @@ public static partial class TrackEndpoints
 
         var page = result.Page!;
         var response = new TrackSearchResponse(
-            page.Items.Select(row => ToSearchItem(row, page.ItemAnalytics, page.ItemPlates)).ToArray(),
+            page.Items.Select(row => ToSearchItem(row, page.ItemAnalytics, page.ItemPlates, page.ItemAttributes)).ToArray(),
             page.NextCursor,
             page.Coverage is { } coverage ? ToCoverage(coverage) : null,
-            page.PlateCoverage is { } plateCoverage ? ToPlateCoverage(plateCoverage) : null);
+            page.PlateCoverage is { } plateCoverage ? ToPlateCoverage(plateCoverage) : null,
+            AttributeCoverage: page.AttributeCoverage is { } attributeCoverage && query.Attributes is { } attributes
+                ? ToAttributeCoverage(attributeCoverage, attributes)
+                : null);
         return Results.Ok(response);
     }
 
@@ -156,7 +159,12 @@ public static partial class TrackEndpoints
                 missing.Provenance.AnalysisId, result.Row.Id);
         }
 
-        return Results.Ok(ToDetail(result.Row, result.EvidenceSet!, result.Analytics!, plates));
+        // PoC S5: the Track's visual attributes (Observed / Unknown / Unavailable, with the pipeline's disclosure).
+        var attributes = await service.GetAttributeDetailAsync(result.Row, cancellationToken);
+        return Results.Ok(ToDetail(result.Row, result.EvidenceSet!, result.Analytics!, plates) with
+        {
+            Attributes = attributes is null ? null : ToAttributes(attributes),
+        });
     }
 
     private static readonly HashSet<string> SupportedQueryKeys =
@@ -193,6 +201,8 @@ public static partial class TrackEndpoints
             // PoC Stage 5 appearance text query (ADR-021 §4): its own ranked branch.
             TrackSimilarityContractRules.AppearanceQueryKey,
             TrackSimilarityContractRules.AppearanceSnapshotKey,
+            // PoC S5 visual-attribute predicates (Stage-2 plan §16): the one repeatable key.
+            TrackSearchContractRules.AttributeKey,
         };
 
     /// <summary>
@@ -206,9 +216,9 @@ public static partial class TrackEndpoints
         CancellationToken cancellationToken)
     {
         var values = context.Request.Query;
-        if (query.Plate is not null || query.Analytics is not null || query.Cursor is not null)
+        if (query.Plate is not null || query.Analytics is not null || query.Cursor is not null || query.Attributes is not null)
             return Problem(400, "appearance_query_combination_unsupported",
-                "An appearance query cannot be combined with plate, analytics or cursor parameters.");
+                "An appearance query cannot be combined with plate, attribute, analytics or cursor parameters.");
         if (!SingleOrMissing(values, TrackSimilarityContractRules.AppearanceQueryKey, out var text) || text is null ||
             !SingleOrMissing(values, TrackSimilarityContractRules.AppearanceSnapshotKey, out var snapshot))
             return Problem(400, TrackSimilarityService.AppearanceInvalidCode, "An appearance query needs one appearanceQuery value.");
@@ -288,7 +298,10 @@ public static partial class TrackEndpoints
             !TryAnalytics(values, out var analytics) ||
             !SingleOrMissing(values, TrackSearchContractRules.PlateTextKey, out var plateText) ||
             !SingleOrMissing(values, TrackSearchContractRules.PlateMatchKey, out var plateMatch) ||
-            !TrackPlateQueryRules.TryParse(plateText, plateMatch, out var plate))
+            !TrackPlateQueryRules.TryParse(plateText, plateMatch, out var plate) ||
+            !TrackAttributeQueryRules.TryParse(
+                values.TryGetValue(TrackSearchContractRules.AttributeKey, out var rawAttributes) ? rawAttributes.ToArray() : null,
+                out var attributes))
             return false;
 
         query = new TrackSearchQuery(
@@ -304,7 +317,8 @@ public static partial class TrackEndpoints
             limit,
             analytics,
             objectSubclass,
-            plate);
+            plate,
+            attributes);
         return true;
     }
 
@@ -530,7 +544,8 @@ public static partial class TrackEndpoints
     private static TrackSearchItemResponse ToSearchItem(
         TrackSearchRow row,
         IReadOnlyDictionary<Guid, TrackItemAnalytics>? itemAnalytics,
-        IReadOnlyDictionary<Guid, TrackItemPlate>? itemPlates) => new(
+        IReadOnlyDictionary<Guid, TrackItemPlate>? itemPlates,
+        IReadOnlyDictionary<Guid, IReadOnlyList<TrackItemAttributeMatch>>? itemAttributes = null) => new(
         row.Id,
         row.ProcessingRunId,
         row.VideoAssetId,
@@ -565,6 +580,43 @@ public static partial class TrackEndpoints
                 plate.DistinctTextCount,
                 plate.MaxConfidence,
                 plate.BestPlateObservationId)
+            : null,
+        Attributes: itemAttributes is not null && itemAttributes.TryGetValue(row.Id, out var matched)
+            ? matched.Select(item => new TrackItemAttributeResponse(item.AttributeType, item.Value, item.Confidence, item.SupportingObservationId)).ToArray()
+            : null);
+
+    // --- Attribute mapping (PoC S5) ------------------------------------------
+
+    private static AttributeCoverageResponse ToAttributeCoverage(TrackAttributeCoverage coverage, TrackAttributeQuery query) => new(
+        coverage.IdentityFingerprint,
+        coverage.Disclosure,
+        query.Wire,
+        coverage.TracksInScope,
+        coverage.Analysed,
+        coverage.Unavailable,
+        coverage.NotAnalysed,
+        query.Predicates.Select((predicate, index) => new AttributeUnknownCountResponse(predicate.AttributeType, coverage.Unknown[index])).ToArray());
+
+    private static TrackAttributesResponse ToAttributes(TrackAttributeDetail detail) => new(
+        detail.Readiness.ToString(),
+        detail.Disclosure,
+        detail.DevelopmentOnly,
+        detail.Facts?.Outcome?.ToString(),
+        detail.Facts?.UnavailableReason,
+        detail.Facts?.Attributes.Select(row => new TrackAttributeResponse(
+            row.AttributeType, row.Outcome.ToString(), row.Value, row.Confidence, row.SupportingObservationId)).ToArray() ?? [],
+        detail.Facts?.Provenance is { } provenance
+            ? new TrackAttributeProvenanceResponse(
+                provenance.AnalysisId,
+                provenance.IdentityFingerprint,
+                provenance.AttributeSchemaId,
+                provenance.AttributeSchemaVersion,
+                provenance.PipelineId,
+                provenance.PipelineVersion,
+                provenance.AggregationPolicyId,
+                provenance.AggregationPolicyVersion,
+                provenance.CapabilitiesCanonical,
+                provenance.CompletedAtUtc)
             : null);
 
     // --- Plate mapping (Stage 4) -------------------------------------------

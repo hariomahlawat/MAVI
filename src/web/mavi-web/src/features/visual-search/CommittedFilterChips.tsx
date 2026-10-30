@@ -17,6 +17,7 @@ import {
   millisecondsToSecondsText,
   type CommittedTrackSearch,
 } from './searchState';
+import { predicateLabel } from './attributeSearch';
 
 /**
  * What this result set is actually a search for (§11).
@@ -241,6 +242,16 @@ export function committedChips(
       label: 'Appearance',
       value: filters.appearanceQuery + (filters.appearanceSnapshot ? ' · pinned snapshot' : ''),
       removes: ['appearanceQuery', 'appearanceSnapshot'],
+    });
+  }
+
+  // PoC S5: the attribute predicates are one criterion (ANDed), removed together.
+  if (filters.attribute && filters.attribute.length > 0) {
+    chips.push({
+      key: 'attribute',
+      label: 'Attributes',
+      value: filters.attribute.map(predicateLabel).join(' · '),
+      removes: ['attribute'],
     });
   }
 

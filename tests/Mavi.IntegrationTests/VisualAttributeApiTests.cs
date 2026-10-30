@@ -543,6 +543,34 @@ public sealed class VisualAttributeApiTests(PostgresFixture fixture)
         Mavi.Api.Startup.VisualAttributeReleaseStartup.RequireAllowed(definition with { DevelopmentOnly = false }, host);
     }
 
+    [Theory]
+    [InlineData("Development", null, false)]
+    [InlineData("Production", null, true)]
+    [InlineData("Production", "poc-single-host", false)]
+    [InlineData("PoC", null, true)]
+    [InlineData("PoC", "poc-single-host", false)]
+    public void ThePocBuildAdmitsOnlyThePinnedZeroShotRelease(string environment, string? profile, bool refused)
+    {
+        // PoC S5: the committed zero-shot release, as the platform reads it; the allowance names exactly its identity.
+        var directory = Path.Combine(VisualAttributeReleaseFixture.Root, "src", "vision", "config", "attributes");
+        var definition = Mavi.Application.Modules.VisualAttributes.Release.VisualAttributeReleaseParser.Parse(
+            File.ReadAllBytes(Path.Combine(directory, "development-attributes-siglip2-binding-v1.json")),
+            () => File.ReadAllBytes(Path.Combine(directory, "development-attributes-siglip2-zero-shot-v1.json")),
+            name => File.ReadAllBytes(Path.Combine(directory, name))).Definition!;
+        Assert.True(definition.DevelopmentOnly);
+        Assert.Equal(Mavi.Api.Startup.VisualAttributeReleaseStartup.PocZeroShotIdentityFingerprint, definition.Identity.Fingerprint);
+        var host = new StartupEnvironment { EnvironmentName = environment };
+        if (refused)
+            Assert.Equal(Mavi.Api.Startup.VisualAttributeReleaseStartup.FixtureForbiddenCode,
+                Assert.Throws<InvalidOperationException>(() => Mavi.Api.Startup.VisualAttributeReleaseStartup.RequireAllowed(definition, host, profile)).Message);
+        else
+            Mavi.Api.Startup.VisualAttributeReleaseStartup.RequireAllowed(definition, host, profile);
+
+        // The S2b fixture is another identity: a PoC build never admits it.
+        Assert.Throws<InvalidOperationException>(() => Mavi.Api.Startup.VisualAttributeReleaseStartup.RequireAllowed(
+            VisualAttributeReleaseFixture.Definition(), new StartupEnvironment { EnvironmentName = "PoC" }, "poc-single-host"));
+    }
+
     private sealed class StartupEnvironment : Microsoft.Extensions.Hosting.IHostEnvironment
     {
         public string EnvironmentName { get; set; } = "Production";

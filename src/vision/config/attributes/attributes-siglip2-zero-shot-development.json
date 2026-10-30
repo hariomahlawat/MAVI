@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "mavi-poc-development-record-v1",
+  "recordId": "attributes-siglip2-zero-shot-development",
+  "status": "development-unqualified",
+  "statement": "Zero-shot, Development. SigLIP 2 zero-shot attribute scores with per-attribute abstention; not a qualified or learned attribute Model Pack (Stage-2 S2c), closes no Stage-2 F/G row, not Production-qualified.",
+  "calibration": "docs/qualification/poc/s5-zero-shot-attributes.md"
+}

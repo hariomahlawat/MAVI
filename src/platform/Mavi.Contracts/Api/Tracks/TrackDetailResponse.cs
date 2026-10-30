@@ -45,7 +45,9 @@ public sealed record TrackDetailResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? ObjectSubclass = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    TrackPlatesResponse? Plates = null);
+    TrackPlatesResponse? Plates = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    TrackAttributesResponse? Attributes = null);
 
 public sealed record TrackCameraResponse(Guid Id, string Code, string Name);
 

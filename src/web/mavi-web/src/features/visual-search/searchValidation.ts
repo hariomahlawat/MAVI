@@ -13,6 +13,8 @@ import {
 import { configuredWallTimeToUtc } from '../../shared/time/wallTime';
 import type { SearchDraft } from './SearchFilterRail';
 import { normalisePlateText } from './plateText';
+import { predicatesFromDraft } from './attributeSearch';
+import { ATTRIBUTE_PLATE_CONFLICT_MESSAGE } from './searchState';
 
 /**
  * Turning a draft into a committed search, field by field.
@@ -36,7 +38,7 @@ import { normalisePlateText } from './plateText';
 
 export type SearchFieldKey =
   | 'fromLocal' | 'toLocal' | 'minimumDurationSeconds' | 'minimumConfidencePercent'
-  | 'minDwellSeconds' | 'minStationarySeconds' | 'plateText' | 'objectClass' | 'appearanceQuery';
+  | 'minDwellSeconds' | 'minStationarySeconds' | 'plateText' | 'objectClass' | 'appearanceQuery' | 'attribute';
 
 export type SearchFieldErrors = Partial<Record<SearchFieldKey, string>>;
 
@@ -203,6 +205,16 @@ export function commitDraft({
       && next.fromUtc && next.toUtc
       && compareUtcInstants(next.fromUtc, next.toUtc) >= 0) {
     errors.toLocal = 'To time must be later than the From time.';
+  }
+
+  // PoC S5: attribute predicates come from the rail's closed choices, so only the
+  // plate combination can be refused here; the server checks the vocabulary.
+  const predicates = predicatesFromDraft(draft.attribute);
+  if (predicates.length > 0) {
+    next.attribute = predicates;
+    if (next.plateText !== undefined) errors.attribute = ATTRIBUTE_PLATE_CONFLICT_MESSAGE;
+  } else {
+    delete next.attribute;
   }
 
   // ADR-021 §4: an appearance query ranks the base candidates on its own. It

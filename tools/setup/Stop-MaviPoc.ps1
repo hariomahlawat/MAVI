@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$DataRoot = (Join-Path $env:ProgramData "MAVI\PoC"),
-    # Stop only these (Start-MaviPoc's rollback stops only what it started). Default: all five.
-    [ValidateSet("faces-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")][string[]]$Only = @("faces-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")
+    # Stop only these (Start-MaviPoc's rollback stops only what it started). Default: all six.
+    [ValidateSet("faces-worker", "attributes-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")][string[]]$Only = @("faces-worker", "attributes-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")
 )
 
 # Stops what Start-MaviPoc.ps1 started (the Vision worker, then the platform), each with
@@ -17,10 +17,10 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
 
 $runRoot = Join-Path ([IO.Path]::GetFullPath($DataRoot)) "run"
-$images = @{ "faces-worker" = "powershell"; "embeddings-worker" = "powershell"; "plates-worker" = "powershell"; "vision-worker" = "powershell"; "api" = "Mavi.Api" }
-$commands = @{ "faces-worker" = "Start-MaviFacesWorker.ps1"; "embeddings-worker" = "Start-MaviEmbeddingsWorker.ps1"; "plates-worker" = "Start-MaviPlatesPilotWorker.ps1"; "vision-worker" = "Start-MaviVisionWorker.ps1"; "api" = "Mavi.Api.exe" }
+$images = @{ "faces-worker" = "powershell"; "attributes-worker" = "powershell"; "embeddings-worker" = "powershell"; "plates-worker" = "powershell"; "vision-worker" = "powershell"; "api" = "Mavi.Api" }
+$commands = @{ "faces-worker" = "Start-MaviFacesWorker.ps1"; "attributes-worker" = "Start-MaviAttributesWorker.ps1"; "embeddings-worker" = "Start-MaviEmbeddingsWorker.ps1"; "plates-worker" = "Start-MaviPlatesPilotWorker.ps1"; "vision-worker" = "Start-MaviVisionWorker.ps1"; "api" = "Mavi.Api.exe" }
 $failures = @()
-foreach ($name in @("faces-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")) {
+foreach ($name in @("faces-worker", "attributes-worker", "embeddings-worker", "plates-worker", "vision-worker", "api")) {
     if ($Only -notcontains $name) { continue }
     $recordPath = Join-Path $runRoot "$name.pid"
     $process = Get-MaviPocRecordedProcess -Path $recordPath -ExpectedImageName $images[$name] -ExpectedCommandFragment $commands[$name]

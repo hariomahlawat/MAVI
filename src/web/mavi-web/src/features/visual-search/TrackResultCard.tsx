@@ -6,6 +6,7 @@ import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence, formatSimilarityScore } from '../../shared/format/format';
 import { reviewPath } from './TrackResultList';
 import TrackPlateMatch, { plateMatchAccessibleText } from './TrackPlateMatch';
+import { attributeMatchText } from './attributeSearch';
 import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
 import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 
@@ -38,6 +39,7 @@ export default memo(function TrackResultCard({
   selected = false,
   searchContext,
   analyticsIdentity,
+  attributeDisclosure,
   onSelect,
 }: {
   track: TrackSearchItem;
@@ -45,6 +47,8 @@ export default memo(function TrackResultCard({
   selected?: boolean;
   searchContext?: string;
   analyticsIdentity?: TrackAnalyticsIdentity;
+  /** The attribute pipeline's disclosure, stated on every attribute match (PoC S5). */
+  attributeDisclosure?: string | null;
   onSelect?: (id: string) => void;
 }) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
@@ -100,6 +104,10 @@ export default memo(function TrackResultCard({
           ) : null}
         </dl>
         {track.plate ? <TrackPlateMatch plate={track.plate} searchContext={searchContext} /> : null}
+        {/* UI/UX §29: a matched attribute value is plain secondary text, never a badge. */}
+        {track.attributes && track.attributes.length > 0
+          ? <p className="track-card__explanation">{attributeMatchText(track.attributes, attributeDisclosure)}</p>
+          : null}
       </div>
 
       <div className="track-card__foot">

@@ -28,7 +28,27 @@ public static class VisualAttributeEndpoints
         group.MapPut("/{id:guid}/predictions", UploadAsync);
         group.MapPost("/{id:guid}/complete", VisualAttributeCompletionEndpoint.CompleteAsync);
         endpoints.MapGet("/api/processing/runs/{processingRunId:guid}/visual-attributes", ReadinessAsync);
+        // PoC S5: the operator surface reads the bound vocabulary and its disclosure, never a copy of its own.
+        endpoints.MapGet("/api/visual-attributes/vocabulary", Vocabulary);
         return endpoints;
+    }
+
+    // --- Vocabulary (PoC S5) -----------------------------------------------------------------
+
+    private static IResult Vocabulary(IVisualAttributeRelease release)
+    {
+        var definition = release.Resolution.Definition;
+        return Results.Ok(new
+        {
+            configured = definition is not null,
+            notConfiguredReason = release.Resolution.NotConfiguredReason,
+            identityFingerprint = definition?.Identity.Fingerprint,
+            disclosure = definition?.Disclosure,
+            developmentOnly = definition?.DevelopmentOnly ?? false,
+            attributes = definition?.Schema.Attributes
+                .Select(item => new { attributeType = item.AttributeType, objectClass = item.ObjectClass, values = item.Values })
+                .ToArray() ?? [],
+        });
     }
 
     // --- Lease -------------------------------------------------------------------------------

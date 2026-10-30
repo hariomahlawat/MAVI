@@ -243,12 +243,26 @@ try {
         if (-not $startScript.Contains($fragment)) { throw "Start-MaviPoc.ps1 does not start the faces worker ('$fragment')." }
     }
     # Stop-MaviPoc stops the faces worker first: Uninstall-MAVI-PoC drops the database only after it.
-    if (-not $stopScript.Contains('"faces-worker" = "Start-MaviFacesWorker.ps1"') -or -not $stopScript.Contains('foreach ($name in @("faces-worker", "embeddings-worker"')) { throw "Stop-MaviPoc.ps1 does not stop the faces worker first." }
+    if (-not $stopScript.Contains('"faces-worker" = "Start-MaviFacesWorker.ps1"') -or -not $stopScript.Contains('foreach ($name in @("faces-worker", "attributes-worker", "embeddings-worker"')) { throw "Stop-MaviPoc.ps1 does not stop the faces worker first." }
     foreach ($fragment in @('tools\vision\faces_packs.py") stage', 'facesBound = $true', 'Get-MaviPocFacesPack -ManifestPath', '"faces-payloads"')) {
         if (-not $installText.Contains($fragment)) { throw "Install-MAVI-PoC.ps1 does not install and disclose the face pack ('$fragment')." }
     }
     $bundleText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "New-MaviPocSetupBundle.ps1") -Raw
     if (-not $bundleText.Contains('(Join-Path $PlatesCache "faces-payloads") -Target (Join-Path $destination "faces\faces-payloads")')) { throw "The PoC bundle must carry the face pack payloads." }
+    # --- PoC S5 attributes worker: zero-shot on the embeddings runtime and pack, started and stopped with the stack. ---
+    $attributesLauncher = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviAttributesWorker.ps1") -Raw
+    foreach ($fragment in @('$env:MAVI_PRODUCTION_MODE = "false"', 'development-attributes-siglip2-binding-v1.json', 'development-attributes-siglip2-zero-shot-v1.json', 'embeddings-siglip2-base-p16-224-dev-v1.json', 'mavi_vision.attributes.main')) {
+        if (-not $attributesLauncher.Contains($fragment)) { throw "Start-MaviAttributesWorker.ps1 lost '$fragment'." }
+    }
+    foreach ($fragment in @('"attributes-worker"', 'Start-MaviAttributesWorker.ps1')) {
+        if (-not $startScript.Contains($fragment)) { throw "Start-MaviPoc.ps1 does not start the attributes worker ('$fragment')." }
+    }
+    if (-not $stopScript.Contains('"attributes-worker" = "Start-MaviAttributesWorker.ps1"')) { throw "Stop-MaviPoc.ps1 does not stop the attributes worker." }
+    $pocModule = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Raw
+    if (-not $pocModule.Contains('VisualAttributes = [ordered]@{') -or -not $pocModule.Contains('development-attributes-siglip2-zero-shot-v1.json')) {
+        throw "The PoC platform configuration does not bind the zero-shot attributes release."
+    }
+
     # --- Demo cameras: the S2 demo-corpus manifest (copied byte-identical), unique codes. ---
     $cameras = Read-MaviPocDemoCameras -Path (Join-Path $repoRoot "config\poc\demo-cameras-v1.json")
     $expectedCodes = @(1..13 | ForEach-Object { "POC-S2-{0:D2}" -f $_ })

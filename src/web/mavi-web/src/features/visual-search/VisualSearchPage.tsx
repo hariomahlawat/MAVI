@@ -5,7 +5,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
-import { SIMILARITY_CANDIDATES_LABEL, searchTracks } from '../../api/tracks';
+import { SIMILARITY_CANDIDATES_LABEL, getAttributeVocabulary, searchTracks } from '../../api/tracks';
+import { attributeDisclosure, draftFromPredicates } from './attributeSearch';
+import AttributeCoverageLine, { attributeEmptyState } from './AttributeCoverageLine';
 import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { describeError, fromInfiniteQuery, fromQuery } from '../../shared/async/fromQuery';
@@ -37,6 +39,7 @@ import {
   canonicalSearchParams,
   confidenceFractionToPercentText,
   isAnalyticSearch,
+  APPEARANCE_CONFLICT_MESSAGE,
   isAppearanceSearch,
   millisecondsToSecondsText,
   parseCommittedSearch,
@@ -123,6 +126,7 @@ function draftFromFilters(filters: CommittedTrackSearch, timeZoneId: string | un
     minStationarySeconds: millisecondsToSecondsText(filters.minStationaryMs),
     loitering: filters.loitering ? 'true' : '',
     appearanceQuery: filters.appearanceQuery ?? '',
+    attribute: draftFromPredicates(filters.attribute),
   };
 }
 
@@ -205,7 +209,7 @@ function appearanceErrorMessage(error: unknown): string | undefined {
     case 'appearance_query_invalid':
       return 'The appearance description must be 1 to 200 characters.';
     case 'appearance_query_combination_unsupported':
-      return 'Appearance search cannot be combined with plate text or analytics filters.';
+      return APPEARANCE_CONFLICT_MESSAGE;
     case 'appearance_query_failed':
       return 'The appearance description could not be prepared for search. Try again in a few minutes or rephrase it.';
     case 'appearance_query_queue_full':
@@ -260,6 +264,11 @@ export default function VisualSearchPage() {
     queryKey: queryKeys.videos,
     queryFn: ({ signal }) => listVideos(signal),
     staleTime: 30_000,
+  });
+  const attributeVocabulary = useQuery({
+    queryKey: queryKeys.attributeVocabulary,
+    queryFn: ({ signal }) => getAttributeVocabulary(signal),
+    staleTime: Infinity,
   });
   const systemConfig = useQuery({
     queryKey: queryKeys.systemConfig,
@@ -360,6 +369,9 @@ export default function VisualSearchPage() {
   // Coverage is part of the snapshot: page one computed it and every continuation
   // carries the same block, so the first page is the one to read it from.
   const coverage = analytic ? tracks.data?.pages[0]?.analyticsCoverage : undefined;
+  const attributeCoverage = committed.isValid && activeFilters.attribute?.length
+    ? tracks.data?.pages[0]?.attributeCoverage : undefined;
+  const attributeRowDisclosure = attributeCoverage ? attributeDisclosure(attributeCoverage.disclosure, true) : null;
   const plateCoverage = committed.isValid && activeFilters.plateText
     ? tracks.data?.pages[0]?.plateCoverage : undefined;
 
@@ -813,6 +825,8 @@ export default function VisualSearchPage() {
             displayZone={displayZone}
             analyticsScoped={analyticsScoped}
             geometry={draftGeometry}
+            attributeVocabulary={attributeVocabulary.data}
+            attributeVocabularyUnavailable={fromQuery(attributeVocabulary).kind === 'unavailable'}
           />
         )}
         inspector={inspecting && selectedId ? (
@@ -897,6 +911,7 @@ export default function VisualSearchPage() {
           {coverage || plateCoverage
             ? <CoverageStrip coverage={coverage} plateCoverage={plateCoverage} geometry={resultGeometryNames} />
             : null}
+          {attributeCoverage ? <AttributeCoverageLine coverage={attributeCoverage} /> : null}
 
           {/* The results are one column region (§37.1). The first page decides
               its state; a later page failing is a continuation failure and is
@@ -912,7 +927,11 @@ export default function VisualSearchPage() {
             // Either view loads as its own skeleton, never a spinner (§38).
             skeleton={{ rows: 'default', pitch: shownView === 'list' ? 'list' : 'grid' }}
             isEmpty={(found) => found.length === 0}
-            empty={appearanceSearch ? APPEARANCE_EMPTY : resultsEmpty(coverage, plateCoverage, activeFilters.plateText)}
+            empty={appearanceSearch
+              ? APPEARANCE_EMPTY
+              : attributeCoverage
+                ? { icon: 'search', ...attributeEmptyState(attributeCoverage, coverage) }
+                : resultsEmpty(coverage, plateCoverage, activeFilters.plateText)}
             unavailableMessage={(error) => (appearanceSearch ? appearanceErrorMessage(error) : undefined)
               ?? describeError(error, 'The search could not be completed.')}
             // A refused query or a missing configuration is not cured by asking
@@ -926,7 +945,7 @@ export default function VisualSearchPage() {
             {() => (
           <>
           {shownView === 'list' ? (
-              <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} searchContext={searchContext} analyticsIdentity={analyticsIdentity} onSelect={selectTrack} />
+              <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} searchContext={searchContext} analyticsIdentity={analyticsIdentity} attributeDisclosure={attributeRowDisclosure} onSelect={selectTrack} />
             ) : (
               <div className="results__list">
                 <div className="track-grid">
@@ -938,6 +957,7 @@ export default function VisualSearchPage() {
                       selected={selectedId !== null && track.id.toLowerCase() === selectedId}
                       searchContext={searchContext}
                       analyticsIdentity={analyticsIdentity}
+                      attributeDisclosure={attributeRowDisclosure}
                       onSelect={selectTrack}
                     />
                   ))}
