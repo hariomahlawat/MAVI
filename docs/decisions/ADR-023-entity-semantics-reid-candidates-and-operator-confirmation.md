@@ -1,6 +1,6 @@
 # ADR-023: Entity semantics, ReID candidates and operator confirmation (PoC Stage 6)
 
-**Status:** **Proposed**, 2026-10-30. Decision text in §Owner decision, sent to the owner through the PoC coordinator session for ratification (register C6.1). Nothing from slice S7 merges before it is accepted.
+**Status:** **Accepted** owner decision, 2026-10-30. The owner ratified the decision text in §Owner decision as written ("Ratify, 0.85", relayed by the PoC coordinator session, and confirmed by the owner in the S7 session), with option (a) for the catalogue parameters (register C6.1; decisions D-S7-1 and D-S7-2), before any S7 code merged.
 
 **Date:** 2026-10-30
 
@@ -123,9 +123,9 @@ A person Entity links appearances of one person across recordings: it is sensiti
 - **Final decisions.** No unlink or reopen until S11-full, so a mistake is corrected by a later audited action, not by editing history.
 - **Face only on request.** The face factor costs one audited request per Person candidate opened, and is absent from the list ordering by design.
 
-## Owner decision (requested 2026-10-30)
+## Owner decision (ratified 2026-10-30)
 
-> **ADR-023 (PoC Stage 6) — decision requested:**
+> **ADR-023 (PoC Stage 6) is accepted:**
 > 1. An **Entity** is an operator-confirmed group of Tracks of one class, an operator decision and **never an identification** (`IdentityStatus` stays `Unknown`). **Entity candidates** are machine proposals (pairs of same-class Tracks) with their factors shown separately. **Nothing merges automatically; confirmation is the only writer of `Track.EntityId`.**
 > 2. Candidates are generated platform-side from the existing S4 vectors (no new model, worker or dependency) by a pair-local rule: same class, appearance cosine ≥ floor, and a time/camera plausibility model (same camera overlapping in time excluded; different cameras overlapping beyond a tolerance excluded; no transit time, because MAVI has no topology). Keyed per (catalogue version, embedding identity, Track pair); derived once per completed embedding analysis; never re-proposed after dismissal.
 > 3. Catalogue `mavi-entity-candidates-v1` parameters (D-S7-2): appearance floor **0.85** (from the frozen S4 record, before any demo pair was scored), concurrency tolerance **2 s**, no minimum travel time, no maximum gap.
