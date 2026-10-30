@@ -42,6 +42,8 @@ public sealed class AskCorpusRecorder
             Enabled = true,
             Port = int.Parse(Env("MAVI_ASK_LANGUAGE_PORT"), System.Globalization.CultureInfo.InvariantCulture),
             TimeoutSeconds = 900,
+            // MAVI_ASK_CACHE_PROMPT=false records without prefix reuse (D-S10-7: a set not byte-identical in reverse order).
+            CachePrompt = Environment.GetEnvironmentVariable("MAVI_ASK_CACHE_PROMPT") != "false",
         }));
         var version = AskPrompt.TemplateVersion;
         var v2 = AskPrompt.IsVersion2(version);
@@ -125,7 +127,9 @@ public sealed class AskCorpusRecorder
                 ["topK"] = decoding.TopK,
                 ["seed"] = decoding.Seed,
                 ["maxTokens"] = decoding.MaxTokens,
-                ["requestBody"] = "LlamaServerLanguageRuntime.Body (cache_prompt true, every sampler pinned)",
+                ["requestBody"] = Environment.GetEnvironmentVariable("MAVI_ASK_CACHE_PROMPT") == "false"
+                    ? "LlamaServerLanguageRuntime.Body (cache_prompt false, every sampler pinned)"
+                    : "LlamaServerLanguageRuntime.Body (cache_prompt true, every sampler pinned)",
             },
             ["summary"] = new JsonObject
             {

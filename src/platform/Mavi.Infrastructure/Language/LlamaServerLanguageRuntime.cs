@@ -32,6 +32,12 @@ public sealed class LanguageOptions
 
     /// <summary>The device record the launcher writes (<c>resolvedDevicePolicy</c>, <c>deviceResolutionReason</c>).</summary>
     public string? DeviceReportPath { get; set; }
+
+    /// <summary>
+    /// Reuse the cached prompt prefix (ADR-026 §6 amendment D-S10-7). On by default; switched off for a pack and device
+    /// whose recording set was not byte-identical in reverse order, as D-S10-7 requires.
+    /// </summary>
+    public bool CachePrompt { get; set; } = true;
 }
 
 /// <summary>
@@ -80,7 +86,7 @@ public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
     public async Task<LanguageCompletion> CompleteAsync(LanguageCompletionRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var body = Body(request);
+        var body = Body(request, options.CachePrompt);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));
         try
@@ -109,7 +115,7 @@ public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
     }
 
     /// <summary>The <c>/completion</c> body: every sampler pinned so decoding is greedy whatever the server defaults are.</summary>
-    public static JsonObject Body(LanguageCompletionRequest request) => new()
+    public static JsonObject Body(LanguageCompletionRequest request, bool cachePrompt = true) => new()
     {
         ["prompt"] = request.Prompt,
         ["json_schema"] = JsonNode.Parse(request.Grammar),
@@ -123,7 +129,7 @@ public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
         ["presence_penalty"] = 0.0,
         ["frequency_penalty"] = 0.0,
         ["seed"] = request.Decoding.Seed,
-        ["cache_prompt"] = true,
+        ["cache_prompt"] = cachePrompt,
         ["stream"] = false,
     };
 
