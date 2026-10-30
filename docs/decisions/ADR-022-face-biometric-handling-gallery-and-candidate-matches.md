@@ -1,6 +1,6 @@
 # ADR-022: Face biometric data handling, gallery and candidate-match semantics (PoC Stage 5A)
 
-**Status:** **Accepted** owner decision, 2026-10-29. The owner ratified the decision text in §Owner decision as written ("Yes, all three", relayed by the PoC coordinator session; register C5A.1, decisions D-S6-1 to D-S6-3), before any face code merged.
+**Status:** **Accepted** owner decision, 2026-10-29. The owner ratified the decision text in §Owner decision as written ("Yes, all three", relayed by the PoC coordinator session; register C5A.1, decisions D-S6-1 to D-S6-3), before any face code merged. **Amended 2026-10-30** (owner decisions D-S6-4 and D-S6-6; §Amendment 2026-10-30 below): status unchanged.
 
 **Date:** 2026-10-29
 
@@ -157,3 +157,12 @@ The `faces` role and its packs are refused under P1–P3. A Production face capa
 > 4. Gallery enrol/update/delete, the camera switch, query uploads and face searches require `OperatorPolicy` and are audited through `IAuditWriter` without biometric or personal content.
 > 5. YuNet 2026may (MIT) detects faces. The embedder is AdaFace IR-50 WebFace4M (MIT code, research-only checkpoint, Development-only, non-commercial demonstration only), with SFace (Apache-2.0) as fallback; the S6 spike decides.
 > 6. The PoC profile exempts none of this. The role is refused under P1–P3.
+
+## Amendment 2026-10-30 (owner decisions D-S6-4, D-S6-6)
+
+The owner accepted these changes ("Yes, all", 2026-10-30, relayed by the PoC coordinator session). The decision text above is otherwise unchanged; where it differs, this amendment governs.
+
+1. **§3, cameras in the demonstration.** Face analysis may also be switched on for **s2-13** (MEVA G420, school entrance hall, S2 amendment A6). D-S6-4 confirms that MEVA decisions 2(a) (transfer path) and 3(a) (consent) cover G420, as decision 13(a) did for G331. The opt-in cameras of the demonstration are therefore s2-10, s2-11, s2-12 and s2-13.
+2. **§1, Unknown reasons.** The Unknown reasons are `no_evidence`, `evidence_unavailable` (an evidence crop could not be read or failed its size or SHA-256 check), `no_face_detected` and `face_too_small`.
+3. **§3 and §5, opt-out and the gallery.** Switching a camera off deletes that camera's face analyses, observations, embeddings and Track outcomes. It does not delete gallery templates enrolled from that camera's evidence: a template is a gallery row, kept until an operator deletes it (§5).
+4. **Context, coverage.** After amendment A6, protocol `s6-face-coverage-v2` measured 5 of 30 usable Person Tracks on s2-13, so the corpus has **7 of 140** (s2-12 2/9, s2-13 5/30). Its predeclared rule kept the detector threshold at 0.9 (`docs/qualification/poc/s6-face-coverage.md`). The 2 of 110 in the Context and the Trade-offs is the v1 starting point.

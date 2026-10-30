@@ -14,7 +14,7 @@ This page is the PoC's record of what each capability does not do. The operator 
   - **7 of 140** Person Tracks (5 %) have a usable face, all in the two indoor MEVA clips: the stairwell s2-12 (2 of 9) and the entrance hall s2-13 (5 of 30).
   - The cafe lobby s2-10, the school hall s2-11 and every traffic clip have none.
   - Most Person Tracks are therefore **Unknown (no usable face)**, which means "not analysable", not "no match".
-  - **Demonstration scope.** ADR-022 §3 opts in only s2-10, s2-11 and s2-12, where only s2-12 has usable faces, so no cross-camera face demonstration is possible there. s2-13 may be opted in only after the owner confirms consent for its camera (G420) and ADR-022 §3 and the runbook are amended to name it. Even then, "Find this face" across s2-12 and s2-13 works only for an actor whose face is usable in both, and no identity label confirms it is the same actor.
+  - **Demonstration scope.** The demonstration opts in s2-10, s2-11, s2-12 and s2-13 (ADR-022 §3 as amended 2026-10-30; the owner confirmed G420 consent, D-S6-4). "Find this face" across s2-12 and s2-13 (same MEVA slot) works only for an actor whose face is usable in both, and no identity label confirms it is the same actor.
   - The detector threshold stays at 0.9: the predeclared v2 rule found only 77 % of the 0.8–0.9 band to be faces, under its 90 % bar (`docs/qualification/poc/s6-face-coverage.md`).
 - **Opt-in per camera.** Face analysis runs only on cameras an operator has switched on. In the demonstration that is only the MEVA clips with consented actors.
 - **Model and threshold.**

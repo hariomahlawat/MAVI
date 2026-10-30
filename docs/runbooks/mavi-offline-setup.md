@@ -385,7 +385,7 @@ The smoke test checks health and the disclosure, imports the clip to `POC-S2-01`
   - `MAVI_PRODUCTION_MODE=false`. The worker refuses Production.
 
   It verifies every artefact SHA-256 before loading and leases only the platform's face identity. The platform side is `Faces:Enabled=true`, `Faces:ModelManifestPath` and `Faces:PipelineProfilePath`, all written by the installer.
-- **Opt-in per camera.** Nothing is analysed until an operator switches face analysis on for a camera. The switch is an attributable, audited operator action (camera settings, or `PUT /api/cameras/{id}/face-analysis`). Switching it off deletes that camera's face rows. In the PoC demonstration, switch it on only for the MEVA clips with consented actors (s2-10, s2-11, s2-12).
+- **Opt-in per camera.** Nothing is analysed until an operator switches face analysis on for a camera. The switch is an attributable, audited operator action (camera settings, or `PUT /api/cameras/{id}/face-analysis`). Switching it off deletes that camera's face rows. In the PoC demonstration, switch it on only for the MEVA clips with consented actors (s2-10, s2-11, s2-12 and s2-13; ADR-022 amendment 2026-10-30).
 - **Semantics.** Every result is a candidate with its score, the reference threshold (cosine 0.2121, LFW, not calibrated on CCTV) and the model identity. It is never an identification, and no match is stored. Unknown means "no usable face", not "no match". See `docs/qualification/poc/known-limits.md`.
 - **Removal.** Face templates, the gallery and query images live only in the PoC database. `Uninstall-MAVI-PoC` (below) stops the faces worker through `Stop-MaviPoc.ps1` before it drops the database.
 ### Uninstalling (PoC S6; ADR-022 §5; register C5A.5)
