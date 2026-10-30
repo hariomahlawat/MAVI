@@ -322,7 +322,7 @@ public static class EntityEndpoints
             ? null
             : new FaceAvailability(view.FaceFactorAvailable, view.FaceFactorAvailable
                 ? "Both Tracks have a usable face; the face factor is computed on request and audited."
-                : facesConfigured ? "Unknown: at least one Track has no usable face (open the candidate for the reason)." : "Unknown: no face release is configured.");
+                : facesConfigured ? "Unknown: at least one Track has no usable face (the face status request gives each Track's reason)." : "Unknown: no face release is configured.");
         return new CandidateResponse(view.CandidateId, EntityCandidateLabels.Candidates, view.ObjectClass.ToString(), Status(view.Status),
             view.CatalogueVersion, view.IdentityFingerprint,
             new FactorsResponse(

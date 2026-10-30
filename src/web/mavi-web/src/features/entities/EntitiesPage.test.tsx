@@ -104,6 +104,22 @@ describe('PoC S7 Entities page', () => {
     expect(compareCandidateFaces).toHaveBeenCalledWith('cand-1');
   });
 
+  it('shows the face status of each Track on request when no face factor is available', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listEntityCandidates).mockResolvedValue(list([candidate({ factors: { ...candidate().factors, face: { available: false, note: 'Unknown: at least one Track has no usable face.' } } })]));
+    vi.mocked(compareCandidateFaces).mockResolvedValue({
+      label: 'Face candidates — not identification — Development', state: 'unknown',
+      identity: { fingerprint: 'c'.repeat(64), modelId: 'adaface', modelVersion: '1' },
+      referenceThreshold: { cosine: 0.2121, provenance: 'LFW', calibratedOnCctv: false },
+      lower: { trackId: 't1', state: 'observed', reason: null }, higher: { trackId: 't2', state: 'unknown', reason: 'face_too_small' },
+      pair: null, note: 'A separate factor.',
+    });
+    renderWithApp(<EntitiesPage />, { route: '/entities' });
+    await user.click(await screen.findByRole('button', { name: 'Person · POC-S2-11 ↔ POC-S2-13' }));
+    await user.click(screen.getByRole('button', { name: 'Show face status (audited)' }));
+    expect(await screen.findByText(/every detected face is smaller than 32 px/)).toBeInTheDocument();
+  });
+
   it('confirms only through the dialog and reports the operator decision, not an identity', async () => {
     const user = userEvent.setup();
     vi.mocked(confirmEntityCandidate).mockResolvedValue({

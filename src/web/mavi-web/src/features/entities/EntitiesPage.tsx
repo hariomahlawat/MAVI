@@ -88,8 +88,11 @@ function FaceFactor({ candidate }: { candidate: EntityCandidate }) {
       <p className="small">
         <strong>Face (separate factor)</strong> — {face.available ? 'both Tracks have a usable face.' : face.note}
       </p>
-      {face.available && !result ? (
-        <Button size="sm" disabled={compare.isPending} onClick={() => compare.mutate()}>Compare faces (audited)</Button>
+      {!result ? (
+        // The same audited request either way: with usable faces it compares them; without, it gives each Track's reason.
+        <Button size="sm" disabled={compare.isPending} onClick={() => compare.mutate()}>
+          {face.available ? 'Compare faces (audited)' : 'Show face status (audited)'}
+        </Button>
       ) : null}
       {compare.isError ? <Alert tone="error">{operatorMessage(compare.error, 'The faces could not be compared.')}</Alert> : null}
       {result ? (
