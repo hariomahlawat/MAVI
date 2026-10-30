@@ -136,9 +136,9 @@ The owner accepted this amendment on condition ("Accept, conditional", 2026-10-3
 
   The reverse recordings are kept under `E:\MAVI-Controlled\PoC\S10\reverse\`. A new recording set (another device, or prompt v2) repeats this check. If any output differs, reuse is switched off for that set and the set is re-recorded.
 
-## Amendment 2026-10-31 (proposed, D-S10-9): prompt version `mavi-ask-prompt-v2` (§4, §6)
+## Amendment 2026-10-31 (accepted, D-S10-9): prompt version `mavi-ask-prompt-v2` (§4, §6)
 
-Proposed under owner decision D-S10-8 ("Keep bar, follow-up"); not part of the decision until accepted. The C9.2 bar (D-S10-4) is unchanged.
+The owner accepted this amendment, with one edit to the measurement ("Accept with edit", 2026-10-31; relayed by the coordinator session). It follows owner decision D-S10-8 ("Keep bar, follow-up"). The C9.2 bar (D-S10-4) is unchanged: the 7B overall held exact-match must be at least 85%, safety and grounding 100%, and the CI replay exact.
 
 **Why.** On the v1 held split the 7B pack answered two questions about places the site does not have ("the Central Station camera", "the Loading dock zone") for the whole site. The reason: gating removed the reference the model could not match, and the model then wrote a valid whole-site query. The S10 cold review also deferred three items that change prompt or grammar bytes: plate text grounded in the question (m2), tighter single-word gating (m3), and daylight-saving offsets (m8).
 
@@ -175,6 +175,9 @@ Proposed under owner decision D-S10-8 ("Keep bar, follow-up"); not part of the d
 7. **Measurement (§6).**
    - The v1 held split is spent and becomes development data.
    - v2 is measured once per model on a **fresh held split** (`contracts/test-vectors/ask-mavi-questions-v2.json`). That split is written under the authorship rule the owner ratified and committed with its SHA-256 before any v2 model output existed.
+     - Rule: a fresh agent writes it, blind to the v2 design and to every model output, and a second blind agent checks it. It is validated by the parser and the schema. The implementer does not read it until both held runs are recorded.
+     - **Owner's edit:** it keeps the v1 held split's proportions, 31 in contract, 6 `outside_contract` and 3 `unknown_reference` out of 40. The pre-check makes `unknown_reference` refusals nearly free, so a richer refusal mix would ease the bar.
+     - The report gives the in-contract exact-match beside the overall figure, and the number of pre-check refusals.
    - The protocol, prompt, grammar and pre-check are frozen by commit before the held runs.
    - The reverse-order byte-identity check (D-S10-7) is repeated for each v2 recording set.
 
