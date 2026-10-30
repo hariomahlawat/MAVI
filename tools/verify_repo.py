@@ -1402,7 +1402,6 @@ def check_contracts(errors: list[str]) -> None:
     check_embedding_contract(errors)
     check_face_contract(errors)
     check_structured_query_corpus(errors)
-    check_ask_mavi(errors)
 
 
 def check_structured_query_corpus(errors: list[str]) -> None:
@@ -2817,6 +2816,8 @@ def main() -> int:
     check_offline_binary_catalog(errors)
     check_windows_cpu_build_toolchain(errors)
     check_contracts(errors)
+    # PoC S10 (ADR-026): its own step, not part of check_contracts, which contract-only fixture trees also run.
+    check_ask_mavi(errors)
     check_phase1_acceptance_assets(errors)
     check_production_urls(errors)
     check_tracked_binaries_and_secrets(errors)
