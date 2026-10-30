@@ -184,7 +184,9 @@ def materialise(api: str, name: str, unit: str, operation: dict, where: dict, sc
     operation = dict(operation)
     where = dict(where)
     if scope == "corpus":
+        # Every demo camera, by id: a Development database may hold other cameras, which the corpus does not include.
         window = corpus
+        where["cameraIds"] = sorted(camera["id"].lower() for camera in cameras)
     else:
         camera, window, revision = _clip_scope(api, cameras, videos, scope)
         where["cameraIds"] = [camera["id"].lower()]
@@ -264,23 +266,30 @@ def crosscheck(api: str, cameras: list[dict], videos: list[dict]) -> list[dict]:
         # complete coverage an absent group is that zero, so the two agree when the timeline's non-zero counts do.
         timeline_rules = {item["ruleId"]: item["count"] for item in timeline["ruleCounts"] if item["count"] > 0}
         query_rules = {group["key"]: group["count"] for group in (by_rule["result"].get("groups") or [])}
+        events_complete = by_rule["coverage"]["complete"] and timeline["coverage"]["complete"]
         lines = []
         for line in aggregate.get("lines", []):
             counts = {}
+            line_complete = True
             for direction in ("aToB", "bToA"):
                 _, answer, _ = post_query(api, query(
                     "event", window, {"op": "count"}, cameraIds=ids, ruleIds=["line-crossing"],
                     line={"lineId": line["lineId"], "direction": direction}))
                 counts[direction] = answer["result"].get("value")
+                line_complete = line_complete and answer["coverage"]["complete"]
             stage3 = {"aToB": sum(line["aToBCounts"]), "bToA": sum(line["bToACounts"])}
-            lines.append({"lineId": line["lineId"], "query": counts, "stage3": stage3, "equal": counts == stage3})
+            # Equal only as an answer: a withheld count (incomplete coverage) never agrees, whatever it is compared with.
+            lines.append({"lineId": line["lineId"], "query": counts, "stage3": stage3, "coverageComplete": line_complete,
+                          "equal": line_complete and counts == stage3})
         rows.append({
             "code": camera["code"],
             "window": window,
             "trackCount": {"query": track_count["result"].get("value"), "trackSearch": searched,
-                           "equal": track_count["result"].get("value") == searched},
-            "eventsByRule": {"query": query_rules, "timeline": timeline_rules, "equal": query_rules == timeline_rules,
-                             "coverageComplete": by_rule["coverage"]["complete"] and timeline["coverage"]["complete"]},
+                           "coverageComplete": track_count["coverage"]["complete"],
+                           "equal": track_count["coverage"]["complete"] and track_count["result"].get("value") == searched},
+            # A withheld groupBy has no groups and an incomplete timeline may list none: two empty maps are not agreement.
+            "eventsByRule": {"query": query_rules, "timeline": timeline_rules, "coverageComplete": events_complete,
+                             "equal": events_complete and query_rules == timeline_rules},
             "crossings": lines,
         })
     return rows

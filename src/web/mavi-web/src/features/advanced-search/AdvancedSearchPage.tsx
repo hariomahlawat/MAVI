@@ -180,7 +180,12 @@ export default function AdvancedSearchPage() {
                   <select
                     aria-label="Class"
                     value={state.objectClass}
-                    onChange={(event) => update({ objectClass: event.target.value as BuilderState['objectClass'], attributes: {}, objectSubclass: '' })}
+                    onChange={(event) => {
+                      const objectClass = event.target.value as BuilderState['objectClass'];
+                      // A class change clears what the new class hides: attributes of the other class, a vehicle subclass and,
+                      // for Person, a plate text. Nothing hidden is ever sent.
+                      update({ objectClass, attributes: {}, objectSubclass: '', plateText: objectClass === 'Person' ? '' : state.plateText });
+                    }}
                   >
                     <option value="">Any</option>
                     {vocabulary.objectClasses.map((value) => <option key={value} value={value}>{value}</option>)}

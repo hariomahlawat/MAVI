@@ -202,6 +202,25 @@ describe('Advanced Search', () => {
     expect(screen.getByText('Coverage complete for this scope.')).toBeInTheDocument();
   });
 
+  it('clears a plate text hidden by choosing Person, so the visible query is the one sent', async () => {
+    vi.mocked(runQuery).mockResolvedValue(envelope());
+    const user = userEvent.setup();
+    renderWithApp(<AdvancedSearchPage />);
+    await waitFor(() => expect(screen.getByLabelText('From (UTC)')).not.toHaveValue(''));
+    await user.type(screen.getByLabelText('Plate text'), 'AB12C');
+    await user.selectOptions(screen.getByLabelText('Class'), 'Person');
+    expect(screen.queryByLabelText('Plate text')).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Class'), 'Vehicle');
+    // The plate field is empty again: the text did not survive hidden.
+    expect(screen.getByLabelText('Plate text')).toHaveValue('');
+    await user.selectOptions(screen.getByLabelText('Class'), 'Person');
+    await user.click(screen.getByRole('button', { name: 'Run query' }));
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(runQuery).mock.calls[0][0].where).not.toHaveProperty('plateText');
+    expect(vi.mocked(runQuery).mock.calls[0][0].where.objectClass).toBe('Person');
+  });
+
   it('withholds a figure when coverage is incomplete, and says what is missing', async () => {
     vi.mocked(runQuery).mockResolvedValue(envelope({
       coverage: {

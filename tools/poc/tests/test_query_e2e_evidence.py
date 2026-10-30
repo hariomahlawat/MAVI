@@ -84,6 +84,44 @@ def test_crosscheck_compares_counts_with_track_search_timeline_and_stage3(monkey
     monkeypatch.setattr(qe, "get", get)
     monkeypatch.setattr(qe, "post_query", post)
     [row] = qe.crosscheck("http://127.0.0.1:1", [camera], videos)
-    assert row["trackCount"] == {"query": 3, "trackSearch": 3, "equal": True}
+    assert row["trackCount"] == {"query": 3, "trackSearch": 3, "coverageComplete": True, "equal": True}
     assert row["eventsByRule"]["equal"] is True
     assert row["crossings"][0]["equal"] is True
+
+
+def _withheld_world(monkeypatch):
+    camera = {"id": "C1", "code": "POC-S2-01"}
+    videos = [{"cameraId": "c1", "recordingStartUtc": "2026-01-01T10:00:30Z", "recordingEndUtc": "2026-01-01T10:03:10Z"}]
+
+    def get(api, path):
+        if path.startswith("/api/cameras/C1/events?"):
+            return {"ruleCounts": [], "coverage": {"complete": False}}
+        if path.startswith("/api/cameras/C1/analytics/aggregates?"):
+            return {"lines": [{"lineId": "L1", "aToBCounts": [0], "bToACounts": [0]}]}
+        if path.startswith("/api/tracks?"):
+            return {"items": [], "nextCursor": None}
+        raise AssertionError(path)
+
+    def post(api, body):
+        return 200, {"result": {"kind": "withheld", "value": None, "groups": None}, "coverage": {"complete": False}}, 1.0
+
+    monkeypatch.setattr(qe, "get", get)
+    monkeypatch.setattr(qe, "post_query", post)
+    return camera, videos
+
+
+def test_a_withheld_answer_never_counts_as_agreement(monkeypatch):
+    camera, videos = _withheld_world(monkeypatch)
+    [row] = qe.crosscheck("http://127.0.0.1:1", [camera], videos)
+    # Empty maps and missing values would compare equal; incomplete coverage must make every check fail instead.
+    assert row["eventsByRule"]["query"] == row["eventsByRule"]["timeline"] == {}
+    assert row["eventsByRule"]["equal"] is False
+    assert row["trackCount"]["equal"] is False
+    assert row["crossings"][0]["equal"] is False
+
+
+def test_corpus_scope_names_only_the_demo_cameras(monkeypatch):
+    cameras = [{"id": "C2", "code": "POC-S2-02"}, {"id": "C1", "code": "POC-S2-01"}]
+    body = qe.materialise("http://127.0.0.1:1", "track-count", "track", {"op": "count"}, {}, "corpus", cameras, [],
+                          ("2026-01-01T10:00:00Z", "2026-01-01T11:00:00Z"))
+    assert body["where"]["cameraIds"] == ["c1", "c2"]
