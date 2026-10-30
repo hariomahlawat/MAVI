@@ -50,7 +50,10 @@ public sealed class TrackSearchService(
     TrackCursorSigningKey signingKey,
     ITrackPlateSearchRepository? plateRepository = null,
     Plates.IPlateRelease? plateRelease = null,
-    Plates.PlateReadinessService? plateReadiness = null)
+    Plates.PlateReadinessService? plateReadiness = null,
+    ITrackAttributeSearchRepository? attributeRepository = null,
+    VisualAttributes.IVisualAttributeRelease? attributeRelease = null,
+    VisualAttributes.VisualAttributeReadinessService? attributeReadiness = null)
 {
     private static readonly TimeSpan MaximumCursorAge = TimeSpan.FromHours(1);
     private static readonly TimeSpan MaximumFutureSkew = TimeSpan.FromMinutes(1);
@@ -66,6 +69,8 @@ public sealed class TrackSearchService(
         query = query.Canonical;
 
         var nowUtc = timeProvider.GetUtcNow().ToUniversalTime();
+        if (query.IsAttribute)
+            return await SearchAttributeAsync(query, nowUtc, cancellationToken);
         if (query.IsPlate)
             return await SearchPlateAsync(query, nowUtc, cancellationToken);
         if (query.IsAnalytic)
@@ -254,6 +259,129 @@ public sealed class TrackSearchService(
     }
 
     /// <summary>
+    /// A search carrying attribute predicates (PoC S5; Stage-2 plan §16), alone or with analytic predicates. The
+    /// predicates must name types and values of the bound schema, all of one object class, which the search then
+    /// states (an attribute is never searched across classes). The first page pins the release's identity (null when
+    /// attributes are not configured: nothing can match, and coverage says why); a continuation authenticates the v4
+    /// cursor and evaluates as pinned. Attribute-only search spans cameras; an analytic combination keeps the analytic
+    /// camera scope and pins both identities (E7).
+    /// </summary>
+    private async Task<TrackSearchServiceResult> SearchAttributeAsync(
+        TrackSearchQuery query,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        if (attributeRepository is null)
+            throw new InvalidOperationException("Attribute search is not wired into this host.");
+
+        var definition = attributeRelease?.Resolution.Definition;
+        var attributes = query.Attributes!;
+        if (definition is not null)
+        {
+            if (!TrackAttributeQueryRules.TryResolveObjectClass(attributes, definition.Schema, out var objectClass) ||
+                (query.ObjectClass is { } stated && stated != objectClass))
+                return TrackSearchServiceResult.Invalid();
+            query = query with { ObjectClass = objectClass };
+        }
+
+        TrackAttributeCursorPosition? cursor = null;
+        if (query.Cursor is not null)
+        {
+            if (!TrackCursorCodec.TryDecodeAttribute(query.Cursor, signingKey, null, out cursor) ||
+                cursor is null ||
+                cursor.IsAnalytic != query.IsAnalytic ||
+                cursor.AttributeCoverage.Unknown.Count != attributes.Predicates.Count ||
+                !IsWithinValidity(cursor.Position.SnapshotUtc, nowUtc) ||
+                !string.Equals(
+                    cursor.Position.FilterFingerprint,
+                    TrackCursorCodec.ComputeAttributeFilterFingerprint(query, cursor.AttributeIdentityFingerprint, cursor.AnalyticsIdentity, signingKey),
+                    StringComparison.Ordinal))
+            {
+                return TrackSearchServiceResult.Invalid();
+            }
+        }
+
+        // The disclosure is the release's; a cursor pinned to another (older) identity carries none rather than borrow it.
+        if (cursor is not null && definition is not null &&
+            string.Equals(cursor.AttributeIdentityFingerprint, definition.Identity.Fingerprint, StringComparison.Ordinal))
+            cursor = cursor with { AttributeCoverage = cursor.AttributeCoverage with { Disclosure = definition.Disclosure } };
+        var preferred = cursor?.AttributeIdentityFingerprint ?? definition?.Identity.Fingerprint;
+        var result = await attributeRepository.SearchAttributesAsync(
+            query,
+            preferred,
+            definition?.Disclosure,
+            cursor,
+            checked(query.Limit + 1),
+            cancellationToken);
+        if (result.Page is not { } page)
+            return TrackSearchServiceResult.Invalid();
+
+        if (query.Analytics is { RequireCompleteCoverage: true } && page.AnalyticsCoverage is { Complete: false } incomplete)
+            return TrackSearchServiceResult.IncompleteCoverage(incomplete);
+
+        var hasMore = page.Items.Count > query.Limit;
+        var items = hasMore ? page.Items.Take(query.Limit).ToArray() : page.Items;
+        string? nextCursor = null;
+        if (hasMore && items.Count > 0)
+        {
+            // A row can match only under a pinned identity, so a page with rows always has one.
+            var attributeFingerprint = page.AttributeCoverage.IdentityFingerprint
+                ?? throw new InvalidOperationException("An attribute match was returned without an attribute identity.");
+            var fingerprint = cursor?.Position.FilterFingerprint
+                ?? TrackCursorCodec.ComputeAttributeFilterFingerprint(query, attributeFingerprint, page.AnalyticsIdentity, signingKey);
+            nextCursor = TrackCursorCodec.EncodeAttribute(
+                new TrackAttributeCursorPosition(
+                    new TrackCursorPosition(
+                        page.SnapshotUtc,
+                        page.SnapshotVisibilitySequence,
+                        items[^1].StartTimestampUtc,
+                        items[^1].Id,
+                        fingerprint),
+                    attributeFingerprint,
+                    page.AttributeCoverage,
+                    page.AnalyticsIdentity,
+                    page.AnalyticsCoverage),
+                signingKey);
+        }
+
+        return TrackSearchServiceResult.Success(new TrackSearchPage(
+            items,
+            nextCursor,
+            page.AnalyticsCoverage,
+            page.ItemAnalytics,
+            AttributeCoverage: page.AttributeCoverage,
+            ItemAttributes: page.ItemAttributes));
+    }
+
+    /// <summary>
+    /// A Track's visual attributes (PoC S5): its run's readiness and, when Ready, the default analysis's final rows.
+    /// Null when the host has no attribute plane wired, no attribute release is configured, or the configured schema
+    /// has no attribute for the Track's class.
+    /// </summary>
+    public async Task<TrackAttributeDetail?> GetAttributeDetailAsync(TrackDetailRow row, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        if (attributeReadiness is null || attributeRepository is null || attributeRelease is null)
+            return null;
+        // No attribute release: the detail carries no block, so it is byte-for-byte the pre-S5 response.
+        var definition = attributeRelease.Resolution.Definition;
+        if (definition is null ||
+            definition.Schema.ForObjectClass(TrackAttributeQueryRules.ToSchemaClass(row.ObjectClass)).Count == 0)
+            return null;
+
+        var readiness = await attributeReadiness.GetAsync(row.ProcessingRunId, cancellationToken);
+        if (readiness is null)
+            return null;
+        var disclosure = definition.Disclosure;
+        var developmentOnly = definition.DevelopmentOnly;
+        if (readiness.State != VisualAttributes.VisualAttributeReadinessState.Ready || readiness.DefaultAnalysisId is not { } analysisId)
+            return new TrackAttributeDetail(readiness.State, disclosure, developmentOnly, null);
+
+        var facts = await attributeRepository.GetTrackAttributeFactsAsync(row.Id, analysisId, cancellationToken);
+        return new TrackAttributeDetail(readiness.State, disclosure, developmentOnly, facts);
+    }
+
+    /// <summary>
     /// A Vehicle Track's plate detail (plan §5.4): its run's readiness by the PR-3 rule and, when
     /// Ready, the default analysis's facts. Null for a Person Track, or when the host has no plate
     /// plane wired.
@@ -346,6 +474,11 @@ public sealed class TrackSearchService(
         if (query.ObjectSubclass is { } subclass &&
             (!VehicleSubclassExposurePolicy.IsExposable(subclass) ||
              (query.ObjectClass is { } objectClass && objectClass != Domain.Intelligence.ObjectClass.Vehicle)))
+            return false;
+
+        // Attribute predicates are a separate derived capability, never combined with a plate predicate.
+        if (query.Attributes is { } attributeQuery &&
+            (query.Plate is not null || attributeQuery.Predicates.Count is < 1 or > TrackSearchContractRules.MaximumAttributePredicates))
             return false;
 
         // A plate text is read only from Vehicle Tracks, and only a normalised 3–15 character text

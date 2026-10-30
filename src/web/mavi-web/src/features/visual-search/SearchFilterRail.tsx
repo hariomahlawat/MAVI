@@ -25,6 +25,8 @@ import { WALL_TIME_FORMAT } from '../../shared/time/wallTime';
 import { MOTION_DIRECTION_LABELS, ZONE_RELATION_LABELS, crossingDirectionLabel, shortId } from '../../shared/evidence/analyticsLabels';
 import type { SearchFieldErrors } from './searchValidation';
 import type { SceneGeometryState } from './useSceneGeometry';
+import type { AttributeVocabulary } from '../../api/tracks';
+import AttributeFilterSection from './AttributeFilterSection';
 
 /**
  * What the surface knows about the configured display timezone.
@@ -65,6 +67,8 @@ export type SearchDraft = {
   minStationarySeconds: string;
   loitering: '' | 'true';
   appearanceQuery: string;
+  /** PoC S5: canonical `type:value` predicates, comma-joined (see attributeSearch). */
+  attribute: string;
 };
 
 export const emptyDraft: SearchDraft = {
@@ -87,6 +91,7 @@ export const emptyDraft: SearchDraft = {
   minStationarySeconds: '',
   loitering: '',
   appearanceQuery: '',
+  attribute: '',
 };
 
 /** The analytics fields, which a change of camera scope resets together (plan §S). */
@@ -117,6 +122,9 @@ type Props = {
   analyticsScoped: boolean;
   /** The scene geometry the zone and line choices come from. */
   geometry: SceneGeometryState;
+  /** PoC S5: the bound attribute vocabulary; undefined while it loads. */
+  attributeVocabulary?: AttributeVocabulary;
+  attributeVocabularyUnavailable?: boolean;
 };
 
 /**
@@ -161,6 +169,8 @@ export default function SearchFilterRail({
   displayZone,
   analyticsScoped,
   geometry,
+  attributeVocabulary,
+  attributeVocabularyUnavailable = false,
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null);
   useFocusFirstInvalid(formRef, refusedSubmits);
@@ -332,6 +342,15 @@ export default function SearchFilterRail({
           )}
         </Field>
       </section>
+
+      <AttributeFilterSection
+        value={draft.attribute}
+        objectClass={draft.objectClass}
+        vocabulary={attributeVocabulary}
+        vocabularyUnavailable={attributeVocabularyUnavailable}
+        error={errors.attribute}
+        onChange={onDraftChange}
+      />
 
       <section className="filter-rail__section" aria-labelledby="filter-time">
         <h2 id="filter-time">Time</h2>

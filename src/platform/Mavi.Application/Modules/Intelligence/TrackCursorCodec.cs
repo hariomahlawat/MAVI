@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Mavi.Contracts.Api.Tracks;
 
 namespace Mavi.Application.Modules.Intelligence;
 
@@ -60,6 +61,12 @@ public static class TrackCursorCodec
 
     /// <summary>The capability tag of the plate identity among a v4 cursor's derived pins.</summary>
     public const string PlateCapabilityTag = "plates";
+
+    /// <summary>The capability tag of the visual-attribute identity among a v4 cursor's derived pins (PoC S5).</summary>
+    public const string AttributeCapabilityTag = "attributes";
+
+    /// <summary>The fixed attribute coverage counts before the per-predicate Unknown counts.</summary>
+    private const int AttributeCoverageFixedCountLength = 4;
 
     private const int MacByteLength = 32;
     private const int AnalyticVersion = 3;
@@ -510,6 +517,190 @@ public static class TrackCursorCodec
         }
     }
 
+    // --- Attribute cursor (v4, "attributes" pin) ------------------------------------------
+
+    /// <summary>
+    /// The fingerprint of an attribute search (Stage-2 plan §16; PoC S5): the ordinary filters, the canonical
+    /// predicates, the attribute identity the first page pinned and, when analytic predicates are combined, what
+    /// the analytic fingerprint covers. Keyed with the v4 fingerprint key, as the plate fingerprint is; the payload
+    /// names its predicate member, so it can never equal a plate search's.
+    /// </summary>
+    public static string ComputeAttributeFilterFingerprint(
+        TrackSearchQuery query,
+        string attributeIdentityFingerprint,
+        TrackAnalyticsPinnedIdentity? analyticsIdentity,
+        TrackCursorSigningKey key)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(key);
+        if (query.Attributes is not { } attributes)
+            throw new ArgumentException("An attribute fingerprint needs an attribute query.", nameof(query));
+        if (query.Plate is not null)
+            throw new ArgumentException("An attribute query carries no plate predicate.", nameof(query));
+        if (!IsSha256(attributeIdentityFingerprint))
+            throw new ArgumentException("The attribute identity fingerprint must be 64 lower-case hex.", nameof(attributeIdentityFingerprint));
+        if (query.IsAnalytic != analyticsIdentity is not null)
+            throw new ArgumentException("An analytics identity accompanies exactly an analytic query.", nameof(analyticsIdentity));
+
+        var payload = JsonSerializer.SerializeToUtf8Bytes(
+            new AttributeFilterPayload(
+                BaseFilters(query),
+                [.. attributes.Wire],
+                attributeIdentityFingerprint,
+                analyticsIdentity is null ? null : AnalyticFilters(query, analyticsIdentity)),
+            JsonOptions);
+        return Convert.ToHexString(HMACSHA256.HashData(PlateFingerprintKey(key), payload)).ToLowerInvariant();
+    }
+
+    public static string EncodeAttribute(TrackAttributeCursorPosition cursor, TrackCursorSigningKey key)
+    {
+        ArgumentNullException.ThrowIfNull(cursor);
+        ArgumentNullException.ThrowIfNull(key);
+        if (!IsSha256(cursor.AttributeIdentityFingerprint))
+            throw new ArgumentException("An attribute cursor pins a 64-hex attribute identity.", nameof(cursor));
+        if (cursor.AnalyticsIdentity is null != cursor.AnalyticsCoverage is null)
+            throw new ArgumentException("The analytics identity and coverage travel together.", nameof(cursor));
+        var coverage = cursor.AttributeCoverage;
+        if (coverage.Unknown.Count is < 1 or > TrackSearchContractRules.MaximumAttributePredicates)
+            throw new ArgumentException("An attribute cursor pins one Unknown count per predicate.", nameof(cursor));
+
+        var position = cursor.Position;
+        var payload = JsonSerializer.SerializeToUtf8Bytes(
+            new PlateCursorPayload(
+                PlateVersion,
+                position.SnapshotUtc.ToUniversalTime(),
+                position.SnapshotVisibilitySequence,
+                position.StartTimestampUtc.ToUniversalTime(),
+                position.TrackId,
+                position.FilterFingerprint,
+                [
+                    // Fixed order: scope, analysed, unavailable, not analysed, then Unknown per predicate.
+                    new DerivedPin(
+                        AttributeCapabilityTag,
+                        cursor.AttributeIdentityFingerprint,
+                        [coverage.TracksInScope, coverage.Analysed, coverage.Unavailable, coverage.NotAnalysed, .. coverage.Unknown]),
+                ],
+                AnalyticPinOf(cursor.AnalyticsIdentity, cursor.AnalyticsCoverage)),
+            JsonOptions);
+
+        var envelope = new byte[MacByteLength + payload.Length];
+        HMACSHA256.HashData(PlateMacKey(key), payload, envelope.AsSpan(0, MacByteLength));
+        payload.CopyTo(envelope, MacByteLength);
+
+        var encoded = ToBase64Url(envelope);
+        if (encoded.Length > PlateMaximumEncodedLength)
+            throw new InvalidOperationException("Attribute Track cursor exceeded its published size envelope.");
+        return encoded;
+    }
+
+    /// <summary>
+    /// Decodes and authenticates an attribute v4 cursor (MAC first, as every signed envelope). Exactly one derived pin,
+    /// tagged <c>attributes</c>, is accepted, so a plate cursor is refused here and an attribute cursor by the plate
+    /// decoder; the counts must partition the scope and no Unknown count may exceed the analysed Tracks. The
+    /// <paramref name="disclosure"/> is not carried; the service supplies the release's only when the cursor's pinned
+    /// identity is the release's own.
+    /// </summary>
+    public static bool TryDecodeAttribute(
+        string? cursor,
+        TrackCursorSigningKey key,
+        string? disclosure,
+        out TrackAttributeCursorPosition? position)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        position = null;
+        if (!TryAuthenticate(cursor, PlateMacKey(key), PlateMaximumEncodedLength, out var payload))
+            return false;
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<PlateCursorPayload>(payload, JsonOptions);
+            if (parsed is null ||
+                parsed.V != PlateVersion ||
+                parsed.Q <= 0 ||
+                parsed.I == Guid.Empty ||
+                parsed.I.Version != 7 ||
+                parsed.S.Offset != TimeSpan.Zero ||
+                parsed.T.Offset != TimeSpan.Zero ||
+                !IsSha256(parsed.F) ||
+                parsed.D is not { Length: 1 } ||
+                parsed.D[0] is not { K: AttributeCapabilityTag } pin ||
+                !IsSha256(pin.F) ||
+                pin.G is not { Length: > AttributeCoverageFixedCountLength and <= AttributeCoverageFixedCountLength + TrackSearchContractRules.MaximumAttributePredicates } ||
+                pin.G.Any(count => count < 0) ||
+                (long)pin.G[1] + pin.G[2] + pin.G[3] != pin.G[0] ||
+                pin.G.Skip(AttributeCoverageFixedCountLength).Any(unknown => unknown > pin.G[1]))
+            {
+                return false;
+            }
+
+            if (!TryReadAnalyticPin(parsed.A, out var identity, out var analyticsCoverage))
+                return false;
+
+            position = new TrackAttributeCursorPosition(
+                new TrackCursorPosition(parsed.S, parsed.Q, parsed.T, parsed.I, parsed.F),
+                pin.F,
+                new TrackAttributeCoverage(pin.F, disclosure, pin.G[0], pin.G[1], pin.G[2], pin.G[3], pin.G[AttributeCoverageFixedCountLength..]),
+                identity,
+                analyticsCoverage);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static AnalyticPin? AnalyticPinOf(TrackAnalyticsPinnedIdentity? identity, TrackAnalyticsCoverage? coverage) =>
+        identity is null || coverage is null
+            ? null
+            : new AnalyticPin(
+                identity.CameraId,
+                identity.SceneRevisionId,
+                identity.AlgorithmVersion,
+                [
+                    coverage.EvaluatedRuns,
+                    coverage.PendingRuns,
+                    coverage.FailedRuns,
+                    coverage.NotConfiguredRuns,
+                    coverage.DisabledRuns,
+                    coverage.StaleRuns,
+                    coverage.AnalysedTracks,
+                    coverage.UnavailableTracks,
+                ]);
+
+    private static bool TryReadAnalyticPin(
+        AnalyticPin? analytics,
+        out TrackAnalyticsPinnedIdentity? identity,
+        out TrackAnalyticsCoverage? coverage)
+    {
+        identity = null;
+        coverage = null;
+        if (analytics is null)
+            return true;
+        if (analytics.C == Guid.Empty ||
+            analytics.R == Guid.Empty ||
+            string.IsNullOrWhiteSpace(analytics.A) ||
+            analytics.G is not { Length: AnalyticsCoverageCountLength } ||
+            analytics.G.Any(count => count < 0))
+        {
+            return false;
+        }
+
+        identity = new TrackAnalyticsPinnedIdentity(analytics.C, analytics.R, analytics.A);
+        coverage = new TrackAnalyticsCoverage(
+            analytics.R,
+            analytics.A,
+            analytics.G[0],
+            analytics.G[1],
+            analytics.G[2],
+            analytics.G[3],
+            analytics.G[4],
+            analytics.G[5],
+            analytics.G[6],
+            analytics.G[7]);
+        return true;
+    }
+
     /// <summary>
     /// The front half of a signed envelope: shape, length, base64url and a constant-time MAC check.
     /// On success <paramref name="payload"/> is bytes this server wrote under this key.
@@ -576,6 +767,9 @@ public static class TrackCursorCodec
         // fingerprinting one here would silently drop the predicate from the cursor's meaning.
         if (query.Plate is not null)
             throw new ArgumentException("A plate query is fingerprinted only by the v4 cursor.", nameof(query));
+        // The same for an attribute query (PoC S5).
+        if (query.Attributes is not null)
+            throw new ArgumentException("An attribute query is fingerprinted only by the v4 cursor.", nameof(query));
     }
 
     private static FilterPayload BaseFilters(TrackSearchQuery query) => new(
@@ -651,6 +845,13 @@ public static class TrackCursorCodec
         Guid PinnedCameraId,
         Guid? PinnedSceneRevisionId,
         string PinnedAlgorithmVersion);
+
+    private sealed record AttributeFilterPayload(
+        FilterPayload Base,
+        string[] Attributes,
+        string PinnedAttributeIdentityFingerprint,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        AnalyticFilterPayload? Analytics);
 
     private sealed record PlateFilterPayload(
         FilterPayload Base,

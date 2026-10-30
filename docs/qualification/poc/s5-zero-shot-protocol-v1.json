@@ -1,0 +1,15 @@
+{
+  "protocolId": "s5-zero-shot-calibration-v1",
+  "frozen": "2026-10-29, committed before any held-crop label exists",
+  "script": "tools/poc/attributes_zero_shot_spike.py",
+  "profile": "src/vision/config/attributes/development-attributes-siglip2-zero-shot-v1.json (prompts as committed with this protocol)",
+  "heldSet": "seed 202610295 (SEED = 20261029_5); H3 exports (read-only); 100 Person + 100 Vehicle Tracks with a crop of shorter side >= 80 px; largest such crop per Track; <= 4 Tracks per run; seeded halves: calibration (even index) and check (odd index)",
+  "labels": "per crop and applicable attribute: a schema value, present/absent for presence attributes, or unscorable; source and labeller recorded in the qualification note",
+  "decision": "categorical: argmax value Observed when its softmax p >= threshold; presence: present Observed when p(present) >= threshold; otherwise Unknown",
+  "thresholdGrid": {"start": 0.30, "step": 0.05, "count": 14},
+  "targetPrecision": 0.80,
+  "minimumObserved": 8,
+  "rule": "per attribute, the smallest grid threshold whose calibration-half precision (correct Observed / Observed; an unscorable label counts as wrong when Observed) is >= targetPrecision with >= minimumObserved Observed; if none, fallbackThreshold",
+  "fallbackThreshold": 0.99,
+  "reported": "for the chosen threshold, check-half precision with a Wilson 95% interval and coverage (Observed / items); thresholds are never re-chosen on the check half"
+}

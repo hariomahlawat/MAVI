@@ -131,7 +131,7 @@ describe('PoC S4 appearance query on Search', () => {
 
     const field = screen.getByLabelText('Appearance (describe what to look for)');
     expect(field).toHaveAttribute('aria-invalid', 'true');
-    expect(await screen.findByText(/Appearance search cannot be combined with plate text or analytics filters/)).toBeInTheDocument();
+    expect(await screen.findByText(/Appearance search cannot be combined with plate text, attribute or analytics filters/)).toBeInTheDocument();
     expect(screen.getByLabelText('Current search location')).toHaveTextContent(/^$/);
     expect(vi.mocked(searchTracks).mock.calls.length).toBe(calls);
   });

@@ -20,7 +20,9 @@ public sealed record TrackSearchPage(
     IReadOnlyDictionary<Guid, TrackItemAnalytics>? ItemAnalytics = null,
     TrackPlateCoverage? PlateCoverage = null,
     IReadOnlyDictionary<Guid, TrackItemPlate>? ItemPlates = null,
-    IReadOnlyList<PlateCoverageIntegrityFault>? PlateIntegrityFaults = null);
+    IReadOnlyList<PlateCoverageIntegrityFault>? PlateIntegrityFaults = null,
+    TrackAttributeCoverage? AttributeCoverage = null,
+    IReadOnlyDictionary<Guid, IReadOnlyList<TrackItemAttributeMatch>>? ItemAttributes = null);
 
 public sealed record TrackSearchRow(
     Guid Id,

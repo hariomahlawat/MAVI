@@ -65,5 +65,6 @@ export const queryKeys = {
   cameraAnalyticsHeatmap: (cameraId: string, query: string) =>
     ['camera-analytics', cameraId, 'heatmap', query] as const,
   systemConfig: ['system-config'] as const,
+  attributeVocabulary: ['visual-attributes', 'vocabulary'] as const,
   platformHealth: ['platform-health'] as const,
 };

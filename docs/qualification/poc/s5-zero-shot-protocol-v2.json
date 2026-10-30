@@ -1,0 +1,16 @@
+{
+  "protocolId": "s5-zero-shot-calibration-v2",
+  "supersedes": "s5-zero-shot-calibration-v1 (docs/qualification/poc/s5-zero-shot-protocol-v1.json), withdrawn 2026-10-30 before any label existed: v1 thresholded one crop's softmax p, which is not the Track-level decision the runtime ships (cold review P2-1)",
+  "frozen": "2026-10-30, committed before any held-Track label exists",
+  "script": "tools/poc/attributes_zero_shot_spike.py",
+  "profile": "src/vision/config/attributes/development-attributes-siglip2-zero-shot-v1.json (prompts as committed with this protocol)",
+  "heldSet": "seed 202610295 (SEED = 20261029_5); H3 exports (read-only); 100 Person + 100 Vehicle Tracks with at least one crop of shorter side >= 80 px, every accepted crop of the Track kept; <= 4 Tracks per run; seeded halves: calibration (even index) and check (odd index)",
+  "labels": "one label per Track and applicable attribute, judged from all the Track's crops: a schema value, present/absent for presence attributes, or unscorable; every applicable cell must be labelled (calibrate refuses an unlabelled or out-of-vocabulary cell); labeller and source recorded in the qualification note",
+  "decision": "the runtime's: per crop, abstention_score(p, threshold) (a crop under minimumCropSide scores 0 for every value); per Track, aggregate_track (mean-score-argmax at 0.5): categorical argmax value Observed, presence 'present' Observed, otherwise Unknown",
+  "thresholdGrid": {"start": 0.30, "step": 0.05, "count": 14},
+  "targetPrecision": 0.80,
+  "minimumObserved": 8,
+  "rule": "per attribute, the smallest grid threshold whose calibration-half Track precision (correct Observed / Observed; an Observed decision on a Track labelled unscorable or absent counts as wrong) is >= targetPrecision with >= minimumObserved Observed; if none, fallbackThreshold",
+  "fallbackThreshold": 0.99,
+  "reported": "for the chosen threshold, check-half Track precision with a Wilson 95% interval and coverage (Observed / Tracks); thresholds are never re-chosen on the check half"
+}

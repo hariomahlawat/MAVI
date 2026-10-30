@@ -1,0 +1,35 @@
+{
+  "protocolId": "s5-zero-shot-calibration-v3",
+  "supersedes": "s5-zero-shot-calibration-v2 for C2.1 (owner decision S5-1, 2026-10-29: 'Go UPAR route for now'; option C+D). v2 stays committed and unrun; no label was ever made for it.",
+  "frozen": "2026-10-30, committed before any UPAR tuning run",
+  "scripts": ["tools/poc/attributes_zero_shot_upar.py", "tools/poc/attributes_zero_shot_spike.py (track_decision)"],
+  "profile": "src/vision/config/attributes/development-attributes-siglip2-zero-shot-v1.json (prompts as committed with this protocol; only the thresholds change after the run)",
+  "persons": {
+    "data": "UPAR-Challenge-2027 Task-1 annotations (release upar-challenge-2027-a19ab2fb, CC BY-NC-SA 3.0 DE) over PA-100K images (release pa-100k-2017, CC BY 4.0), read in place from E:/MAVI-Controlled/SourceMedia/S2c/2026-01/datasets/; images are read from the pinned data.zip in memory and never written elsewhere; no external service touches any image",
+    "scope": "owner scope extension from 'evaluate' to 'tuning' recorded in E:/MAVI-Controlled/Evidence/S5/2026-10-29-owner-tuning-scope-extension.json; Development-scope calibration of four abstention thresholds only, never a qualification",
+    "eligibility": "PA-100K images with a UPAR Task-1 row and shorter side >= 80 px (the runtime's minimumCropSide; a smaller crop scores zero and is always Unknown)",
+    "tuningSplit": "official PA-100K train images labelled by UPAR train/gt.csv",
+    "heldSplit": "official PA-100K test images labelled by UPAR val/gt.csv",
+    "disjointness": "image-disjoint by construction (different official splits); PA-100K publishes no identity, tracklet or scene ids, so identity/scene disjointness is not guaranteed and is not claimed",
+    "sample": "seed 202610305; 1500 eligible images drawn uniformly from each split",
+    "mapping": {
+      "person-upper-colour": "UPAR UpperBody-Color-{Black,Blue,Brown,Green,Grey,Orange,Pink,Purple,Red,White,Yellow} -> the same-named schema value when exactly one of the eleven is 1 and UpperBody-Color-Other is 0; otherwise unscorable (Other, several colours or none)",
+      "person-lower-colour": "the same rule over LowerBody-Color-*",
+      "person-carried-bag": "present when Accessory-Backpack or Accessory-Bag is 1, otherwise absent",
+      "person-headwear": "present when Accessory-Hat is 1, otherwise absent",
+      "source": "tools/qualification/attributes/datasets/data/mappings/upar-task1-person-colour-v1.json for the colour columns (adapter upar-task1); the presence rules are stated here"
+    },
+    "trackLevel": "a PA-100K image is one crop; it is scored as a one-crop Track through the runtime's own decision (abstention_score per crop, aggregate_track mean-score-argmax at 0.5, via track_decision). Multi-crop Tracks are not represented by this data",
+    "thresholdGrid": {"start": 0.30, "step": 0.05, "count": 14},
+    "targetPrecision": 0.80,
+    "minimumObserved": 20,
+    "rule": "per person attribute, the smallest grid threshold whose tuning-split precision (correct Observed / Observed; an Observed decision on an image labelled unscorable or absent counts as wrong) is >= targetPrecision with >= minimumObserved Observed; if none, fallbackThreshold",
+    "fallbackThreshold": 0.99,
+    "reported": "for the chosen threshold, held-split precision with a Wilson 95% interval and coverage (Observed / eligible images), plus the eligible share of each split; thresholds are never re-chosen on the held split"
+  },
+  "vehicles": {
+    "rule": "predeclared and uncalibrated: vehicle-colour is Observed only when the Track's mean abstention-normalised score of the top colour reaches 0.5 with threshold 0.5, i.e. for a one-crop Track the top colour holds at least half of the softmax mass over the eleven colours; crops under 80 px score zero",
+    "declared": "threshold 0.5 committed in d6262172 (parameters-siglip2-zero-shot-v1.json) before any demo-corpus run; not tuned on any data and not changed by this protocol",
+    "disclosure": "uncalibrated; stated on the known-limits page and the register row"
+  }
+}

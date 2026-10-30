@@ -1394,6 +1394,7 @@ def check_contracts(errors: list[str]) -> None:
     check_completion_v32_contract(errors)
     check_completion_v33_contract(errors)
     check_plate_contract(errors)
+    check_zero_shot_attribute_release(errors)
     check_embedding_contract(errors)
 
 
@@ -1487,6 +1488,34 @@ def check_embedding_profiles(tracked: list[Path], manifests: dict, errors: list[
             continue
         bound.add(pack_id)
     return bound
+
+
+def check_zero_shot_attribute_release(errors: list[str]) -> None:
+    """PoC S5: the zero-shot attribute release is exactly what its generator writes, Development-only, states the
+    "zero-shot, uncalibrated, Development" disclosure, binds the S4 SigLIP 2 pack for both attribute capabilities, and defines the
+    identity its test vector pins (which the Python and .NET tests both derive)."""
+    sys.path.insert(0, str(ROOT / "tools/poc"))
+    sys.path.insert(0, str(ROOT / "src/vision"))
+    try:
+        import attributes_zero_shot_profile as generator
+        from mavi_vision.attributes.pipeline import attribute_identity, load_attribute_pipeline
+
+        expected = generator.documents(generator.committed_thresholds())
+        for name, payload in expected.items():
+            path = generator.DIRECTORY / name
+            if not path.is_file() or path.read_bytes() != payload:
+                fail(f"Zero-shot attribute release {path.relative_to(ROOT).as_posix()} differs from tools/poc/attributes_zero_shot_profile.py.", errors)
+        profile = load_attribute_pipeline(generator.DIRECTORY / "development-attributes-siglip2-zero-shot-v1.json")
+        binding = json.loads((generator.DIRECTORY / "development-attributes-siglip2-binding-v1.json").read_text(encoding="utf-8"))
+        packs = {item["capabilityId"]: item["modelPackId"] for item in binding["capabilityBindings"]}
+        if not profile.development_only or profile.parameters.get("disclosure") != "zero-shot, uncalibrated, Development":
+            fail("The zero-shot attribute release must be developmentOnly and state 'zero-shot, uncalibrated, Development'.", errors)
+        vector = json.loads((ROOT / "contracts/test-vectors/poc-zero-shot-attribute-identity-v1.json").read_text(encoding="utf-8"))
+        if attribute_identity(profile, packs).fingerprint != vector["fingerprint"] or (
+                hashlib.sha256(vector["canonicalIdentity"].encode("ascii")).hexdigest() != vector["fingerprint"]):
+            fail("poc-zero-shot-attribute-identity-v1.json does not pin the committed zero-shot release's identity.", errors)
+    except (ImportError, ValueError, OSError, KeyError, TypeError) as exc:
+        fail(f"Zero-shot attribute release refusal: {exc}", errors)
 
 
 def check_plate_contract(errors: list[str]) -> None:

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "mavi-visual-attribute-schema-v1",
+  "attributeSchemaId": "poc-zero-shot-attributes",
+  "attributeSchemaVersion": "1.0.0",
+  "attributes": [
+    {
+      "attributeType": "person-carried-bag",
+      "capabilityId": "person-attributes",
+      "objectClass": "person",
+      "values": [
+        "present"
+      ]
+    },
+    {
+      "attributeType": "person-headwear",
+      "capabilityId": "person-attributes",
+      "objectClass": "person",
+      "values": [
+        "present"
+      ]
+    },
+    {
+      "attributeType": "person-lower-colour",
+      "capabilityId": "person-attributes",
+      "objectClass": "person",
+      "values": [
+        "black",
+        "blue",
+        "brown",
+        "green",
+        "grey",
+        "orange",
+        "pink",
+        "purple",
+        "red",
+        "white",
+        "yellow"
+      ]
+    },
+    {
+      "attributeType": "person-upper-colour",
+      "capabilityId": "person-attributes",
+      "objectClass": "person",
+      "values": [
+        "black",
+        "blue",
+        "brown",
+        "green",
+        "grey",
+        "orange",
+        "pink",
+        "purple",
+        "red",
+        "white",
+        "yellow"
+      ]
+    },
+    {
+      "attributeType": "vehicle-colour",
+      "capabilityId": "vehicle-attributes",
+      "objectClass": "vehicle",
+      "values": [
+        "beige",
+        "black",
+        "blue",
+        "brown",
+        "green",
+        "grey",
+        "orange",
+        "red",
+        "silver",
+        "white",
+        "yellow"
+      ]
+    }
+  ]
+}

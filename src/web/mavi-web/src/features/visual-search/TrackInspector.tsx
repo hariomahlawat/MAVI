@@ -16,6 +16,7 @@ import { TrackSummary } from '../video-review/TrackDetailsPanels';
 import TrackEvidence from '../video-review/TrackEvidence';
 import TrackEvidenceSet from '../video-review/TrackEvidenceSet';
 import TrackPlateReadings from '../video-review/TrackPlateReadings';
+import TrackAttributesPanel from '../video-review/TrackAttributesPanel';
 import TrackAnalyticsExplanation from '../video-review/TrackAnalyticsExplanation';
 import { buildAnalyticsEvidence } from '../video-review/analyticsEvidence';
 import { pinnedNames, pinnedRevision, useAnalyticsScene } from '../video-review/useAnalyticsScene';
@@ -196,6 +197,7 @@ export default function TrackInspector({
               <TrackPlateReadings detail={detail} compact
                 matchedText={summary?.plate?.matchedText} onSelectObservation={selectPlateSource} />
             ) : null}
+            <TrackAttributesPanel detail={detail} compact />
             <TrackEvidenceSet detail={detail} compact
               plateSelection={plateSelection ? { observationId: plateSelection.observationId, serial: plateSelection.seek.serial } : null}
               />

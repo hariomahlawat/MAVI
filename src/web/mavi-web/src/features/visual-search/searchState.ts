@@ -18,6 +18,7 @@ import {
 } from '../../api/tracks';
 
 import { normalisePlateText } from './plateText';
+import { canonicalPredicates } from './attributeSearch';
 
 export type CommittedTrackSearch = Omit<TrackSearchFilters, 'cursor' | 'limit'>;
 
@@ -84,10 +85,19 @@ export function isAppearanceSearch(filters: CommittedTrackSearch): boolean {
  * with in this slice (`appearance_query_combination_unsupported`).
  */
 export function hasAppearanceConflict(filters: CommittedTrackSearch): boolean {
-  return filters.plateText !== undefined || filters.plateMatch !== undefined || isAnalyticSearch(filters);
+  return filters.plateText !== undefined || filters.plateMatch !== undefined || isAnalyticSearch(filters)
+    || isAttributeSearch(filters);
 }
 
-export const APPEARANCE_CONFLICT_MESSAGE = 'Appearance search cannot be combined with plate text or analytics filters.';
+export const APPEARANCE_CONFLICT_MESSAGE = 'Appearance search cannot be combined with plate text, attribute or analytics filters.';
+
+/** PoC S5: a search carrying visual-attribute predicates. */
+export function isAttributeSearch(filters: CommittedTrackSearch): boolean {
+  return (filters.attribute?.length ?? 0) > 0;
+}
+
+/** Attribute and plate predicates are separate derived capabilities; the server refuses them together. */
+export const ATTRIBUTE_PLATE_CONFLICT_MESSAGE = 'Attribute filters cannot be combined with plate text.';
 
 export function hasCameraScope(filters: CommittedTrackSearch): boolean {
   return CAMERA_SCOPE_KEYS.some((key) => filters[key] !== undefined);
@@ -226,6 +236,8 @@ export function canonicalSearchParams(filters: CommittedTrackSearch): URLSearchP
   if (filters.objectSubclass) params.set('objectSubclass', filters.objectSubclass);
   if (filters.plateText) params.set('plateText', filters.plateText);
   if (filters.plateText && filters.plateMatch && filters.plateMatch !== 'contains') params.set('plateMatch', filters.plateMatch);
+  // Canonical (type) order, as the server fingerprints them.
+  for (const predicate of canonicalPredicates(filters.attribute ?? []) ?? filters.attribute ?? []) params.append('attribute', predicate);
   if (filters.fromUtc) params.set('fromUtc', canonicalUtc(filters.fromUtc) ?? filters.fromUtc);
   if (filters.toUtc) params.set('toUtc', canonicalUtc(filters.toUtc) ?? filters.toUtc);
   if (filters.minimumDurationMs !== undefined) params.set('minimumDurationMs', String(filters.minimumDurationMs));
@@ -453,6 +465,18 @@ export function parseCommittedSearch(params: URLSearchParams): SearchParseResult
 
   const analytics = parseAnalytics(raw, filters);
   if (analytics !== null) return { isValid: false, filters: {}, canonicalQuery: '', error: analytics };
+
+  const rawAttributes = params.getAll('attribute');
+  if (rawAttributes.length > 0) {
+    const predicates = canonicalPredicates(rawAttributes);
+    if (!predicates) {
+      return { isValid: false, filters: {}, canonicalQuery: '', error: 'Attribute filters must be up to four distinct type:value pairs.' };
+    }
+    if (filters.plateText !== undefined) {
+      return { isValid: false, filters: {}, canonicalQuery: '', error: ATTRIBUTE_PLATE_CONFLICT_MESSAGE };
+    }
+    filters.attribute = predicates;
+  }
 
   if (raw.appearanceQuery !== undefined) {
     const text = normaliseAppearanceQuery(raw.appearanceQuery);

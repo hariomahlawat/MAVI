@@ -15,6 +15,7 @@ from mavi_vision.attributes.client import AttributeApiClient, AttributeApiError
 from mavi_vision.attributes.runner import AttributeRunner
 from mavi_vision.attributes.settings import AttributeWorkerSettings
 from mavi_vision.attributes.supervisor import AttributeRuntimeState, AttributeSupervisor, attribute_composition
+from mavi_vision.attributes.zero_shot_runtime import compose_zero_shot
 from mavi_vision.common.settings import reject_v1_composition_environment
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -30,19 +31,29 @@ async def run_worker(
     client_factory: Callable[..., Any] = AttributeApiClient,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     max_iterations: int | None = None,
+    zero_shot_composer: Callable[[AttributeWorkerSettings], Any] = compose_zero_shot,
 ) -> int:
-    try:
-        composition = attribute_composition(settings)
-    except ValueError as exc:
-        logger.error("Attributes role composition refused: %s", exc)
-        return COMPOSITION_REFUSED_EXIT
-    supervisor = AttributeSupervisor(settings, composition)
-    supervisor.start()
-    if supervisor.state is not AttributeRuntimeState.READY:
-        # Never lease without a runtime: an attempt would be consumed for nothing. The
-        # platform's readiness reports the absence of a READY worker meanwhile.
-        return RUNTIME_UNAVAILABLE_EXIT
-    runtime = supervisor.runtime
+    if settings.attribute_model_manifest_path is not None:
+        # PoC S5: the zero-shot SigLIP 2 role, composed explicitly (zero-shot, Development).
+        try:
+            runtime = zero_shot_composer(settings)
+        except ValueError as exc:
+            # As for the resolver path: an unavailable runtime never leases.
+            logger.error("MAVI attributes runtime UNAVAILABLE: %s", str(exc).split("\n", 1)[0][:128])
+            return RUNTIME_UNAVAILABLE_EXIT
+    else:
+        try:
+            composition = attribute_composition(settings)
+        except ValueError as exc:
+            logger.error("Attributes role composition refused: %s", exc)
+            return COMPOSITION_REFUSED_EXIT
+        supervisor = AttributeSupervisor(settings, composition)
+        supervisor.start()
+        if supervisor.state is not AttributeRuntimeState.READY:
+            # Never lease without a runtime: an attempt would be consumed for nothing. The
+            # platform's readiness reports the absence of a READY worker meanwhile.
+            return RUNTIME_UNAVAILABLE_EXIT
+        runtime = supervisor.runtime
     client = client_factory(
         api_base_url=settings.api_base_url,
         worker_id=settings.worker_id,

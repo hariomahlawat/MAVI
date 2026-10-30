@@ -67,6 +67,16 @@ internal sealed class VisualAttributeWorld : IDisposable
 
     public MaviDbContext Read() => Fixture.CreateDbContext();
 
+    /// <summary>Another camera, for searches that span cameras (PoC S5).</summary>
+    public async Task<Guid> CreateCameraAsync(string code)
+    {
+        var camera = Camera.Create(code, "Visual attribute test camera " + code, "UTC");
+        await using var db = Read();
+        db.Cameras.Add(camera);
+        await db.SaveChangesAsync();
+        return camera.Id;
+    }
+
     /// <summary>
     /// A completed run with <paramref name="persons"/> person and <paramref name="vehicles"/>
     /// vehicle Tracks, each with <paramref name="observationsPerTrack"/> accepted crops.
@@ -78,14 +88,16 @@ internal sealed class VisualAttributeWorld : IDisposable
         bool visible = true,
         bool writeFiles = true,
         DateTimeOffset? completedAtUtc = null,
-        Func<Guid, int, byte[]>? cropBytes = null)
+        Func<Guid, int, byte[]>? cropBytes = null,
+        Guid? cameraId = null,
+        bool linkRepresentative = false)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(observationsPerTrack, 4);
         var now = Clock.GetUtcNow();
         var completedAt = completedAtUtc ?? now.AddMinutes(-1);
         var source = Artifact.Create(ArtifactType.SourceVideo, $"source/CAM-VA-01/{Guid.CreateVersion7()}.mp4", "video/mp4", 1,
             Convert.ToHexStringLower(SHA256.HashData(Guid.NewGuid().ToByteArray())));
-        var video = VideoAsset.Create(CameraId, source.Id, "attributes.mp4", now.AddHours(-1), 60_000, 25, 1, 640, 360, "h264",
+        var video = VideoAsset.Create(cameraId ?? CameraId, source.Id, "attributes.mp4", now.AddHours(-1), 60_000, 25, 1, 640, 360, "h264",
             TimestampSource.Manual, 1.0);
         var run = ProcessingRun.Create(video.Id, "phase1-detection-tracking-v1", "{}", completedAt.AddMinutes(-5));
         run.MarkRunning("vision-01", completedAt.AddMinutes(-4));
@@ -123,6 +135,14 @@ internal sealed class VisualAttributeWorld : IDisposable
         {
             db.AddRange(entities);
             await db.SaveChangesAsync();
+            if (linkRepresentative)
+            {
+                // The Track detail reads a whole Evidence Set, whose rank 0 must be the Track's Representative.
+                foreach (var seeded in tracks.Where(item => item.Observations.Count > 0))
+                    await db.Database.ExecuteSqlInterpolatedAsync(
+                        $"UPDATE tracks SET representative_observation_id = {seeded.Observations[0].ObservationId} WHERE id = {seeded.TrackId}");
+            }
+
             if (visible)
             {
                 var sequence = await NextSequenceAsync(db);
