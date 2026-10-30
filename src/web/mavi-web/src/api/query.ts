@@ -150,10 +150,23 @@ export type QueryEventRow = {
   startOffsetMs: number;
 };
 
+/** An operator-confirmed Entity (ADR-023): its in-scope members only. A recorded operator judgement, never an identification. */
+export type QueryEntityRow = {
+  entityId: string;
+  displayCode: string;
+  entityType: 'Person' | 'Vehicle';
+  firstStartUtc: string;
+  lastEndUtc: string;
+  cameraIds: string[];
+  memberTrackIds: string[];
+};
+
 export type QueryResult = {
   kind: 'rows' | 'value' | 'groups' | 'buckets' | 'comparison' | 'withheld' | 'empty';
   tracks: QueryTrackRow[] | null;
   events: QueryEventRow[] | null;
+  /** Present only for Entity rows. */
+  entities?: QueryEntityRow[] | null;
   /** `totalIsLowerBound`: coverage is incomplete, so `total` counts only the analysed part ("at least"). */
   truncation: { truncated: boolean; returned: number; total: number; limit: number; totalIsLowerBound: boolean } | null;
   value: number | null;
@@ -246,6 +259,7 @@ export function reasonText(reason: string): string {
     case 'plates_not_configured': return 'plate reading is not configured on this installation';
     case 'plate_coverage_integrity_fault': return 'plate coverage could not be verified';
     case 'entity_data_unavailable': return 'no Entity exists until ReID candidates are confirmed (S7)';
+    case 'operator_confirmed_membership_only': return 'Entities count only Tracks an operator confirmed, never candidates';
     case 'notConfigured': return 'similarity is not configured on this installation';
     case 'pending': return 'the Track has not been embedded yet';
     default: return reason;

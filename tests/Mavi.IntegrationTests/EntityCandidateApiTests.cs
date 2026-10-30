@@ -368,6 +368,19 @@ public sealed class EntityCandidateApiTests(PostgresFixture fixture)
             Assert.Equal(entity.Id, stored.EntityId);
         }
 
+        // The S9 Entity unit now has data: the contract says so, and a count reads the confirmed membership (ADR-023 §9).
+        var contract = await host.GetJsonAsync("/api/query/contract");
+        var entityUnit = contract.GetProperty("units").EnumerateArray().Single(unit => unit.GetProperty("unit").GetString() == "entity");
+        Assert.True(entityUnit.GetProperty("dataAvailable").GetBoolean());
+        using (var counted = await host.Client.PostAsync("/api/query", new StringContent(
+                   "{\"contractVersion\":\"mavi-query-v1\",\"unit\":\"entity\",\"where\":{\"timeWindow\":{\"fromUtc\":\"2026-10-30T09:00:00Z\"," +
+                   "\"toUtc\":\"2026-10-30T11:00:00Z\"}},\"operation\":{\"op\":\"countDistinct\",\"field\":\"camera\"}}", Encoding.UTF8, "application/json")))
+        {
+            Assert.Equal(HttpStatusCode.OK, counted.StatusCode);
+            var envelope = await counted.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(2, envelope.GetProperty("result").GetProperty("value").GetInt64());
+        }
+
         var view = await host.GetJsonAsync($"/api/entities/{(await host.EntityIdsAsync(a.TrackIds[0]))[a.TrackIds[0]]}");
         Assert.Equal("Unknown", view.GetProperty("identityStatus").GetString());
         Assert.Equal(EntityCandidateLabels.Entity, view.GetProperty("label").GetString());

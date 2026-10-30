@@ -54,7 +54,8 @@ public static class StructuredQueryEndpoints
             : Refused(outcome.Refusal!, outcome.StatusCode);
     }
 
-    private static IResult ContractAsync(HttpContext context, IServiceProvider services)
+    private static async Task<IResult> ContractAsync(HttpContext context, IServiceProvider services, IStructuredQueryRepository repository,
+        CancellationToken cancellationToken)
     {
         if (context.Request.Query.Count > 0)
             return Refused(new QueryRefusal(QueryRefusalCodes.UnknownMember, "", "This route takes no query parameters."));
@@ -70,11 +71,13 @@ public static class StructuredQueryEndpoints
                     [.. item.Values]))
                 .ToList();
 
+        // The Entity unit has data once an operator has confirmed an Entity here (ADR-023 §9).
+        var entitiesAvailable = await repository.AnyConfirmedEntityAsync(cancellationToken);
         var units = new[] { QueryUnit.Track, QueryUnit.Event, QueryUnit.Entity }
             .Select(unit => new QueryUnitVocabularyResponse(
                 QueryContract.ToWire(unit),
-                unit != QueryUnit.Entity,
-                unit == QueryUnit.Entity ? StructuredQueryService.EntityUnavailableReason : null,
+                unit != QueryUnit.Entity || entitiesAvailable,
+                unit == QueryUnit.Entity && !entitiesAvailable ? StructuredQueryService.EntityUnavailableReason : null,
                 QueryContract.Predicates[unit],
                 QueryContract.GroupDimensions[unit],
                 QueryContract.DistinctFields[unit]))

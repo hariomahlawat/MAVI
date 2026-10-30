@@ -129,9 +129,9 @@ public sealed class StructuredQueryEvaluatorTests
     }
 
     [Fact]
-    public async Task TheEntityUnitIsEmptyWithItsReasonAndReadsNothing()
+    public async Task TheEntityUnitIsEmptyWithItsReasonWhileNoEntityIsConfirmed()
     {
-        var repository = new FakeRepository(complete: true);
+        var repository = new FakeRepository(complete: true) { Entities = [] };
         var query = StructuredQueryParser.Parse("""
             {"contractVersion":"mavi-query-v1","unit":"entity",
              "where":{"timeWindow":{"fromUtc":"2026-09-21T08:00:00Z","toUtc":"2026-09-21T14:00:00Z"}},"operation":{"op":"count"}}
@@ -141,8 +141,39 @@ public sealed class StructuredQueryEvaluatorTests
         Assert.Equal(("empty", StructuredQueryService.EntityUnavailableReason), (outcome.Envelope!.Result.Kind, outcome.Envelope.Result.Reason));
         Assert.Null(outcome.Envelope.Result.Value);
         Assert.False(outcome.Envelope.Coverage.Complete);
-        Assert.Equal(0, repository.Reads);
+        Assert.Equal(1, repository.Reads);
     }
+
+    [Fact]
+    public async Task TheEntityUnitCountsConfirmedEntitiesOncePerCameraWhereTheyHaveAMember()
+    {
+        QueryEntityMember Member(int id, Guid camera, int minutes) =>
+            new(Id(id), camera, camera == CameraA ? "A" : "B", "Camera", From.AddMinutes(minutes), From.AddMinutes(minutes + 1));
+        var repository = new FakeRepository(complete: true)
+        {
+            Entities =
+            [
+                new QueryEntityRecord(Id(50), "P-000000000050", EntityType.Person, [Member(1, CameraA, 70), Member(2, CameraB, 10)]),
+                new QueryEntityRecord(Id(51), "V-000000000051", EntityType.Vehicle, [Member(3, CameraA, 200)]),
+            ],
+        };
+        async Task<QueryResultResponse> Run(string operation) =>
+            (await new StructuredQueryService(repository, TimeProvider.System).EvaluateAsync(EntityQuery(operation), default)).Envelope!.Result;
+
+        Assert.Equal(2, (await Run("{\"op\":\"count\"}")).Value);
+        Assert.Equal(2, (await Run("{\"op\":\"countDistinct\",\"field\":\"camera\"}")).Value);
+        Assert.Equal([2L, 1L], (await Run("{\"op\":\"groupBy\",\"by\":\"camera\"}")).Groups!.Select(group => group.Count));
+        // Anchored at the earliest member: the Person Entity falls in the first hour, the Vehicle in the fourth.
+        Assert.Equal([1L, 0L, 0L, 1L, 0L, 0L], (await Run("{\"op\":\"timeBucket\",\"bucketSeconds\":3600}")).Buckets!.Select(bucket => bucket.Count));
+        var first = Assert.Single((await Run("{\"op\":\"first\"}")).Entities!);
+        Assert.Equal((Id(50), From.AddMinutes(10), From.AddMinutes(71)), (first.EntityId, first.FirstStartUtc, first.LastEndUtc));
+        Assert.Equal([Id(1), Id(2)], first.MemberTrackIds);
+    }
+
+    private static StructuredQuery EntityQuery(string operation) => StructuredQueryParser.Parse(
+        "{\"contractVersion\":\"mavi-query-v1\",\"unit\":\"entity\"," +
+        "\"where\":{\"timeWindow\":{\"fromUtc\":\"2026-09-21T08:00:00Z\",\"toUtc\":\"2026-09-21T14:00:00Z\"}}," +
+        "\"operation\":" + operation + "}").Query!;
 
     [Fact]
     public async Task CompleteCoverageKeepsAnExactFindTotal()
@@ -185,6 +216,8 @@ public sealed class StructuredQueryEvaluatorTests
 
         public QueryRefusal? Refusal { get; init; }
 
+        public IReadOnlyList<QueryEntityRecord>? Entities { get; init; }
+
         public Task<QueryRefusal?> CheckCamerasAsync(IReadOnlyList<Guid> cameraIds, CancellationToken cancellationToken) =>
             Task.FromResult<QueryRefusal?>(null);
 
@@ -204,6 +237,17 @@ public sealed class StructuredQueryEvaluatorTests
         {
             Reads++;
             throw new NotSupportedException();
+        }
+
+        public Task<bool> AnyConfirmedEntityAsync(CancellationToken cancellationToken) => Task.FromResult(Entities is { Count: > 0 });
+
+        public Task<QueryEntityRead> ReadEntitiesAsync(
+            QueryPredicates where, IReadOnlyList<QueryReadWindow> windows, CancellationToken cancellationToken)
+        {
+            Reads++;
+            var coverage = new QueryCoverageComponentResponse("entities", "query", true);
+            return Task.FromResult(new QueryEntityRead(Entities is { Count: > 0 }, new QueryRead<QueryEntityRecord>(
+                null, 7, [], [.. windows.Select(_ => new QueryWindowRead<QueryEntityRecord>(Entities ?? [], [coverage]))])));
         }
     }
 }

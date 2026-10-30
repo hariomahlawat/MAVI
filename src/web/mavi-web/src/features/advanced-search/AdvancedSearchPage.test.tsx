@@ -281,6 +281,24 @@ describe('Advanced Search', () => {
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });
 
+  it('lists operator-confirmed Entities with a link to each, labelled as a judgement and not an identification', async () => {
+    vi.mocked(runQuery).mockResolvedValue(envelope({ unit: 'entity' }, {
+      kind: 'rows', value: null, truncation: { truncated: false, returned: 1, total: 1, limit: 50, totalIsLowerBound: false },
+      entities: [{
+        entityId: 'E1', displayCode: 'P-0000000000e3', entityType: 'Person', firstStartUtc: '2026-09-21T08:10:00Z',
+        lastEndUtc: '2026-09-21T09:30:00Z', cameraIds: [cameraId, 'c2'], memberTrackIds: [trackId, 't2'],
+      }],
+    }));
+    const user = userEvent.setup();
+    renderWithApp(<AdvancedSearchPage />);
+    await user.click(await screen.findByRole('radio', { name: /Entities/ }));
+    await user.click(screen.getByRole('button', { name: 'Run query' }));
+
+    const table = await screen.findByRole('table', { name: 'Entities' });
+    expect(within(table).getByText('P-0000000000e3 · Person (operator-confirmed, not identification)')).toBeInTheDocument();
+    expect(within(table).getByRole('link', { name: 'Open Entity' })).toHaveAttribute('href', '/entities?entity=e1');
+  });
+
   it('drills through from Track and Event rows', async () => {
     vi.mocked(runQuery).mockResolvedValueOnce(envelope({}, {
       kind: 'rows', value: null,

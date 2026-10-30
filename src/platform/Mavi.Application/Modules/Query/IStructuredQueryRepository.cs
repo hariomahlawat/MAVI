@@ -54,4 +54,20 @@ public interface IStructuredQueryRepository
         QueryPredicates where,
         IReadOnlyList<QueryReadWindow> windows,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Operator-confirmed Entities (ADR-023 §9) with their member Tracks visible in the snapshot, overlapping each
+    /// window and on an included camera; never candidates. The result also says whether this installation has any
+    /// confirmed Entity at all.
+    /// </summary>
+    /// <summary>Whether any Track carries an operator-confirmed <c>EntityId</c> in this installation.</summary>
+    Task<bool> AnyConfirmedEntityAsync(CancellationToken cancellationToken);
+
+    Task<QueryEntityRead> ReadEntitiesAsync(
+        QueryPredicates where,
+        IReadOnlyList<QueryReadWindow> windows,
+        CancellationToken cancellationToken);
 }
+
+/// <summary>The Entity read: whether any Entity with a member Track exists here, and the read itself.</summary>
+public sealed record QueryEntityRead(bool AnyConfirmed, QueryRead<QueryEntityRecord> Read);

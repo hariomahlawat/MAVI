@@ -40,6 +40,9 @@ public sealed class StructuredQueryService(
     public const string EntityUnavailableMessage =
         "No Entity exists until ReID candidates are confirmed (S7, ADR-023). The Entity unit is defined, and has no data yet.";
 
+    /// <summary>The Entity unit counts operator-confirmed membership only, never candidates (ADR-023 §9).</summary>
+    public const string EntityConfirmedOnlyReason = "operator_confirmed_membership_only";
+
     public const string CoverageIncompleteReason = "coverage_incomplete";
 
     public async Task<StructuredQueryOutcome> EvaluateAsync(StructuredQuery query, CancellationToken cancellationToken)
@@ -57,12 +60,7 @@ public sealed class StructuredQueryService(
 
         return query.Unit switch
         {
-            QueryUnit.Entity => StructuredQueryOutcome.Answer(Envelope(
-                query, canonical, fingerprint,
-                new QuerySnapshotResponse(null, evaluatedAtUtc),
-                new QueryIdentityResponse([]),
-                [new QueryCoverageComponentResponse("entities", "query", false, Reason: EntityUnavailableReason)],
-                new QueryResultResponse("empty", Reason: EntityUnavailableReason, Message: EntityUnavailableMessage))),
+            QueryUnit.Entity => await EvaluateEntitiesAsync(query, canonical, fingerprint, evaluatedAtUtc, cancellationToken),
             QueryUnit.Event => await EvaluateEventsAsync(query, canonical, fingerprint, evaluatedAtUtc, cancellationToken),
             _ when query.Where.SimilarTo is not null => await EvaluateSimilarAsync(query, canonical, fingerprint, evaluatedAtUtc, cancellationToken),
             _ => await EvaluateTracksAsync(query, canonical, fingerprint, evaluatedAtUtc, cancellationToken),
@@ -128,6 +126,32 @@ public sealed class StructuredQueryService(
         var result = StructuredQueryEvaluator.EvaluateEvents(
             query.Operation, query.Where.Window, read.Windows[0].Records, read.Windows.Count > 1 ? read.Windows[1].Records : null);
         return Gate(query, canonical, fingerprint, new QuerySnapshotResponse(read.SnapshotVisibilitySequence, evaluatedAtUtc), identity, coverage, result);
+    }
+
+    /// <summary>
+    /// Operator-confirmed Entities (ADR-023 §9). An installation where no Entity has a member Track answers
+    /// <c>empty</c> with <c>entity_data_unavailable</c>, as before S7: no rows, no zero count, no error.
+    /// </summary>
+    private async Task<StructuredQueryOutcome> EvaluateEntitiesAsync(
+        StructuredQuery query, string canonical, string fingerprint, DateTimeOffset evaluatedAtUtc, CancellationToken cancellationToken)
+    {
+        var entities = await repository.ReadEntitiesAsync(query.Where, Windows(query), cancellationToken);
+        if (entities.Read.Refusal is { } refusal)
+            return StructuredQueryOutcome.Refuse(refusal);
+        if (!entities.AnyConfirmed)
+            return StructuredQueryOutcome.Answer(Envelope(
+                query, canonical, fingerprint,
+                new QuerySnapshotResponse(null, evaluatedAtUtc),
+                new QueryIdentityResponse([]),
+                [new QueryCoverageComponentResponse("entities", "query", false, Reason: EntityUnavailableReason)],
+                new QueryResultResponse("empty", Reason: EntityUnavailableReason, Message: EntityUnavailableMessage)));
+
+        var read = entities.Read;
+        var coverage = read.Windows.SelectMany(window => window.Coverage).ToList();
+        var result = StructuredQueryEvaluator.EvaluateEntities(
+            query.Operation, query.Where.Window, read.Windows[0].Records, read.Windows.Count > 1 ? read.Windows[1].Records : null);
+        return Gate(query, canonical, fingerprint, new QuerySnapshotResponse(read.SnapshotVisibilitySequence, evaluatedAtUtc),
+            new QueryIdentityResponse(read.Cameras), coverage, result);
     }
 
     /// <summary>
