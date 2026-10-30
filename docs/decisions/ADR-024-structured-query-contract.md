@@ -1,6 +1,6 @@
 # ADR-024: The structured query contract (PoC Stage 8)
 
-**Status:** **Proposed**, 2026-10-30. Sent to the owner for ratification through the coordinator session. Nothing built on it merges before it is accepted (register row C8.1).
+**Status:** **Accepted**, 2026-10-30. The owner ratified this ADR as written ("ratify ADR-024"), relayed by the coordinator session. Register: owner decision D-S9-1.
 
 **Date:** 2026-10-30
 
