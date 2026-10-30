@@ -1371,6 +1371,8 @@ def check_contracts(errors: list[str]) -> None:
         "plate-lease-v1", "plate-complete-v1", "plate-predictions-v1",
         # PoC S4 embedding control plane (ADR-021).
         "embedding-lease-v1", "embedding-complete-v1", "embedding-text-query-lease-v1", "embedding-text-query-complete-v1",
+        # PoC S9 structured query contract (ADR-024).
+        "structured-query-v1",
     ]
     pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:
@@ -1396,6 +1398,37 @@ def check_contracts(errors: list[str]) -> None:
     check_plate_contract(errors)
     check_zero_shot_attribute_release(errors)
     check_embedding_contract(errors)
+    check_structured_query_corpus(errors)
+
+
+def check_structured_query_corpus(errors: list[str]) -> None:
+    """ADR-024 §1: the schema and the platform parser are held to one frozen golden corpus.
+
+    Every case states the schema's expected verdict (``schemaValid``); the .NET tests hold the parser to the same file.
+    A refusal the schema cannot state (an inverted window, a bucket count, a plate text that normalises too short, a
+    reference that must exist) is schemaValid and marked by its expected refusal, so neither side can drift silently.
+    """
+    schema = json.loads((ROOT / "contracts/schemas/structured-query-v1.schema.json").read_text(encoding="utf-8"))
+    corpus = json.loads((ROOT / "contracts/test-vectors/structured-query-v1-golden.json").read_text(encoding="utf-8"))
+    validator = jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker())
+    names: set[str] = set()
+    for case in corpus["cases"]:
+        name = case["name"]
+        if name in names:
+            fail(f"Structured query golden case {name} is not unique.", errors)
+        names.add(name)
+        if case["setup"] not in ("none", "derived", "underived"):
+            fail(f"Structured query golden case {name} has an unknown setup.", errors)
+        expect = case["expect"]
+        if expect["status"] == 200 and ("refusal" in expect or "envelope" not in expect):
+            fail(f"Structured query golden case {name} must carry an expected envelope and no refusal.", errors)
+        if expect["status"] != 200 and "refusal" not in expect:
+            fail(f"Structured query golden case {name} must carry an expected refusal.", errors)
+        if validator.is_valid(case["query"]) != case["schemaValid"]:
+            verdict = "accepts" if case["schemaValid"] is False else "rejects"
+            fail(f"structured-query-v1 schema {verdict} golden case {name}, against the corpus.", errors)
+        if expect["status"] == 200 and not case["schemaValid"]:
+            fail(f"Structured query golden case {name} is answered but the schema rejects it.", errors)
 
 
 def embedding_identity(manifest_path: Path, profile_path: Path) -> tuple[str, str]:

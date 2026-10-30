@@ -1,0 +1,11 @@
+{
+  "contractVersion": "mavi-query-v1",
+  "unit": "track",
+  "where": {
+    "timeWindow": { "fromUtc": "2026-10-30T08:00:00Z", "toUtc": "2026-10-30T14:00:00Z" },
+    "cameraIds": ["0199a3b2-7c41-7d1e-9a0b-4f2c8e6d1a35"],
+    "objectClass": "Person",
+    "line": { "lineId": "0199a3b2-8d52-7e2f-8b1c-5a3d9f7e2b46", "direction": "aToB" }
+  },
+  "operation": { "op": "timeBucket", "bucketSeconds": 3600 }
+}
