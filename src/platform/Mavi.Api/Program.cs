@@ -154,6 +154,7 @@ app.MapEntityEndpoints();
 app.MapTrackEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapAnalyticEventEndpoints();
+app.MapStructuredQueryEndpoints();
 app.MapArtifactEndpoints();
 app.MapSceneEndpoints();
 app.MapSceneAnalyticsEndpoints();

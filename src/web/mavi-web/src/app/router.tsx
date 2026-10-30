@@ -14,6 +14,7 @@ import SystemPage from '../features/system/SystemPage';
 import FacesPage from '../features/faces/FacesPage';
 import EntitiesPage from '../features/entities/EntitiesPage';
 import VisualSearchPage from '../features/visual-search/VisualSearchPage';
+import AdvancedSearchPage from '../features/advanced-search/AdvancedSearchPage';
 import NotFoundPage from './NotFoundPage';
 
 /**
@@ -37,6 +38,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'processing', element: <ProcessingQueuePage />, handle: { surface: 'processing' } },
       { path: 'processing/:videoAssetId', element: <ProcessingPage />, handle: { surface: 'processing-detail' } },
       { path: 'search', element: <VisualSearchPage />, handle: { surface: 'search' } },
+      { path: 'query', element: <AdvancedSearchPage />, handle: { surface: 'query' } },
       { path: 'review/video/:videoAssetId', element: <VideoReviewPage />, handle: { surface: 'review' } },
       { path: 'faces', element: <FacesPage />, handle: { surface: 'faces' } },
       { path: 'entities', element: <EntitiesPage />, handle: { surface: 'entities' } },
