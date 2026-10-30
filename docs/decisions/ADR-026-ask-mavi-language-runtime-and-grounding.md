@@ -135,3 +135,49 @@ The owner accepted this amendment on condition ("Accept, conditional", 2026-10-3
 | 1.5B Q8_0, GTX 1650 Ti | `297f62993d41b686a95b333aaf38d0b32808bbaa7e515a341378f0526acc58a6` | identical |
 
   The reverse recordings are kept under `E:\MAVI-Controlled\PoC\S10\reverse\`. A new recording set (another device, or prompt v2) repeats this check. If any output differs, reuse is switched off for that set and the set is re-recorded.
+
+## Amendment 2026-10-31 (proposed, D-S10-9): prompt version `mavi-ask-prompt-v2` (§4, §6)
+
+Proposed under owner decision D-S10-8 ("Keep bar, follow-up"); not part of the decision until accepted. The C9.2 bar (D-S10-4) is unchanged.
+
+**Why.** On the v1 held split the 7B pack answered two questions about places the site does not have ("the Central Station camera", "the Loading dock zone") for the whole site. The reason: gating removed the reference the model could not match, and the model then wrote a valid whole-site query. The S10 cold review also deferred three items that change prompt or grammar bytes: plate text grounded in the question (m2), tighter single-word gating (m3), and daylight-saving offsets (m8).
+
+**Version 1 is kept byte for byte.** The v1 prompt, grammar, gating and translator path stay in the code, so the v1 recordings keep replaying in CI. They are never re-recorded. The API uses v2 (`AskPrompt.TemplateVersion`). A recording set replays through the version it names.
+
+1. **Unknown places are refused by the platform, before the model (`AskPlaceReferences`).**
+   - The question's place references are found by three fixed patterns:
+     - (a) the words before a singular `camera`, `cam`, `zone` or `line`, back to an article, preposition, question word or sentence start. Ranking words ("the busiest camera") and fixed compounds ("line crossings", "line direction", "zone dwell") are excluded;
+     - (b) such a noun followed by a number or a capitalised name ("camera 14", "zone C");
+     - (c) a run of two or more capitalised words that is not at a sentence start and is not contract vocabulary ("Central Station").
+   - A reference names the catalogue items of its kind whose names contain all its words. A camera can also be named by the number its code ends with.
+   - Gating offers the named items to the model. A reference that names nothing refuses the request: `unknown_reference` at a new stage `question`, with platform text. The model is not called.
+   - **Corpus accounting:** this refusal matches an expected `unknown_reference`. Recordings mark these rows with the stage and no output, and CI re-derives the refusal from the current code.
+   - **Trade-offs:** a question whose wording looks like an unknown place is refused rather than answered. A place named outside the three patterns ("the parking garage") is still left to the model, as in v1.
+2. **Plate text grounded in the question (m2).** After the strict parser, a plate text is accepted only when its normalised form (`mavi-plate-normalisation-v1`) occurs in the question's letters and digits, upper-cased and joined. Otherwise the request is refused with `plate_text_ungrounded` at stage `translation`.
+3. **Tighter gating (m3).**
+   - A name with one significant word ("Crossing") is offered only for "<name> <kind>" ("crossing zone").
+   - A name that ends in its kind ("Count line") is offered only for that phrase.
+   - A line side labelled "In" or "Out" is offered only for a synonym or a verb phrase ("went in", "walked out"), never for the bare preposition.
+   - "To door" and "From door" are offered only for their phrase.
+4. **Every offset of the site zone (m8).**
+   - The grammar's instant pattern admits each offset the site zone uses from the reference date minus 366 days to the reference date plus 2 days.
+   - The translator still refuses an offset that is not the zone's own at that instant.
+   - For a zone with daylight saving, the prompt names both offsets. For a single-offset zone (the demo's Asia/Kolkata) the time sentence is unchanged.
+5. **One query shape per unit.**
+   - The grammar offers Track, Event (and Entity, when the question names entities) as separate shapes.
+   - Each shape has only the predicates, `groupBy`/`top` dimensions and `countDistinct` fields the contract allows for that unit. An Event zone names the zone only.
+   - A predicate the unit lacks therefore cannot be decoded. Like gating, this only removes choices, and the strict parser remains the authority.
+6. **Prompt text** (chosen on the development set only, the 60 v1 questions):
+   - the refusal sentence also covers "any other place … the site list does not have";
+   - four rules: durations in milliseconds; loitering as a Track zone predicate; "by hour" as `timeBucket` 3600, never `groupBy`; "show", "list" and "find" as `find` even for one thing;
+   - one worked example of a zone question "by hour";
+   - the JSON the model is shown is written as the grammar lets it write it (`+05:30`, not `+05:30`).
+7. **Measurement (§6).**
+   - The v1 held split is spent and becomes development data.
+   - v2 is measured once per model on a **fresh held split** (`contracts/test-vectors/ask-mavi-questions-v2.json`). That split is written under the authorship rule the owner ratified and committed with its SHA-256 before any v2 model output existed.
+   - The protocol, prompt, grammar and pre-check are frozen by commit before the held runs.
+   - The reverse-order byte-identity check (D-S10-7) is repeated for each v2 recording set.
+
+**Trade-off accepted.**
+- Deterministic place checks and a narrower grammar trade some recall for the guarantee that a named place the site lacks is refused, not answered for the whole site. A valid question with place-like wording, or an item named by a partial phrase the patterns do not catch, may be refused.
+- Both outcomes are visible: a refusal, or "Interpreted as". Neither can produce a number the site did not compute.

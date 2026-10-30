@@ -15,6 +15,10 @@ role is bound, one at a time, and for each question records:
 4. **Latency**: client wall time and the server's translation/evaluation split.
 
     python tools/poc/ask_e2e_evidence.py run --api http://127.0.0.1:62210 --recordings <recordings.json> --out <dir>
+        [--questions contracts/test-vectors/ask-mavi-questions-v2.json]
+
+Prompt v2 (ADR-026 amendment D-S10-9) refuses a question naming a place the site lacks before the model, at stage
+``question``; that refusal matches an expected ``unknown_reference`` as the model's own does.
 
 Every number is pipeline output, not ground truth; the held split's exact-match rate is the measured claim.
 """
@@ -90,9 +94,13 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def run(api: str, recordings_path: Path | None, out: Path) -> int:
+# The stages whose refusal is the expected refusal: the model's, and (v2) the platform's own unknown-place refusal.
+REFUSAL_STAGES = {"outside_contract": ("model",), "unknown_reference": ("model", "question")}
+
+
+def run(api: str, recordings_path: Path | None, out: Path, questions_path: Path = QUESTIONS) -> int:
     out.mkdir(parents=True, exist_ok=False)
-    corpus = json.loads(QUESTIONS.read_text(encoding="utf-8"))
+    corpus = json.loads(questions_path.read_text(encoding="utf-8"))
     cameras = {camera["code"]: camera for camera in json.loads(CATALOGUE.read_text(encoding="utf-8"))["cameras"]}
     recorded = {}
     if recordings_path:
@@ -110,7 +118,7 @@ def run(api: str, recordings_path: Path | None, out: Path) -> int:
                 raise SystemExit(f"the expected query of {question['id']} is refused by the platform: {envelope}")
             expected = {"kind": "query", "resolvedQuery": envelope["resolvedQuery"], "fingerprint": envelope["queryFingerprint"]}
         else:
-            expected = {"kind": "refusal", "stage": "model", "code": expect["reason"]}
+            expected = {"kind": "refusal", "code": expect["reason"]}
 
         started = time.perf_counter()
         code, response = post(api, "/api/ask", {"question": question["question"], "referenceDate": corpus["site"]["referenceDate"]})
@@ -126,7 +134,8 @@ def run(api: str, recordings_path: Path | None, out: Path) -> int:
         else:
             refusal = response["refusal"]
             got = {"kind": "refusal", "stage": refusal["stage"], "code": refusal["code"], "path": refusal["path"]}
-            passed = expected["kind"] == "refusal" and refusal["stage"] == "model" and refusal["code"] == expected["code"]
+            passed = (expected["kind"] == "refusal" and refusal["code"] == expected["code"]
+                      and refusal["stage"] in REFUSAL_STAGES.get(expected["code"], ()))
             grounded = response["envelope"] is None and response["interpretation"] is None
 
         prompt_bound = None
@@ -162,7 +171,8 @@ def run(api: str, recordings_path: Path | None, out: Path) -> int:
         "api": api,
         "host": {"platform": platform.platform(), "machine": platform.machine()},
         "status": status,
-        "questionsSha256": sha256(QUESTIONS),
+        "questions": questions_path.name,
+        "questionsSha256": sha256(questions_path),
         "catalogueSha256": sha256(CATALOGUE),
         "recordings": recordings_path.name if recordings_path else None,
         "translation": {"development": split_summary("development"), "held": split_summary("held")},
@@ -192,8 +202,9 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--api", required=True)
     run_parser.add_argument("--recordings", type=Path)
     run_parser.add_argument("--out", type=Path, required=True)
+    run_parser.add_argument("--questions", type=Path, default=QUESTIONS)
     args = parser.parse_args(argv)
-    return run(args.api, args.recordings, args.out)
+    return run(args.api, args.recordings, args.out, args.questions)
 
 
 if __name__ == "__main__":
