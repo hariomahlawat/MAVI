@@ -122,8 +122,16 @@ The owner adopted this amendment ("agree", 2026-10-30). It adds to §4:
 
    It is a pure function of the question and the catalogue and only removes choices. Trade-off: indirect phrasing ("the gate" for a line named "Arch gate") cannot reference that item. The query then lacks the predicate, which "Interpreted as" shows, or the model refuses. Measured effect on the development split: the 7B pack rose from 12/20 to 16/20, and the 1.5B pack from 8/20 to 10–11/20.
 
-## Proposed amendment (not accepted; with the owner, D-S10-7)
+## Amendment 2026-10-30 (accepted, D-S10-7): prompt-prefix cache reuse (§6)
 
-Until the owner accepts it, the text above governs.
+The owner accepted this amendment on condition ("Accept, conditional", 2026-10-30), and the condition is met. In §6, "no prompt-cache reuse" is replaced by: **the cached prompt prefix is reused (`cache_prompt: true`); recordings are made the same way.**
 
-2. **Prefix-cache reuse (§6).** §6 says "no prompt-cache reuse". The implementation reuses the cached prompt prefix (`cache_prompt: true`), because the prompt is about 6,400 tokens and the question is the only part that changes. Without reuse a question costs about 17 s on the laptop GPU for the 1.5B pack and several minutes for the 7B pack on that GPU. The amendment is proposed only with measured evidence: the same corpus asked in reverse order gives byte-identical model outputs. The recordings are made with reuse, as the platform runs.
+- **Why.** The prompt is about 6,400 tokens and only the question changes. Without reuse, a question costs about 17 s on the laptop GPU for the 1.5B pack and several minutes for the 7B pack on that GPU.
+- **Evidence.** Each model was recorded over all 60 corpus questions, once in corpus order and once in reverse order. All 60 model outputs were byte-identical, so reuse does not change what the model writes. Hash = SHA-256 of the compact JSON array of the 60 outputs in corpus order.
+
+| Pack, device | Forward hash | Reverse hash |
+|---|---|---|
+| 7B Q4_K_M, GTX 1650 Ti partial offload | `82b2fe6ff8f8013f92501e4383e0f5a8698377c6e7b2b4332dcf74449f640958` | identical |
+| 1.5B Q8_0, GTX 1650 Ti | `297f62993d41b686a95b333aaf38d0b32808bbaa7e515a341378f0526acc58a6` | identical |
+
+  The reverse recordings are kept under `E:\MAVI-Controlled\PoC\S10everse\`. A new recording set (another device, or prompt v2) repeats this check. If any output differs, reuse is switched off for that set and the set is re-recorded.

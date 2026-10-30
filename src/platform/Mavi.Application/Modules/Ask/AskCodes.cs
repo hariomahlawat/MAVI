@@ -39,7 +39,7 @@ public static class AskCodes
     public static string ModelRefusalMessage(string reason) => reason switch
     {
         OutsideContract =>
-            "MAVI can't ask that. Ask MAVI answers only what a structured query can express: counts, lists, groups, time buckets, " +
+            "Ask MAVI answers only what a structured query can express: counts, lists, groups, time buckets, " +
             "rankings and comparisons of Tracks and Events, by time, camera, class, zone, line, attributes and plate text.",
         UnknownReference =>
             "The question names a camera, zone or line that is not configured on this site.",
