@@ -73,7 +73,11 @@ export function canonicalUtc(value: string): string | null {
   const text = value.trim();
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|\+00:00)$/.test(text)) return null;
   const parsed = Date.parse(text);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+  if (!Number.isFinite(parsed)) return null;
+  const iso = new Date(parsed).toISOString();
+  // Date.parse rolls an impossible date over (2026-02-30 becomes 2026-03-02); the instant must reproduce the date and
+  // time as entered, or it is refused here as the API would refuse it, never sent as a different window.
+  return iso.slice(0, 19) === text.slice(0, 19) ? iso : null;
 }
 
 /** Whether a predicate is offered for the unit, by the published contract. */

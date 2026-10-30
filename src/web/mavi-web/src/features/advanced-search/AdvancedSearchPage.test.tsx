@@ -9,7 +9,7 @@ import { getSystemConfig } from '../../api/system';
 import { listVideos, type VideoAsset } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
 import AdvancedSearchPage, { trackReviewPath, truncationText } from './AdvancedSearchPage';
-import { buildQuery, initialBuilderState } from './queryBuilder';
+import { buildQuery, canonicalUtc, initialBuilderState } from './queryBuilder';
 
 vi.mock('../../api/cameras', () => ({ listCameras: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
@@ -162,6 +162,19 @@ describe('the query builder', () => {
   it('says a partial list total is only a lower bound', () => {
     expect(truncationText({ truncated: false, returned: 2, total: 2, limit: 50, totalIsLowerBound: true }))
       .toBe('Showing 2 of at least 2 found so far: not every part of the scope has been analysed.');
+  });
+
+  it('refuses an impossible calendar date rather than sending the rolled-over window', () => {
+    expect(canonicalUtc('2026-02-30T08:00:00Z')).toBeNull();
+    expect(canonicalUtc('2026-09-21T24:00:00Z')).toBeNull();
+    expect(canonicalUtc('2026-02-28T08:00:00.5+00:00')).toBe('2026-02-28T08:00:00.500Z');
+    const window = initialBuilderState({ fromUtc: '2026-02-30T08:00:00Z', toUtc: '2026-03-03T08:00:00Z' });
+    expect(buildQuery(window, contract).query).toBeNull();
+    const baseline = {
+      ...initialBuilderState({ fromUtc: '2026-09-21T08:00:00Z', toUtc: '2026-09-21T14:00:00Z' }),
+      op: 'compare' as const, baselineFromUtc: '2026-09-31T08:00:00Z', baselineToUtc: '2026-10-01T14:00:00Z',
+    };
+    expect(buildQuery(baseline, contract).problem).toMatch(/baseline/);
   });
 
   it('refuses to build a window without an explicit UTC offset', () => {
