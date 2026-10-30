@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import {
@@ -274,6 +274,18 @@ export default function EntitiesPage() {
     setParams(next);
     setSelected(null);
   };
+
+  // A decision can empty the page it was made on (the candidate leaves the list): move back to the last page that still
+  // has candidates, so the remaining work is never hidden behind an empty page.
+  const listed = list.data;
+  useEffect(() => {
+    if (!listed || listed.candidates.length > 0 || listed.offset === 0) return;
+    const last = listed.total > 0 ? Math.floor((listed.total - 1) / PAGE_SIZE) * PAGE_SIZE : 0;
+    const next = new URLSearchParams(params);
+    if (last === 0) next.delete('offset');
+    else next.set('offset', String(last));
+    setParams(next, { replace: true });
+  }, [listed, params, setParams]);
 
   return (
     <section className="page">

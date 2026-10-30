@@ -137,6 +137,15 @@ describe('PoC S7 Entities page', () => {
     expect(await screen.findByText(/will not be proposed again/)).toBeInTheDocument();
   });
 
+  it('moves back to the last page with candidates when a decision empties the page', async () => {
+    vi.mocked(listEntityCandidates).mockImplementation(async (filter) => (filter.offset ?? 0) >= 25
+      ? { ...list([]), offset: filter.offset ?? 0, total: 25 }
+      : { ...list(Array.from({ length: 25 }, (_, index) => candidate({ candidateId: `c${index}` }))), total: 25 });
+    renderWithApp(<EntitiesPage />, { route: '/entities?offset=25' });
+    expect(await screen.findByText('1–25 of 25')).toBeInTheDocument();
+    expect(screen.queryByText('No open candidates')).not.toBeInTheDocument();
+  });
+
   it('tells a non-operator that candidates are for operators only', async () => {
     vi.mocked(listEntityCandidates).mockRejectedValue(new ApiError({ status: 401, code: 'unauthorized', detail: 'x' }));
     renderWithApp(<EntitiesPage />, { route: '/entities' });
