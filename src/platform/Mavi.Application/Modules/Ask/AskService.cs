@@ -38,7 +38,10 @@ public sealed class AskService(
         var question = request.Question ?? string.Empty;
         var catalogue = await catalogueSource.ReadAsync(cancellationToken);
         var zoneId = SiteTimeZone(catalogue);
-        var referenceDate = request.ReferenceDate ?? AskSiteTime.Today(zoneId ?? "UTC", timeProvider.GetUtcNow());
+        // The zone is checked before it is used for anything, the default reference date included.
+        var zoneKnown = zoneId is not null && TimeZoneInfo.TryFindSystemTimeZoneById(zoneId, out _);
+        var referenceDate = request.ReferenceDate ??
+            (zoneKnown ? AskSiteTime.Today(zoneId!, timeProvider.GetUtcNow()) : DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime));
 
         AskResponse Refused(string stage, string code, string path, string message, AskModelResponse? model = null, long translationMs = 0) =>
             new(question, referenceDate, zoneId ?? string.Empty, AskCodes.Refused, null, null,
@@ -52,16 +55,10 @@ public sealed class AskService(
             return Refused(AskCodes.StageRuntime, AskCodes.SiteTimeZoneAmbiguous, "",
                 "The cameras are in different time zones and no site time zone is configured (Ask:SiteTimeZoneId).");
 
-        AskSiteTime siteTime;
-        try
-        {
-            siteTime = new AskSiteTime(zoneId, referenceDate);
-        }
-        catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
-        {
+        if (!zoneKnown)
             return Refused(AskCodes.StageRuntime, AskCodes.SiteTimeZoneInvalid, "",
                 $"The site time zone '{zoneId}' is not known on this host (Ask:SiteTimeZoneId, or the cameras' zone).");
-        }
+        var siteTime = new AskSiteTime(zoneId, referenceDate);
 
         var prompt = AskPrompt.Build(QueryContractVocabulary.Describe(attributeRelease), catalogue, siteTime, question);
         if (prompt.Prompt.Length > AskCodes.MaximumPromptCharacters)

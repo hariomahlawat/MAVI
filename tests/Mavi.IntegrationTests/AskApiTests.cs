@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Mavi.Application.Modules.Ask;
 using Mavi.Contracts.Api.Ask;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -146,6 +147,36 @@ public sealed class AskApiTests(PostgresFixture fixture)
         Assert.False(status!.Bound);
         Assert.False(status.Answering);
         Assert.Equal(AskCodes.LanguageUnavailable, status.Reason);
+    }
+
+    [Fact]
+    public async Task AnUnknownSiteTimeZoneIsRefusedEvenWithoutAReferenceDate()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        var runtime = new StubRuntime(CountQuery(world.CameraId));
+        await using var factory = new ApiTestFactory
+        {
+            Clock = world.Clock,
+            EnableSceneAnalyticsHost = false,
+            MediaRootOverride = world.MediaRoot,
+            EvidenceRootOverride = world.EvidenceRoot,
+        }.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Ask:SiteTimeZoneId", "Mars/Olympus_Mons");
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<ILanguageRuntime>();
+                services.AddSingleton<ILanguageRuntime>(runtime);
+            });
+        });
+        using var client = factory.CreateClient();
+
+        // No reference date: the default date must not be derived from a zone that does not exist.
+        using var response = await client.PostAsJsonAsync("/api/ask", new { question = "How many tracks today?" });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var answer = JsonSerializer.Deserialize<AskResponse>(await response.Content.ReadAsStringAsync(), JsonSerializerOptions.Web)!;
+        Assert.Equal(("runtime", AskCodes.SiteTimeZoneInvalid), (answer.Refusal!.Stage, answer.Refusal.Code));
+        Assert.Empty(runtime.Requests);
     }
 
     [Theory]
