@@ -72,7 +72,7 @@ public static class StructuredQueryEndpoints
         (await authorization.AuthorizeAsync(context.User, context, OperatorPolicy.Name)).Succeeded;
 
     private static async Task<IResult> ContractAsync(HttpContext context, IServiceProvider services, IStructuredQueryRepository repository,
-        IAuthorizationService authorization, CancellationToken cancellationToken)
+        Microsoft.Extensions.Options.IOptions<Mavi.Application.Modules.Identity.OperatorIdentityOptions> identity, CancellationToken cancellationToken)
     {
         if (context.Request.Query.Count > 0)
             return Refused(new QueryRefusal(QueryRefusalCodes.UnknownMember, "", "This route takes no query parameters."));
@@ -89,10 +89,13 @@ public static class StructuredQueryEndpoints
                 .ToList();
 
         // The Entity unit has data once an operator has confirmed an Entity here (ADR-023 §9).
-        // Whether any exists is itself Entity data: told to an operator only.
-        var isOperator = await IsOperatorAsync(context, authorization);
-        var entitiesAvailable = isOperator && await repository.AnyConfirmedEntityAsync(cancellationToken);
-        var entityReason = !isOperator ? EntityOperatorRequiredReason : entitiesAvailable ? null : StructuredQueryService.EntityUnavailableReason;
+        // Where no operator can exist (Identity:Mode disabled, or no operator configured) the Entity unit is never readable
+        // and the contract says so. Otherwise it states only whether a confirmed Entity exists, never which: this anonymous
+        // route is not challenged, so it cannot tell an operator from anyone else, and the unit itself is operator-only.
+        var operatorsPossible = Mavi.Application.Modules.Identity.OperatorIdentityPolicy.Disclose(identity.Value, null).OperatorsConfigured;
+        var entitiesAvailable = operatorsPossible && await repository.AnyConfirmedEntityAsync(cancellationToken);
+        var entityReason = !operatorsPossible ? EntityOperatorRequiredReason
+            : entitiesAvailable ? null : StructuredQueryService.EntityUnavailableReason;
         var units = new[] { QueryUnit.Track, QueryUnit.Event, QueryUnit.Entity }
             .Select(unit => new QueryUnitVocabularyResponse(
                 QueryContract.ToWire(unit),
