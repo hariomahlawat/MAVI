@@ -81,7 +81,7 @@ function entity(overrides: Partial<EntityResponse> = {}): EntityResponse {
     createdAtUtc: '2026-10-30T10:00:00Z', updatedAtUtc: '2026-10-30T10:00:00Z',
     members: [track('t1', 'POC-S2-11', E1), track('t2', 'POC-S2-13', E1)],
     confirmations: [candidate({ status: 'confirmed', entityId: E1, decision })],
-    state: 'Active', mergedIntoEntityId: null,
+    state: 'Active', mergedIntoEntityId: null, mergedFromEntityIds: [],
     history: [change({ sequence: 1 }), change({ sequence: 2, trackId: 't2' })],
     ...overrides,
   };
@@ -111,13 +111,15 @@ describe('PoC S11-full Entity corrections', () => {
           operatorId: 'development-unattributed', operatorDisplayName: 'development-unattributed', identitySource: 'development-unattributed' }),
       ],
       members: [track('t1', 'POC-S2-11', E1)],
+      mergedFromEntityIds: [E2],
     }));
     renderWithApp(<EntitiesPage />, { route: `/entities?entity=${E1}` });
 
     expect(await screen.findByText('P-0001')).toBeInTheDocument();
     expect(screen.getByText(ENTITY_LABEL)).toBeInTheDocument();
+    // The merge that brought members in is recorded under the merged Entity's id, so it is a subject too.
     expect(screen.getByRole('link', { name: 'Audit trail' }))
-      .toHaveAttribute('href', `/audit?subject=entity%3A${E1}&subject=entity-candidate%3Acand-1`);
+      .toHaveAttribute('href', `/audit?subject=entity%3A${E1}&subject=entity%3A${E2}&subject=entity-candidate%3Acand-1`);
     await user.click(screen.getByText('Membership history'));
     const history = screen.getByRole('list', { name: 'Membership history' });
     const rows = within(history).getAllByRole('listitem');

@@ -91,12 +91,6 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     table.PrimaryKey("PK_entity_candidate_decisions", x => x.id);
                     table.CheckConstraint("ck_entity_candidate_decisions_entity", "(decision = 'Confirmed') = (entity_id IS NOT NULL)");
                     table.ForeignKey(
-                        name: "FK_entity_candidate_decisions_audit_entries_audit_entry_id",
-                        column: x => x.audit_entry_id,
-                        principalTable: "audit_entries",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
                         name: "FK_entity_candidate_decisions_entities_entity_id",
                         column: x => x.entity_id,
                         principalTable: "entities",
@@ -133,12 +127,6 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                 {
                     table.PrimaryKey("PK_entity_membership_changes", x => x.id);
                     table.CheckConstraint("ck_entity_membership_changes_cause", "(cause = 'CandidateConfirmed' AND change = 'Joined' AND candidate_id IS NOT NULL) OR (cause = 'Unlinked' AND change = 'Left' AND candidate_id IS NULL) OR (cause = 'Merged' AND candidate_id IS NULL)");
-                    table.ForeignKey(
-                        name: "FK_entity_membership_changes_audit_entries_audit_entry_id",
-                        column: x => x.audit_entry_id,
-                        principalTable: "audit_entries",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_entity_membership_changes_entities_entity_id",
                         column: x => x.entity_id,
@@ -230,6 +218,19 @@ namespace Mavi.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // S7's schema can hold only what S7 could decide: joins by confirmation and one decision per candidate. An unlink,
+            // merge or reopen has no representation there and would be lost (and a re-Up could not back-fill it). Refuse.
+            migrationBuilder.Sql("""
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM entity_membership_changes WHERE cause <> 'CandidateConfirmed')
+                       OR EXISTS (SELECT 1 FROM entity_candidate_decisions WHERE decision = 'Reopened')
+                       OR EXISTS (SELECT 1 FROM entities WHERE state <> 'Active') THEN
+                        RAISE EXCEPTION 'entity_correction_history_present';
+                    END IF;
+                END $$;
+                """);
+
             migrationBuilder.DropForeignKey(
                 name: "FK_entities_entities_merged_into_entity_id",
                 table: "entities");

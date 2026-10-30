@@ -118,7 +118,7 @@ public static class EntityEndpoints
 
     public sealed record EntityResponse(string Label, Guid EntityId, string DisplayCode, string EntityType, string IdentityStatus,
         DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, IReadOnlyList<TrackResponse> Members, IReadOnlyList<CandidateResponse> Confirmations,
-        string State, Guid? MergedIntoEntityId, IReadOnlyList<MembershipChangeResponse> History);
+        string State, Guid? MergedIntoEntityId, IReadOnlyList<MembershipChangeResponse> History, IReadOnlyList<Guid> MergedFromEntityIds);
 
     // --- Reads -----------------------------------------------------------------------------------
 
@@ -177,7 +177,7 @@ public static class EntityEndpoints
             entity.Confirmations.Select(item => Candidate(item, catalogue, false)).ToList(), entity.State.ToString(), entity.MergedIntoEntityId,
             (entity.History ?? []).Select(change => new MembershipChangeResponse(change.Sequence, change.TrackId, change.EntityId,
                 change.Change.ToString(), change.Cause.ToString(), change.CandidateId, change.Note, change.OperatorId, change.OperatorDisplayName,
-                change.IdentitySource, change.AtUtc, change.AuditEntryId)).ToList());
+                change.IdentitySource, change.AtUtc, change.AuditEntryId)).ToList(), entity.MergedFromEntityIds ?? []);
     }
 
     private static async Task<IResult> CandidateHistoryAsync(Guid id, HttpRequest http, IEntityCandidateRepository repository,

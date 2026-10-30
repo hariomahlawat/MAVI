@@ -22,7 +22,7 @@ public sealed class CaseConfiguration : IEntityTypeConfiguration<InvestigationCa
         CaseColumns.Actor(builder, "created_by", x => x.CreatedByOperatorId, x => x.CreatedByDisplayName, x => x.CreatedByIdentitySource);
         builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         builder.Property(x => x.AuditEntryId).HasColumnName("audit_entry_id");
-        builder.HasOne<AuditEntry>().WithMany().HasForeignKey(x => x.AuditEntryId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => x.AuditEntryId);
         builder.HasIndex(x => x.CreatedAtUtc);
     }
 }
@@ -52,8 +52,8 @@ public sealed class CaseItemConfiguration : IEntityTypeConfiguration<CaseItem>
         builder.Property(x => x.RemovedAtUtc).HasColumnName("removed_at_utc");
         builder.Property(x => x.RemovedAuditEntryId).HasColumnName("removed_audit_entry_id");
         builder.HasOne<InvestigationCase>().WithMany().HasForeignKey(x => x.CaseId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<AuditEntry>().WithMany().HasForeignKey(x => x.AddedAuditEntryId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<AuditEntry>().WithMany().HasForeignKey(x => x.RemovedAuditEntryId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => x.AddedAuditEntryId);
+        builder.HasIndex(x => x.RemovedAuditEntryId);
         builder.HasIndex(x => new { x.CaseId, x.Kind, x.SubjectId }).IsUnique().HasFilter("removed_at_utc IS NULL")
             .HasDatabaseName("ux_case_items_active_subject");
         builder.HasIndex(x => new { x.Kind, x.SubjectId }).HasDatabaseName("ix_case_items_subject");
@@ -74,7 +74,7 @@ public sealed class CaseNoteConfiguration : IEntityTypeConfiguration<CaseNote>
         builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         builder.Property(x => x.AuditEntryId).HasColumnName("audit_entry_id");
         builder.HasOne<InvestigationCase>().WithMany().HasForeignKey(x => x.CaseId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<AuditEntry>().WithMany().HasForeignKey(x => x.AuditEntryId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => x.AuditEntryId);
         builder.HasIndex(x => new { x.CaseId, x.CreatedAtUtc });
     }
 }

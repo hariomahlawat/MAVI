@@ -33,7 +33,7 @@ public sealed class TrackReviewRepository(MaviDbContext db, IAuditWriter audit, 
         var prior = await db.TrackReviewDecisions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.DecisionId, cancellationToken);
         if (prior is not null)
             return prior.RequestSha256 == requestSha256 && prior.TrackId == request.TrackId
-                ? new TrackReviewOutcome(TrackReviewOutcomeKind.Replayed, track?.ReviewStatus, View(prior))
+                ? new TrackReviewOutcome(TrackReviewOutcomeKind.Replayed, track?.ReviewStatus, View(prior), await LatestAsync(prior.TrackId, cancellationToken))
                 : new TrackReviewOutcome(TrackReviewOutcomeKind.DecisionIdConflict, track?.ReviewStatus, View(prior));
         if (track is null)
             return new TrackReviewOutcome(TrackReviewOutcomeKind.TrackNotFound, null, null);
@@ -71,7 +71,7 @@ public sealed class TrackReviewRepository(MaviDbContext db, IAuditWriter audit, 
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return new TrackReviewOutcome(TrackReviewOutcomeKind.Recorded, track.ReviewStatus, View(decision));
+        return new TrackReviewOutcome(TrackReviewOutcomeKind.Recorded, track.ReviewStatus, View(decision), View(decision));
     }
 
     public async Task<TrackReviewState?> GetStateAsync(Guid trackId, CancellationToken cancellationToken)

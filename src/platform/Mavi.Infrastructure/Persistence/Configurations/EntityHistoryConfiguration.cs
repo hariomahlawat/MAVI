@@ -32,7 +32,7 @@ public sealed class EntityMembershipChangeConfiguration : IEntityTypeConfigurati
         builder.HasOne<Track>().WithMany().HasForeignKey(x => x.TrackId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Entity>().WithMany().HasForeignKey(x => x.EntityId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<EntityCandidate>().WithMany().HasForeignKey(x => x.CandidateId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<AuditEntry>().WithMany().HasForeignKey(x => x.AuditEntryId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => x.AuditEntryId);
         builder.HasIndex(x => x.Sequence).IsUnique();
         builder.HasIndex(x => new { x.TrackId, x.Sequence }).HasDatabaseName("ix_entity_membership_changes_track_sequence");
         builder.HasIndex(x => new { x.EntityId, x.Sequence }).HasDatabaseName("ix_entity_membership_changes_entity_sequence");
@@ -58,7 +58,7 @@ public sealed class EntityCandidateDecisionRecordConfiguration : IEntityTypeConf
         builder.Property(x => x.AuditEntryId).HasColumnName("audit_entry_id");
         builder.HasOne<EntityCandidate>().WithMany().HasForeignKey(x => x.CandidateId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Entity>().WithMany().HasForeignKey(x => x.EntityId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<AuditEntry>().WithMany().HasForeignKey(x => x.AuditEntryId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => x.AuditEntryId);
         builder.HasIndex(x => x.Sequence).IsUnique();
         builder.HasIndex(x => new { x.CandidateId, x.Sequence }).HasDatabaseName("ix_entity_candidate_decisions_candidate_sequence");
     }

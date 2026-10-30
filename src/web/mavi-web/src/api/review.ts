@@ -54,6 +54,8 @@ export type TrackReviewDecided = {
   reviewStatus: ReviewStatus;
   latestDecision: ReviewDecision;
   replayed: boolean;
+  /** The decision this request recorded or, on a replay, recorded before; it differs from latestDecision when later decisions followed. */
+  decision: ReviewDecision;
 };
 
 export type TrackReviewHistoryPage = {
@@ -131,7 +133,9 @@ export function narrowDecided(value: unknown): TrackReviewDecided {
   if (!isRecord(value) || !text(value.trackId) || !isReviewStatus(value.reviewStatus)) throw contractFault('review decision');
   const latestDecision = narrowDecision(value.latestDecision);
   if (!latestDecision) throw contractFault('review decision');
-  return { trackId: value.trackId, reviewStatus: value.reviewStatus, latestDecision, replayed: value.replayed === true };
+  const decision = value.decision === undefined ? latestDecision : narrowDecision(value.decision);
+  if (!decision) throw contractFault('review decision');
+  return { trackId: value.trackId, reviewStatus: value.reviewStatus, latestDecision, replayed: value.replayed === true, decision };
 }
 
 export function narrowHistory(value: unknown): TrackReviewHistoryPage {

@@ -4503,11 +4503,6 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Mavi.Domain.Intelligence.EntityCandidateDecisionRecord", b =>
                 {
-                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
-                        .WithMany()
-                        .HasForeignKey("AuditEntryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
 
                     b.HasOne("Mavi.Domain.Intelligence.EntityCandidate", null)
                         .WithMany()
@@ -4532,11 +4527,6 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Mavi.Domain.Intelligence.EntityMembershipChange", b =>
                 {
-                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
-                        .WithMany()
-                        .HasForeignKey("AuditEntryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
 
                     b.HasOne("Mavi.Domain.Intelligence.EntityCandidate", null)
                         .WithMany()
@@ -4733,31 +4723,16 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Mavi.Domain.Review.CaseItem", b =>
                 {
-                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
-                        .WithMany()
-                        .HasForeignKey("AddedAuditEntryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
 
                     b.HasOne("Mavi.Domain.Review.InvestigationCase", null)
                         .WithMany()
                         .HasForeignKey("CaseId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
-                        .WithMany()
-                        .HasForeignKey("RemovedAuditEntryId")
-                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Mavi.Domain.Review.CaseNote", b =>
                 {
-                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
-                        .WithMany()
-                        .HasForeignKey("AuditEntryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
 
                     b.HasOne("Mavi.Domain.Review.InvestigationCase", null)
                         .WithMany()
@@ -4768,20 +4743,10 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Mavi.Domain.Review.InvestigationCase", b =>
                 {
-                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
-                        .WithMany()
-                        .HasForeignKey("AuditEntryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("Mavi.Domain.Review.TrackReviewDecision", b =>
                 {
-                    b.HasOne("Mavi.Domain.Audit.AuditEntry", null)
-                        .WithMany()
-                        .HasForeignKey("AuditEntryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
 
                     b.HasOne("Mavi.Domain.Intelligence.Track", null)
                         .WithMany()

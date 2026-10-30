@@ -149,6 +149,7 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
         Assert.Equal(first, target.GetProperty("entityId").GetGuid());
         Assert.Equal(4, target.GetProperty("members").GetArrayLength());
         Assert.Equal(2, target.GetProperty("confirmations").GetArrayLength());
+        Assert.Equal([second], target.GetProperty("mergedFromEntityIds").EnumerateArray().Select(x => x.GetGuid()).ToList());
         var source = await host.GetJsonAsync($"/api/entities/{second}");
         Assert.Equal("Merged", source.GetProperty("state").GetString());
         Assert.Equal(first, source.GetProperty("mergedIntoEntityId").GetGuid());
@@ -289,17 +290,110 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
         Assert.Equal(2, await db.Tracks.CountAsync(x => x.EntityId == entity));
     }
 
-    /// <summary>ADR-027 §4: every Track's <c>entity_id</c> is its latest membership change (a join's Entity, null after a leave or none).</summary>
+    [Fact]
+    public async Task AnExtensionAndAnUnlinkOfTheSameEntityAtTheSameTimeLeaveConsistentHistories()
+    {
+        var world = await SeedAsync();
+        await using var host = world.Host;
+        var entity = await ConfirmAsync(world, world.A0, world.B0);
+
+        // b0–d0 extends the Entity with d0 while b0 is unlinked: either order is a valid outcome, never a mixture.
+        var responses = await Task.WhenAll(
+            host.DecideAsync(world.Candidate(world.B0, world.D0), "confirm"),
+            host.Client.PostAsJsonAsync($"/api/entities/{entity}/unlink", new { trackId = world.B0 }));
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        foreach (var response in responses) response.Dispose();
+        var ids = await host.EntityIdsAsync(world.A0, world.B0, world.D0);
+        Assert.Equal(entity, ids[world.A0]);
+        // Extension first: d0 joins, then b0 leaves. Unlink first: b0 and d0 form a new Entity.
+        Assert.True((ids[world.B0] is null && ids[world.D0] == entity) ||
+                    (ids[world.B0] is { } other && other != entity && ids[world.D0] == other));
+        Assert.Equal(2, await host.AuditCountAsync("entities.candidate-confirmed"));
+        Assert.Equal(1, await host.AuditCountAsync("entities.track-unlinked"));
+        await AssertProjectionInvariantAsync(host);
+    }
+
+    [Fact]
+    public async Task AnExtensionAndAMergeIntoTheSameEntityAtTheSameTimeBothApply()
+    {
+        var world = await SeedAsync();
+        await using var host = world.Host;
+        var first = await ConfirmAsync(world, world.A0, world.B0);
+        var second = await ConfirmAsync(world, world.A1, world.B1);
+
+        var responses = await Task.WhenAll(
+            host.DecideAsync(world.Candidate(world.B0, world.D0), "confirm"),
+            host.Client.PostAsJsonAsync($"/api/entities/{second}/merge", new { intoEntityId = first }));
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        foreach (var response in responses) response.Dispose();
+        var ids = await host.EntityIdsAsync(world.A0, world.B0, world.D0, world.A1, world.B1);
+        Assert.All(ids.Values, value => Assert.Equal(first, value));
+        await AssertProjectionInvariantAsync(host);
+    }
+
+    [Fact]
+    public async Task AReopenAndAConfirmOfTheSameCandidateAtTheSameTimeAreSerialised()
+    {
+        var world = await SeedAsync();
+        await using var host = world.Host;
+        var entity = await ConfirmAsync(world, world.A0, world.B0);
+        using (await host.Client.PostAsJsonAsync($"/api/entities/{entity}/unlink", new { trackId = world.B0 })) { }
+        var candidate = world.Candidate(world.A0, world.B0);
+
+        var responses = await Task.WhenAll(
+            host.Client.PostAsJsonAsync($"/api/entity-candidates/{candidate}/reopen", new { note = "again" }),
+            host.DecideAsync(candidate, "confirm"));
+
+        // The reopen always applies (the pair was apart); the confirm applies only if it came second.
+        Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+        var confirmed = responses[1].StatusCode == HttpStatusCode.OK;
+        if (!confirmed) Assert.Equal(EntityConfirmationRules.AlreadyDecided, await VisualAttributeApiHost.ProblemCodeAsync(responses[1]));
+        foreach (var response in responses) response.Dispose();
+        var status = (await host.GetJsonAsync($"/api/entity-candidates/{candidate}")).GetProperty("status").GetString();
+        Assert.Equal(confirmed ? "confirmed" : "open", status);
+        Assert.Equal(confirmed ? entity : null, (await host.EntityIdsAsync(world.B0))[world.B0]);
+        await AssertProjectionInvariantAsync(host);
+    }
+
+    /// <summary>
+    /// ADR-027 §4, §6: every projection equals its history. A Track's <c>entity_id</c> is its latest membership change (a join's
+    /// Entity, null after a leave or none); a candidate's status, Entity and decision audit entry are its latest decision's (Open
+    /// with none or after a reopen); a Merged Entity names another, has no members and a recorded merge; an Active one names none.
+    /// </summary>
     private static async Task AssertProjectionInvariantAsync(EntityApiHost host)
     {
         await using var connection = new NpgsqlConnection(host.Factory.ConnectionString);
         await connection.OpenAsync();
-        await using var command = new NpgsqlCommand("""
-            SELECT count(*) FROM tracks t
-            LEFT JOIN LATERAL (SELECT m.change, m.entity_id FROM entity_membership_changes m WHERE m.track_id = t.id
-                               ORDER BY m.sequence DESC LIMIT 1) latest ON TRUE
-            WHERE t.entity_id IS DISTINCT FROM (CASE WHEN latest.change = 'Joined' THEN latest.entity_id END)
-            """, connection);
-        Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        foreach (var sql in ProjectionChecks)
+        {
+            await using var command = new NpgsqlCommand(sql, connection);
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
     }
+
+    private static readonly string[] ProjectionChecks =
+    [
+        """
+        SELECT count(*) FROM tracks t
+        LEFT JOIN LATERAL (SELECT m.change, m.entity_id FROM entity_membership_changes m WHERE m.track_id = t.id
+                           ORDER BY m.sequence DESC LIMIT 1) latest ON TRUE
+        WHERE t.entity_id IS DISTINCT FROM (CASE WHEN latest.change = 'Joined' THEN latest.entity_id END)
+        """,
+        """
+        SELECT count(*) FROM entity_candidates c
+        LEFT JOIN LATERAL (SELECT d.decision, d.entity_id, d.audit_entry_id FROM entity_candidate_decisions d
+                           WHERE d.candidate_id = c.id ORDER BY d.sequence DESC LIMIT 1) latest ON TRUE
+        WHERE c.status <> COALESCE(CASE latest.decision WHEN 'Reopened' THEN 'Open' ELSE latest.decision END, 'Open')
+           OR c.entity_id IS DISTINCT FROM latest.entity_id
+           OR c.decision_audit_entry_id IS DISTINCT FROM (CASE WHEN latest.decision IN ('Confirmed', 'Dismissed') THEN latest.audit_entry_id END)
+        """,
+        """
+        SELECT count(*) FROM entities e
+        WHERE (e.state = 'Merged') <> (e.merged_into_entity_id IS NOT NULL)
+           OR (e.state = 'Merged' AND EXISTS (SELECT 1 FROM tracks t WHERE t.entity_id = e.id))
+           OR (e.state = 'Merged' AND NOT EXISTS (SELECT 1 FROM entity_membership_changes m WHERE m.entity_id = e.id AND m.cause = 'Merged'))
+        """,
+    ];
 }

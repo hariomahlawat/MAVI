@@ -31,7 +31,12 @@ public enum TrackReviewOutcomeKind
     NothingToClear,
 }
 
-public sealed record TrackReviewOutcome(TrackReviewOutcomeKind Kind, ReviewStatus? CurrentStatus, TrackReviewDecisionView? Decision);
+/// <summary>
+/// <paramref name="Decision"/> is the decision the request recorded or replayed (or, on a conflict, the one in the way);
+/// <paramref name="Latest"/> is the Track's latest decision now, which a replay after later decisions differs from.
+/// </summary>
+public sealed record TrackReviewOutcome(TrackReviewOutcomeKind Kind, ReviewStatus? CurrentStatus, TrackReviewDecisionView? Decision,
+    TrackReviewDecisionView? Latest = null);
 
 /// <summary>For a Track of one run: another completed run of the same video, and how many of its Tracks carry a decision (ADR-027 §5).</summary>
 public sealed record EarlierRunDecisions(Guid ProcessingRunId, DateTimeOffset? CompletedAtUtc, int ReviewedTrackCount);

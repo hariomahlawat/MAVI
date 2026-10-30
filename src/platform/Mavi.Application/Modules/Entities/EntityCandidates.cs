@@ -70,7 +70,8 @@ public sealed record EntityView(
     IReadOnlyList<EntityCandidateView> Confirmations,
     EntityMergeState State = EntityMergeState.Active,
     Guid? MergedIntoEntityId = null,
-    IReadOnlyList<EntityMembershipChangeView>? History = null);
+    IReadOnlyList<EntityMembershipChangeView>? History = null,
+    IReadOnlyList<Guid>? MergedFromEntityIds = null);
 
 /// <summary>One join or leave of a Track, as recorded (ADR-027 §4).</summary>
 public sealed record EntityMembershipChangeView(long Sequence, Guid TrackId, Guid EntityId, EntityMembershipChangeKind Change,

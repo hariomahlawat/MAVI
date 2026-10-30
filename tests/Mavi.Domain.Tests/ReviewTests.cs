@@ -87,6 +87,27 @@ public sealed class ReviewTests
         Assert.Contains("not asserted to show the same person or vehicle", InvestigationCase.Statement, StringComparison.Ordinal);
     }
 
+    /// <summary>ADR-027 §1: the review status is written only by the review repository, through the projection method.</summary>
+    [Fact]
+    public void OnlyTheReviewRepositoryWritesTheReviewStatus()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "MAVI.sln"))) directory = directory.Parent;
+        var root = directory?.FullName ?? throw new InvalidOperationException("Repository root not found.");
+        var platform = Path.Combine(root, "src", "platform");
+        var callers = Directory.EnumerateFiles(platform, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Replace('\\', '/').Contains("/obj/", StringComparison.Ordinal))
+            .Where(path => File.ReadAllText(path).Contains("ApplyReviewDecision(", StringComparison.Ordinal))
+            .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(
+            ["src/platform/Mavi.Domain/Intelligence/Track.cs", "src/platform/Mavi.Infrastructure/Persistence/Repositories/TrackReviewRepository.cs"],
+            callers);
+        var trackSource = File.ReadAllText(Path.Combine(platform, "Mavi.Domain", "Intelligence", "Track.cs"));
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Count(trackSource, @"\bReviewStatus\s*=\s*"));
+    }
+
     private static Track NewTrack() => Track.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), 1, ObjectClass.Person, 0, 1_000, Now, 3,
         0.6, 0.8, Now);
 

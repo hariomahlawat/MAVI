@@ -80,7 +80,7 @@ describe('PoC S11-full Track review controls', () => {
     expect(screen.getByRole('button', { name: 'Reject' })).toBeDisabled();
 
     vi.mocked(getTrackReview).mockResolvedValue(state({ reviewStatus: 'Confirmed', latestDecision: decision({ note: 'clear frontal view' }) }));
-    answer.resolve({ trackId, reviewStatus: 'Confirmed', latestDecision: decision({ note: 'clear frontal view' }), replayed: false });
+    answer.resolve({ trackId, reviewStatus: 'Confirmed', latestDecision: decision({ note: 'clear frontal view' }), replayed: false, decision: decision({ note: 'clear frontal view' }) });
 
     expect(await screen.findByText('Recorded: Detection confirmed. Status: Confirmed.')).toBeInTheDocument();
     expect(statusBadge()).toHaveTextContent('Confirmed');
@@ -125,7 +125,7 @@ describe('PoC S11-full Track review controls', () => {
   it('is operable from the keyboard', async () => {
     const user = userEvent.setup();
     vi.mocked(getTrackReview).mockResolvedValue(state({ reviewStatus: 'Confirmed', latestDecision: decision() }));
-    vi.mocked(decideTrackReview).mockResolvedValue({ trackId, reviewStatus: 'Rejected', latestDecision: decision({ decision: 'Rejected', resultingStatus: 'Rejected' }), replayed: false });
+    vi.mocked(decideTrackReview).mockResolvedValue({ trackId, reviewStatus: 'Rejected', latestDecision: decision({ decision: 'Rejected', resultingStatus: 'Rejected' }), replayed: false, decision: decision({ decision: 'Rejected', resultingStatus: 'Rejected' }) });
     renderWithApp(<TrackReviewPanel trackId={trackId} reviewStatus="Confirmed" />);
     const reject = await screen.findByRole('button', { name: 'Reject' });
     await waitFor(() => expect(reject).toBeEnabled());
@@ -185,6 +185,73 @@ describe('PoC S11-full Track review controls', () => {
   });
 });
 
+describe('retry and conflict', () => {
+  beforeEach(() => {
+    vi.mocked(getTrackReview).mockReset();
+    vi.mocked(decideTrackReview).mockReset();
+  });
+
+  it('retries a decision whose answer was lost with the same decisionId, so the server replays it', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTrackReview).mockResolvedValue(state());
+    vi.mocked(decideTrackReview)
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ trackId, reviewStatus: 'Confirmed', latestDecision: decision(), replayed: true, decision: decision() });
+    renderWithApp(<TrackReviewPanel trackId={trackId} reviewStatus="Unreviewed" />);
+    const confirm = await screen.findByRole('button', { name: 'Confirm detection' });
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    await user.click(confirm);
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    await waitFor(() => expect(decideTrackReview).toHaveBeenCalledTimes(2));
+    const [first, second] = vi.mocked(decideTrackReview).mock.calls.map((call) => call[1].decisionId);
+    expect(second).toBe(first);
+    expect(await screen.findByText(/Already recorded: /)).toBeInTheDocument();
+  });
+
+  it('uses a new decisionId after a definitive refusal', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTrackReview).mockResolvedValue(state());
+    vi.mocked(decideTrackReview)
+      .mockRejectedValueOnce(new ApiError({ status: 400, code: 'track_review_invalid', detail: 'invalid' }))
+      .mockResolvedValueOnce({ trackId, reviewStatus: 'Confirmed', latestDecision: decision(), replayed: false, decision: decision() });
+    renderWithApp(<TrackReviewPanel trackId={trackId} reviewStatus="Unreviewed" />);
+    const confirm = await screen.findByRole('button', { name: 'Confirm detection' });
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    await user.click(confirm);
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    await waitFor(() => expect(decideTrackReview).toHaveBeenCalledTimes(2));
+    const [first, second] = vi.mocked(decideTrackReview).mock.calls.map((call) => call[1].decisionId);
+    expect(second).not.toBe(first);
+  });
+
+  it('patches the loaded search pages from the status a conflict names', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTrackReview).mockResolvedValue(state());
+    vi.mocked(decideTrackReview).mockRejectedValueOnce(new ApiError({
+      status: 409, code: 'track_review_conflict', detail: 'changed',
+      extensions: { currentReviewStatus: 'Rejected', currentDecision: decision({ decision: 'Rejected', resultingStatus: 'Rejected', operatorDisplayName: 'Ravi' }) },
+    }));
+    const { queryClient } = renderWithApp(<TrackReviewPanel trackId={trackId} reviewStatus="Unreviewed" />);
+    queryClient.setQueryData<InfiniteData<TrackSearchResponse>>(queryKeys.trackSearch('q'), {
+      pageParams: [null],
+      pages: [{ items: [{ id: trackId, reviewStatus: 'Unreviewed' }], nextCursor: null } as unknown as TrackSearchResponse],
+    });
+    const confirm = await screen.findByRole('button', { name: 'Confirm detection' });
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    await user.click(confirm);
+
+    await waitFor(() => expect(queryClient.getQueryData<InfiniteData<TrackSearchResponse>>(queryKeys.trackSearch('q'))!.pages[0].items[0].reviewStatus)
+      .toBe('Rejected'));
+  });
+});
+
 describe('one persisted status across search, inspector and Review', () => {
   it('patches the Track detail and every loaded search page from the response, then marks them stale', () => {
     const client = createMaviQueryClient();
@@ -197,7 +264,7 @@ describe('one persisted status across search, inspector and Review', () => {
     });
     client.setQueryData(queryKeys.trackReview(trackId), { trackId, reviewStatus: 'Unreviewed', latestDecision: null });
 
-    applyReviewDecision(client, { trackId, reviewStatus: 'Confirmed', latestDecision: decision(), replayed: false });
+    applyReviewDecision(client, { trackId, reviewStatus: 'Confirmed', latestDecision: decision(), replayed: false, decision: decision() });
 
     expect(client.getQueryData<TrackDetail>(queryKeys.track(trackId, ''))?.reviewStatus).toBe('Confirmed');
     expect(client.getQueryData<TrackDetail>(queryKeys.track(trackId, 'rev@1'))?.reviewStatus).toBe('Confirmed');

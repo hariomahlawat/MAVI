@@ -36,7 +36,6 @@ public sealed class TrackReviewDecisionConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.RequestSha256).HasColumnName("request_sha256").HasMaxLength(64).IsFixedLength();
         builder.Property(x => x.AuditEntryId).HasColumnName("audit_entry_id");
         builder.HasOne<Track>().WithMany().HasForeignKey(x => x.TrackId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<AuditEntry>().WithMany().HasForeignKey(x => x.AuditEntryId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => x.Sequence).IsUnique();
         builder.HasIndex(x => new { x.TrackId, x.Sequence }).HasDatabaseName("ix_track_review_decisions_track_sequence");
         builder.HasIndex(x => x.AuditEntryId).IsUnique();

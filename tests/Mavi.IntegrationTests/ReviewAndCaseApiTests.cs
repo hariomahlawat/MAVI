@@ -8,6 +8,9 @@ using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
 using Mavi.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
 
 namespace Mavi.IntegrationTests;
@@ -422,11 +425,81 @@ public sealed class ReviewAndCaseApiTests : IDisposable
         await AssertProblemAsync(bad, HttpStatusCode.BadRequest, "audit_query_invalid");
     }
 
+    // --- Failure, replay and rollback ------------------------------------------------------------
+
+    [Fact]
+    public async Task AFailureAfterTheAuditAppendRollsBackTheAuditTheDecisionAndTheProjection()
+    {
+        // The decision insert fails after the audit row was appended in the same transaction: nothing of it may remain.
+        using var factory = await CreateAsync(configure: options => options.AddInterceptors(new FailDecisionInsert()));
+        var world = await SeedAsync(factory);
+        using var client = factory.CreateClient();
+
+        // The in-process test server rethrows an unhandled exception to the client rather than answering 500.
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => client.PostAsJsonAsync($"/api/tracks/{world.TrackA}/review",
+            new { decisionId = Guid.CreateVersion7(), decision = "Confirmed", expectedReviewStatus = "Unreviewed" }));
+        Assert.Contains("Injected failure", failure.Message, StringComparison.Ordinal);
+        await using var db = Db(factory);
+        Assert.Equal(0, await db.AuditEntries.CountAsync());
+        Assert.Equal(0, await db.TrackReviewDecisions.CountAsync());
+        Assert.Equal(ReviewStatus.Unreviewed, (await db.Tracks.SingleAsync(x => x.Id == world.TrackA)).ReviewStatus);
+    }
+
+    [Fact]
+    public async Task AReplayAfterALaterDecisionReturnsTheTracksActualLatestDecision()
+    {
+        using var factory = await CreateAsync();
+        var world = await SeedAsync(factory);
+        using var client = factory.CreateClient();
+        var decisionId = Guid.CreateVersion7();
+        var first = new { decisionId, decision = "Confirmed", expectedReviewStatus = "Unreviewed" };
+        using (await client.PostAsJsonAsync($"/api/tracks/{world.TrackA}/review", first)) { }
+        _clock.Now = Start.AddMinutes(1);
+        await DecideAsync(client, world.TrackA, "Rejected", "Confirmed");
+
+        using var replay = await client.PostAsJsonAsync($"/api/tracks/{world.TrackA}/review", first);
+
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        using var body = JsonDocument.Parse(await replay.Content.ReadAsStringAsync());
+        Assert.True(body.RootElement.GetProperty("replayed").GetBoolean());
+        Assert.Equal("Rejected", body.RootElement.GetProperty("reviewStatus").GetString());
+        Assert.Equal("Rejected", body.RootElement.GetProperty("latestDecision").GetProperty("decision").GetString());
+        Assert.Equal(decisionId, body.RootElement.GetProperty("decision").GetProperty("decisionId").GetGuid());
+        Assert.Equal("Confirmed", body.RootElement.GetProperty("decision").GetProperty("decision").GetString());
+    }
+
+    [Fact]
+    public async Task RollingBackTheMigrationIsRefusedWhileReviewOrCaseHistoryExists()
+    {
+        using var factory = await CreateAsync();
+        var world = await SeedAsync(factory);
+        using var client = factory.CreateClient();
+        await DecideAsync(client, world.TrackA, "Confirmed", "Unreviewed");
+
+        await using var db = Db(factory);
+        var migrator = db.GetService<IMigrator>();
+        var exception = await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync("20261030094053_AddCameraSiteCode"));
+        Assert.Contains("review_or_case_history_present", exception.MessageText, StringComparison.Ordinal);
+        Assert.Equal(1, await db.TrackReviewDecisions.CountAsync());
+    }
+
+    private sealed class FailDecisionInsert : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context!.ChangeTracker.Entries<Mavi.Domain.Review.TrackReviewDecision>().Any(entry => entry.State == EntityState.Added))
+                throw new InvalidOperationException("Injected failure after the audit append.");
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
+
     // --- Helpers ---------------------------------------------------------------------------------
 
     private sealed record World(Guid RunA, Guid RunB, Guid EarlierRunTrack, Guid TrackA, Guid TrackB);
 
-    private async Task<ApiTestFactory> CreateAsync(string identityMode = "development-unattributed")
+    private async Task<ApiTestFactory> CreateAsync(string identityMode = "development-unattributed",
+        Action<DbContextOptionsBuilder>? configure = null)
     {
         var metadata = Path.Combine(_root, $"release-{Guid.NewGuid():N}.json");
         await File.WriteAllTextAsync(metadata, $$"""
@@ -443,6 +516,7 @@ public sealed class ReviewAndCaseApiTests : IDisposable
         var factory = new ApiTestFactory
         {
             Clock = _clock,
+            ConfigureDbContext = configure,
             AdditionalConfiguration = new Dictionary<string, string?>
             {
                 ["Identity:Mode"] = identityMode,

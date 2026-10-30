@@ -36,7 +36,11 @@ public static class TrackReviewEndpoints
     public sealed record DecisionResponse(Guid DecisionId, Guid TrackId, string Decision, string PreviousStatus, string ResultingStatus,
         string? Note, string OperatorId, string OperatorDisplayName, string IdentitySource, DateTimeOffset DecidedAtUtc, Guid AuditEntryId);
 
-    public sealed record DecideResponse(Guid TrackId, string ReviewStatus, DecisionResponse LatestDecision, bool Replayed);
+    /// <summary>
+    /// <see cref="Decision"/> is the decision this request recorded or, on a replay, recorded before; <see cref="LatestDecision"/> and
+    /// <see cref="ReviewStatus"/> are the Track's state now, which differ from it when later decisions followed a replayed one.
+    /// </summary>
+    public sealed record DecideResponse(Guid TrackId, string ReviewStatus, DecisionResponse LatestDecision, bool Replayed, DecisionResponse Decision);
 
     public sealed record OtherRunResponse(Guid ProcessingRunId, DateTimeOffset? CompletedAtUtc, int ReviewedTrackCount);
 
@@ -73,8 +77,8 @@ public static class TrackReviewEndpoints
         return outcome.Kind switch
         {
             TrackReviewOutcomeKind.Recorded or TrackReviewOutcomeKind.Replayed => Results.Ok(new DecideResponse(id,
-                (outcome.CurrentStatus ?? outcome.Decision!.ResultingStatus).ToString(), Decision(outcome.Decision!),
-                outcome.Kind == TrackReviewOutcomeKind.Replayed)),
+                (outcome.CurrentStatus ?? outcome.Decision!.ResultingStatus).ToString(), Decision(outcome.Latest ?? outcome.Decision!),
+                outcome.Kind == TrackReviewOutcomeKind.Replayed, Decision(outcome.Decision!))),
             TrackReviewOutcomeKind.TrackNotFound => Problem(404, "track_not_found", "Track was not found."),
             TrackReviewOutcomeKind.StatusConflict => Conflict(ConflictCode,
                 "The Track's review status changed since it was read.", outcome),

@@ -222,7 +222,7 @@ public sealed partial class EntityCandidateRepository(MaviDbContext db) : IEntit
             .ToListAsync(cancellationToken);
         return new EntityView(entity.Id, entity.DisplayCode, entity.EntityType, entity.CreatedAtUtc, entity.UpdatedAtUtc, members,
             await ViewsAsync(confirmations, null, cancellationToken), entity.State, entity.MergedIntoEntityId,
-            history.Select(ChangeView).ToList());
+            history.Select(ChangeView).ToList(), lineage.Where(id => id != entityId).ToList());
     }
 
     public async Task<EntityDecisionResult> ConfirmAsync(Guid candidateId, string? note, EntityCandidateDecider decider,

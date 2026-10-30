@@ -16,8 +16,7 @@ public sealed class AuditReader(MaviDbContext db) : IAuditReader
         if (query.Subjects.Count > 0)
         {
             // OR over the subjects, each an equality pair the (subject_type, subject_id, recorded_at_utc) index serves.
-            var keys = query.Subjects.Select(subject => subject.Type + "\u001f" + subject.Id).ToList();
-            entries = entries.Where(entry => keys.Contains(entry.SubjectType + "\u001f" + entry.SubjectId));
+            entries = entries.Where(AnySubject(query.Subjects));
         }
 
         if (query.Action is { } action) entries = entries.Where(entry => entry.Action == action);

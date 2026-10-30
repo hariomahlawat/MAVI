@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import { auditPath } from '../../api/audit';
@@ -48,16 +48,7 @@ export function applyReviewDecision(queryClient: QueryClient, result: TrackRevie
     old && typeof old === 'object' ? { ...old, reviewStatus: result.reviewStatus, latestDecision: result.latestDecision } : old);
   queryClient.setQueriesData<TrackDetail>({ queryKey: ['track', trackId] }, (old) =>
     old ? { ...old, reviewStatus: result.reviewStatus } : old);
-  queryClient.setQueriesData<InfiniteData<TrackSearchResponse>>({ queryKey: ['tracks', 'search'] }, (old) => {
-    if (!old?.pages) return old;
-    let changed = false;
-    const pages = old.pages.map((page) => {
-      if (!page.items.some((item) => item.id.toLowerCase() === trackId)) return page;
-      changed = true;
-      return { ...page, items: page.items.map((item) => (item.id.toLowerCase() === trackId ? { ...item, reviewStatus: result.reviewStatus } : item)) };
-    });
-    return changed ? { ...old, pages } : old;
-  });
+  patchSearchStatus(queryClient, trackId, result.reviewStatus);
   void queryClient.invalidateQueries({ queryKey: ['track', trackId] });
   void queryClient.invalidateQueries({ queryKey: queryKeys.trackReview(trackId) });
   void queryClient.invalidateQueries({ queryKey: ['tracks', 'search'], refetchType: 'none' });
@@ -65,7 +56,27 @@ export function applyReviewDecision(queryClient: QueryClient, result: TrackRevie
   void queryClient.invalidateQueries({ queryKey: ['audit'] });
 }
 
-function refreshAfterConflict(queryClient: QueryClient, trackId: string): void {
+/** The loaded search pages show the Track's status from the server's answer, without moving the operator's place in them. */
+function patchSearchStatus(queryClient: QueryClient, trackId: string, reviewStatus: string): void {
+  queryClient.setQueriesData<InfiniteData<TrackSearchResponse>>({ queryKey: ['tracks', 'search'] }, (old) => {
+    if (!old?.pages) return old;
+    let changed = false;
+    const pages = old.pages.map((page) => {
+      if (!page.items.some((item) => item.id.toLowerCase() === trackId)) return page;
+      changed = true;
+      return { ...page, items: page.items.map((item) => (item.id.toLowerCase() === trackId ? { ...item, reviewStatus } : item)) };
+    });
+    return changed ? { ...old, pages } : old;
+  });
+}
+
+function refreshAfterConflict(queryClient: QueryClient, trackId: string, error: unknown): void {
+  // A conflict names the status the server holds: the search list shows it now, as the inspector and Review will after their refetch.
+  const current = error instanceof ApiError ? error.extensions.currentReviewStatus : undefined;
+  if (typeof current === 'string' && isReviewStatus(current)) {
+    patchSearchStatus(queryClient, trackId, current);
+    queryClient.setQueriesData<TrackDetail>({ queryKey: ['track', trackId] }, (old) => (old ? { ...old, reviewStatus: current } : old));
+  }
   void queryClient.invalidateQueries({ queryKey: queryKeys.trackReview(trackId) });
   void queryClient.invalidateQueries({ queryKey: ['track', trackId] });
   void queryClient.invalidateQueries({ queryKey: ['tracks', 'search'], refetchType: 'none' });
@@ -217,29 +228,38 @@ export default function TrackReviewPanel({ trackId: rawTrackId, reviewStatus, ru
   });
   const operatorRequired = isOperatorRequired(state.error);
   const persisted = state.data?.reviewStatus ?? reviewStatus;
+  // One decisionId per intended decision until the server answers it: a retry after a lost response replays the same
+  // request, which the server recognises (200, replayed) instead of refusing it as a conflict with itself.
+  const attempt = useRef<{ key: string; decisionId: string } | null>(null);
   const decide = useMutation({
     mutationFn: (decision: ReviewDecisionKind) => {
       if (!isReviewStatus(persisted)) throw new Error('The Track has no readable review status.');
+      const trimmed = note.trim() ? note : undefined;
+      const key = JSON.stringify([trackId, decision, persisted, trimmed ?? null]);
+      if (attempt.current?.key !== key) attempt.current = { key, decisionId: newDecisionId() };
       return decideTrackReview(trackId, {
-        decisionId: newDecisionId(),
+        decisionId: attempt.current.decisionId,
         decision,
         expectedReviewStatus: persisted,
-        note: note.trim() ? note : undefined,
+        note: trimmed,
       });
     },
     onMutate: () => setMessage(null),
     onSuccess: (result) => {
+      attempt.current = null;
       applyReviewDecision(queryClient, result);
       setNote('');
       setMessage({
         tone: 'success',
         text: result.replayed
-          ? `Already recorded: ${decisionLabel(result.latestDecision.decision)}. Status: ${result.reviewStatus}.`
+          ? `Already recorded: ${decisionLabel(result.decision.decision)}. Status: ${result.reviewStatus}.`
           : `Recorded: ${decisionLabel(result.latestDecision.decision)}. Status: ${result.reviewStatus}.`,
       });
     },
     onError: (error) => {
-      if (error instanceof ApiError && error.status === 409) refreshAfterConflict(queryClient, trackId);
+      // A refusal is a definitive answer: the next attempt is a new decision. A lost response or a server failure is not.
+      if (error instanceof ApiError && error.status >= 400 && error.status < 500) attempt.current = null;
+      if (error instanceof ApiError && error.status === 409) refreshAfterConflict(queryClient, trackId, error);
       setMessage({
         tone: error instanceof ApiError && error.code === TRACK_REVIEW_CONFLICT ? 'warning' : isOperatorRequired(error) ? 'info' : 'error',
         text: failureMessage(error, displayTimeZoneId),

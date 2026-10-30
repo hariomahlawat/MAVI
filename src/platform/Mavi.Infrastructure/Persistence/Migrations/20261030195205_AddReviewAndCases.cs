@@ -82,12 +82,6 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_cases", x => x.id);
-                    table.ForeignKey(
-                        name: "FK_cases_audit_entries_audit_entry_id",
-                        column: x => x.audit_entry_id,
-                        principalTable: "audit_entries",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -114,12 +108,6 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     table.PrimaryKey("PK_track_review_decisions", x => x.id);
                     table.CheckConstraint("ck_track_review_decisions_request_sha256", "request_sha256 ~ '^[0-9a-f]{64}$'");
                     table.CheckConstraint("ck_track_review_decisions_result", "(decision = 'Confirmed' AND resulting_status = 'Confirmed') OR (decision = 'Rejected' AND resulting_status = 'Rejected') OR (decision = 'Cleared' AND resulting_status = 'Unreviewed' AND previous_status <> 'Unreviewed')");
-                    table.ForeignKey(
-                        name: "FK_track_review_decisions_audit_entries_audit_entry_id",
-                        column: x => x.audit_entry_id,
-                        principalTable: "audit_entries",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_track_review_decisions_tracks_track_id",
                         column: x => x.track_id,
@@ -154,18 +142,6 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     table.PrimaryKey("PK_case_items", x => x.id);
                     table.CheckConstraint("ck_case_items_removal", "(removed_at_utc IS NULL AND removed_by_operator_id IS NULL AND removed_by_display_name IS NULL AND removed_by_identity_source IS NULL AND removed_audit_entry_id IS NULL AND removal_note IS NULL) OR (removed_at_utc IS NOT NULL AND removed_by_operator_id IS NOT NULL AND removed_by_display_name IS NOT NULL AND removed_by_identity_source IS NOT NULL AND removed_audit_entry_id IS NOT NULL)");
                     table.ForeignKey(
-                        name: "FK_case_items_audit_entries_added_audit_entry_id",
-                        column: x => x.added_audit_entry_id,
-                        principalTable: "audit_entries",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_case_items_audit_entries_removed_audit_entry_id",
-                        column: x => x.removed_audit_entry_id,
-                        principalTable: "audit_entries",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
                         name: "FK_case_items_cases_case_id",
                         column: x => x.case_id,
                         principalTable: "cases",
@@ -189,12 +165,6 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_case_notes", x => x.id);
-                    table.ForeignKey(
-                        name: "FK_case_notes_audit_entries_audit_entry_id",
-                        column: x => x.audit_entry_id,
-                        principalTable: "audit_entries",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_case_notes_cases_case_id",
                         column: x => x.case_id,
@@ -272,6 +242,17 @@ namespace Mavi.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Dropping these tables would lose recorded operator decisions and leave tracks.review_status without its
+            // history; an earlier binary cannot rebuild either. Refuse while any exist (as AddVisionFinalization does).
+            migrationBuilder.Sql("""
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM track_review_decisions) OR EXISTS (SELECT 1 FROM cases) THEN
+                        RAISE EXCEPTION 'review_or_case_history_present';
+                    END IF;
+                END $$;
+                """);
+
             migrationBuilder.DropTable(
                 name: "case_items");
 

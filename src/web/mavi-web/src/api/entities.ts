@@ -140,6 +140,8 @@ export type EntityResponse = {
   mergedIntoEntityId: string | null;
   /** Every join and leave of a Track, append-only, in sequence order. */
   history: EntityMembershipChange[];
+  /** The Entities merged into this one, directly or through another merge: their merges are recorded under their own ids. */
+  mergedFromEntityIds: string[];
 };
 
 export type EntityState = 'Active' | 'Merged';
@@ -227,6 +229,7 @@ function normaliseEntity(entity: EntityResponse): EntityResponse {
     state: entity.state === 'Merged' ? 'Merged' : 'Active',
     mergedIntoEntityId: entity.mergedIntoEntityId ?? null,
     history: Array.isArray(entity.history) ? entity.history : [],
+    mergedFromEntityIds: Array.isArray(entity.mergedFromEntityIds) ? entity.mergedFromEntityIds.filter((id) => typeof id === 'string') : [],
     confirmations: Array.isArray(entity.confirmations) ? entity.confirmations : [],
     members: Array.isArray(entity.members) ? entity.members : [],
   };
