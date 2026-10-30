@@ -43,7 +43,7 @@ internal sealed class FaceApiHost : IAsyncDisposable
     public HttpClient Client { get; private set; } = null!;
 
     public static async Task<FaceApiHost> CreateAsync(PostgresFixture fixture, DateTimeOffset nowUtc, string identityMode = "development-unattributed",
-        bool facesEnabled = true)
+        bool facesEnabled = true, bool releaseConfigured = true)
     {
         var host = new FaceApiHost(await VisualAttributeWorld.CreateAsync(fixture, nowUtc));
         Directory.CreateDirectory(host._root);
@@ -67,8 +67,8 @@ internal sealed class FaceApiHost : IAsyncDisposable
             AdditionalConfiguration = new Dictionary<string, string?>
             {
                 ["Faces:Enabled"] = facesEnabled ? "true" : "false",
-                ["Faces:ModelManifestPath"] = ManifestPath,
-                ["Faces:PipelineProfilePath"] = ProfilePath,
+                ["Faces:ModelManifestPath"] = releaseConfigured ? ManifestPath : string.Empty,
+                ["Faces:PipelineProfilePath"] = releaseConfigured ? ProfilePath : string.Empty,
                 ["Identity:Mode"] = identityMode,
                 ["Deployment:Profile"] = DeploymentProfiles.PocSingleHost,
                 ["Deployment:ReleaseMetadataPath"] = metadata,
@@ -712,6 +712,46 @@ public sealed class FaceApiTests(PostgresFixture fixture)
         await using var db = host.World.Read();
         Assert.False(await db.FaceQueries.AnyAsync(x => x.Id == queryId));
         Assert.Empty(await db.FaceAnalyses.ToListAsync());
+    }
+
+    [Fact]
+    public async Task WithoutAConfiguredReleaseTheRetentionSweepStillErasesAndPurges()
+    {
+        await using var host = await FaceApiHost.CreateAsync(fixture, T0, facesEnabled: false, releaseConfigured: false);
+        // A query accepted before the release was unconfigured (the platform can no longer create one now).
+        var query = FaceQuery.Create(new string('a', 64), [0xFF, 0xD8, 0xFF, 1], "image/jpeg", host.World.Clock.GetUtcNow());
+        await using (var db = host.World.Read())
+        {
+            db.FaceQueries.Add(query);
+            await db.SaveChangesAsync();
+        }
+
+        // The hosted loop itself, not a test-driven cycle: it must not return early for want of a release.
+        host.World.Clock.Advance(TimeSpan.FromMinutes(15));
+        var service = host.Factory.Services.GetRequiredService<FaceHostedService>();
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (true)
+            {
+                await using var db = host.World.Read();
+                if (await db.FaceQueries.AsNoTracking().AnyAsync(x => x.Id == query.Id && x.Image == null)) break;
+                Assert.True(DateTime.UtcNow < deadline, "the hosted face loop did not erase the expired query image");
+                await Task.Delay(200);
+            }
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+
+        host.World.Clock.Advance(TimeSpan.FromMinutes(46));
+        var cycle = await host.RunCycleAsync();
+        Assert.Equal(0, cycle.Queued);
+        Assert.Equal(1, cycle.QueriesPurged);
+        await using var read = host.World.Read();
+        Assert.False(await read.FaceQueries.AnyAsync(x => x.Id == query.Id));
     }
 
     [Fact]

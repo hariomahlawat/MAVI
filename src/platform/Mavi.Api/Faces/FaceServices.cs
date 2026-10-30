@@ -53,9 +53,10 @@ public sealed partial class FaceAudit(ILogger<FaceAudit> logger) : ILeaseEvidenc
 
 /// <summary>
 /// The face authority loop (ADR-022 §3, §5): queues the visible runs of opted-in cameras, fails units past their
-/// deadline or out of attempts, erases expired query images and purges expired queries. <c>Faces:Enabled</c> gates
-/// only the queueing of new analyses: whenever a face release is configured the loop runs, so the retention sweep
-/// never stops while face data can exist. Nothing here touches a ProcessingRun.
+/// deadline or out of attempts, erases expired query images and purges expired queries. The loop always runs: the
+/// retention sweep needs no face release, so face data stored before a release was disabled or unconfigured still
+/// meets its limits. <c>Faces:Enabled</c> and a configured release gate only the queueing of new analyses. Nothing
+/// here touches a ProcessingRun.
 /// </summary>
 public sealed partial class FaceHostedService(
     IServiceScopeFactory scopeFactory,
@@ -67,13 +68,8 @@ public sealed partial class FaceHostedService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var configured = options.Value;
-        if (release.Resolution.Definition is null)
-        {
-            LogIdle(logger, "not_configured");
-            return;
-        }
-
-        if (!configured.Enabled) LogIdle(logger, "queueing_disabled");
+        if (release.Resolution.Definition is null) LogIdle(logger, "not_configured");
+        else if (!configured.Enabled) LogIdle(logger, "queueing_disabled");
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(configured.ReconcileIntervalSeconds), timeProvider);
         do
