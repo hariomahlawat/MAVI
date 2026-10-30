@@ -10,6 +10,7 @@ import {
   runQuery,
   type QueryCameraIdentity,
   type QueryContract,
+  type QueryEntityRow,
   type QueryEnvelope,
   type QueryEventRow,
   type QueryOp,
@@ -501,7 +502,8 @@ export function Result({ envelope, displayTimeZoneId }: { envelope: QueryEnvelop
           ) : null}
           {result.tracks ? <TrackTable envelope={envelope} rows={result.tracks} displayTimeZoneId={displayTimeZoneId} /> : null}
           {result.events ? <EventTable envelope={envelope} rows={result.events} displayTimeZoneId={displayTimeZoneId} /> : null}
-          {(result.tracks?.length ?? result.events?.length ?? 0) === 0 ? (
+          {result.entities ? <EntityTable rows={result.entities} displayTimeZoneId={displayTimeZoneId} /> : null}
+          {(result.tracks?.length ?? result.events?.length ?? result.entities?.length ?? 0) === 0 ? (
             <p>{envelope.coverage.complete ? 'Nothing matches in this scope.' : 'Nothing matches in the analysed part of the scope so far.'}</p>
           ) : null}
         </>
@@ -591,6 +593,27 @@ function TrackTable({ envelope, rows, displayTimeZoneId }: { envelope: QueryEnve
             <td>{formatOffset(row.durationMs)}</td>
             {row.similarityScore !== null ? <td>{row.similarityScore.toFixed(3)}</td> : null}
             <td><Link to={trackReviewPath(row, identityOf(row.cameraId))}>Review Track</Link></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Operator-confirmed Entities (ADR-023): a recorded judgement, never an identification; each opens on the Entities page. */
+function EntityTable({ rows, displayTimeZoneId }: { rows: QueryEntityRow[]; displayTimeZoneId: string | undefined }) {
+  return (
+    <table className="query-page__table" aria-label="Entities">
+      <thead><tr><th>First seen</th><th>Last seen</th><th>Entity</th><th>Cameras</th><th>Tracks</th><th /></tr></thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.entityId}>
+            <td>{displayTimestamp(row.firstStartUtc, displayTimeZoneId)}</td>
+            <td>{displayTimestamp(row.lastEndUtc, displayTimeZoneId)}</td>
+            <td>{row.displayCode} · {row.entityType} (operator-confirmed, not identification)</td>
+            <td>{row.cameraIds.length}</td>
+            <td>{row.memberTrackIds.length}</td>
+            <td className="query-page__links"><Link to={`/entities?entity=${row.entityId.toLowerCase()}`}>Open Entity</Link></td>
           </tr>
         ))}
       </tbody>

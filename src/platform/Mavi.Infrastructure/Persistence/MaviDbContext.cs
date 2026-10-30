@@ -25,6 +25,8 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<Track> Tracks => Set<Track>();
     public DbSet<Observation> Observations => Set<Observation>();
     public DbSet<Entity> Entities => Set<Entity>();
+    public DbSet<EntityCandidate> EntityCandidates => Set<EntityCandidate>();
+    public DbSet<EntityCandidateDerivation> EntityCandidateDerivations => Set<EntityCandidateDerivation>();
     public DbSet<SceneConfiguration> SceneConfigurations => Set<SceneConfiguration>();
     public DbSet<SceneConfigurationRevision> SceneConfigurationRevisions => Set<SceneConfigurationRevision>();
     public DbSet<SceneAnalysis> SceneAnalyses => Set<SceneAnalysis>();

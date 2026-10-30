@@ -35,6 +35,7 @@ describe('the IA map', () => {
       ask: 'Ask',
       review: 'Search',
       faces: 'Faces',
+      entities: 'Entities',
       system: 'About',
       'not-found': null,
     });
@@ -43,7 +44,7 @@ describe('the IA map', () => {
   it('groups the rail Operate, Investigate, then Administer, in workflow order', () => {
     expect(SECTIONS.map((section) => [section.label, section.destinations.map((entry) => entry.label)])).toEqual([
       ['Operate', ['Overview', 'Cameras', 'Videos', 'Import', 'Processing']],
-      ['Investigate', ['Search', 'Query', 'Ask', 'Faces']],
+      ['Investigate', ['Search', 'Query', 'Ask', 'Faces', 'Entities']],
       ['Administer', ['About']],
     ]);
   });
@@ -76,6 +77,7 @@ describe('the IA map', () => {
     expect(labels('not-found')).toEqual(['Not found']);
     expect(labels('system')).toEqual(['About']);
     expect(labels('faces')).toEqual(['Faces']);
+    expect(labels('entities')).toEqual(['Entities']);
   });
 
   it('makes the root crumb the rail label, links every crumb but the last, and lets Review return to its Investigation', () => {

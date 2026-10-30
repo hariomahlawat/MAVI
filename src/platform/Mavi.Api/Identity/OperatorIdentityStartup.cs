@@ -33,6 +33,7 @@ public static class OperatorIdentityStartup
         ArgumentNullException.ThrowIfNull(configuration);
         services.Configure<OperatorIdentityOptions>(configuration.GetSection(OperatorIdentityOptions.SectionName));
         services.AddHttpContextAccessor();
+        services.AddScoped<Mavi.Application.Modules.Query.IQueryEntityAccess, HttpQueryEntityAccess>();
         services.AddAuthentication()
             .AddNegotiate()
             .AddScheme<AuthenticationSchemeOptions, DevelopmentUnattributedHandler>(DevelopmentUnattributedScheme, null)

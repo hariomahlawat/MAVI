@@ -2,19 +2,42 @@ using Mavi.Domain.Common;
 
 namespace Mavi.Domain.Intelligence;
 
+/// <summary>
+/// An operator-confirmed group of Tracks of one class (ADR-023 §1). It is an operator decision, never an
+/// identification: <see cref="IdentityStatus"/> stays <see cref="IdentityStatus.Unknown"/> and nothing names it.
+/// It comes into existence only when an operator confirms an Entity candidate.
+/// </summary>
 public sealed class Entity
 {
+    public const int DisplayCodeLength = 14;
+
     private Entity() { }
 
-    // Construction
-    public static Entity Create(EntityType entityType, string displayCode)
+    /// <summary>Created by the confirmation of an Entity candidate whose two Tracks belong to no Entity yet.</summary>
+    public static Entity CreateByConfirmation(EntityType entityType, DateTimeOffset nowUtc)
     {
-        if (string.IsNullOrWhiteSpace(displayCode) || displayCode.Trim().Length > 64)
-            throw new DomainValidationException("entity_display_code_invalid", "A valid entity display code is required.");
-        var now = DateTimeOffset.UtcNow;
-        return new Entity { Id = Guid.CreateVersion7(), EntityType = entityType, DisplayCode = displayCode.Trim(),
-            IdentityStatus = IdentityStatus.Unknown, ReviewStatus = ReviewStatus.Unreviewed, CreatedAtUtc = now, UpdatedAtUtc = now };
+        if (!Enum.IsDefined(entityType))
+            throw new DomainValidationException("entity_invalid", "The entity type is invalid.");
+        var id = Guid.CreateVersion7();
+        var now = nowUtc.ToUniversalTime();
+        return new Entity
+        {
+            Id = id,
+            EntityType = entityType,
+            DisplayCode = DisplayCodeFor(entityType, id),
+            IdentityStatus = IdentityStatus.Unknown,
+            ReviewStatus = ReviewStatus.Confirmed,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        };
     }
+
+    /// <summary>A Track joined the Entity by a later confirmation.</summary>
+    public void Extend(DateTimeOffset nowUtc) => UpdatedAtUtc = nowUtc.ToUniversalTime();
+
+    /// <summary><c>P-</c> or <c>V-</c> and the last twelve hex digits of the id (the random part of a UUIDv7).</summary>
+    public static string DisplayCodeFor(EntityType entityType, Guid id) =>
+        (entityType == EntityType.Person ? "P-" : "V-") + id.ToString("N")[^12..];
 
     // Properties
     public Guid Id { get; private set; }

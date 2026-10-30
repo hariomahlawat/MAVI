@@ -142,6 +142,11 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("name");
 
+                    b.Property<string>("SiteCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("site_code");
+
                     b.Property<string>("TimeZoneId")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -158,6 +163,9 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.HasIndex("IsActive");
+
+                    b.HasIndex("SiteCode")
+                        .HasFilter("site_code IS NOT NULL");
 
                     b.ToTable("cameras", (string)null);
                 });
@@ -1143,6 +1151,188 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     b.HasIndex("RepresentativeArtifactId");
 
                     b.ToTable("entities", (string)null);
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Intelligence.EntityCandidate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<double>("AppearanceScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("appearance_score");
+
+                    b.Property<string>("CatalogueVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("catalogue_version");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<DateTimeOffset?>("DecidedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at_utc");
+
+                    b.Property<string>("DecidedByDisplayName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("decided_by_display_name");
+
+                    b.Property<string>("DecidedByIdentitySource")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("decided_by_identity_source");
+
+                    b.Property<string>("DecidedByOperatorId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("decided_by_operator_id");
+
+                    b.Property<Guid?>("DecisionAuditEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decision_audit_entry_id");
+
+                    b.Property<string>("DecisionNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("decision_note");
+
+                    b.Property<Guid>("DerivationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("derivation_id");
+
+                    b.Property<Guid?>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<long>("GapMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("gap_ms");
+
+                    b.Property<Guid>("HigherTrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("higher_track_id");
+
+                    b.Property<string>("IdentityFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("identity_fingerprint");
+
+                    b.Property<Guid>("LowerTrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lower_track_id");
+
+                    b.Property<string>("ObjectClass")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("object_class");
+
+                    b.Property<bool>("SameCamera")
+                        .HasColumnType("boolean")
+                        .HasColumnName("same_camera");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DerivationId");
+
+                    b.HasIndex("EntityId");
+
+                    b.HasIndex("HigherTrackId")
+                        .HasDatabaseName("ix_entity_candidates_higher_track");
+
+                    b.HasIndex("LowerTrackId");
+
+                    b.HasIndex("Status", "AppearanceScore")
+                        .HasDatabaseName("ix_entity_candidates_status_score");
+
+                    b.HasIndex("CatalogueVersion", "IdentityFingerprint", "LowerTrackId", "HigherTrackId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_entity_candidates_pair");
+
+                    b.ToTable("entity_candidates", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_entity_candidates_class", "object_class IN ('Person', 'Vehicle')");
+
+                            t.HasCheckConstraint("ck_entity_candidates_decision", "(status = 'Open' AND decided_at_utc IS NULL AND entity_id IS NULL AND decision_audit_entry_id IS NULL) OR (status = 'Dismissed' AND decided_at_utc IS NOT NULL AND entity_id IS NULL AND decision_audit_entry_id IS NOT NULL) OR (status = 'Confirmed' AND decided_at_utc IS NOT NULL AND entity_id IS NOT NULL AND decision_audit_entry_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_entity_candidates_pair_order", "lower_track_id < higher_track_id");
+
+                            t.HasCheckConstraint("ck_entity_candidates_score", "appearance_score >= -1 AND appearance_score <= 1");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Intelligence.EntityCandidateDerivation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("CandidateCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("candidate_count");
+
+                    b.Property<string>("CatalogueSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("catalogue_sha256");
+
+                    b.Property<string>("CatalogueVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("catalogue_version");
+
+                    b.Property<DateTimeOffset>("DerivedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("derived_at_utc");
+
+                    b.Property<Guid>("EmbeddingAnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("embedding_analysis_id");
+
+                    b.Property<string>("IdentityFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("identity_fingerprint");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("outcome");
+
+                    b.Property<Guid>("ProcessingRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("processing_run_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmbeddingAnalysisId", "CatalogueVersion")
+                        .IsUnique()
+                        .HasDatabaseName("ux_entity_candidate_derivations_analysis_catalogue");
+
+                    b.ToTable("entity_candidate_derivations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_entity_candidate_derivations_count", "candidate_count >= 0");
+
+                            t.HasCheckConstraint("ck_entity_candidate_derivations_outcome", "outcome IN ('derived', 'not_visible')");
+                        });
                 });
 
             modelBuilder.Entity("Mavi.Domain.Intelligence.Observation", b =>
@@ -3799,6 +3989,41 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("RepresentativeArtifactId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Intelligence.EntityCandidate", b =>
+                {
+                    b.HasOne("Mavi.Domain.Intelligence.EntityCandidateDerivation", null)
+                        .WithMany()
+                        .HasForeignKey("DerivationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Entity", null)
+                        .WithMany()
+                        .HasForeignKey("EntityId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("HigherTrackId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("LowerTrackId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Intelligence.EntityCandidateDerivation", b =>
+                {
+                    b.HasOne("Mavi.Domain.Embeddings.EmbeddingAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("EmbeddingAnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Mavi.Domain.Intelligence.Observation", b =>

@@ -443,6 +443,24 @@ def test_camera_manifest_is_generated_from_the_definition():
     assert len({c["code"].casefold() for c in document["cameras"]}) == len(document["cameras"])
 
 
+def test_every_camera_declares_a_site_and_only_the_meva_slot_shares_one():
+    # ADR-023 amendment 2026-10-30 (D-S7-3): Entity candidates pair only different cameras of one declared site.
+    definition = dc.load_definition(dc.DEFAULT_DEFINITION)
+    sites = {clip["camera"]["code"]: clip["camera"]["siteCode"] for clip in definition["clips"]}
+    meva = {code for code, clip in zip(sites, definition["clips"]) if clip["source"].get("provider") == "meva"}
+    assert len({sites[code] for code in meva}) == 1
+    others = [sites[code] for code in sites if code not in meva]
+    assert len(set(others)) == len(others) and not set(others) & {sites[code] for code in meva}
+
+
+@pytest.mark.parametrize("site", ["", "Site", "-a", "a b", "a/b", "a" * 65, "a\n"])
+def test_an_invalid_site_code_is_refused(site):
+    document = json.loads(dc.DEFAULT_DEFINITION.read_text(encoding="utf-8"))
+    document["clips"][0]["camera"]["siteCode"] = site
+    with pytest.raises(dc.CorpusError, match="definition_camera_site"):
+        dc.validate_definition(document)
+
+
 INSTALLER_SEED = Path(__file__).resolve().parents[3] / "config" / "poc" / "demo-cameras-v1.json"
 
 

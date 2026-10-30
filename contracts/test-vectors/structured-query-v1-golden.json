@@ -1,6 +1,6 @@
 {
   "name": "structured-query-v1-golden",
-  "description": "The frozen golden corpus of contract mavi-query-v1 (ADR-024). tools/verify_repo.py validates every query against contracts/schemas/structured-query-v1.schema.json (schemaValid is the expected verdict; a refusal the schema cannot state is schemaValid true). The .NET tests parse every query and evaluate each case with a setup against the SceneAnalyticsWorld fixture over HTTP. Placeholder ids map to the fixture; the unknown placeholder maps to nothing. setup: none (refused by the parser, or no data read), derived (scene facts committed, events derived), underived (facts committed, events not yet derived), pending (scene facts not committed), two-camera (derived plus a second camera with no scene, recorded three and a half hours earlier, with two Vehicle Tracks starting at one instant). expect.envelope is the normalised envelope: fixture ids as their placeholders, any other id as <id>, snapshot and fingerprint left out.",
+  "description": "The frozen golden corpus of contract mavi-query-v1 (ADR-024). tools/verify_repo.py validates every query against contracts/schemas/structured-query-v1.schema.json (schemaValid is the expected verdict; a refusal the schema cannot state is schemaValid true). The .NET tests parse every query and evaluate each case with a setup against the SceneAnalyticsWorld fixture over HTTP. Placeholder ids map to the fixture; the unknown placeholder maps to nothing. setup: none (refused by the parser, or no data read), derived (scene facts committed, events derived), underived (facts committed, events not yet derived), pending (scene facts not committed), two-camera (derived plus a second camera with no scene, recorded three and a half hours earlier, with two Vehicle Tracks starting at one instant), entities (two-camera plus a Person Track on the second camera and one operator-confirmed Person Entity, ADR-023, holding it and the first camera's Person Track; the setup none Entity cases keep entity_data_unavailable for an installation with no confirmed Entity). expect.envelope is the normalised envelope: fixture ids as their placeholders, any other id as <id>, snapshot and fingerprint left out.",
   "placeholders": {
     "camera": "00000000-0000-4000-8000-0000000000c1",
     "zone": "00000000-0000-4000-8000-0000000000a1",
@@ -14,7 +14,9 @@
     "video2": "00000000-0000-4000-8000-0000000000f4",
     "run2": "00000000-0000-4000-8000-0000000000f5",
     "track2Low": "00000000-0000-4000-8000-0000000000d2",
-    "track2High": "00000000-0000-4000-8000-0000000000d3"
+    "track2High": "00000000-0000-4000-8000-0000000000d3",
+    "track2Person": "00000000-0000-4000-8000-0000000000d4",
+    "entity": "00000000-0000-4000-8000-0000000000e3"
   },
   "cases": [
     {
@@ -5977,6 +5979,1124 @@
         "refusal": {
           "code": "invalid_value",
           "path": "/requireCompleteCoverage"
+        }
+      }
+    },
+    {
+      "name": "entity-count-reads-confirmed-membership",
+      "setup": "entities",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "entity",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T02:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          }
+        },
+        "operation": {
+          "op": "count"
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "entity",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T02:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              }
+            },
+            "operation": {
+              "op": "count"
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "entity",
+          "operation": "count",
+          "identity": {
+            "cameras": [
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c1",
+                "cameraCode": "CAM-LC-01",
+                "cameraName": "Lifecycle Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              },
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c2",
+                "cameraCode": "CAM-LC-02",
+                "cameraName": "Second Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              }
+            ],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": true,
+            "components": [
+              {
+                "kind": "entities",
+                "window": "query",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              }
+            ]
+          },
+          "result": {
+            "kind": "value",
+            "tracks": null,
+            "events": null,
+            "truncation": null,
+            "value": 1,
+            "dimension": null,
+            "groups": null,
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": null,
+            "reason": null,
+            "message": null
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "entity-find-lists-the-in-scope-members",
+      "setup": "entities",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "entity",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T02:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          }
+        },
+        "operation": {
+          "op": "find",
+          "limit": 10,
+          "order": "oldest"
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "entity",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T02:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              }
+            },
+            "operation": {
+              "op": "find",
+              "limit": 10,
+              "order": "oldest"
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "entity",
+          "operation": "find",
+          "identity": {
+            "cameras": [
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c1",
+                "cameraCode": "CAM-LC-01",
+                "cameraName": "Lifecycle Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              },
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c2",
+                "cameraCode": "CAM-LC-02",
+                "cameraName": "Second Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              }
+            ],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": true,
+            "components": [
+              {
+                "kind": "entities",
+                "window": "query",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              }
+            ]
+          },
+          "result": {
+            "kind": "rows",
+            "tracks": null,
+            "events": null,
+            "entities": [
+              {
+                "entityId": "00000000-0000-4000-8000-0000000000e3",
+                "displayCode": "P-0000000000e3",
+                "entityType": "Person",
+                "firstStartUtc": "2026-09-21T02:35:00+00:00",
+                "lastEndUtc": "2026-09-21T05:30:08+00:00",
+                "cameraIds": [
+                  "00000000-0000-4000-8000-0000000000c1",
+                  "00000000-0000-4000-8000-0000000000c2"
+                ],
+                "memberTrackIds": [
+                  "00000000-0000-4000-8000-0000000000d1",
+                  "00000000-0000-4000-8000-0000000000d4"
+                ]
+              }
+            ],
+            "truncation": {
+              "truncated": false,
+              "returned": 1,
+              "total": 1,
+              "limit": 10,
+              "totalIsLowerBound": false
+            },
+            "value": null,
+            "dimension": null,
+            "groups": null,
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": null,
+            "reason": null,
+            "message": null
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "entity-group-by-camera-counts-once-per-camera",
+      "setup": "entities",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "entity",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T02:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          }
+        },
+        "operation": {
+          "op": "groupBy",
+          "by": "camera"
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "entity",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T02:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              }
+            },
+            "operation": {
+              "op": "groupBy",
+              "by": "camera"
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "entity",
+          "operation": "groupBy",
+          "identity": {
+            "cameras": [
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c1",
+                "cameraCode": "CAM-LC-01",
+                "cameraName": "Lifecycle Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              },
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c2",
+                "cameraCode": "CAM-LC-02",
+                "cameraName": "Second Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              }
+            ],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": true,
+            "components": [
+              {
+                "kind": "entities",
+                "window": "query",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              }
+            ]
+          },
+          "result": {
+            "kind": "groups",
+            "tracks": null,
+            "events": null,
+            "truncation": null,
+            "value": null,
+            "dimension": "camera",
+            "groups": [
+              {
+                "key": "00000000-0000-4000-8000-0000000000c1",
+                "label": "CAM-LC-01 · Lifecycle Test Camera",
+                "count": 1
+              },
+              {
+                "key": "00000000-0000-4000-8000-0000000000c2",
+                "label": "CAM-LC-02 · Second Test Camera",
+                "count": 1
+              }
+            ],
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": null,
+            "reason": null,
+            "message": null
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "entity-top-cameras",
+      "setup": "entities",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "entity",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T02:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          }
+        },
+        "operation": {
+          "op": "top",
+          "by": "camera",
+          "k": 1
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "entity",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T02:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              }
+            },
+            "operation": {
+              "op": "top",
+              "by": "camera",
+              "k": 1
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "entity",
+          "operation": "top",
+          "identity": {
+            "cameras": [
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c1",
+                "cameraCode": "CAM-LC-01",
+                "cameraName": "Lifecycle Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              },
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c2",
+                "cameraCode": "CAM-LC-02",
+                "cameraName": "Second Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              }
+            ],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": true,
+            "components": [
+              {
+                "kind": "entities",
+                "window": "query",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              }
+            ]
+          },
+          "result": {
+            "kind": "groups",
+            "tracks": null,
+            "events": null,
+            "truncation": null,
+            "value": null,
+            "dimension": "camera",
+            "groups": [
+              {
+                "key": "00000000-0000-4000-8000-0000000000c1",
+                "label": "CAM-LC-01 · Lifecycle Test Camera",
+                "count": 1
+              }
+            ],
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": null,
+            "reason": null,
+            "message": null
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "entity-count-distinct-camera",
+      "setup": "entities",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "entity",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T02:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          }
+        },
+        "operation": {
+          "op": "countDistinct",
+          "field": "camera"
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "entity",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T02:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              }
+            },
+            "operation": {
+              "op": "countDistinct",
+              "field": "camera"
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "entity",
+          "operation": "countDistinct",
+          "identity": {
+            "cameras": [
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c1",
+                "cameraCode": "CAM-LC-01",
+                "cameraName": "Lifecycle Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              },
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c2",
+                "cameraCode": "CAM-LC-02",
+                "cameraName": "Second Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              }
+            ],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": true,
+            "components": [
+              {
+                "kind": "entities",
+                "window": "query",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              }
+            ]
+          },
+          "result": {
+            "kind": "value",
+            "tracks": null,
+            "events": null,
+            "truncation": null,
+            "value": 2,
+            "dimension": "camera",
+            "groups": null,
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": null,
+            "reason": null,
+            "message": null
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "entity-time-bucket-anchors-at-the-earliest-member",
+      "setup": "entities",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "entity",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T02:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          }
+        },
+        "operation": {
+          "op": "timeBucket",
+          "bucketSeconds": 3600
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "entity",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T02:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              }
+            },
+            "operation": {
+              "op": "timeBucket",
+              "bucketSeconds": 3600
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "entity",
+          "operation": "timeBucket",
+          "identity": {
+            "cameras": [
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c1",
+                "cameraCode": "CAM-LC-01",
+                "cameraName": "Lifecycle Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              },
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c2",
+                "cameraCode": "CAM-LC-02",
+                "cameraName": "Second Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              }
+            ],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": true,
+            "components": [
+              {
+                "kind": "entities",
+                "window": "query",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              }
+            ]
+          },
+          "result": {
+            "kind": "buckets",
+            "tracks": null,
+            "events": null,
+            "truncation": null,
+            "value": null,
+            "dimension": null,
+            "groups": null,
+            "bucketSeconds": 3600,
+            "buckets": [
+              {
+                "startUtc": "2026-09-21T02:00:00+00:00",
+                "endUtc": "2026-09-21T03:00:00+00:00",
+                "count": 1
+              },
+              {
+                "startUtc": "2026-09-21T03:00:00+00:00",
+                "endUtc": "2026-09-21T04:00:00+00:00",
+                "count": 0
+              },
+              {
+                "startUtc": "2026-09-21T04:00:00+00:00",
+                "endUtc": "2026-09-21T05:00:00+00:00",
+                "count": 0
+              },
+              {
+                "startUtc": "2026-09-21T05:00:00+00:00",
+                "endUtc": "2026-09-21T06:00:00+00:00",
+                "count": 0
+              },
+              {
+                "startUtc": "2026-09-21T06:00:00+00:00",
+                "endUtc": "2026-09-21T07:00:00+00:00",
+                "count": 0
+              }
+            ],
+            "comparison": null,
+            "reason": null,
+            "message": null
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "entity-first-and-last",
+      "setup": "entities",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "entity",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T02:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          }
+        },
+        "operation": {
+          "op": "last"
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "entity",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T02:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              }
+            },
+            "operation": {
+              "op": "last"
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "entity",
+          "operation": "last",
+          "identity": {
+            "cameras": [
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c1",
+                "cameraCode": "CAM-LC-01",
+                "cameraName": "Lifecycle Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              },
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c2",
+                "cameraCode": "CAM-LC-02",
+                "cameraName": "Second Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              }
+            ],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": true,
+            "components": [
+              {
+                "kind": "entities",
+                "window": "query",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              }
+            ]
+          },
+          "result": {
+            "kind": "rows",
+            "tracks": null,
+            "events": null,
+            "entities": [
+              {
+                "entityId": "00000000-0000-4000-8000-0000000000e3",
+                "displayCode": "P-0000000000e3",
+                "entityType": "Person",
+                "firstStartUtc": "2026-09-21T02:35:00+00:00",
+                "lastEndUtc": "2026-09-21T05:30:08+00:00",
+                "cameraIds": [
+                  "00000000-0000-4000-8000-0000000000c1",
+                  "00000000-0000-4000-8000-0000000000c2"
+                ],
+                "memberTrackIds": [
+                  "00000000-0000-4000-8000-0000000000d1",
+                  "00000000-0000-4000-8000-0000000000d4"
+                ]
+              }
+            ],
+            "truncation": {
+              "truncated": false,
+              "returned": 1,
+              "total": 1,
+              "limit": 1,
+              "totalIsLowerBound": false
+            },
+            "value": null,
+            "dimension": null,
+            "groups": null,
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": null,
+            "reason": null,
+            "message": null
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "entity-camera-filter-keeps-only-that-cameras-members",
+      "setup": "entities",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "entity",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T02:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          },
+          "cameraIds": [
+            "00000000-0000-4000-8000-0000000000c1"
+          ]
+        },
+        "operation": {
+          "op": "find"
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "entity",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T02:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              },
+              "cameraIds": [
+                "00000000-0000-4000-8000-0000000000c1"
+              ]
+            },
+            "operation": {
+              "op": "find",
+              "limit": 50,
+              "order": "newest"
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "entity",
+          "operation": "find",
+          "identity": {
+            "cameras": [
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c1",
+                "cameraCode": "CAM-LC-01",
+                "cameraName": "Lifecycle Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              }
+            ],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": true,
+            "components": [
+              {
+                "kind": "entities",
+                "window": "query",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              }
+            ]
+          },
+          "result": {
+            "kind": "rows",
+            "tracks": null,
+            "events": null,
+            "entities": [
+              {
+                "entityId": "00000000-0000-4000-8000-0000000000e3",
+                "displayCode": "P-0000000000e3",
+                "entityType": "Person",
+                "firstStartUtc": "2026-09-21T05:30:00+00:00",
+                "lastEndUtc": "2026-09-21T05:30:08+00:00",
+                "cameraIds": [
+                  "00000000-0000-4000-8000-0000000000c1"
+                ],
+                "memberTrackIds": [
+                  "00000000-0000-4000-8000-0000000000d1"
+                ]
+              }
+            ],
+            "truncation": {
+              "truncated": false,
+              "returned": 1,
+              "total": 1,
+              "limit": 50,
+              "totalIsLowerBound": false
+            },
+            "value": null,
+            "dimension": null,
+            "groups": null,
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": null,
+            "reason": null,
+            "message": null
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "entity-window-without-members-counts-zero",
+      "setup": "entities",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "entity",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T03:00:00Z",
+            "toUtc": "2026-09-21T05:00:00Z"
+          }
+        },
+        "operation": {
+          "op": "count"
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "entity",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T03:00:00.000Z",
+                "toUtc": "2026-09-21T05:00:00.000Z"
+              }
+            },
+            "operation": {
+              "op": "count"
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "entity",
+          "operation": "count",
+          "identity": {
+            "cameras": [
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c1",
+                "cameraCode": "CAM-LC-01",
+                "cameraName": "Lifecycle Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              },
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c2",
+                "cameraCode": "CAM-LC-02",
+                "cameraName": "Second Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              }
+            ],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": true,
+            "components": [
+              {
+                "kind": "entities",
+                "window": "query",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              }
+            ]
+          },
+          "result": {
+            "kind": "value",
+            "tracks": null,
+            "events": null,
+            "truncation": null,
+            "value": 0,
+            "dimension": null,
+            "groups": null,
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": null,
+            "reason": null,
+            "message": null
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
+        }
+      }
+    },
+    {
+      "name": "entity-compare-windows",
+      "setup": "entities",
+      "query": {
+        "contractVersion": "mavi-query-v1",
+        "unit": "entity",
+        "where": {
+          "timeWindow": {
+            "fromUtc": "2026-09-21T05:00:00Z",
+            "toUtc": "2026-09-21T07:00:00Z"
+          }
+        },
+        "operation": {
+          "op": "compare",
+          "baseline": {
+            "fromUtc": "2026-09-21T03:00:00Z",
+            "toUtc": "2026-09-21T05:00:00Z"
+          }
+        }
+      },
+      "schemaValid": true,
+      "expect": {
+        "status": 200,
+        "envelope": {
+          "contractVersion": "mavi-query-v1",
+          "resolvedQuery": {
+            "contractVersion": "mavi-query-v1",
+            "unit": "entity",
+            "where": {
+              "timeWindow": {
+                "fromUtc": "2026-09-21T05:00:00.000Z",
+                "toUtc": "2026-09-21T07:00:00.000Z"
+              }
+            },
+            "operation": {
+              "op": "compare",
+              "baseline": {
+                "fromUtc": "2026-09-21T03:00:00.000Z",
+                "toUtc": "2026-09-21T05:00:00.000Z"
+              }
+            },
+            "requireCompleteCoverage": false
+          },
+          "unit": "entity",
+          "operation": "compare",
+          "identity": {
+            "cameras": [
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c1",
+                "cameraCode": "CAM-LC-01",
+                "cameraName": "Lifecycle Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              },
+              {
+                "cameraId": "00000000-0000-4000-8000-0000000000c2",
+                "cameraCode": "CAM-LC-02",
+                "cameraName": "Second Test Camera",
+                "sceneRevisionId": null,
+                "sceneRevisionNumber": null,
+                "algorithmVersion": "operator-confirmed-membership"
+              }
+            ],
+            "attributeIdentityFingerprint": null,
+            "attributeDisclosure": null,
+            "plateIdentityFingerprint": null,
+            "embeddingIdentityFingerprint": null,
+            "eventCatalogueVersion": null
+          },
+          "coverage": {
+            "complete": true,
+            "components": [
+              {
+                "kind": "entities",
+                "window": "query",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              },
+              {
+                "kind": "entities",
+                "window": "baseline",
+                "complete": true,
+                "cameraId": null,
+                "sceneAnalytics": null,
+                "derivedRuns": null,
+                "eventsPendingRuns": null,
+                "attributes": null,
+                "plates": null,
+                "reason": "operator_confirmed_membership_only"
+              }
+            ]
+          },
+          "result": {
+            "kind": "comparison",
+            "tracks": null,
+            "events": null,
+            "truncation": null,
+            "value": null,
+            "dimension": null,
+            "groups": null,
+            "bucketSeconds": null,
+            "buckets": null,
+            "comparison": {
+              "current": 1,
+              "baseline": 0,
+              "difference": 1
+            },
+            "reason": null,
+            "message": null
+          },
+          "disclosure": "PoC profile, Development evidence, not Production-qualified."
         }
       }
     }
