@@ -8,7 +8,8 @@ namespace Mavi.Application.Modules.Ask;
 /// model can only write those. A camera, zone or line is named when every significant word of its name occurs in the
 /// question (a camera is also named through a zone or line of its own); a line direction when the word on that side
 /// of the line (or a fixed synonym) occurs, and then only that side; an attribute value when the value occurs; a plate, a rule, a vehicle
-/// subclass or the Entity unit when their fixed words occur. A pure function of the question and the catalogue: it
+/// subclass, an object class or the Entity unit when their fixed words occur; a rule only beside an event noun
+/// ("events", "crossings"), so a Track question that says "dwelled" is not offered event rules. A pure function of the question and the catalogue: it
 /// only ever removes choices, and a predicate it removes cannot be written, so the query (shown as "Interpreted as")
 /// lacks it rather than gaining one nobody asked for.
 /// </summary>
@@ -18,6 +19,7 @@ public sealed record AskQuestionScope(
     IReadOnlySet<Guid> Lines,
     IReadOnlyDictionary<Guid, IReadOnlyList<string>> LineSides,
     IReadOnlyDictionary<string, IReadOnlyList<string>> AttributeValues,
+    IReadOnlyList<string> ObjectClasses,
     bool Plate,
     IReadOnlyList<string> Rules,
     bool Subclass,
@@ -53,6 +55,15 @@ public sealed record AskQuestionScope(
         ["co-occurrence"] = ["co-occurrence", "co-occurrences", "cooccurrence", "together"],
         ["repeated-visit"] = ["repeated", "revisit", "revisits", "visits"],
     };
+
+    private static readonly Dictionary<string, string[]> ClassWords = new(StringComparer.Ordinal)
+    {
+        ["Person"] = ["person", "persons", "people", "pedestrian", "pedestrians", "man", "men", "woman", "women", "someone", "anyone"],
+        ["Vehicle"] = ["vehicle", "vehicles", "car", "cars", "truck", "trucks", "bus", "buses", "van", "vans", "motorbike", "motorbikes"],
+    };
+
+    /// <summary>Nouns that make a question about events.</summary>
+    private static readonly string[] EventNouns = ["event", "events", "crossings", "dwells", "co-occurrences", "visits"];
 
     private static readonly string[] AttributeTypeBag = ["bag", "bags", "backpack", "backpacks", "handbag", "rucksack"];
     private static readonly string[] AttributeTypeHeadwear = ["hat", "hats", "cap", "caps", "helmet", "headwear", "hood"];
@@ -102,13 +113,17 @@ public sealed record AskQuestionScope(
                 attributeValues[attribute.Type] = values;
         }
 
-        var rules = vocabulary.EventRuleIds.Where(rule => RuleWords.TryGetValue(rule, out var triggers) && triggers.Any(words.Contains)).ToList();
+        var rules = EventNouns.Any(words.Contains)
+            ? vocabulary.EventRuleIds.Where(rule => RuleWords.TryGetValue(rule, out var triggers) && triggers.Any(words.Contains)).ToList()
+            : [];
+        var classes = vocabulary.ObjectClasses.Where(objectClass => ClassWords.TryGetValue(objectClass, out var triggers) && triggers.Any(words.Contains)).ToList();
         return new AskQuestionScope(
             cameras,
             zones,
             lines,
             lineSides,
             attributeValues,
+            classes,
             words.Contains("plate") || words.Contains("plates") || words.Contains("registration"),
             rules,
             vocabulary.ObjectSubclasses.Any(subclass => words.Contains(subclass) || words.Contains(subclass + "s")),

@@ -40,7 +40,7 @@ public static class AskGrammar
         {
             ["timeWindow"] = Window(),
             ["cameraIds"] = Array(Enum(cameraIds), 1, Math.Max(1, Math.Min(cameraIds.Count, vocabulary.Bounds.MaximumCameraIds))),
-            ["objectClass"] = Enum(vocabulary.ObjectClasses),
+            ["objectClass"] = Enum(scope.ObjectClasses),
             ["objectSubclass"] = Enum(vocabulary.ObjectSubclasses),
             ["minDurationMs"] = Integer(),
             ["zone"] = Object(
@@ -84,6 +84,8 @@ public static class AskGrammar
             where.Remove("zone");
         if (lineIds.Count == 0)
             where.Remove("line");
+        if (scope.ObjectClasses.Count == 0)
+            where.Remove("objectClass");
         if (!scope.Subclass)
             where.Remove("objectSubclass");
         if (!scope.Plate)
