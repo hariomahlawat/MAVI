@@ -330,12 +330,20 @@ if ($Seed) {
     $existing = @(Invoke-RestMethod -Uri "$apiBaseUrl/api/cameras" -Method Get -TimeoutSec 30 | ForEach-Object { $_ })
     $created = 0
     foreach ($camera in $cameras) {
-        if (@($existing | Where-Object { [string]$_.code -eq $camera.Code }).Count -gt 0) { continue }
-        $body = @{ code = $camera.Code; name = $camera.Name; timeZoneId = $camera.TimeZoneId } | ConvertTo-Json -Compress
+        $present = @($existing | Where-Object { [string]$_.code -eq $camera.Code })
+        if ($present.Count -gt 0) {
+            # A camera seeded before declared sites existed keeps none (cameras cannot be updated): it gets no Entity
+            # candidates until the PoC database is reset (ADR-023 amendment 2026-10-30).
+            if ($camera.SiteCode -and -not $present[0].siteCode) { Write-Warning "Demo camera $($camera.Code) has no declared site; run Uninstall-MAVI-PoC and install again for Entity candidates." }
+            continue
+        }
+        $fields = @{ code = $camera.Code; name = $camera.Name; timeZoneId = $camera.TimeZoneId }
+        if ($camera.SiteCode) { $fields.siteCode = $camera.SiteCode }
+        $body = $fields | ConvertTo-Json -Compress
         [void](Invoke-RestMethod -Uri "$apiBaseUrl/api/cameras" -Method Post -ContentType "application/json" -Body $body -TimeoutSec 30)
         $created++
     }
-    Write-MaviSetupStatus -Name "Demo cameras" -Status "OK" -Detail "$created created, $($cameras.Count - $created) already present (names only; no scene configured)"
+    Write-MaviSetupStatus -Name "Demo cameras" -Status "OK" -Detail "$created created, $($cameras.Count - $created) already present (names and sites only; no scene configured)"
 }
 
 $deployment = Invoke-RestMethod -Uri "$apiBaseUrl/api/system/deployment" -Method Get -TimeoutSec 30

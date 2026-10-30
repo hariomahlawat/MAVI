@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Mavi.Contracts.Api.Analytics;
 
 namespace Mavi.Contracts.Api.Query;
@@ -81,6 +82,8 @@ public sealed record QueryResultResponse(
     string Kind,
     IReadOnlyList<QueryTrackRowResponse>? Tracks = null,
     IReadOnlyList<QueryEventRowResponse>? Events = null,
+    // Written only for Entity rows (ADR-023 §9), so every envelope frozen before S7 is unchanged.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<QueryEntityRowResponse>? Entities = null,
     QueryTruncationResponse? Truncation = null,
     long? Value = null,
     string? Dimension = null,
@@ -139,6 +142,20 @@ public sealed record QueryEventRowResponse(
     DateTimeOffset StartUtc,
     DateTimeOffset EndUtc,
     long StartOffsetMs);
+
+/// <summary>
+/// One operator-confirmed Entity (ADR-023 §9): its in-scope member Tracks only (visible in the snapshot, overlapping the
+/// window, on an included camera), the first and last of their instants, and the cameras they are on. It is an
+/// operator decision, never an identification.
+/// </summary>
+public sealed record QueryEntityRowResponse(
+    Guid EntityId,
+    string DisplayCode,
+    string EntityType,
+    DateTimeOffset FirstStartUtc,
+    DateTimeOffset LastEndUtc,
+    IReadOnlyList<Guid> CameraIds,
+    IReadOnlyList<Guid> MemberTrackIds);
 
 /// <summary>A refusal: the request is outside the contract, or the contract cannot answer it as asked.</summary>
 public sealed record QueryRefusalResponse(string Code, string Path, string Message);

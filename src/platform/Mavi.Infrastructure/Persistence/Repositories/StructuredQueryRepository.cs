@@ -1,4 +1,5 @@
 using Mavi.Application.Modules.Query;
+using Mavi.Contracts.Api.Query;
 using Microsoft.EntityFrameworkCore;
 
 namespace Mavi.Infrastructure.Persistence.Repositories;
@@ -27,6 +28,81 @@ public sealed class StructuredQueryRepository(MaviDbContext db, TimeProvider tim
         IReadOnlyList<QueryReadWindow> windows,
         CancellationToken cancellationToken) =>
         new AnalyticEventRepository(db).ReadQueryEventsAsync(where, windows, MaximumMatchedRecords, cancellationToken);
+
+    /// <summary>Whether a visible Track (the latest completed run of its video) carries a confirmed Entity.</summary>
+    public Task<bool> AnyConfirmedEntityAsync(CancellationToken cancellationToken) =>
+        AnalyticsScopeQuery.BaseCandidates(db, new AnalyticsScopeRequest(null, null, null, null, null, null, null, null), long.MaxValue)
+            .AnyAsync(x => x.track.EntityId != null, cancellationToken);
+
+    /// <summary>
+    /// Operator-confirmed Entities (ADR-023 §9): in one snapshot under the shared barrier, the visible Tracks (the
+    /// latest completed run per video, the base candidate set Track search uses) that carry a confirmed
+    /// <c>EntityId</c>, overlap the window and are on an included camera, grouped by Entity. Candidates are never read.
+    /// Membership is an operator decision, not a published fact, so it carries no visibility sequence: it is read as of
+    /// evaluation. Every window is read by one statement over their union (one statement, one snapshot, taken after the
+    /// shared barrier is granted) and split in memory, so the windows of one query see the same membership.
+    /// </summary>
+    public async Task<QueryEntityRead> ReadEntitiesAsync(
+        QueryPredicates where,
+        IReadOnlyList<QueryReadWindow> windows,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await ProcessingVisibilityBarrier.AcquireSearchSharedAsync(db, cancellationToken);
+        var sequence = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
+        var cameras = await StructuredQueryScope.ResolveCamerasAsync(db, where.CameraIds, cancellationToken);
+        if (cameras.Refusal is { } unknownCamera)
+            return new QueryEntityRead(false, QueryRead.Refused<QueryEntityRecord>(unknownCamera));
+        var anyConfirmed = await AnyConfirmedEntityAsync(cancellationToken);
+
+        var cameraIds = where.CameraIds.ToArray();
+        var union = new AnalyticsScopeRequest(null, null, null, null, windows.Min(window => window.Window.FromUtc),
+            windows.Max(window => window.Window.ToUtc), null, null);
+        var all = await (
+                    from x in AnalyticsScopeQuery.BaseCandidates(db, union, sequence)
+                    where x.track.EntityId != null && (cameraIds.Length == 0 || cameraIds.Contains(x.camera.Id))
+                    join entity in db.Entities.AsNoTracking() on x.track.EntityId equals entity.Id
+                    select new
+                    {
+                        EntityId = entity.Id,
+                        entity.DisplayCode,
+                        entity.EntityType,
+                        TrackId = x.track.Id,
+                        CameraId = x.camera.Id,
+                        CameraCode = x.camera.Code,
+                        CameraName = x.camera.Name,
+                        x.track.StartTimestampUtc,
+                        x.track.EndTimestampUtc,
+                    })
+                .ToListAsync(cancellationToken);
+        var reads = new List<QueryWindowRead<QueryEntityRecord>>();
+        foreach (var window in windows)
+        {
+            // The overlap rule Track search uses (end at or after from, start before to), applied to the union's rows.
+            var members = all.Where(member => member.EndTimestampUtc >= window.Window.FromUtc && member.StartTimestampUtc < window.Window.ToUtc);
+            var records = members
+                .GroupBy(member => member.EntityId)
+                .OrderBy(group => group.Key)
+                .Select(group => new QueryEntityRecord(group.Key, group.First().DisplayCode, group.First().EntityType,
+                    [.. group.OrderBy(member => member.TrackId).Select(member => new QueryEntityMember(member.TrackId, member.CameraId,
+                        member.CameraCode, member.CameraName, member.StartTimestampUtc, member.EndTimestampUtc))]))
+                .ToList();
+            if (records.Count > MaximumMatchedRecords)
+                return new QueryEntityRead(anyConfirmed,
+                    QueryRead.Refused<QueryEntityRecord>(StructuredQueryScope.TooLarge(window.Name, MaximumMatchedRecords)));
+            reads.Add(new QueryWindowRead<QueryEntityRecord>(records,
+                [new QueryCoverageComponentResponse("entities", window.Name, true, Reason: StructuredQueryService.EntityConfirmedOnlyReason)]));
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        var identities = cameras.Cameras
+            .Select(camera => new QueryCameraIdentityResponse(camera.Id, camera.Code, camera.Name, null, null, EntityIdentityVersion))
+            .ToList();
+        return new QueryEntityRead(anyConfirmed, new QueryRead<QueryEntityRecord>(null, sequence, identities, reads));
+    }
+
+    /// <summary>What an Entity answer is resolved against in place of an analytics algorithm: confirmed membership.</summary>
+    internal const string EntityIdentityVersion = "operator-confirmed-membership";
 }
 
 /// <summary>A camera named by a query, with what the envelope shows of it.</summary>

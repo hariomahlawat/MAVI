@@ -41,6 +41,12 @@ public sealed record QueryEventRecord(
     DateTimeOffset EndUtc,
     long StartOffsetMs);
 
+/// <summary>One in-scope member Track of an Entity, as the repository projects it.</summary>
+public sealed record QueryEntityMember(Guid TrackId, Guid CameraId, string CameraCode, string CameraName, DateTimeOffset StartUtc, DateTimeOffset EndUtc);
+
+/// <summary>One operator-confirmed Entity with its in-scope member Tracks (at least one).</summary>
+public sealed record QueryEntityRecord(Guid EntityId, string DisplayCode, EntityType EntityType, IReadOnlyList<QueryEntityMember> Members);
+
 /// <summary>
 /// The pure evaluation of an operation over matching records (ADR-024 §4–§5): no I/O, no clock, total orderings
 /// everywhere, so one record set gives one answer. The repository decides membership; this decides arithmetic.
@@ -77,6 +83,37 @@ public static class StructuredQueryEvaluator
             record.EventId, Anchor(record.StartUtc, window), record)).ToList();
         return Evaluate(operation, window, items, EventKey, rows => new QueryResultResponse(
             "rows", Events: [.. rows.Select(EventRow)]), baseline?.Count);
+    }
+
+    /// <summary>
+    /// Evaluates an operation over confirmed Entities (ADR-023 §9). An Entity's anchor is the first instant of its
+    /// earliest in-scope member inside the window, so buckets still partition the count. <c>groupBy</c>, <c>top</c>
+    /// and <c>countDistinct</c> by camera count an Entity once per camera where it has an in-scope member.
+    /// </summary>
+    public static QueryResultResponse EvaluateEntities(
+        QueryOperation operation,
+        QueryWindow window,
+        IReadOnlyList<QueryEntityRecord> records,
+        IReadOnlyList<QueryEntityRecord>? baseline = null)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(records);
+        if (operation.Kind is QueryOperationKind.GroupBy or QueryOperationKind.Top or QueryOperationKind.CountDistinct)
+        {
+            var perCamera = records
+                .SelectMany(record => record.Members
+                    .GroupBy(member => member.CameraId)
+                    .Select(group => new Item<QueryEntityMember>(record.EntityId, Anchor(group.Min(member => member.StartUtc), window),
+                        group.First())))
+                .ToList();
+            return Evaluate(operation, window, perCamera, EntityCameraKey, _ => throw new InvalidOperationException("No rows for a group."),
+                baseline?.Count);
+        }
+
+        var items = records.Select(record => new Item<QueryEntityRecord>(
+            record.EntityId, Anchor(record.Members.Min(member => member.StartUtc), window), record)).ToList();
+        return Evaluate(operation, window, items, (_, dimension) => throw new ArgumentOutOfRangeException(nameof(dimension)),
+            rows => new QueryResultResponse("rows", Entities: [.. rows.Select(EntityRow)]), baseline?.Count);
     }
 
     /// <summary>
@@ -247,6 +284,21 @@ public static class StructuredQueryEvaluator
         "track" => (record.PrimaryTrackId?.ToString("D"), record.PrimaryTrackId?.ToString("D") ?? "No primary Track"),
         _ => throw new ArgumentOutOfRangeException(nameof(dimension), dimension, "Not an Event dimension."),
     };
+
+    private static (string? Key, string Label) EntityCameraKey(QueryEntityMember member, string dimension) => dimension switch
+    {
+        "camera" => (member.CameraId.ToString("D"), $"{member.CameraCode} · {member.CameraName}"),
+        _ => throw new ArgumentOutOfRangeException(nameof(dimension), dimension, "Not an Entity dimension."),
+    };
+
+    public static QueryEntityRowResponse EntityRow(QueryEntityRecord record) => new(
+        record.EntityId,
+        record.DisplayCode,
+        record.EntityType.ToString(),
+        record.Members.Min(member => member.StartUtc),
+        record.Members.Max(member => member.EndUtc),
+        [.. record.Members.Select(member => member.CameraId).Distinct().Order()],
+        [.. record.Members.Select(member => member.TrackId).Order()]);
 
     public static QueryTrackRowResponse TrackRow(QueryTrackRecord record) => new(
         record.TrackId,

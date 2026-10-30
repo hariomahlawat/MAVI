@@ -78,6 +78,18 @@ public sealed class Track
         ReviewStatus = decision.ResultingStatus;
     }
 
+    /// <summary>
+    /// Joins the Track to an operator-confirmed Entity (ADR-023 §1, §6). The confirmation of an Entity candidate is
+    /// the only caller; a test fails the build if any other code path calls this or writes <c>entity_id</c>.
+    /// A Track joins at most one Entity and never leaves it in this slice.
+    /// </summary>
+    public void JoinEntityByConfirmation(Guid entityId)
+    {
+        if (entityId == Guid.Empty || (EntityId.HasValue && EntityId.Value != entityId))
+            throw new DomainValidationException("track_entity_assignment_invalid", "The Track already belongs to another Entity.");
+        EntityId = entityId;
+    }
+
     public Guid Id { get; private set; }
     public Guid ProcessingRunId { get; private set; }
     public Guid VideoAssetId { get; private set; }

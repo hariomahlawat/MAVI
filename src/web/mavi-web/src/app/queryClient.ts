@@ -65,6 +65,10 @@ export const queryKeys = {
   caseDetail: (id: string) => ['cases', 'detail', id] as const,
   /** One entry per exact audit filter (its canonical query string, without the cursor). */
   audit: (filter: string) => ['audit', filter] as const,
+  /** PoC S7 (ADR-023): Entity candidates, their per-camera-pair summary, and one Entity. */
+  entityCandidates: (filter: object) => ['entity-candidates', filter] as const,
+  entityCandidateSummary: ['entity-candidates', 'summary'] as const,
+  entity: (id: string) => ['entity', id] as const,
   cameraScene: (cameraId: string) => ['camera-scene', cameraId] as const,
   cameraSceneRevision: (cameraId: string, revisionNumber: number) =>
     ['camera-scene-revision', cameraId, revisionNumber] as const,

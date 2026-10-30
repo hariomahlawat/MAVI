@@ -13,8 +13,12 @@ namespace Mavi.Application.Modules.Query;
 /// </summary>
 public static class QueryContractVocabulary
 {
-    public static QueryContractResponse Describe(IVisualAttributeRelease? attributeRelease)
+    /// <param name="entityAvailable">Whether the Entity unit has data to state (ADR-023 §9); null keeps it unavailable.</param>
+    /// <param name="entityReason">The reason it is unavailable; ignored when <paramref name="entityAvailable"/> is true.</param>
+    public static QueryContractResponse Describe(IVisualAttributeRelease? attributeRelease, bool? entityAvailable = null, string? entityReason = null)
     {
+        var entityHasData = entityAvailable == true;
+        var entityUnavailable = entityHasData ? null : entityReason ?? StructuredQueryService.EntityUnavailableReason;
         var definition = attributeRelease?.Resolution.Definition;
         var attributes = definition is null
             ? []
@@ -29,8 +33,8 @@ public static class QueryContractVocabulary
         var units = new[] { QueryUnit.Track, QueryUnit.Event, QueryUnit.Entity }
             .Select(unit => new QueryUnitVocabularyResponse(
                 QueryContract.ToWire(unit),
-                unit != QueryUnit.Entity,
-                unit == QueryUnit.Entity ? StructuredQueryService.EntityUnavailableReason : null,
+                unit != QueryUnit.Entity || entityHasData,
+                unit == QueryUnit.Entity ? entityUnavailable : null,
                 QueryContract.Predicates[unit],
                 QueryContract.GroupDimensions[unit],
                 QueryContract.DistinctFields[unit]))

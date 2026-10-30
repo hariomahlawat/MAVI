@@ -12,7 +12,7 @@ import type { IconName } from '../components/Icon';
  * document title and the `g` destination keys are all derived from it, and
  * nothing else in the product spells them.
  *
- * It is deliberately small and closed: nineteen surfaces, three sections. It is not
+ * It is deliberately small and closed: twenty surfaces, three sections. It is not
  * a routing framework — route paths stay in the router, which names each
  * route's surface through its `handle` — and a new surface is one row here by
  * amendment of §5, under its owning section.
@@ -23,7 +23,8 @@ import type { IconName } from '../components/Icon';
 
 /** A primary destination: one rail item, one root crumb, one `g` key. */
 export type DestinationId =
-  | 'overview' | 'cameras' | 'videos' | 'import' | 'processing' | 'search' | 'query' | 'ask' | 'faces' | 'cases' | 'system' | 'audit';
+  | 'overview' | 'cameras' | 'videos' | 'import' | 'processing' | 'search' | 'query' | 'ask' | 'faces' | 'entities' | 'cases' | 'system'
+  | 'audit';
 
 /** Every surface the product renders, including the one that owns nothing. */
 export type SurfaceId =
@@ -55,8 +56,8 @@ export type Section = { label: string; destinations: Destination[] };
 /**
  * Grouped per §5 and ordered by operator workflow rather than alphabetically:
  * know what you have, bring media in, watch it process, then investigate what
- * came out. Investigate holds Search, Query (Stage 8 Advanced Search), Ask (Stage 9 Ask MAVI), Faces (PoC S6) and Cases (PoC S11-full);
- * Entities joins it only when it is a real route. Administer holds About and the read-only Audit trail (PoC S11-full).
+ * came out. Investigate holds Search, Query (Stage 8 Advanced Search), Ask (Stage 9 Ask MAVI), Faces (PoC S6), Entities (PoC S7) and
+ * Cases (PoC S11-full); Events joins it only when it is a real route. Administer holds About and the read-only Audit trail (PoC S11-full).
  */
 export const SECTIONS: readonly Section[] = [
   {
@@ -79,8 +80,10 @@ export const SECTIONS: readonly Section[] = [
       { id: 'ask', label: 'Ask', to: '/ask', icon: 'list', key: 'k' },
       // PoC S6 (ADR-022): find a face from an image, the gallery and the per-camera opt-in.
       { id: 'faces', label: 'Faces', to: '/faces', icon: 'person', key: 'f' },
-      // PoC S11-full (ADR-027 §2): investigation containers. `g e`: `c` is Cameras', `a` About's, `s` Search's.
-      { id: 'cases', label: 'Cases', to: '/cases', icon: 'box', key: 'e' },
+      // PoC S7 (ADR-023): Entity candidates and the operator's confirm or dismiss.
+      { id: 'entities', label: 'Entities', to: '/entities', icon: 'layers', key: 'e' },
+      // PoC S11-full (ADR-027 §2): investigation containers. `g x`: `c` is Cameras', `a` About's, `s` Search's, `e` Entities'.
+      { id: 'cases', label: 'Cases', to: '/cases', icon: 'box', key: 'x' },
     ],
   },
   {
@@ -120,6 +123,7 @@ export const SURFACES: Readonly<Record<SurfaceId, SurfaceRow>> = {
   ask: { owner: 'ask' },
   review: { owner: 'search', child: 'Review' },
   faces: { owner: 'faces' },
+  entities: { owner: 'entities' },
   cases: { owner: 'cases' },
   'case-detail': { owner: 'cases' },
   system: { owner: 'system' },

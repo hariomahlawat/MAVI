@@ -24,4 +24,15 @@ public sealed class CameraTests
 
         Assert.Equal("camera_code_required", ex.Code);
     }
+
+    [Fact]
+    public void ASiteCodeIsAnOptionalLowerCaseTokenFixedAtCreation()
+    {
+        var at = new DateTimeOffset(2026, 10, 30, 0, 0, 0, TimeSpan.Zero);
+        Assert.Null(Camera.Create("CAM-1", "Gate", "UTC", at).SiteCode);
+        Assert.Equal("meva-2018-03-11-1620", Camera.Create("CAM-2", "Hall", "UTC", at, " MEVA-2018-03-11-1620 ").SiteCode);
+        foreach (var invalid in new[] { "", " ", "-site", "site a", "site/a", new string('a', 65) })
+            Assert.Equal("camera_site_code_invalid",
+                Assert.Throws<Mavi.Domain.Common.DomainValidationException>(() => Camera.Create("CAM-3", "X", "UTC", at, invalid)).Code);
+    }
 }

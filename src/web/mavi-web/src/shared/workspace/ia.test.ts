@@ -35,6 +35,7 @@ describe('the IA map', () => {
       ask: 'Ask',
       review: 'Search',
       faces: 'Faces',
+      entities: 'Entities',
       cases: 'Cases',
       'case-detail': 'Cases',
       system: 'About',
@@ -46,7 +47,7 @@ describe('the IA map', () => {
   it('groups the rail Operate, Investigate, then Administer, in workflow order', () => {
     expect(SECTIONS.map((section) => [section.label, section.destinations.map((entry) => entry.label)])).toEqual([
       ['Operate', ['Overview', 'Cameras', 'Videos', 'Import', 'Processing']],
-      ['Investigate', ['Search', 'Query', 'Ask', 'Faces', 'Cases']],
+      ['Investigate', ['Search', 'Query', 'Ask', 'Faces', 'Entities', 'Cases']],
       ['Administer', ['About', 'Audit']],
     ]);
   });
@@ -80,6 +81,7 @@ describe('the IA map', () => {
     expect(labels('not-found')).toEqual(['Not found']);
     expect(labels('system')).toEqual(['About']);
     expect(labels('faces')).toEqual(['Faces']);
+    expect(labels('entities')).toEqual(['Entities']);
     expect(labels('cases')).toEqual(['Cases']);
     expect(labels('case-detail', 'Gate incident')).toEqual(['Cases', 'Gate incident']);
     expect(labels('audit')).toEqual(['Audit']);

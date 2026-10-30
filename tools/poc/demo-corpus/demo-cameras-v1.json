@@ -5,67 +5,80 @@
     {
       "code": "POC-S2-01",
       "name": "PoC demo 01 - Worringer Platz junction",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "commons-poc-s2-01"
     },
     {
       "code": "POC-S2-02",
       "name": "PoC demo 02 - Macedonia Square junction",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "commons-poc-s2-02"
     },
     {
       "code": "POC-S2-03",
       "name": "PoC demo 03 - Caton Farm Road",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "commons-poc-s2-03"
     },
     {
       "code": "POC-S2-04",
       "name": "PoC demo 04 - Highway at night",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "commons-poc-s2-04"
     },
     {
       "code": "POC-S2-05",
       "name": "PoC demo 05 - Archway gate",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "commons-poc-s2-05"
     },
     {
       "code": "POC-S2-06",
       "name": "PoC demo 06 - Level crossing barrier",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "commons-poc-s2-06"
     },
     {
       "code": "POC-S2-07",
       "name": "PoC demo 07 - Scramble crossing",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "commons-poc-s2-07"
     },
     {
       "code": "POC-S2-08",
       "name": "PoC demo 08 - Bus stop waiting room (MEVA G331)",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "meva-2018-03-11-1620"
     },
     {
       "code": "POC-S2-09",
       "name": "PoC demo 09 - School parking lot (MEVA G424)",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "meva-2018-03-11-1620"
     },
     {
       "code": "POC-S2-10",
       "name": "PoC demo 10 - School cafe lobby (MEVA G421)",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "meva-2018-03-11-1620"
     },
     {
       "code": "POC-S2-11",
       "name": "PoC demo 11 - School hallway (MEVA G423)",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "meva-2018-03-11-1620"
     },
     {
       "code": "POC-S2-12",
       "name": "PoC demo 12 - School stairwell (MEVA G419)",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "meva-2018-03-11-1620"
     },
     {
       "code": "POC-S2-13",
       "name": "PoC demo 13 - School entrance hall (MEVA G420)",
-      "timeZoneId": "Asia/Kolkata"
+      "timeZoneId": "Asia/Kolkata",
+      "siteCode": "meva-2018-03-11-1620"
     }
   ]
 }

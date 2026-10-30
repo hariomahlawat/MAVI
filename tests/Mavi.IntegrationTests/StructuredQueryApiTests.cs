@@ -36,13 +36,16 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
     /// The fixtures the corpus names. <c>derived</c>: one camera, one Person Track, scene facts committed and events
     /// derived. <c>underived</c>: the same, events not derived. <c>pending</c>: the same camera and Track, scene facts
     /// not committed. <c>two-camera</c>: <c>derived</c> plus a second camera with no scene, recorded three
-    /// and a half hours earlier, holding two Vehicle Tracks that start at the same instant.
+    /// and a half hours earlier, holding two Vehicle Tracks that start at the same instant. <c>entities</c>: <c>two-camera</c>
+    /// plus a Person Track on the second camera and one operator-confirmed Person Entity (ADR-023) holding it and the
+    /// first camera's Person Track.
     /// </summary>
     [Theory]
     [InlineData("derived")]
     [InlineData("underived")]
     [InlineData("pending")]
     [InlineData("two-camera")]
+    [InlineData("entities")]
     public async Task TheGoldenCorpusAnswersExactlyAsFrozen(string setup)
     {
         var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
@@ -50,16 +53,19 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
             await CommitFactsAsync(world);
         await using var factory = CreateFactory(world);
         using var client = factory.CreateClient();
-        if (setup is "derived" or "two-camera")
+        if (setup is "derived" or "two-camera" or "entities")
         {
             await using var scope = factory.Services.CreateAsyncScope();
             Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<AnalyticEventService>().DeriveDueAsync(50, default));
         }
 
-        var second = setup == "two-camera" ? await AddSecondCameraAsync(world) : null;
+        var second = setup is "two-camera" or "entities" ? await AddSecondCameraAsync(world) : null;
 
         using var corpus = JsonDocument.Parse(File.ReadAllText(CorpusPath()));
         var placeholders = corpus.RootElement.GetProperty("placeholders");
+        Guid? secondPerson = null;
+        if (setup == "entities")
+            secondPerson = await ConfirmEntityAsync(world, second!, Guid.Parse(placeholders.GetProperty("entity").GetString()!));
         var toWorld = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [placeholders.GetProperty("camera").GetString()!] = world.CameraId.ToString("D"),
@@ -86,6 +92,13 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
             fromWorld[second.RunId.ToString("D")] = placeholders.GetProperty("run2").GetString()!;
             fromWorld[second.LowTrackId.ToString("D")] = placeholders.GetProperty("track2Low").GetString()!;
             fromWorld[second.HighTrackId.ToString("D")] = placeholders.GetProperty("track2High").GetString()!;
+        }
+
+        if (secondPerson is { } person)
+        {
+            toWorld[placeholders.GetProperty("track2Person").GetString()!] = person.ToString("D");
+            fromWorld[person.ToString("D")] = placeholders.GetProperty("track2Person").GetString()!;
+            fromWorld[placeholders.GetProperty("entity").GetString()!] = placeholders.GetProperty("entity").GetString()!;
         }
 
         var blessPath = Environment.GetEnvironmentVariable("MAVI_QUERY_GOLDEN_BLESS");
@@ -308,11 +321,58 @@ public sealed partial class StructuredQueryApiTests(PostgresFixture fixture)
         return new SecondCamera(camera.Id, video.Id, run.Id, ordered[0], ordered[1]);
     }
 
-    private static ApiTestFactory CreateFactory(SceneAnalyticsWorld world) => new()
+    /// <summary>
+    /// A Person Track on the second camera (02:35:00–02:35:20 UTC, three hours before the first camera's) and one
+    /// operator-confirmed Person Entity holding it and the first camera's Person Track. The Entity is written as a
+    /// confirmation leaves it (ADR-023 §6), with the corpus's fixed id so its envelopes are stable; this fixture is the
+    /// only place outside the confirmation that sets <c>entity_id</c>, and it is test data.
+    /// </summary>
+    private static async Task<Guid> ConfirmEntityAsync(SceneAnalyticsWorld world, SecondCamera second, Guid entityId)
     {
-        Clock = world.Clock,
-        EnableSceneAnalyticsHost = false,
-        MediaRootOverride = world.MediaRoot,
-        EvidenceRootOverride = world.EvidenceRoot,
-    };
+        await using var db = world.Read();
+        var person = Track.Create(second.RunId, second.VideoId, 3, ObjectClass.Person, 300_000, 320_000, Now.AddHours(-3).AddMinutes(-30),
+            detectionCount: 6, meanConfidence: 0.75, maxConfidence: 0.85, createdAtUtc: Now.AddMinutes(-5));
+        db.Add(person);
+        await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO entities (id, entity_type, display_code, identity_status, review_status, created_at_utc, updated_at_utc)
+            VALUES ({entityId}, 'Person', {Entity.DisplayCodeFor(EntityType.Person, entityId)}, 'Unknown', 'Confirmed', {Now}, {Now})
+            """);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE tracks SET entity_id = {entityId} WHERE id = {world.TrackId} OR id = {person.Id}");
+        return person.Id;
+    }
+
+    /// <summary>
+    /// The host as the labelled Development operator under the PoC profile: the Entity unit is read by operators only
+    /// (ADR-023 §6), and nothing else in the corpus depends on the identity mode.
+    /// </summary>
+    private static ApiTestFactory CreateFactory(SceneAnalyticsWorld world)
+    {
+        var metadata = Path.Combine(world.MediaRoot, "release.json");
+        File.WriteAllText(metadata, $$"""
+            {
+              "schemaVersion": "mavi-poc-release-metadata-v1",
+              "profile": "poc-single-host",
+              "productionQualified": false,
+              "evidenceClass": "Development",
+              "identityMode": "development-unattributed",
+              "application": { "revision": "{{new string('d', 40)}}" },
+              "packs": []
+            }
+            """);
+        return new ApiTestFactory
+        {
+            Clock = world.Clock,
+            EnableSceneAnalyticsHost = false,
+            MediaRootOverride = world.MediaRoot,
+            EvidenceRootOverride = world.EvidenceRoot,
+            AdditionalConfiguration = new Dictionary<string, string?>
+            {
+                ["Identity:Mode"] = "development-unattributed",
+                ["Deployment:Profile"] = Mavi.Application.Deployment.DeploymentProfiles.PocSingleHost,
+                ["Deployment:ReleaseMetadataPath"] = metadata,
+            },
+        };
+    }
 }
