@@ -1402,6 +1402,7 @@ def check_contracts(errors: list[str]) -> None:
     check_embedding_contract(errors)
     check_face_contract(errors)
     check_structured_query_corpus(errors)
+    check_ask_mavi(errors)
 
 
 def check_structured_query_corpus(errors: list[str]) -> None:
@@ -1432,6 +1433,79 @@ def check_structured_query_corpus(errors: list[str]) -> None:
             fail(f"structured-query-v1 schema {verdict} golden case {name}, against the corpus.", errors)
         if expect["status"] == 200 and not case["schemaValid"]:
             fail(f"Structured query golden case {name} is answered but the schema rejects it.", errors)
+
+
+def check_ask_mavi(errors: list[str]) -> None:
+    """PoC S10 (ADR-026): the language payload record, the frozen question corpus and the recorded translations.
+
+    The payload record must agree with the Language Model Pack manifests; every expected query of the corpus and every
+    query a recording translated to must be valid under the structured-query-v1 schema (the .NET replay tests hold the
+    strict parser to the same recordings); each recording must be bound to the corpus and catalogue bytes it was made
+    from. Model bytes never appear here: only hashes.
+    """
+    sys.path.insert(0, str(ROOT / "tools" / "language"))
+    try:
+        import language_packs  # noqa: PLC0415 - tools/language is not a package
+
+        language_packs.load(ROOT)
+    except Exception as exc:  # noqa: BLE001 - any failure is a verification failure
+        fail(f"Language payload record or Language Model Pack manifest invalid: {exc}", errors)
+    finally:
+        sys.path.pop(0)
+
+    schema = json.loads((ROOT / "contracts/schemas/structured-query-v1.schema.json").read_text(encoding="utf-8"))
+    validator = jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker())
+    questions_path = ROOT / "contracts/test-vectors/ask-mavi-questions-v1.json"
+    catalogue_path = ROOT / "contracts/test-vectors/ask-mavi-site-catalogue-v1.json"
+    corpus = json.loads(questions_path.read_text(encoding="utf-8"))
+    catalogue = json.loads(catalogue_path.read_text(encoding="utf-8"))
+    cameras = {camera["code"]: camera for camera in catalogue["cameras"]}
+
+    def resolve(value):
+        if isinstance(value, dict):
+            return {key: resolve(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
+            kind, reference = value[1:-1].split(":", 1)
+            if kind == "camera":
+                return cameras[reference]["cameraId"]
+            code, name = reference.split("/", 1)
+            items = cameras[code]["zones" if kind == "zone" else "lines"]
+            return next(item["zoneId" if kind == "zone" else "lineId"] for item in items if item["name"] == name)
+        return value
+
+    ids = [question["id"] for question in corpus["questions"]]
+    if len(ids) != len(set(ids)) or len(ids) != 60:
+        fail("The Ask MAVI question corpus must hold 60 uniquely named questions.", errors)
+    for question in corpus["questions"]:
+        if question["split"] not in ("development", "held"):
+            fail(f"Ask MAVI question {question['id']} has an unknown split.", errors)
+        expect = question["expect"]
+        if expect["answer"] == "query":
+            try:
+                query = resolve(expect["query"])
+            except (KeyError, StopIteration):
+                fail(f"Ask MAVI question {question['id']} names a reference the catalogue fixture lacks.", errors)
+                continue
+            if not validator.is_valid(query):
+                fail(f"Ask MAVI question {question['id']}: the expected query is invalid under structured-query-v1.", errors)
+        elif expect["answer"] != "refusal" or expect.get("reason") not in corpus["refusalReasons"]:
+            fail(f"Ask MAVI question {question['id']} has no valid expectation.", errors)
+
+    def text_sha256(path: Path) -> str:
+        return hashlib.sha256(path.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8")).hexdigest()
+
+    recordings = sorted((ROOT / "contracts/test-vectors").glob("ask-mavi-recordings-*.json"))
+    if not recordings:
+        fail("No Ask MAVI recording set is committed (contracts/test-vectors/ask-mavi-recordings-*.json).", errors)
+    for path in recordings:
+        recording = json.loads(path.read_text(encoding="utf-8"))
+        if recording.get("questionsSha256") != text_sha256(questions_path) or recording.get("catalogueSha256") != text_sha256(catalogue_path):
+            fail(f"{path.name} is not bound to the committed corpus and catalogue; re-record.", errors)
+        for result in recording["results"]:
+            if result["outcome"].startswith("{") and not validator.is_valid(json.loads(result["outcome"])):
+                fail(f"{path.name} {result['id']}: a translated query is invalid under structured-query-v1.", errors)
 
 
 def embedding_identity(manifest_path: Path, profile_path: Path) -> tuple[str, str]:

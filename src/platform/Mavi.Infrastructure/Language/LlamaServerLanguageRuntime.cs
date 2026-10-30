@@ -17,8 +17,8 @@ public sealed class LanguageOptions
 
     public bool Enabled { get; set; }
 
-    /// <summary>The llama-server base URL; must be a loopback http URL.</summary>
-    public string BaseUrl { get; set; } = "http://127.0.0.1:62301";
+    /// <summary>The llama-server port on 127.0.0.1. The host is fixed: the role is loopback only (ADR-026 §3).</summary>
+    public int Port { get; set; } = 62301;
 
     public int TimeoutSeconds { get; set; } = 120;
 
@@ -47,9 +47,9 @@ public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
     public LlamaServerLanguageRuntime(IOptions<LanguageOptions> options)
     {
         this.options = options.Value;
-        var baseUri = new Uri(this.options.BaseUrl, UriKind.Absolute);
-        if (baseUri.Scheme != Uri.UriSchemeHttp || !IPAddress.TryParse(baseUri.Host, out var address) || !IPAddress.IsLoopback(address))
-            throw new InvalidOperationException("Language:BaseUrl must be a loopback http URL (ADR-026 §3).");
+        if (this.options.Port is < 1 or > 65535)
+            throw new InvalidOperationException("Language:Port must be a TCP port (ADR-026 §3).");
+        var baseUri = new UriBuilder(Uri.UriSchemeHttp, IPAddress.Loopback.ToString(), this.options.Port).Uri;
         client = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { BaseAddress = baseUri, Timeout = Timeout.InfiniteTimeSpan };
     }
 

@@ -397,25 +397,9 @@ function Answer({
   contract: QueryContract;
   displayTimeZoneId: string | undefined;
 }) {
-  const gaps = envelope.coverage.components.flatMap((component) =>
-    coverageComponentGaps(component).map((gap) => (component.window === 'baseline' ? `baseline: ${gap}` : gap)));
-  const abstentions = envelope.coverage.components
-    .flatMap((component) => component.attributes?.unknown ?? [])
-    .filter((item) => item.tracks > 0);
-  const unreadable = envelope.coverage.components
-    .reduce((sum, component) => sum + (component.attributes?.unavailable ?? 0), 0);
-
   return (
     <>
-      <div className={envelope.coverage.complete ? 'query-page__coverage' : 'query-page__coverage query-page__coverage--incomplete'} role="status">
-        {envelope.coverage.complete
-          ? 'Coverage complete for this scope.'
-          : `Coverage incomplete: ${gaps.join('; ')}.`}
-        {abstentions.length > 0
-          ? ` Unknown, not counted either way: ${abstentions.map((item) => `${item.tracks} Track(s) for ${item.type}`).join(', ')}.`
-          : ''}
-        {unreadable > 0 ? ` ${unreadable} Track(s) could not be read for attributes and are not counted either way.` : ''}
-      </div>
+      <CoverageStatus envelope={envelope} />
 
       <Panel title="Answer">
         <Result envelope={envelope} displayTimeZoneId={displayTimeZoneId} />
@@ -445,7 +429,30 @@ function Answer({
   );
 }
 
-function Result({ envelope, displayTimeZoneId }: { envelope: QueryEnvelope; displayTimeZoneId: string | undefined }) {
+/** The envelope's coverage in the words the Analytics and Events pages use; shared with Ask MAVI (ADR-026 §5). */
+export function CoverageStatus({ envelope }: { envelope: QueryEnvelope }) {
+  const gaps = envelope.coverage.components.flatMap((component) =>
+    coverageComponentGaps(component).map((gap) => (component.window === 'baseline' ? `baseline: ${gap}` : gap)));
+  const abstentions = envelope.coverage.components
+    .flatMap((component) => component.attributes?.unknown ?? [])
+    .filter((item) => item.tracks > 0);
+  const unreadable = envelope.coverage.components
+    .reduce((sum, component) => sum + (component.attributes?.unavailable ?? 0), 0);
+  return (
+    <div className={envelope.coverage.complete ? 'query-page__coverage' : 'query-page__coverage query-page__coverage--incomplete'} role="status">
+      {envelope.coverage.complete
+        ? 'Coverage complete for this scope.'
+        : `Coverage incomplete: ${gaps.join('; ')}.`}
+      {abstentions.length > 0
+        ? ` Unknown, not counted either way: ${abstentions.map((item) => `${item.tracks} Track(s) for ${item.type}`).join(', ')}.`
+        : ''}
+      {unreadable > 0 ? ` ${unreadable} Track(s) could not be read for attributes and are not counted either way.` : ''}
+    </div>
+  );
+}
+
+/** The envelope's result as a figure, chart and table with drill-through; shared with Ask MAVI (ADR-026 §5). */
+export function Result({ envelope, displayTimeZoneId }: { envelope: QueryEnvelope; displayTimeZoneId: string | undefined }) {
   const result = envelope.result;
   switch (result.kind) {
     case 'withheld':

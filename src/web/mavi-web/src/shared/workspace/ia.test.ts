@@ -32,6 +32,7 @@ describe('the IA map', () => {
       'processing-detail': 'Processing',
       search: 'Search',
       query: 'Query',
+      ask: 'Ask',
       review: 'Search',
       faces: 'Faces',
       system: 'About',
@@ -42,7 +43,7 @@ describe('the IA map', () => {
   it('groups the rail Operate, Investigate, then Administer, in workflow order', () => {
     expect(SECTIONS.map((section) => [section.label, section.destinations.map((entry) => entry.label)])).toEqual([
       ['Operate', ['Overview', 'Cameras', 'Videos', 'Import', 'Processing']],
-      ['Investigate', ['Search', 'Query', 'Faces']],
+      ['Investigate', ['Search', 'Query', 'Ask', 'Faces']],
       ['Administer', ['About']],
     ]);
   });
@@ -52,7 +53,8 @@ describe('the IA map', () => {
     expect(new Set(keys).size).toBe(keys.length);
     for (const entry of DESTINATIONS) {
       expect(entry.key).toMatch(/^[a-z]$/);
-      expect(entry.label.toLowerCase().startsWith(entry.key)).toBe(true);
+      // A letter of the label, the first wherever it is free (Ask takes `k`: `a` is About's).
+      expect(entry.label.toLowerCase()).toContain(entry.key);
       expect(destinationForKey(entry.key)).toBe(entry);
       expect(destinationForKey(entry.key.toUpperCase())).toBe(entry);
     }

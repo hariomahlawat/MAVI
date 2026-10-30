@@ -15,7 +15,7 @@ namespace Mavi.IntegrationTests;
 /// prompt and grammar hashes, so <c>AskCorpusReplayTests</c> can replay it without the model.
 /// <code>
 /// MAVI_ASK_RECORD=contracts/test-vectors/ask-mavi-recordings-&lt;label&gt;.json
-/// MAVI_ASK_LANGUAGE_URL=http://127.0.0.1:62301   MAVI_ASK_SPLIT=development|all
+/// MAVI_ASK_LANGUAGE_PORT=62301 (llama-server on 127.0.0.1)   MAVI_ASK_SPLIT=development|all
 /// MAVI_ASK_LABEL, MAVI_ASK_MODEL_PACK_ID, MAVI_ASK_MODEL_ID, MAVI_ASK_QUANTISATION, MAVI_ASK_MODEL_SHA256,
 /// MAVI_ASK_RUNTIME_ID, MAVI_ASK_DEVICE
 /// dotnet test tests/Mavi.IntegrationTests --filter FullyQualifiedName~AskCorpusRecorder
@@ -37,7 +37,7 @@ public sealed class AskCorpusRecorder
         using var runtime = new LlamaServerLanguageRuntime(Options.Create(new LanguageOptions
         {
             Enabled = true,
-            BaseUrl = Env("MAVI_ASK_LANGUAGE_URL"),
+            Port = int.Parse(Env("MAVI_ASK_LANGUAGE_PORT"), System.Globalization.CultureInfo.InvariantCulture),
             TimeoutSeconds = 900,
         }));
         var (zoneId, referenceDate, questions) = AskCorpus.LoadQuestions();
