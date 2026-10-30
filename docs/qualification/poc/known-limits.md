@@ -93,3 +93,4 @@ This page is the PoC's record of what each capability does not do. The operator 
 - **Reprocessing starts again.** A new run's Tracks are Unreviewed and belong to no Entity or case; the Review page says how many Tracks of an earlier run were reviewed and links to them. Nothing is copied.
 - **Case references can go stale.** A case holds references, not copies; if a subject's evidence no longer exists it is shown as unavailable.
 
+- **No review-status search filter yet.** Search shows each Track's review status but cannot filter on it. Search pages keep one snapshot across their cursor, while review status changes as operators decide, so a filter on it needs a change to the search cursor contract to page consistently; it is a follow-up, not part of S11-full.
