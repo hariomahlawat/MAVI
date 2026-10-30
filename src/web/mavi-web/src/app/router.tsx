@@ -12,6 +12,7 @@ import VideoReviewPage from '../features/video-review/VideoReviewPage';
 import VideosPage from '../features/videos/VideosPage';
 import SystemPage from '../features/system/SystemPage';
 import FacesPage from '../features/faces/FacesPage';
+import EntitiesPage from '../features/entities/EntitiesPage';
 import VisualSearchPage from '../features/visual-search/VisualSearchPage';
 import NotFoundPage from './NotFoundPage';
 
@@ -38,6 +39,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'search', element: <VisualSearchPage />, handle: { surface: 'search' } },
       { path: 'review/video/:videoAssetId', element: <VideoReviewPage />, handle: { surface: 'review' } },
       { path: 'faces', element: <FacesPage />, handle: { surface: 'faces' } },
+      { path: 'entities', element: <EntitiesPage />, handle: { surface: 'entities' } },
       { path: 'system', element: <SystemPage />, handle: { surface: 'system' } },
       { path: '*', element: <NotFoundPage />, handle: { surface: 'not-found' } },
     ],

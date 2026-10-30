@@ -52,6 +52,10 @@ export const queryKeys = {
   trackFaces: (id: string) => ['track-faces', id] as const,
   faceQuery: (queryId: string) => ['face-query', queryId] as const,
   faceGallery: ['face-gallery'] as const,
+  /** PoC S7 (ADR-023): Entity candidates, their per-camera-pair summary, and one Entity. */
+  entityCandidates: (filter: object) => ['entity-candidates', filter] as const,
+  entityCandidateSummary: ['entity-candidates', 'summary'] as const,
+  entity: (id: string) => ['entity', id] as const,
   cameraScene: (cameraId: string) => ['camera-scene', cameraId] as const,
   cameraSceneRevision: (cameraId: string, revisionNumber: number) =>
     ['camera-scene-revision', cameraId, revisionNumber] as const,

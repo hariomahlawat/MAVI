@@ -29,6 +29,22 @@ This page is the PoC's record of what each capability does not do. The operator 
   - `Uninstall-MAVI-PoC` removes all of it.
   - Every face search, comparison and gallery change is attributed to the operator and audited.
 
+## Entity candidates and confirmed Entities (Stage 6; slice S7, register rows C6.1–C6.2)
+
+- **Cross-camera links are operator-confirmed candidates, never automatic and never identification.**
+  - MAVI proposes *Entity candidates*: pairs of Person or Vehicle Tracks whose appearance vectors score at or above the floor (0.85) and that are plausible in time and camera. Each factor is shown separately.
+  - Nothing is linked until an operator confirms a pair. Confirmation is the only thing that writes `Track.EntityId`; it is attributed to the operator and audited, and the Entity is labelled "Operator-confirmed Entity — not identification". Its identity status stays Unknown (ADR-023).
+  - A candidate's appearance score comes from SigLIP 2, a general image–text model, not a re-identification model (ADR-021). On the frozen S4 record about one in ten different vehicles from different videos also reach the floor, so the list contains look-alikes of the same type and colour, which the operator must dismiss.
+- **What the plausibility model does not know.** It reads only each Track's camera and UTC start and end. It excludes two Tracks on one camera at the same time, and two Tracks on different cameras that overlap by more than 2 s. It knows nothing else:
+  - no camera locations, distances, routes or travel times: two unrelated cameras whose clips do not overlap in time are "plausible";
+  - no view overlap: two cameras that see the same spot will lose true pairs seen at the same moment for more than 2 s;
+  - no clock error: it trusts each video's recording start time. The seven Commons demo clips were given adjacent synthetic start times although they come from different cities, so pairs between them are plausible to the model and never true;
+  - only the six MEVA clips (s2-08 to s2-13) share one real time slot (2018-03-11 16:20), so only their cross-camera pairs can be real.
+- **The face factor is separate and rare.** For a Person pair where both Tracks have a usable face, the operator can ask for the face score with its reference threshold (audited, not stored). It never ranks or gates candidates. With 7 of 140 demo Person Tracks having a usable face, most Person candidates show the face as Unknown. A face-only link (same face, different clothes) is not proposed.
+- **Decisions are final in this version.** Unlinking a Track, reopening a dismissed candidate and merging two Entities are deferred to S11-full. A confirmation that would put a Track in two places at once against any member of the Entity is refused.
+- **Reprocessing carries nothing over.** A new run of a video has new Tracks with no Entity; earlier confirmations stay with the earlier run's Tracks and are readable through the Entity.
+- **Repeated visit stays disabled.** Confirmed Entities now exist, but the entity-conditioned events rule waits for catalogue `mavi-events-v2` (ADR-023 §9).
+
 ## Plate reading (Stage 4; slice S3, register rows C4.1–C4.3)
 
 - **Composition.** PD5 (PP-OCRv5 mobile detection, PaddlePaddle official ONNX, Apache-2.0) detects plates in a Vehicle Track's evidence crops; OC1-S (fast-plate-ocr `cct_s_v2_global`, MIT) reads them (plan decision D4). Both are unverified Development Model Packs; each licence is read from the pack's own LICENSE at install. They run on CPU (`plates-onnx-v1`); GPU plates are not available in the PoC yet.
@@ -52,6 +68,6 @@ This page is the PoC's record of what each capability does not do. The operator 
 - **What an event is.** A deterministic derivation from persisted scene-analytics facts by one rule of the versioned catalogue `mavi-events-v1` (ADR-025). No model decides an event. Each event names its rule version, scene revision, analytics algorithm version, the facts it came from and every parameter with its source. Events are only as good as the detections, Tracks and geometry beneath them. A fragmented Track (one vehicle split into several Tracks) produces several events.
 - **Thresholds are disclosed, not tuned.** Dwell uses each zone's own threshold from the scene configuration. Stopped vehicle uses 30 s, the value the owner accepted for the demo after it was chosen post hoc (S2 admissibility record, decision 10). Here it is measured as the overlap of a stationary interval with a `Restricted` zone visit. Each qualifying interval is one event, so a vehicle that stands, moves briefly and stands again gives two events (on s2-09 one parked vehicle's two intervals, 3.4 s apart, give two of its six events). The overlap is measured against one zone visit at a time: if tracking jitter at the zone edge splits a stationary vehicle's visit into two shorter visits, each under 30 s, nothing fires. Merging such visits would be a new catalogue version. Co-occurrence (a Person and a Vehicle in one zone at the same time) has no threshold. No threshold was changed after reading the events.
 - **Wrong-way is defined but configured on no demo clip.** A trip line needs a permitted direction for it to fire. No S2 scene sets one, so the rule is shown by its test fixture only.
-- **Repeated visit is disabled.** It is entity-conditioned. It needs confirmed Entities (ReID confirmation, slice S7), which do not exist yet. It is defined and tested against a fixture, the UI shows it as disabled with the reason, and no entity is faked.
+- **Repeated visit is disabled.** It is entity-conditioned. Confirmed Entities exist since slice S7, but enabling the rule is a new catalogue version (`mavi-events-v2`, ADR-023 §9), not part of S7. It is defined and tested against a fixture, the UI shows it as disabled with the reason, and no entity is faked.
 - **One run at a time.** v1 rules see one run against one scene revision. Nothing spans runs or cameras.
 - **Demo-corpus behaviour is not a measurement.** The demo clips carry no event ground truth (register B5). An event fired on a demo clip shows the rule working on pipeline output, not its accuracy.
