@@ -37,6 +37,12 @@ function faces(overrides: Partial<TrackFacesResponse> = {}): TrackFacesResponse 
   };
 }
 
+/** Renders the panel and asks for the Track's faces, as the operator does. */
+async function showFaces() {
+  renderWithApp(<TrackFaces detail={detail} />);
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Show faces' }));
+}
+
 /** The words a face surface must never use: a candidate is not an identification. */
 const FORBIDDEN = /identified|match found|\bis the same\b|confirmed/i;
 
@@ -48,9 +54,17 @@ describe('PoC S6 TrackFaces', () => {
     vi.mocked(enrolInGallery).mockReset();
   });
 
+  it('loads nothing biometric until the operator asks, and says faces are candidates', () => {
+    renderWithApp(<TrackFaces detail={detail} />);
+    expect(screen.getByText(FACE_CANDIDATES_LABEL)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show faces' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading faces…')).not.toBeInTheDocument();
+    expect(getTrackFaces).not.toHaveBeenCalled();
+  });
+
   it('carries the candidate label and threshold context, frames each face and asks nothing until the operator does', async () => {
     vi.mocked(getTrackFaces).mockResolvedValue(faces());
-    renderWithApp(<TrackFaces detail={detail} />);
+    await showFaces();
 
     expect(await screen.findByText(FACE_CANDIDATES_LABEL)).toBeInTheDocument();
     expect(screen.getByText('reference threshold 0.2121 (LFW, not calibrated on CCTV)')).toBeInTheDocument();
@@ -69,7 +83,7 @@ describe('PoC S6 TrackFaces', () => {
     ['no_evidence', 'Unknown — no usable face (the Track has no accepted evidence crops)'],
   ])('states Unknown (%s) as not analysable, never as no match', async (reason, sentence) => {
     vi.mocked(getTrackFaces).mockResolvedValue(faces({ state: 'unknown', reason, faces: [] }));
-    renderWithApp(<TrackFaces detail={detail} />);
+    await showFaces();
     expect(await screen.findByText(sentence)).toBeInTheDocument();
     expect(screen.queryByText(/no match/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Find this face' })).not.toBeInTheDocument();
@@ -77,7 +91,7 @@ describe('PoC S6 TrackFaces', () => {
 
   it('says a camera that has not opted in is off, not empty', async () => {
     vi.mocked(getTrackFaces).mockResolvedValue(faces({ state: 'notEnabled', faces: [], identity: null }));
-    renderWithApp(<TrackFaces detail={detail} />);
+    await showFaces();
     expect(await screen.findByText(/Face analysis is off for this camera/)).toBeInTheDocument();
   });
 
@@ -91,7 +105,7 @@ describe('PoC S6 TrackFaces', () => {
         { rank: 1, trackId: 't1', processingRunId: 'r', cameraId: 'c', cameraName: 'Lobby', startTimestampUtc: '2026-10-29T08:00:00Z', score: 0.72, aboveThreshold: true, faceId: 'f8', observationId: 'o8', evidenceCropUrl: null, box: { x: 0, y: 0, width: 40, height: 40 } },
       ],
     });
-    renderWithApp(<TrackFaces detail={detail} />);
+    await showFaces();
 
     await user.click(await screen.findByRole('button', { name: 'Find this face' }));
     const list = await screen.findByRole('list', { name: 'Candidate appearances' });
@@ -110,7 +124,7 @@ describe('PoC S6 TrackFaces', () => {
     vi.mocked(compareWithGallery)
       .mockResolvedValueOnce({ label: FACE_CANDIDATES_LABEL, identity, referenceThreshold: threshold, candidates: [{ enrolledPersonId: 'e1', label: 'Visitor A', score: 0.5, aboveThreshold: true }], message: null })
       .mockResolvedValueOnce({ label: FACE_CANDIDATES_LABEL, identity, referenceThreshold: threshold, candidates: [], message: 'No gallery candidate above the threshold' });
-    renderWithApp(<TrackFaces detail={detail} />);
+    await showFaces();
 
     await user.click(await screen.findByRole('button', { name: 'Compare with gallery' }));
     const list = await screen.findByRole('list', { name: 'Candidate gallery matches' });
@@ -125,7 +139,7 @@ describe('PoC S6 TrackFaces', () => {
     const user = userEvent.setup();
     vi.mocked(getTrackFaces).mockResolvedValue(faces());
     vi.mocked(enrolInGallery).mockResolvedValue({ enrolledPersonId: 'e1' });
-    renderWithApp(<TrackFaces detail={detail} />);
+    await showFaces();
 
     await user.click(await screen.findByRole('button', { name: 'Enrol in gallery…' }));
     await user.click(screen.getByRole('button', { name: 'Enrol' }));

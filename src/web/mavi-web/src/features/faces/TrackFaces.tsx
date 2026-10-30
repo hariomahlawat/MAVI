@@ -53,16 +53,36 @@ function StateText({ data, onCheckAgain }: { data: TrackFacesResponse; onCheckAg
  * the detector reported framed from its evidence crop, and — for each usable
  * face — Find this face, Compare with gallery and Enrol. A Track without a
  * usable face is Unknown: not analysable, never "no match".
+ *
+ * Loaded on request, as similarity candidates are: opening a Track shows no
+ * biometric data until the operator asks (ADR-022 §1), and Review gains no
+ * loading-to-content transition of its own (Stage 3.5 §38).
  */
 export default function TrackFaces({ detail, displayTimeZoneId }: { detail: TrackDetail; displayTimeZoneId?: string }) {
   const headingId = useId();
   const trackId = detail.id.toLowerCase();
   const [selected, setSelected] = useState<string | null>(null);
+  const [requested, setRequested] = useState(false);
   const query = useQuery({
     queryKey: queryKeys.trackFaces(trackId),
     queryFn: ({ signal }) => getTrackFaces(trackId, signal),
     retry: (count, error) => retryable(error) && count < 1,
+    enabled: requested,
   });
+
+  if (!requested) {
+    return (
+      <Panel title="Faces" headingId={headingId}>
+        <div className="stack">
+          <p className="small"><strong>{FACE_CANDIDATES_LABEL}</strong></p>
+          <p className="small muted">Faces load only when you ask: a face is a candidate, never an identification.</p>
+          <div className="row">
+            <Button size="sm" onClick={() => setRequested(true)}>Show faces</Button>
+          </div>
+        </div>
+      </Panel>
+    );
+  }
 
   return (
     <Panel title="Faces" headingId={headingId}>

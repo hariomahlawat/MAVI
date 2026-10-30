@@ -110,7 +110,8 @@ Each endpoint marked *audited* writes one audit row through `IAuditWriter.Record
 
 Every surface carries "Face candidates — not identification — Development".
 
-- **Track inspector, "Faces" panel:**
+- **Track inspector, "Faces" panel** (in Review's rail):
+  - loaded only when the operator asks ("Show faces"), as similarity candidates are, so opening a Track shows no biometric data and Review gains no loading transition of its own;
   - the face state, with Unknown shown with its reason, never "no match";
   - usable faces shown CSS-cropped from the evidence crop;
   - "Find this face", which lists candidate Tracks with score, threshold and an above/below marker;
