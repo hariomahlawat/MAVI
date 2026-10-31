@@ -87,6 +87,8 @@ $report = [ordered]@{
     deviceResolutionReason = $device.Reason
     gpuLayerPolicy = if ($device.Variant -eq "cuda") { "fit (llama.cpp --fit on: as many layers as fit in free GPU memory)" } else { "none" }
     runtimeId = $identity.runtimeId
+    # The disclosure's Runtime Pack field reads runtimePackId, as for the vision and plates roles.
+    runtimePackId = $identity.runtimeId
     runtimeVariant = $identity.variant
     modelPackId = $identity.modelPackId
     modelId = $identity.modelId

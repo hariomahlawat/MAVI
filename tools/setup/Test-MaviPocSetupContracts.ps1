@@ -332,7 +332,7 @@ try {
     if ($noLanguage.Contains("Language")) { throw "Without a bound pack the machine configuration must carry no Language section." }
     if (-not $layout.LanguageRuntimeRoot.StartsWith($layout.InstallRoot) -or -not $layout.LanguageCudaCachePath.StartsWith($layout.DataRoot)) { throw "The language runtime lives under the install root and its JIT cache under the data root." }
     $languageLauncher = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviLanguageRuntime.ps1") -Raw
-    foreach ($fragment in @('schemaVersion = "mavi-device-resolution-v1"', 'role = "language"', 'Write-MaviJson -Value $report -Path $DeviceReportPath', 'language_packs.py") verify', 'Resolve-MaviPocLanguageDevice', '"--host", "127.0.0.1"', '"--parallel", "1"', '$env:CUDA_CACHE_PATH', '"--no-webui"')) {
+    foreach ($fragment in @('schemaVersion = "mavi-device-resolution-v1"', 'role = "language"', 'runtimePackId = $identity.runtimeId', 'Write-MaviJson -Value $report -Path $DeviceReportPath', 'language_packs.py") verify', 'Resolve-MaviPocLanguageDevice', '"--host", "127.0.0.1"', '"--parallel", "1"', '$env:CUDA_CACHE_PATH', '"--no-webui"')) {
         if (-not $languageLauncher.Contains($fragment)) { throw "Start-MaviLanguageRuntime.ps1 lost '$fragment'." }
     }
     if ($languageLauncher.IndexOf('language_packs.py") verify') -gt $languageLauncher.IndexOf('& $server @arguments')) { throw "The packs must be verified before llama-server starts." }
