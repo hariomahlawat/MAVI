@@ -201,7 +201,8 @@ public static class AskPlaceReferences
     /// <summary>
     /// The references that name nothing in the catalogue: the places the site does not have. A word after "line" that
     /// is one of the site's line-side labels ("the Count line, Leftward") is a direction, not a name, and so is a side
-    /// label ending a capitalised run ("the Arch Gate Entry").
+    /// label ending a capitalised run when the rest of the run names an item ("the Arch Gate Entry"; "the Exit Door"
+    /// stays a reference).
     /// </summary>
     public static IReadOnlyList<AskPlaceReference> Unknown(string question, AskSiteCatalogue catalogue)
     {
@@ -211,17 +212,19 @@ public static class AskPlaceReferences
             .ToHashSet(StringComparer.Ordinal);
         return [.. Extract(question)
             .Where(reference => !(reference.AfterKind && reference.Words.All(sideWords.Contains)))
-            .Select(reference => reference.Kind == "any" ? WithoutTrailingSides(reference, sideWords) : reference)
-            .Where(reference => reference.Words.Count > 0)
+            .Select(reference => reference.Kind == "any" ? WithoutTrailingSides(reference, sideWords, catalogue) : reference)
             .Where(reference => Named(reference, catalogue) is { Cameras.Count: 0, Zones.Count: 0, Lines.Count: 0 })];
     }
 
-    private static AskPlaceReference WithoutTrailingSides(AskPlaceReference reference, HashSet<string> sideWords)
+    private static AskPlaceReference WithoutTrailingSides(AskPlaceReference reference, HashSet<string> sideWords, AskSiteCatalogue catalogue)
     {
         var words = reference.Words.ToList();
         while (words.Count > 0 && sideWords.Contains(words[^1]))
             words.RemoveAt(words.Count - 1);
-        return reference with { Words = words };
+        if (words.Count == 0 || words.Count == reference.Words.Count)
+            return reference;
+        var stripped = reference with { Words = words };
+        return Named(stripped, catalogue) is { Cameras.Count: 0, Zones.Count: 0, Lines.Count: 0 } ? reference : stripped;
     }
 
     private static HashSet<int> NameNumbers(string name) =>

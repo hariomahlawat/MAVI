@@ -40,6 +40,10 @@ public sealed class AskPromptV2Tests
     [InlineData("People with a Blue Jacket at Central Station")]
     [InlineData("How Many People Were At The Central Station Camera Today?")]
     [InlineData("Vehicles Entered Central Station today")]
+    [InlineData("People at the Exit Door today")]
+    [InlineData("Vehicles at the Inbound Exit today")]
+    [InlineData("Count people at Away Entry today")]
+    [InlineData("People at Central Station Entry today")]
     [InlineData("Count vehicles in the Quiet zone")]
     [InlineData("Count vehicles in the Busy zone")]
     public void APlaceTheSiteDoesNotHaveIsUnknown(string question)
