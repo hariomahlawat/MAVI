@@ -39,6 +39,7 @@ public sealed class AskPromptV2Tests
     [InlineData("Vehicles at Central Station")]
     [InlineData("People with a Blue Jacket at Central Station")]
     [InlineData("How Many People Were At The Central Station Camera Today?")]
+    [InlineData("Vehicles Entered Central Station today")]
     [InlineData("Count vehicles in the Quiet zone")]
     [InlineData("Count vehicles in the Busy zone")]
     public void APlaceTheSiteDoesNotHaveIsUnknown(string question)
@@ -69,6 +70,11 @@ public sealed class AskPromptV2Tests
     [InlineData("Count people on the MEVA G421 camera")]
     [InlineData("How Many People Entered The Junction Box Zone Today?")]
     [InlineData("Find people with a Red Bag at the School hallway")]
+    [InlineData("How Many People Entered Junction Box Zone Today?")]
+    [InlineData("How Many Vehicles Crossed Crosswalk Line Today")]
+    [InlineData("Show Persons Near Junction Exit Line")]
+    [InlineData("List Daily People Counts Per Camera")]
+    [InlineData("Show persons Near the Junction exit line")]
     public void NamedOrGenericPlacesAreNotUnknown(string question)
     {
         Assert.Empty(AskPlaceReferences.Unknown(question, Catalogue));

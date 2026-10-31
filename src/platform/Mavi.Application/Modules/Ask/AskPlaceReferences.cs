@@ -80,11 +80,6 @@ public static class AskPlaceReferences
         "skirt", "hat", "hats", "cap", "helmet", "hood",
     };
 
-    private static readonly HashSet<string> FunctionWords = new(StringComparer.Ordinal)
-    {
-        "the", "at", "in", "on", "of", "to", "by", "with", "from", "and", "or", "for", "between",
-    };
-
     public static IReadOnlyList<AskPlaceReference> Extract(string question)
     {
         ArgumentNullException.ThrowIfNull(question);
@@ -134,13 +129,12 @@ public static class AskPlaceReferences
             }
         }
 
-        // Runs of capitalised words, not counting a sentence's first word. A question typed in title case (nearly every
-        // word capitalised, function words included: "How Many People Entered The Junction Box Zone Today?") has no
-        // capitalisation signal, so this pattern is not applied to it; "Count people at Central Station" is not title case.
+        // Runs of capitalised words, not counting a sentence's first word; the words that end a reference phrase
+        // (verbs, prepositions, determiners, "per", "counts") also end a run, so "Entered Junction Box" is not a name.
+        // A question typed in title case (nine words in ten capitalised) has no capitalisation signal, so this pattern
+        // is not applied to it; "Count people at Central Station" is not title case.
         var words = tokens.Where(token => token.Text.Any(char.IsAsciiLetter) && token.Text.Length > 1).ToList();
-        var titleCase = words.Count >= 4 &&
-            words.Count(token => char.IsAsciiLetterUpper(token.Text[0])) * 10 >= words.Count * 9 &&
-            words.Any(token => FunctionWords.Contains(token.Lower) && char.IsAsciiLetterUpper(token.Text[0]));
+        var titleCase = words.Count >= 4 && words.Count(token => char.IsAsciiLetterUpper(token.Text[0])) * 10 >= words.Count * 9;
         var run = new List<int>();
         void Close()
         {
@@ -152,7 +146,7 @@ public static class AskPlaceReferences
         for (var index = 0; index < tokens.Count; index++)
         {
             var token = tokens[index];
-            if (titleCase || token.SentenceStart || !Capitalised.IsMatch(token.Text) || NotNames.Contains(token.Lower))
+            if (titleCase || token.SentenceStart || !Capitalised.IsMatch(token.Text) || NotNames.Contains(token.Lower) || Boundaries.Contains(token.Lower))
                 Close();
             else
                 run.Add(index);
