@@ -1,15 +1,18 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
 import { ApiError } from '../../api/client';
-import { getQueryContract, runQuery, type QueryContract, type QueryEnvelope } from '../../api/query';
+import { getQueryContract, runQuery, type QueryContract, type QueryEnvelope, type StructuredQuery } from '../../api/query';
 import { getCameraScene } from '../../api/scene';
 import { getSystemConfig } from '../../api/system';
 import { listVideos, type VideoAsset } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
 import AdvancedSearchPage, { trackReviewPath, truncationText } from './AdvancedSearchPage';
-import { buildQuery, canonicalUtc, initialBuilderState } from './queryBuilder';
+import { createMaviQueryClient } from '../../app/queryClient';
+import { MemoryRouter } from 'react-router-dom';
+import { buildQuery, canonicalUtc, initialBuilderState, stateFromQuery } from './queryBuilder';
 
 vi.mock('../../api/cameras', () => ({ listCameras: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
@@ -118,6 +121,57 @@ beforeEach(() => {
 });
 
 describe('the query builder', () => {
+  it('loads a proposed query that builds back to exactly that query, or says why it cannot (D-S10-10)', () => {
+    const proposedQuery: StructuredQuery = {
+      contractVersion: 'mavi-query-v1', unit: 'track',
+      where: {
+        timeWindow: { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T14:00:00.000Z' },
+        cameraIds: [cameraId], objectClass: 'Vehicle', line: { lineId, direction: 'bToA' },
+      },
+      operation: { op: 'timeBucket', bucketSeconds: 900 },
+      requireCompleteCoverage: false,
+    };
+    const loaded = stateFromQuery(proposedQuery);
+    expect(loaded.problem).toBeNull();
+    const { requireCompleteCoverage: _, ...expected } = proposedQuery;
+    expect(buildQuery(loaded.state!, contract).query).toEqual(expected);
+
+    expect(stateFromQuery({ ...proposedQuery, where: { ...proposedQuery.where, minDurationMs: 1 } }).problem).toMatch(/minimum duration/);
+    expect(stateFromQuery({ ...proposedQuery, operation: { op: 'timeBucket', bucketSeconds: 1_800 } }).problem).toMatch(/1800 seconds/);
+    expect(stateFromQuery({ ...proposedQuery, where: { ...proposedQuery.where, line: undefined, zone: { zoneId: lineId, loitering: true } } }).problem)
+      .toMatch(/loitering/);
+    const window = { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T14:00:00.000Z' };
+    expect(stateFromQuery({ contractVersion: 'mavi-query-v1', unit: 'track', where: { timeWindow: window, attributes: [{ type: 'upper-colour', value: 'red' }] }, operation: { op: 'count' } }).problem)
+      .toMatch(/attributes without an object class/);
+  });
+
+  it.each<[string, StructuredQuery]>([
+    ['an Event zone with rules, found newest first', {
+      contractVersion: 'mavi-query-v1', unit: 'event',
+      where: { timeWindow: { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T14:00:00.000Z' }, cameraIds: [cameraId], zone: { zoneId: lineId }, ruleIds: ['line-crossing', 'zone-dwell'] },
+      operation: { op: 'find', limit: 20, order: 'newest' },
+    }],
+    ['a compare with its baseline', {
+      contractVersion: 'mavi-query-v1', unit: 'track',
+      where: { timeWindow: { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T09:00:00.000Z' }, objectClass: 'Person' },
+      operation: { op: 'compare', baseline: { fromUtc: '2026-09-20T08:00:00.000Z', toUtc: '2026-09-20T09:00:00.000Z' } },
+    }],
+    ['a top with k, and attributes with their class', {
+      contractVersion: 'mavi-query-v1', unit: 'track',
+      where: { timeWindow: { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T14:00:00.000Z' }, objectClass: 'Person', attributes: [{ type: 'upper-colour', value: 'red' }] },
+      operation: { op: 'top', by: 'camera', k: 3 },
+    }],
+    ['a plate prefix counted per distinct video', {
+      contractVersion: 'mavi-query-v1', unit: 'track',
+      where: { timeWindow: { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T14:00:00.000Z' }, objectClass: 'Vehicle', plateText: { text: 'MH12', match: 'prefix' } },
+      operation: { op: 'countDistinct', field: 'video' },
+    }],
+  ])('loads %s and builds it back unchanged', (_, query) => {
+    const loaded = stateFromQuery(query);
+    expect(loaded.problem).toBeNull();
+    expect(buildQuery(loaded.state!, contract).query).toEqual(query);
+  });
+
   it('builds only what the contract allows and states its window explicitly', () => {
     const state = {
       ...initialBuilderState({ fromUtc: '2026-09-21T08:00:00Z', toUtc: '2026-09-21T14:00:00Z' }),
@@ -191,6 +245,23 @@ describe('the query builder', () => {
 });
 
 describe('Advanced Search', () => {
+  it('loads a query proposed by Ask MAVI into the builder and does not run it (D-S10-10)', async () => {
+    const askQuery: StructuredQuery = {
+      contractVersion: 'mavi-query-v1', unit: 'track',
+      where: { timeWindow: { fromUtc: '2026-09-21T09:00:00.000Z', toUtc: '2026-09-21T10:00:00.000Z' }, objectClass: 'Vehicle' },
+      operation: { op: 'count' }, requireCompleteCoverage: false,
+    };
+    const queryClient = createMaviQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[{ pathname: '/query', state: { askQuery } }]}><AdvancedSearchPage /></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText(/Loaded from Ask MAVI\. Nothing has run/)).toBeInTheDocument();
+    expect(screen.getByLabelText('From (UTC)')).toHaveValue('2026-09-21T09:00:00.000Z');
+    expect(runQuery).not.toHaveBeenCalled();
+  });
+
   it('composes the demo question, shows it as resolved and draws the hourly buckets', async () => {
     vi.mocked(runQuery).mockResolvedValue(envelope({ operation: 'timeBucket' }, {
       kind: 'buckets', value: null, bucketSeconds: 3600,

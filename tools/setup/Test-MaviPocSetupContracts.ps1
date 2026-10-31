@@ -267,7 +267,15 @@ try {
     $device = Resolve-MaviPocLanguageDevice -Policy auto -NvidiaSmiLines $null
     if ($device.Variant -ne "cpu" -or $device.Reason -ne "auto_nvidia_smi_absent") { throw "Auto without nvidia-smi must resolve CPU with the reason." }
     Assert-Throws { Resolve-MaviPocLanguageDevice -Policy cuda -NvidiaSmiLines $null } "refusing to fall back to CPU" "Explicit language CUDA without a GPU"
-    $languageConfig = New-MaviPocMachineConfig -Layout $layout -ConnectionString "Host=x" -CursorSigningKey ("k" * 44) -HttpPort 8090 -LanguagePack ([pscustomobject]@{ ModelPackId = "mavi-language-v1-x"; ModelId = "m"; Quantisation = "Q8_0"; RuntimeId = "r" }) -LanguagePort 62301
+    # D-S10-7: prompt-prefix reuse only where the reverse-order check reproduced byte for byte (off for the 7B pack).
+    foreach ($case in @(@("7B", $false), @("1.5B", $true))) {
+        $bound = Select-MaviPocLanguagePack -Choice $case[0] -NvidiaSmiLines $null -PayloadsPath $payloadsPath
+        if ($bound.CachePrompt -ne $case[1]) { throw "The $($case[0]) pack must bind CachePrompt=$($case[1]) (D-S10-7)." }
+        $binding = [pscustomobject]@{ ModelPackId = "mavi-language-v1-x"; ModelId = "m"; Quantisation = "q"; RuntimeId = "r"; CachePrompt = $bound.CachePrompt }
+        $boundConfig = New-MaviPocMachineConfig -Layout $layout -ConnectionString "Host=x" -CursorSigningKey ("k" * 44) -HttpPort 8090 -LanguagePack $binding -LanguagePort 62301
+        if ($boundConfig.Language.CachePrompt -ne $case[1]) { throw "The machine configuration must carry Language:CachePrompt=$($case[1]) for the $($case[0]) pack." }
+    }
+    $languageConfig = New-MaviPocMachineConfig -Layout $layout -ConnectionString "Host=x" -CursorSigningKey ("k" * 44) -HttpPort 8090 -LanguagePack ([pscustomobject]@{ ModelPackId = "mavi-language-v1-x"; ModelId = "m"; Quantisation = "Q8_0"; RuntimeId = "r"; CachePrompt = $true }) -LanguagePort 62301
     if ($languageConfig.Language.Enabled -ne $true -or $languageConfig.Language.Port -ne 62301 -or $languageConfig.Language.DeviceReportPath -ne $layout.LanguageDeviceResolutionPath -or
         $languageConfig.Deployment.RoleDeviceResolutionPaths.language -ne $layout.LanguageDeviceResolutionPath) { throw "The machine configuration must bind the language role on loopback with its device record." }
     $noLanguage = New-MaviPocMachineConfig -Layout $layout -ConnectionString "Host=x" -CursorSigningKey ("k" * 44) -HttpPort 8090

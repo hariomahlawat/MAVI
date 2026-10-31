@@ -1456,7 +1456,6 @@ def check_ask_mavi(errors: list[str]) -> None:
     validator = jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker())
     questions_path = ROOT / "contracts/test-vectors/ask-mavi-questions-v1.json"
     catalogue_path = ROOT / "contracts/test-vectors/ask-mavi-site-catalogue-v1.json"
-    corpus = json.loads(questions_path.read_text(encoding="utf-8"))
     catalogue = json.loads(catalogue_path.read_text(encoding="utf-8"))
     cameras = {camera["code"]: camera for camera in catalogue["cameras"]}
 
@@ -1474,34 +1473,66 @@ def check_ask_mavi(errors: list[str]) -> None:
             return next(item["zoneId" if kind == "zone" else "lineId"] for item in items if item["name"] == name)
         return value
 
-    ids = [question["id"] for question in corpus["questions"]]
-    if len(ids) != len(set(ids)) or len(ids) != 60:
-        fail("The Ask MAVI question corpus must hold 60 uniquely named questions.", errors)
-    for question in corpus["questions"]:
-        if question["split"] not in ("development", "held"):
-            fail(f"Ask MAVI question {question['id']} has an unknown split.", errors)
-        expect = question["expect"]
-        if expect["answer"] == "query":
-            try:
-                query = resolve(expect["query"])
-            except (KeyError, StopIteration):
-                fail(f"Ask MAVI question {question['id']} names a reference the catalogue fixture lacks.", errors)
-                continue
-            if not validator.is_valid(query):
-                fail(f"Ask MAVI question {question['id']}: the expected query is invalid under structured-query-v1.", errors)
-        elif expect["answer"] != "refusal" or expect.get("reason") not in corpus["refusalReasons"]:
-            fail(f"Ask MAVI question {question['id']} has no valid expectation.", errors)
-
     def text_sha256(path: Path) -> str:
         return hashlib.sha256(path.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8")).hexdigest()
+
+    # Each prompt version is measured on its own corpus: v1 on 20 development and 40 held questions (the held split is
+    # spent), v2 (ADR-026 amendment D-S10-9) on a fresh held split of 40 questions written before any v2 output.
+    corpora = {
+        "mavi-ask-prompt-v1": (questions_path, lambda count, splits: count == 60 and splits == {"development": 20, "held": 40}),
+        "mavi-ask-prompt-v2": (
+            ROOT / "contracts/test-vectors/ask-mavi-questions-v2.json",
+            lambda count, splits: count == 40 and set(splits) == {"held"},
+        ),
+    }
+    # The owner's edit to D-S10-9: the v2 held split keeps the v1 held proportions.
+    v2_mix = {"mavi-ask-prompt-v2": {"query": 31, "outside_contract": 6, "unknown_reference": 3}}
+    for version, (path, shape) in corpora.items():
+        if not path.is_file():
+            fail(f"The Ask MAVI corpus of {version} is missing: {path.relative_to(ROOT)}.", errors)
+            continue
+        corpus = json.loads(path.read_text(encoding="utf-8"))
+        ids = [question["id"] for question in corpus["questions"]]
+        if version in v2_mix:
+            mix: dict[str, int] = {}
+            for question in corpus["questions"]:
+                key = "query" if question["expect"]["answer"] == "query" else question["expect"].get("reason", "")
+                mix[key] = mix.get(key, 0) + 1
+            if mix != v2_mix[version]:
+                fail(f"The Ask MAVI corpus {path.name} does not keep the mix its version requires: {mix}.", errors)
+        splits: dict[str, int] = {}
+        for question in corpus["questions"]:
+            splits[question["split"]] = splits.get(question["split"], 0) + 1
+        if len(ids) != len(set(ids)) or not shape(len(ids), splits):
+            fail(f"The Ask MAVI corpus {path.name} does not have the shape its version requires (ids {len(ids)}, splits {splits}).", errors)
+        for question in corpus["questions"]:
+            if question["split"] not in ("development", "held"):
+                fail(f"Ask MAVI question {path.name} {question['id']} has an unknown split.", errors)
+            expect = question["expect"]
+            if expect["answer"] == "query":
+                try:
+                    query = resolve(expect["query"])
+                except (KeyError, StopIteration):
+                    fail(f"Ask MAVI question {path.name} {question['id']} names a reference the catalogue fixture lacks.", errors)
+                    continue
+                if not validator.is_valid(query):
+                    fail(f"Ask MAVI question {path.name} {question['id']}: the expected query is invalid under structured-query-v1.", errors)
+            elif expect["answer"] != "refusal" or expect.get("reason") not in corpus["refusalReasons"]:
+                fail(f"Ask MAVI question {path.name} {question['id']} has no valid expectation.", errors)
 
     recordings = sorted((ROOT / "contracts/test-vectors").glob("ask-mavi-recordings-*.json"))
     if not recordings:
         fail("No Ask MAVI recording set is committed (contracts/test-vectors/ask-mavi-recordings-*.json).", errors)
     for path in recordings:
         recording = json.loads(path.read_text(encoding="utf-8"))
-        if recording.get("questionsSha256") != text_sha256(questions_path) or recording.get("catalogueSha256") != text_sha256(catalogue_path):
-            fail(f"{path.name} is not bound to the committed corpus and catalogue; re-record.", errors)
+        version = recording.get("promptTemplateVersion")
+        if version not in corpora:
+            fail(f"{path.name} names an unknown prompt version {version!r}.", errors)
+            continue
+        corpus_path = corpora[version][0]
+        if (not corpus_path.is_file() or recording.get("questionsSha256") != text_sha256(corpus_path)
+                or recording.get("catalogueSha256") != text_sha256(catalogue_path)):
+            fail(f"{path.name} is not bound to the committed corpus and catalogue of {version}; re-record.", errors)
         for result in recording["results"]:
             if result["outcome"].startswith("{") and not validator.is_valid(json.loads(result["outcome"])):
                 fail(f"{path.name} {result['id']}: a translated query is invalid under structured-query-v1.", errors)

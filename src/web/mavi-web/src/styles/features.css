@@ -1419,6 +1419,7 @@
 .ask-page__interpretation { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-2); }
 .ask-page__interpretation > div { display: contents; }
 .ask-page__interpretation dt { color: var(--text-secondary); }
+.ask-page__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); margin-top: var(--s-2); }
 .ask-page__interpretation dd { margin: 0; }
 .ask-page__sentence { margin: 0 0 var(--s-3); font-size: var(--fs-3); }
 @media (max-width: 720px) { .ask-page__form { grid-template-columns: 1fr; } }

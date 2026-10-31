@@ -13,8 +13,9 @@ namespace Mavi.IntegrationTests;
 
 /// <summary>
 /// Ask MAVI end to end over the real API, the real S9 service and a stub language role (ADR-026; register C9.2, C9.3):
-/// the answer is exactly the structured query's envelope, every refusal stage is reported with its code and no
-/// envelope, and nothing the model writes is returned.
+/// Ask proposes and the operator confirms (D-S10-10). Ask returns the interpreted query and never runs it; running it
+/// through POST /api/query answers that exact query. Every refusal stage is reported with its code, and nothing the
+/// model writes is returned.
 /// </summary>
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class AskApiTests(PostgresFixture fixture)
@@ -72,14 +73,18 @@ public sealed class AskApiTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task AnAnsweredQuestionReturnsExactlyTheStructuredQueryEnvelope()
+    public async Task AQuestionIsInterpretedNotRunAndRunningTheInterpretationAnswersThatExactQuery()
     {
         var (world, client, runtime, factory) = await HostAsync(world => CountQuery(world.CameraId));
         await using var _ = factory;
 
-        var answer = await AskAsync(client);
+        using var raw = await client.PostAsJsonAsync("/api/ask", new { question = "How many tracks today?", referenceDate = "2026-09-21" });
+        var body = JsonNode.Parse(await raw.Content.ReadAsStringAsync())!.AsObject();
+        // No answer exists before the operator runs the query: the response has no envelope member at all.
+        Assert.False(body.ContainsKey("envelope"));
+        var answer = JsonSerializer.Deserialize<AskResponse>(body.ToJsonString(), JsonSerializerOptions.Web)!;
 
-        Assert.Equal("answered", answer.Outcome);
+        Assert.Equal(AskCodes.Interpreted, answer.Outcome);
         Assert.Null(answer.Refusal);
         Assert.Equal("UTC", answer.SiteTimeZoneId);
         var resolved = answer.Interpretation!.ResolvedQuery;
@@ -87,13 +92,12 @@ public sealed class AskApiTests(PostgresFixture fixture)
         var camera = Assert.Single(answer.Interpretation.References);
         Assert.Equal(("camera", world.CameraId), (camera.Kind, camera.Id));
 
-        // The same query posted directly answers the same envelope (the snapshot block aside).
-        using var direct = await client.PostAsync("/api/query", new StringContent(resolved.GetRawText(), System.Text.Encoding.UTF8, "application/json"));
-        var directEnvelope = JsonNode.Parse(await direct.Content.ReadAsStringAsync())!.AsObject();
-        var askEnvelope = JsonNode.Parse(JsonSerializer.Serialize(answer.Envelope, JsonSerializerOptions.Web))!.AsObject();
-        directEnvelope.Remove("snapshot");
-        askEnvelope.Remove("snapshot");
-        Assert.Equal(directEnvelope.ToJsonString(), askEnvelope.ToJsonString());
+        // Run is POST /api/query of the interpretation: it answers that exact query, with the same fingerprint.
+        using var run = await client.PostAsync("/api/query", new StringContent(resolved.GetRawText(), System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, run.StatusCode);
+        var envelope = JsonNode.Parse(await run.Content.ReadAsStringAsync())!.AsObject();
+        Assert.Equal(answer.Interpretation.QueryFingerprint, (string)envelope["queryFingerprint"]!);
+        Assert.Equal(JsonNode.Parse(resolved.GetRawText())!.ToJsonString(), envelope["resolvedQuery"]!.ToJsonString());
 
         // The model saw the catalogue and the contract; its identity and the greedy decoding are reported.
         var request = Assert.Single(runtime!.Requests);
@@ -104,12 +108,28 @@ public sealed class AskApiTests(PostgresFixture fixture)
         Assert.Equal(AskPrompt.Sha256(request.Prompt), answer.Model.PromptSha256);
     }
 
+    [Fact]
+    public async Task AQuestionNamingAPlaceTheSiteLacksIsRefusedBeforeTheModel()
+    {
+        var (_, client, runtime, factory) = await HostAsync(world => CountQuery(world.CameraId));
+        await using var _ = factory;
+
+        var answer = await AskAsync(client, "How many vehicles were in the Loading dock zone today?");
+
+        Assert.Equal("refused", answer.Outcome);
+        Assert.Equal((AskCodes.StageQuestion, AskCodes.UnknownReference, "/question"), (answer.Refusal!.Stage, answer.Refusal.Code, answer.Refusal.Path));
+        Assert.Equal(AskCodes.ModelRefusalMessage(AskCodes.UnknownReference), answer.Refusal.Message);
+        Assert.Null(answer.Interpretation);
+        Assert.Empty(runtime!.Requests); // decided by the platform; the model is never asked
+        Assert.Null(answer.Model.PromptSha256);
+    }
+
     [Theory]
     [InlineData("model", "outside_contract")]
     [InlineData("translation", "model_output_invalid")]
     [InlineData("translation", "time_offset_mismatch")]
+    [InlineData("translation", "plate_text_ungrounded")]
     [InlineData("contract", "unknown_member")]
-    [InlineData("service", "unknown_reference")]
     public async Task EveryRefusalStageIsReportedWithItsCodeAndNoAnswer(string stage, string code)
     {
         var (_, client, _, factory) = await HostAsync(world => code switch
@@ -118,7 +138,8 @@ public sealed class AskApiTests(PostgresFixture fixture)
             "model_output_invalid" => "There were 12 vehicles at the gate.",
             "time_offset_mismatch" => CountQuery(world.CameraId).Replace("+00:00", "+05:30", StringComparison.Ordinal),
             "unknown_member" => CountQuery(world.CameraId, ",\"speedKmh\":50"),
-            _ => CountQuery(Guid.Parse("01a18a8b-0000-7000-8000-000000000001")),
+            // Prompt v2 (m2): the question says no plate, so a plate text the model wrote is refused.
+            _ => CountQuery(world.CameraId, ",\"plateText\":{\"text\":\"KA01\"}"),
         });
         await using var _ = factory;
 
@@ -126,12 +147,38 @@ public sealed class AskApiTests(PostgresFixture fixture)
 
         Assert.Equal("refused", answer.Outcome);
         Assert.Equal((stage, code), (answer.Refusal!.Stage, answer.Refusal.Code));
-        Assert.Null(answer.Envelope);
         Assert.Null(answer.Interpretation);
         // No text the model wrote reaches the response: neither its prose nor a member name it invented.
         var serialised = JsonSerializer.Serialize(answer);
         Assert.DoesNotContain("There were", serialised, StringComparison.Ordinal);
         Assert.DoesNotContain("speedKmh", serialised, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AskNeverEvaluatesAQueryTheServiceWouldRefuse()
+    {
+        // A camera the platform does not have: the S9 service would refuse it as unknown when run. Ask does not run it,
+        // so it proposes it unchanged; the refusal comes only when the operator runs it.
+        var unknownCamera = Guid.Parse("01a18a8b-0000-7000-8000-000000000001");
+        var (_, client, _, factory) = await HostAsync(_ => CountQuery(unknownCamera));
+        await using var _ = factory;
+
+        var answer = await AskAsync(client);
+        Assert.Equal(AskCodes.Interpreted, answer.Outcome);
+        Assert.Null(answer.Refusal);
+
+        using var run = await client.PostAsync("/api/query", new StringContent(answer.Interpretation!.ResolvedQuery.GetRawText(), System.Text.Encoding.UTF8, "application/json"));
+        Assert.NotEqual(HttpStatusCode.OK, run.StatusCode);
+        Assert.Contains("unknown_reference", await run.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheAskServiceCannotEvaluateAQuery()
+    {
+        // No execution path without the operator's Run: Ask has no access to the query service at all.
+        var parameters = typeof(AskService).GetConstructors().SelectMany(constructor => constructor.GetParameters()).Select(parameter => parameter.ParameterType);
+        Assert.DoesNotContain(typeof(Mavi.Application.Modules.Query.StructuredQueryService), parameters);
+        Assert.Null(typeof(AskResponse).GetProperty("Envelope"));
     }
 
     [Fact]

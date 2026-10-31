@@ -59,7 +59,7 @@ The model sees the vocabulary the platform publishes at `GET /api/query/contract
 - **Decoding is constrained** by a grammar the API derives per request from the same vocabulary and catalogue: the model can only write members the contract has, and only ids the catalogue lists. Constraint is a generation aid, not the authority.
 - **One lossless rewrite.** Instants are written by the model as site-local time with the site's explicit UTC offset (`2026-10-01T09:00:00+05:30`), because a small model cannot be relied on to do time-zone arithmetic. The translator converts each to the same instant in UTC (`2026-10-01T03:30:00Z`) and refuses the translation if the offset is not the site zone's offset at that instant (`Z` therefore passes only for a site whose offset is +00:00; millisecond fractions are accepted and kept). No other member is rewritten, defaulted, completed or reordered by the translator.
 - **Then the strict S9 parser and the S9 service decide.** The rewritten query goes through `StructuredQueryParser.Parse` and `StructuredQueryService.EvaluateAsync` exactly as a builder query does, including every typed refusal. The JSON Schema `structured-query-v1.schema.json` checks the same documents in CI (§6); the golden corpus already holds parser and schema to each other (ADR-024 §1).
-- **Anything out of contract is refused to the operator with its reason, never retried.** Unparseable output, a member outside the translation document, a bad offset, a parser refusal or a service refusal ends the request with a typed refusal: the stage (`model`, `translation`, `contract`, `service`), the code, the JSON pointer where there is one, and fixed platform text for the message. There is no second attempt, no "repair" pass and no fallback to a different prompt, because each of those would turn an honest "I can't ask that" into something plausible.
+- **Anything out of contract is refused to the operator with its reason, never retried.** (Since D-S10-10, 2026-11-01, Ask does not evaluate the query: a service refusal comes from the operator's Run through `POST /api/query`, and the `service` stage of an Ask refusal no longer exists; see the amendment.) Unparseable output, a member outside the translation document, a bad offset, a parser refusal or a service refusal ends the request with a typed refusal: the stage (`model`, `translation`, `contract`, `service`), the code, the JSON pointer where there is one, and fixed platform text for the message. There is no second attempt, no "repair" pass and no fallback to a different prompt, because each of those would turn an honest "I can't ask that" into something plausible.
 - A model refusal carries **no free text**: the reason is one of the two codes and the message shown is platform text.
 
 ### 5. The grounding rule: nothing displayed is model-generated
@@ -135,3 +135,93 @@ The owner accepted this amendment on condition ("Accept, conditional", 2026-10-3
 | 1.5B Q8_0, GTX 1650 Ti | `297f62993d41b686a95b333aaf38d0b32808bbaa7e515a341378f0526acc58a6` | identical |
 
   The reverse recordings are kept under `E:\MAVI-Controlled\PoC\S10\reverse\`. A new recording set (another device, or prompt v2) repeats this check. If any output differs, reuse is switched off for that set and the set is re-recorded.
+
+  **Prompt v2 (2026-10-31): reuse failed the condition for the 7B pack and is off for it.**
+  - The 7B pack's prompt-v2 held set, recorded with reuse on the laptop (16 of 28 layers on the GPU), was not byte-identical in reverse order. One output (n11) differed in bytes but kept the same canonical outcome.
+  - Reuse is therefore off for the 7B pack. `Language:CachePrompt` is resolved per pack by the installer and asserted by the setup contracts.
+  - The set was re-recorded with reuse off, and that recording is byte-identical in both orders (`b8295f54…`).
+  - Reuse does change decoding numerics on that device: the superseded reuse-on run decoded n26 differently and scored 21/40, against 20/40. This is disclosed in the register.
+  - The 1.5B pack's prompt-v2 set is byte-identical in both orders with reuse on (`a04dee1d…`), so reuse stays on for it.
+
+## Amendment 2026-10-31 (accepted, D-S10-9): prompt version `mavi-ask-prompt-v2` (§4, §6)
+
+The owner accepted this amendment, with one edit to the measurement ("Accept with edit", 2026-10-31; relayed by the coordinator session). It follows owner decision D-S10-8 ("Keep bar, follow-up"). The C9.2 bar (D-S10-4) is unchanged: the 7B overall held exact-match must be at least 85%, safety and grounding 100%, and the CI replay exact.
+
+**Why.** On the v1 held split the 7B pack answered two questions about places the site does not have ("the Central Station camera", "the Loading dock zone") for the whole site. The reason: gating removed the reference the model could not match, and the model then wrote a valid whole-site query. The S10 cold review also deferred three items that change prompt or grammar bytes: plate text grounded in the question (m2), tighter single-word gating (m3), and daylight-saving offsets (m8).
+
+**Version 1 is kept byte for byte.** The v1 prompt, grammar, gating and translator path stay in the code, so the v1 recordings keep replaying in CI. They are never re-recorded. The API uses v2 (`AskPrompt.TemplateVersion`). A recording set replays through the version it names.
+
+1. **Unknown places are refused by the platform, before the model (`AskPlaceReferences`).**
+   - The question's place references are found by three fixed patterns:
+     - (a) the words before a singular `camera`, `cam`, `zone` or `line`, back to an article, preposition, question word or sentence start. Ranking words ("the busiest camera") and fixed compounds ("line crossings", "line direction", "zone dwell") are excluded;
+     - (b) such a noun followed by a number or a capitalised name ("camera 14", "zone C");
+     - (c) a run of two or more capitalised words that is not at a sentence start and is not contract vocabulary ("Central Station").
+   - A reference names the catalogue items of its kind whose names contain all its words. A camera can also be named by the number its code ends with.
+   - Gating offers the named items to the model. A reference that names nothing refuses the request: `unknown_reference` at a new stage `question`, with platform text. The model is not called.
+   - **Corpus accounting:** this refusal matches an expected `unknown_reference`. Recordings mark these rows with the stage and no output, and CI re-derives the refusal from the current code.
+   - **Trade-offs:** a question whose wording looks like an unknown place is refused rather than answered. A place named outside the three patterns ("the parking garage") is still left to the model, as in v1.
+2. **Plate text grounded in the question (m2).** After the strict parser, a plate text is accepted only when its normalised form (`mavi-plate-normalisation-v1`) occurs in the question's letters and digits, upper-cased and joined. Otherwise the request is refused with `plate_text_ungrounded` at stage `translation`.
+3. **Tighter gating (m3).**
+   - A name with one significant word ("Crossing") is offered only for "<name> <kind>" ("crossing zone").
+   - A name that ends in its kind ("Count line") is offered only for that phrase.
+   - A line side labelled "In" or "Out" is offered only for a synonym or a verb phrase ("went in", "walked out"), never for the bare preposition.
+   - "To door" and "From door" are offered only for their phrase.
+4. **Every offset of the site zone (m8).**
+   - The grammar's instant pattern admits each offset the site zone uses from the reference date minus 366 days to the reference date plus 2 days.
+   - The translator still refuses an offset that is not the zone's own at that instant.
+   - For a zone with daylight saving, the prompt names both offsets. For a single-offset zone (the demo's Asia/Kolkata) the time sentence is unchanged.
+5. **One query shape per unit.**
+   - The grammar offers Track, Event (and Entity, when the question names entities) as separate shapes.
+   - Each shape has only the predicates, `groupBy`/`top` dimensions and `countDistinct` fields the contract allows for that unit. An Event zone names the zone only.
+   - A predicate the unit lacks therefore cannot be decoded. Like gating, this only removes choices, and the strict parser remains the authority.
+6. **Prompt text** (chosen on the development set only, the 60 v1 questions):
+   - the refusal sentence also covers "any other place … the site list does not have";
+   - four rules: durations in milliseconds; loitering as a Track zone predicate; "by hour" as `timeBucket` 3600, never `groupBy`; "show", "list" and "find" as `find` even for one thing;
+   - one worked example of a zone question "by hour";
+   - the JSON the model is shown is written as the grammar lets it write it (`+05:30`, not `+05:30`).
+7. **Measurement (§6).**
+   - The v1 held split is spent and becomes development data.
+   - v2 is measured once per model on a **fresh held split** (`contracts/test-vectors/ask-mavi-questions-v2.json`). That split is written under the authorship rule the owner ratified and committed with its SHA-256 before any v2 model output existed.
+     - Rule: a fresh agent writes it, blind to the v2 design and to every model output, and a second blind agent checks it. It is validated by the parser and the schema. The implementer does not read it until both held runs are recorded.
+     - **Owner's edit:** it keeps the v1 held split's proportions, 31 in contract, 6 `outside_contract` and 3 `unknown_reference` out of 40. The pre-check makes `unknown_reference` refusals nearly free, so a richer refusal mix would ease the bar.
+     - The report gives the in-contract exact-match beside the overall figure, and the number of pre-check refusals.
+   - The protocol, prompt, grammar and pre-check are frozen by commit before the held runs.
+   - The reverse-order byte-identity check (D-S10-7) is repeated for each v2 recording set.
+
+**Trade-off accepted.**
+- Deterministic place checks and a narrower grammar trade some recall for the guarantee that a named place the site lacks is refused, not answered for the whole site. A valid question with place-like wording, or an item named by a partial phrase the patterns do not catch, may be refused.
+- Both outcomes are visible: a refusal, or "Interpreted as". Neither can produce a number the site did not compute.
+
+**Measured result (2026-10-31).**
+- The fresh held split was measured once against the unchanged bar:
+  - 7B pack 20/40 (50%), in contract 17/31. **The bar is not met.**
+  - 1.5B pack 19/40, in contract 16/31.
+- The pre-check refused 2 of the 3 unknown places, with no false refusal on those 40 questions. The 7B had no parser refusal, and the 1.5B had one (a duplicated camera id). Safety and grounding are 100%, and CI replay is exact.
+- Cold-review fixes to the pre-check came after measurement. They leave every held and development decision unchanged, and CI replays the recordings exactly.
+- The pre-check can still refuse a valid question whose wording looks like an unknown place (known-limits).
+- Reuse for the 1.5B was checked on `sm_75` only. Another device (CPU, or `sm_89` at S12) repeats the reverse-order check before reuse is relied on there.
+- The remaining misses are the model's: dropped predicates, wrong units or relations, and outside-contract questions answered as queries. Register C9.2 holds the classification.
+
+## Amendment 2026-11-01 (accepted, D-S10-10): Ask MAVI proposes, the operator confirms (§5, §7)
+
+The owner decided this on 2026-11-01 ("Yes, (a)+(b)+confirm"), after the measured result of prompt v2: about one question in two is interpreted exactly on independently written questions.
+
+- **The decision.** It replaces "the query is evaluated" in §4 and §7, and "the answer" in §5.
+  - `POST /api/ask` translates the question and returns the **proposed query** (`outcome: interpreted`): the strict parser's canonical query, its fingerprint and the catalogue names, or a typed refusal.
+  - It never evaluates the query. The Ask service has no access to the query service, and the response has no envelope member, so no answer can exist before the operator confirms.
+  - The page shows the proposal ("Interpreted as", the query JSON one click away) with two actions:
+    - **Run** sends exactly the proposed query to `POST /api/query`. The answer, coverage and drill-through are that envelope, rendered as before (§5 grounding unchanged).
+    - **Open in Advanced Search** loads the query into the builder without running it. It is disabled, with the reason shown, for a query the builder cannot hold losslessly (a minimum duration, a minimum dwell or loitering, a bucket size the builder does not offer).
+  - Refusals are unchanged. A refusal of the S9 service now comes from Run (`POST /api/query`), so the `service` stage of an Ask refusal no longer exists. An Entity query run by a caller who is not an operator is refused by the query endpoint (401/403, ADR-023), and the page says it is for operators only.
+  - When attributes imply the object class, the S9 service states that class at run time (ADR-024), so the fingerprint of the query as run can differ from the proposal's. The page says so, and Open in Advanced Search refuses attributes without a class, because the builder would send them hidden.
+- **Accuracy stated.** The measured accuracy (C9.2, prompt v2 on the fresh held split) is stated on the Ask page and on known-limits: 7B 20/40, 1.5B 19/40.
+- **Why.** At this accuracy an unconfirmed answer would present the result of a misread question as an answer. Confirming first makes the interpretation, not the number, the thing the operator acts on. Running costs one click.
+- **Trade-off accepted.** One more step per question, in exchange for no number reaching the operator for a query they have not seen and accepted.
+- **Evidence.** E2E with the 1.5B under the confirm flow:
+  - every one of the 40 Ask responses carried no answer;
+  - Run answered 35 queries, refused the one Entity query for the anonymous caller (#253), and 4 questions were refused with nothing to run;
+  - translation 19/40, unchanged.
+- **Also decided (D-S10-10).**
+  - C9.2 stays FAIL and S10 closes.
+  - The frozen prompt v2 is measured on the RTX 4090 at S12, as disclosed evidence, not as a new attempt at the bar.
+  - The first post-PoC improvement is the larger Apache-2.0 model (Qwen2.5-14B-Instruct) with deterministic slot checks, measured on a new fresh held split.

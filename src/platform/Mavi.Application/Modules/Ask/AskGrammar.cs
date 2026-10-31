@@ -11,15 +11,22 @@ namespace Mavi.Application.Modules.Ask;
 /// array bounds, simple patterns); the strict S9 parser remains the authority on what a query is. The grammar is also
 /// gated by the question (<see cref="AskQuestionScope"/>): a reference or predicate the question does not name is not
 /// offered at all.
+/// <para>Prompt v2 (ADR-026 amendment D-S10-9) also admits every offset the site zone uses (daylight saving, m8) and
+/// decodes one query shape per unit, each with only the predicates, dimensions and fields the contract allows for that
+/// unit, so a predicate the unit does not have cannot be written. v1 is kept unchanged for its recordings.</para>
 /// </summary>
 public static class AskGrammar
 {
-    public static string Build(QueryContractResponse vocabulary, AskSiteCatalogue catalogue, AskSiteTime siteTime, AskQuestionScope scope)
+    public static string Build(QueryContractResponse vocabulary, AskSiteCatalogue catalogue, AskSiteTime siteTime, AskQuestionScope scope) =>
+        Build(vocabulary, catalogue, siteTime, scope, AskPrompt.TemplateVersion);
+
+    public static string Build(QueryContractResponse vocabulary, AskSiteCatalogue catalogue, AskSiteTime siteTime, AskQuestionScope scope, string version)
     {
         ArgumentNullException.ThrowIfNull(vocabulary);
         ArgumentNullException.ThrowIfNull(catalogue);
         ArgumentNullException.ThrowIfNull(siteTime);
         ArgumentNullException.ThrowIfNull(scope);
+        var v2 = AskPrompt.IsVersion2(version);
 
         var cameraIds = catalogue.Cameras.Where(camera => scope.Cameras.Contains(camera.CameraId)).Select(camera => camera.CameraId.ToString("D")).ToList();
         var zoneIds = catalogue.Cameras.SelectMany(camera => camera.Zones).Where(zone => scope.Zones.Contains(zone.ZoneId)).Select(zone => zone.ZoneId.ToString("D")).ToList();
@@ -32,7 +39,9 @@ public static class AskGrammar
         var instant = new JsonObject
         {
             ["type"] = "string",
-            ["pattern"] = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}" + Regex.Escape(siteTime.OffsetText) + "$",
+            ["pattern"] = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}" + (v2 && siteTime.Offsets.Count > 1
+                ? "(" + string.Join('|', siteTime.Offsets.Select(offset => Regex.Escape(AskSiteTime.FormatOffset(offset)))) + ")"
+                : Regex.Escape(siteTime.OffsetText)) + "$",
         };
         JsonObject Window() => Object(new() { ["fromUtc"] = instant.DeepClone(), ["toUtc"] = instant.DeepClone() }, "fromUtc", "toUtc");
 
@@ -108,15 +117,20 @@ public static class AskGrammar
                 "op", "bucketSeconds"),
             Object(new() { ["op"] = Const("compare"), ["baseline"] = Window() }, "op", "baseline"));
 
-        var query = Object(
-            new()
+        var query = v2
+            ? new JsonObject
             {
-                ["contractVersion"] = Const(vocabulary.ContractVersion),
-                ["unit"] = Enum(units),
-                ["where"] = Object(where, "timeWindow"),
-                ["operation"] = new JsonObject { ["anyOf"] = operations },
-            },
-            "contractVersion", "unit", "where", "operation");
+                ["anyOf"] = new JsonArray([.. units.Select(unit => (JsonNode)UnitQuery(vocabulary, vocabulary.Units.Single(item => item.Unit == unit), where, Window))]),
+            }
+            : Object(
+                new()
+                {
+                    ["contractVersion"] = Const(vocabulary.ContractVersion),
+                    ["unit"] = Enum(units),
+                    ["where"] = Object(where, "timeWindow"),
+                    ["operation"] = new JsonObject { ["anyOf"] = operations },
+                },
+                "contractVersion", "unit", "where", "operation");
 
         var schema = new JsonObject
         {
@@ -125,6 +139,43 @@ public static class AskGrammar
                 Object(new() { ["answer"] = Const("refusal"), ["reason"] = Enum(AskCodes.ModelRefusalReasons) }, "answer", "reason")),
         };
         return schema.ToJsonString();
+    }
+
+    /// <summary>v2: the query shape of one unit: its own predicates (an Event zone names the zone only), dimensions and fields.</summary>
+    private static JsonObject UnitQuery(
+        QueryContractResponse vocabulary,
+        QueryUnitVocabularyResponse unit,
+        Dictionary<string, JsonNode> where,
+        Func<JsonObject> window)
+    {
+        var unitWhere = where
+            .Where(pair => unit.Predicates.Contains(pair.Key, StringComparer.Ordinal))
+            .ToDictionary(pair => pair.Key, pair => pair.Value.DeepClone(), StringComparer.Ordinal);
+        if (unit.Unit == "event" && unitWhere.TryGetValue("zone", out var zone))
+        {
+            var zoneIds = zone["properties"]!["zoneId"]!.DeepClone();
+            unitWhere["zone"] = Object(new() { ["zoneId"] = zoneIds }, "zoneId");
+        }
+
+        var operations = new JsonArray(
+            Object(new() { ["op"] = Const("find"), ["limit"] = Integer(1, vocabulary.Bounds.MaximumFindLimit), ["order"] = Enum(["newest", "oldest"]) }, "op"),
+            Object(new() { ["op"] = Enum(["count", "first", "last"]) }, "op"),
+            Object(new() { ["op"] = Const("countDistinct"), ["field"] = Enum(unit.DistinctFields) }, "op", "field"),
+            Object(new() { ["op"] = Const("groupBy"), ["by"] = Enum(unit.GroupDimensions) }, "op", "by"),
+            Object(new() { ["op"] = Const("top"), ["by"] = Enum(unit.GroupDimensions), ["k"] = Integer(1, vocabulary.Bounds.MaximumTopK) }, "op", "by"),
+            Object(
+                new() { ["op"] = Const("timeBucket"), ["bucketSeconds"] = Integer(vocabulary.Bounds.MinimumBucketSeconds, vocabulary.Bounds.MaximumBucketSeconds) },
+                "op", "bucketSeconds"),
+            Object(new() { ["op"] = Const("compare"), ["baseline"] = window() }, "op", "baseline"));
+        return Object(
+            new()
+            {
+                ["contractVersion"] = Const(vocabulary.ContractVersion),
+                ["unit"] = Const(unit.Unit),
+                ["where"] = Object(unitWhere, "timeWindow"),
+                ["operation"] = new JsonObject { ["anyOf"] = operations },
+            },
+            "contractVersion", "unit", "where", "operation");
     }
 
     private static JsonObject Object(Dictionary<string, JsonNode> properties, params string[] required)

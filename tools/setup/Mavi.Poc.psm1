@@ -362,6 +362,7 @@ function New-MaviPocMachineConfig {
             Quantisation = [string]$LanguagePack.Quantisation
             RuntimeId = [string]$LanguagePack.RuntimeId
             DeviceReportPath = $Layout.LanguageDeviceResolutionPath
+            CachePrompt = [bool]$LanguagePack.CachePrompt
         }
         $config.Deployment.RoleDeviceResolutionPaths.language = $Layout.LanguageDeviceResolutionPath
     }
@@ -392,6 +393,9 @@ function Get-MaviPocNoticeLicence {
 # PoC S10 (ADR-026 §2): which Language Model Pack an installation binds. Auto takes the 7B pack only on a GPU with the
 # memory to hold it fully (16 GiB or more: the RTX 4090 class), and the 1.5B pack otherwise (the Development laptop's
 # 4 GiB GPU, or CPU). An explicit choice is honoured; the reason is recorded either way.
+# CachePrompt (ADR-026 §6, D-S10-7): prompt-prefix reuse only for a pack whose recordings were byte-identical in reverse
+# order. The 7B pack's prompt-v2 set was not (one output differed; the canonical outcome was the same), so the 7B runs
+# with reuse off; the 1.5B pack passed the check.
 function Select-MaviPocLanguagePack {
     param(
         [ValidateSet("Auto", "1.5B", "7B")][string]$Choice = "Auto",
@@ -417,7 +421,7 @@ function Select-MaviPocLanguagePack {
             else { $small, "gpu_memory_${largestMiB}_mib_below_16000_1_5b" }
         }
     }
-    [pscustomobject]@{ PackDirectory = [string]$pick.packDirectory; ManifestPath = [string]$pick.manifest; Reason = $reason }
+    [pscustomobject]@{ PackDirectory = [string]$pick.packDirectory; ManifestPath = [string]$pick.manifest; Reason = $reason; CachePrompt = ($pick -eq $small) }
 }
 
 # PoC S10 (ADR-026 §3): the language role's device under ADR-008 policy. CUDA needs an NVIDIA GPU that answers; the

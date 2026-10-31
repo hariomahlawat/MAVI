@@ -360,6 +360,7 @@ try {
     $languageBinding = [pscustomobject]@{
         ModelPackId = $languagePackId; ModelId = [string]$languageManifest.modelId; Quantisation = [string]$languageManifest.quantisation.type
         RuntimeId = [string](Read-MaviJson -Path (Join-Path $layout.OverlayRoot "tools\language\language-payloads-v1.json")).runtime.runtimeId
+        CachePrompt = [bool]$languagePack.CachePrompt
     }
     Write-MaviSetupStatus -Name "Language packs" -Status "OK" -Detail "llama.cpp (cpu, cuda) and Qwen2.5 1.5B/7B staged; bound $($languagePack.PackDirectory) ($($languagePack.Reason))"
 
