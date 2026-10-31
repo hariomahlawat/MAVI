@@ -58,6 +58,8 @@ export const TEXT_SPACING_CSS = '* { line-height: 1.5 !important; letter-spacing
 const ORIGIN_BASE = 'http://127.0.0.1';
 /** The review's Faces panel route (PoC S6): `/api/tracks/{id}/faces`. */
 const TRACK_FACES = /^\/api\/tracks\/[^/]+\/faces$/;
+/** The review decision panel's route (PoC S11-full, ADR-027 §1): `/api/tracks/{id}/review`. */
+const TRACK_REVIEW = /^\/api\/tracks\/([^/]+)\/review$/;
 export const RESPONSE_ORDERS = Object.freeze(['natural', 'forward']);
 export const RESPONSE_SPACING_MS = 120;
 
@@ -322,7 +324,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
           if (method && method !== req.method) return false;
           // A Track's details override must not answer its Faces panel's own
           // route (PoC S6) with the Track: only an exact key does.
-          if (path !== keyPath && TRACK_FACES.test(path)) return false;
+          if (path !== keyPath && (TRACK_FACES.test(path) || TRACK_REVIEW.test(path))) return false;
           return path === keyPath || path.startsWith(keyPath + '/');
         })
         // A method-qualified key is more specific than a bare one of the same
@@ -506,6 +508,20 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         res.end(JSON.stringify({
           label: 'Face candidates — not identification — Development',
           state: 'notConfigured', reason: null, identity: null, referenceThreshold: null, faces: [],
+        }));
+        return;
+      }
+      // The review decision panel (PoC S11-full) asks every Track it shows for its review state. Every fixture Track is
+      // Unreviewed and no fixture records a decision, so the platform's answer to an operator for such a Track stands
+      // in unless a state supplies a fixture (the run id is not shown).
+      const review = TRACK_REVIEW.exec(path);
+      if (review && req.method === 'GET') {
+        res.writeHead(200, { 'content-type': TYPES['.json'] });
+        res.end(JSON.stringify({
+          trackId: decodeURIComponent(review[1]), processingRunId: '00000000-0000-7000-8000-000000000000', reviewStatus: 'Unreviewed',
+          latestDecision: null, otherRuns: [],
+          statement: 'A review decision says whether the detection is correct. It never says who or which object the Track shows. ' +
+            'Decisions belong to this processing run; a new run starts Unreviewed.',
         }));
         return;
       }

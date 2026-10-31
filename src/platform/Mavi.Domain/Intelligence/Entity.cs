@@ -35,6 +35,24 @@ public sealed class Entity
     /// <summary>A Track joined the Entity by a later confirmation.</summary>
     public void Extend(DateTimeOffset nowUtc) => UpdatedAtUtc = nowUtc.ToUniversalTime();
 
+    /// <summary>A member Track left the Entity or joined it by a merge (ADR-027 §4); the membership itself is in the history.</summary>
+    public void Touch(DateTimeOffset nowUtc) => UpdatedAtUtc = nowUtc.ToUniversalTime();
+
+    /// <summary>
+    /// Records that every member moved to <paramref name="target"/> by an operator's merge (ADR-027 §4). The Entity is kept,
+    /// with its history, as <see cref="EntityMergeState.Merged"/>; it never becomes active again.
+    /// </summary>
+    public void MergeInto(Entity target, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (State != EntityMergeState.Active || target.State != EntityMergeState.Active || target.Id == Id || target.EntityType != EntityType)
+            throw new DomainValidationException("entity_merge_invalid", "Only two different active Entities of one type can be merged.");
+        State = EntityMergeState.Merged;
+        MergedIntoEntityId = target.Id;
+        UpdatedAtUtc = nowUtc.ToUniversalTime();
+        target.UpdatedAtUtc = UpdatedAtUtc;
+    }
+
     /// <summary><c>P-</c> or <c>V-</c> and the last twelve hex digits of the id (the random part of a UUIDv7).</summary>
     public static string DisplayCodeFor(EntityType entityType, Guid id) =>
         (entityType == EntityType.Person ? "P-" : "V-") + id.ToString("N")[^12..];
@@ -46,6 +64,8 @@ public sealed class Entity
     public IdentityStatus IdentityStatus { get; private set; }
     public ReviewStatus ReviewStatus { get; private set; }
     public Guid? RepresentativeArtifactId { get; private set; }
+    public EntityMergeState State { get; private set; }
+    public Guid? MergedIntoEntityId { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset UpdatedAtUtc { get; private set; }
 }

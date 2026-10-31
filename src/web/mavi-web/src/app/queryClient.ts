@@ -52,6 +52,19 @@ export const queryKeys = {
   trackFaces: (id: string) => ['track-faces', id] as const,
   faceQuery: (queryId: string) => ['face-query', queryId] as const,
   faceGallery: ['face-gallery'] as const,
+  /**
+   * PoC S11-full (ADR-027): a Track's review state and its decision history
+   * share the `['track-review', id]` prefix, so one invalidation after a
+   * decision refreshes both.
+   */
+  trackReview: (id: string) => ['track-review', id] as const,
+  trackReviewHistory: (id: string) => ['track-review', id, 'history'] as const,
+  /** Every case read shares the `['cases']` prefix: any case write invalidates them all. */
+  cases: ['cases'] as const,
+  caseList: (subject: string) => ['cases', 'list', subject] as const,
+  caseDetail: (id: string) => ['cases', 'detail', id] as const,
+  /** One entry per exact audit filter (its canonical query string, without the cursor). */
+  audit: (filter: string) => ['audit', filter] as const,
   /** PoC S7 (ADR-023): Entity candidates, their per-camera-pair summary, and one Entity. */
   entityCandidates: (filter: object) => ['entity-candidates', filter] as const,
   entityCandidateSummary: ['entity-candidates', 'summary'] as const,

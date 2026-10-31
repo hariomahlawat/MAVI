@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Mavi.Domain.Common;
 using Mavi.Domain.Intelligence;
 
@@ -98,26 +98,34 @@ public sealed partial class EntityCandidateTests
     }
 
     /// <summary>
-    /// ADR-023 §1: confirmation is the only writer of <c>Track.EntityId</c>. The domain method is called from the
-    /// confirmation repository alone, nothing else assigns the property, and no SQL in the platform or the vision
-    /// worker writes the column.
+    /// ADR-023 §1 as amended by ADR-027 §4: only an audited operator decision writes <c>Track.EntityId</c> — confirmation,
+    /// unlink and merge. Their domain methods are called from the Entity candidate repository alone (confirmation and the
+    /// corrections file), nothing else assigns the property, every call sits next to an append to the membership history, and
+    /// no SQL in the platform or the vision worker writes the column.
     /// </summary>
     [Fact]
-    public void NoPathWritesTrackEntityIdExceptConfirmation()
+    public void OnlyAuditedOperatorDecisionsWriteTrackEntityId()
     {
         var root = FindRepositoryRoot();
         var platform = Path.Combine(root, "src", "platform");
+        string[] methods = ["JoinEntityByConfirmation(", "LeaveEntityByUnlink(", "MoveEntityByMerge("];
         var callers = Directory.EnumerateFiles(platform, "*.cs", SearchOption.AllDirectories)
-            .Where(path => File.ReadAllText(path).Contains("JoinEntityByConfirmation(", StringComparison.Ordinal))
+            .Where(path => methods.Any(method => File.ReadAllText(path).Contains(method, StringComparison.Ordinal)))
             .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
             .Order(StringComparer.Ordinal)
             .ToList();
         Assert.Equal(
-            ["src/platform/Mavi.Domain/Intelligence/Track.cs", "src/platform/Mavi.Infrastructure/Persistence/Repositories/EntityCandidateRepository.cs"],
+            [
+                "src/platform/Mavi.Domain/Intelligence/Track.cs",
+                "src/platform/Mavi.Infrastructure/Persistence/Repositories/EntityCandidateRepository.Corrections.cs",
+                "src/platform/Mavi.Infrastructure/Persistence/Repositories/EntityCandidateRepository.cs",
+            ],
             callers);
+        foreach (var caller in callers.Where(path => path.Contains("/Repositories/", StringComparison.Ordinal)))
+            Assert.Contains("EntityMembershipChanges.Add(", File.ReadAllText(Path.Combine(root, caller)), StringComparison.Ordinal);
 
         var trackSource = File.ReadAllText(Path.Combine(platform, "Mavi.Domain", "Intelligence", "Track.cs"));
-        Assert.Single(AssignmentPattern().Matches(trackSource));
+        Assert.Equal(3, AssignmentPattern().Count(trackSource));
 
         var sources = Directory.EnumerateFiles(Path.Combine(root, "src"), "*.*", SearchOption.AllDirectories)
             .Where(path => path.EndsWith(".cs", StringComparison.Ordinal) || path.EndsWith(".py", StringComparison.Ordinal) ||
@@ -126,10 +134,10 @@ public sealed partial class EntityCandidateTests
                            !path.Replace('\\', '/').Contains("/obj/", StringComparison.Ordinal) &&
                            !path.Replace('\\', '/').Contains("/bin/", StringComparison.Ordinal));
         foreach (var path in sources)
-            Assert.False(SqlWritePattern().IsMatch(File.ReadAllText(path)), $"{path} writes tracks.entity_id outside confirmation.");
+            Assert.False(SqlWritePattern().IsMatch(File.ReadAllText(path)), $"{path} writes tracks.entity_id outside an audited operator decision.");
     }
 
-    [GeneratedRegex(@"\bEntityId\s*=\s*entityId\s*;")]
+    [GeneratedRegex(@"\bEntityId\s*=\s*\w+\s*;")]
     private static partial Regex AssignmentPattern();
 
     [GeneratedRegex(@"(?is)\b(UPDATE\s+tracks\b[^;]*\bentity_id\b|INSERT\s+INTO\s+tracks\b[^;]*\bentity_id\b|SetProperty\(\s*\w+\s*=>\s*\w+\.EntityId)")]

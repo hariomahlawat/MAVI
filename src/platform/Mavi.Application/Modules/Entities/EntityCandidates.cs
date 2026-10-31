@@ -67,7 +67,43 @@ public sealed record EntityView(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     IReadOnlyList<EntityTrackView> Members,
-    IReadOnlyList<EntityCandidateView> Confirmations);
+    IReadOnlyList<EntityCandidateView> Confirmations,
+    EntityMergeState State = EntityMergeState.Active,
+    Guid? MergedIntoEntityId = null,
+    IReadOnlyList<EntityMembershipChangeView>? History = null,
+    IReadOnlyList<Guid>? MergedFromEntityIds = null,
+    IReadOnlyList<Guid>? RelatedCandidateIds = null);
+
+/// <summary>An Entity's audit subjects: itself and the Entities merged into it, and every candidate ever linked to them.</summary>
+public sealed record EntityAuditScope(Guid EntityId, IReadOnlyList<Guid> EntityIds, IReadOnlyList<Guid> CandidateIds);
+
+/// <summary>One join or leave of a Track, as recorded (ADR-027 §4).</summary>
+public sealed record EntityMembershipChangeView(long Sequence, Guid TrackId, Guid EntityId, EntityMembershipChangeKind Change,
+    EntityMembershipCause Cause, Guid? CandidateId, string? Note, string OperatorId, string OperatorDisplayName, string IdentitySource,
+    DateTimeOffset AtUtc, Guid AuditEntryId);
+
+/// <summary>One confirm, dismiss or reopen of a candidate, as recorded (ADR-027 §4).</summary>
+public sealed record EntityCandidateDecisionHistoryView(long Sequence, EntityCandidateDecisionKind Decision, Guid? EntityId, string? Note,
+    string OperatorId, string OperatorDisplayName, string IdentitySource, DateTimeOffset AtUtc, Guid AuditEntryId);
+
+/// <summary>The outcome of a merge, unlink or reopen: a refusal code (nothing written), or the Entity / candidate after it.</summary>
+public sealed record EntityCorrectionResult(string? RefusalCode, EntityView? Entity = null, EntityCandidateView? Candidate = null,
+    Guid? ConflictingTrackId = null, Guid? OtherConflictingTrackId = null);
+
+/// <summary>Refusal codes of the Entity corrections (ADR-027 §4).</summary>
+public static class EntityCorrectionRules
+{
+    public const string EntityNotFound = "entity_not_found";
+    public const string EntityNotActive = "entity_not_active";
+    public const string MergeInvalid = "entity_merge_invalid";
+    public const string MergeImplausible = "entity_merge_implausible";
+    /// <summary>The source has no members: a merge would move nothing and leave no membership history to record it.</summary>
+    public const string MergeSourceEmpty = "entity_merge_source_empty";
+    public const string TrackNotMember = "entity_track_not_member";
+    public const string ChangedConcurrently = "entity_changed_concurrently";
+    public const string CandidateNotDecided = "entity_candidate_not_decided";
+    public const string CandidateStillLinked = "entity_candidate_still_linked";
+}
 
 public sealed record EntityDecisionResult(string? RefusalCode, EntityCandidateView? Candidate, Guid? EntityId, bool EntityCreated,
     Guid? ConflictingTrackId = null);
@@ -117,6 +153,39 @@ public interface IEntityCandidateRepository
     Task<EntityDecisionResult> DismissAsync(Guid candidateId, string? note, EntityCandidateDecider decider,
         Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, EntityCandidateCatalogueDefinition catalogue, string identityFingerprint,
         DateTimeOffset nowUtc, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Unlinks a member Track (ADR-027 §4): locks the Track then the Entity, re-checks membership, appends the audit entry,
+    /// records the leave and clears <c>Track.EntityId</c>. The Entity stays with its remaining members (option (a)).
+    /// </summary>
+    Task<EntityCorrectionResult> UnlinkAsync(Guid entityId, Guid trackId, string? note, EntityCandidateDecider decider,
+        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, DateTimeOffset nowUtc, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Merges <paramref name="sourceEntityId"/> into <paramref name="targetEntityId"/> (ADR-027 §4): every member Track of both,
+    /// then both Entities, are locked in id order; refused unless both are active, of one type, and every cross pair is
+    /// physically plausible under the catalogue. Each source member records a leave and a join; the source becomes Merged.
+    /// </summary>
+    Task<EntityCorrectionResult> MergeAsync(Guid sourceEntityId, Guid targetEntityId, string? note, EntityCandidateDecider decider,
+        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, EntityCandidateCatalogueDefinition catalogue, DateTimeOffset nowUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reopens a dismissed candidate, or a confirmed one whose Tracks are no longer together in one Entity (ADR-027 §4);
+    /// current catalogue and identity only.
+    /// </summary>
+    Task<EntityDecisionResult> ReopenAsync(Guid candidateId, string? note, EntityCandidateDecider decider,
+        Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, EntityCandidateCatalogueDefinition catalogue, string identityFingerprint,
+        DateTimeOffset nowUtc, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The audit scope of an Entity (ADR-027 §3, §4), read from the append-only histories: the Entity, every Entity merged into it,
+    /// and every candidate ever linked to any of them. Null when the Entity does not exist.
+    /// </summary>
+    Task<EntityAuditScope?> GetAuditScopeAsync(Guid entityId, CancellationToken cancellationToken);
+
+    /// <summary>Every recorded decision on the candidate, oldest first; null when it does not exist.</summary>
+    Task<IReadOnlyList<EntityCandidateDecisionHistoryView>?> GetCandidateHistoryAsync(Guid candidateId, CancellationToken cancellationToken);
 
     Task<EntityFacePair?> BestFacePairAsync(Guid lowerTrackId, Guid higherTrackId, string faceIdentityFingerprint, CancellationToken cancellationToken);
 }

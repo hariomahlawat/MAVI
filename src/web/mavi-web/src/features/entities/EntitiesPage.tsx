@@ -10,7 +10,6 @@ import {
   decisionRefusalText,
   describeGap,
   dismissEntityCandidate,
-  getEntity,
   getEntityCandidateSummary,
   listEntityCandidates,
   type EntityCandidate,
@@ -32,6 +31,7 @@ import Dialog from '../../shared/overlay/Dialog';
 import { formatDateTime } from '../../shared/time/time';
 import { ContextBar } from '../../shared/workspace';
 import FaceCrop from '../faces/FaceCrop';
+import { CandidateHistory, EntityView, MergeEntities, ReopenCandidate, invalidateCorrections } from './EntityCorrections';
 
 const PAGE_SIZE = 25;
 const NOTE_LIMIT = 500;
@@ -116,9 +116,11 @@ function FaceFactor({ candidate }: { candidate: EntityCandidate }) {
   );
 }
 
-function CandidateDetail({ candidate, onDecided, onRefresh }: {
+function CandidateDetail({ candidate, onDecided, onRefresh, onMerged }: {
   candidate: EntityCandidate;
   onDecided: (message: string) => void;
+  /** The candidate's two Entities were merged: show the kept one. */
+  onMerged: (entityId: string, displayCode: string) => void;
   /** Another operator decided first: the page keeps the message, since the candidate leaves the open list. */
   onRefresh: (message: string) => void;
 }) {
@@ -139,6 +141,9 @@ function CandidateDetail({ candidate, onDecided, onRefresh }: {
     onSettled: () => setPending(null),
   });
   const { appearance, plausibility } = candidate.factors;
+  const mergeIds: [string, string] | null = decide.error instanceof ApiError && decide.error.code === 'entity_merge_unsupported'
+    && candidate.lower.entityId && candidate.higher.entityId && candidate.lower.entityId.toLowerCase() !== candidate.higher.entityId.toLowerCase()
+    ? [candidate.lower.entityId, candidate.higher.entityId] : null;
   return (
     <Panel title="Candidate">
       <div className="row entity-pair">
@@ -180,13 +185,24 @@ function CandidateDetail({ candidate, onDecided, onRefresh }: {
                 : operatorMessage(decide.error, 'The decision failed.')}
             </Alert>
           ) : null}
+          {/* ADR-027 §4: the two Tracks are in two Entities; the operator can merge them explicitly. */}
+          {mergeIds ? (
+            <MergeEntities entityIds={mergeIds} onMerged={(kept) => onMerged(kept.entityId, kept.displayCode)} />
+          ) : null}
         </div>
-      ) : candidate.decision ? (
-        <p className="small" role="status">
-          {candidate.status === 'confirmed' ? 'Confirmed' : 'Dismissed'} by {candidate.decision.displayName} ({candidate.decision.identitySource}) at{' '}
-          {utc(candidate.decision.decidedAtUtc)}{candidate.decision.note ? ` — “${candidate.decision.note}”` : ''}.
-        </p>
-      ) : null}
+      ) : (
+        <div className="stack">
+          {candidate.decision ? (
+            <p className="small" role="status">
+              {candidate.status === 'confirmed' ? 'Confirmed' : 'Dismissed'} by {candidate.decision.displayName} ({candidate.decision.identitySource}) at{' '}
+              {utc(candidate.decision.decidedAtUtc)}{candidate.decision.note ? ` — “${candidate.decision.note}”` : ''}.
+            </p>
+          ) : null}
+          {/* ADR-027 §4: a dismissed candidate, or a confirmed one whose Tracks are no longer together, can be reopened. */}
+          <ReopenCandidate candidate={candidate} onReopened={onDecided} />
+        </div>
+      )}
+      <CandidateHistory key={candidate.candidateId} candidateId={candidate.candidateId} />
       <Dialog
         open={pending !== null}
         title={pending === 'confirm' ? 'Record that these two Tracks show the same object?' : 'Dismiss this candidate?'}
@@ -195,45 +211,9 @@ function CandidateDetail({ candidate, onDecided, onRefresh }: {
         onCancel={() => setPending(null)}
       >
         {pending === 'confirm'
-          ? 'Your decision links the two Tracks in an Entity, attributed to you and audited. It records an operator judgement, not an identification, and cannot be undone in this version.'
+          ? 'Your decision links the two Tracks in an Entity, attributed to you and audited. It records an operator judgement, not an identification. A later correction (unlink, reopen) is recorded beside it; nothing is edited.'
           : 'Your decision is attributed to you and audited; this pair will not be proposed again.'}
       </Dialog>
-    </Panel>
-  );
-}
-
-function EntityPanel({ entityId }: { entityId: string }) {
-  const entity = useQuery({ queryKey: queryKeys.entity(entityId), queryFn: ({ signal }) => getEntity(entityId, signal) });
-  return (
-    <Panel title="Entity">
-      <StateRegion
-        kind="panel"
-        state={fromQuery(entity)}
-        label="Entity"
-        loadingLabel="Loading the Entity…"
-        unavailableMessage={(error) => operatorMessage(error, 'The Entity could not be loaded.')}
-        onRetry={() => void entity.refetch()}
-      >
-        {(data) => (
-          <div className="stack">
-            <Alert tone="info">{data.label}</Alert>
-            <p className="small">
-              {data.displayCode} · {data.entityType} · identity {data.identityStatus} · {data.members.length} Tracks, {data.confirmations.length} confirmations
-            </p>
-            <div className="row">
-              {data.members.map((track) => <TrackEvidence key={track.trackId} track={track} side="Member" />)}
-            </div>
-            <ul className="stack small" aria-label="Confirmations">
-              {data.confirmations.map((item) => (
-                <li key={item.candidateId}>
-                  {item.lower.cameraCode} ↔ {item.higher.cameraCode}: confirmed by {item.decision?.displayName} at{' '}
-                  {item.decision ? utc(item.decision.decidedAtUtc) : '—'}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </StateRegion>
     </Panel>
   );
 }
@@ -262,9 +242,14 @@ export default function EntitiesPage() {
   const active = list.data?.candidates.find((item) => item.candidateId === selected) ?? null;
 
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ['entity-candidates'] });
+    invalidateCorrections(queryClient);
     void queryClient.invalidateQueries({ queryKey: queryKeys.entityCandidateSummary });
-    void queryClient.invalidateQueries({ queryKey: ['entity'] });
+  };
+
+  const showEntity = (id: string) => {
+    const next = new URLSearchParams(params);
+    next.set('entity', id.toLowerCase());
+    setParams(next);
   };
 
   const update = (changes: Record<string, string | null>) => {
@@ -301,7 +286,14 @@ export default function EntitiesPage() {
           operator confirms. {summary.data?.catalogue.plausibilityDisclosure}
         </p>
         {message ? <p className="small" role="status">{message}</p> : null}
-        {entityId ? <EntityPanel entityId={entityId} /> : null}
+        {entityId ? (
+          <EntityView
+            key={entityId}
+            entityId={entityId}
+            renderMember={(track) => <TrackEvidence track={track} side="Member" />}
+            onShowEntity={showEntity}
+          />
+        ) : null}
         <Panel title="Camera pairs">
           <StateRegion
             kind="panel"
@@ -401,6 +393,11 @@ export default function EntitiesPage() {
               setMessage(text);
               setSelected(null);
               refresh();
+            }}
+            onMerged={(id, code) => {
+              setMessage(`Merged: ${code} is kept with the members of both Entities. The candidate can now be confirmed.`);
+              refresh();
+              showEntity(id);
             }}
           />
         ) : null}
