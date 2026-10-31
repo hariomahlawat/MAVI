@@ -6,6 +6,8 @@ not hash to it. Model bytes are never written to the repository.
 
     python tools/vision/plates_pilot_packs.py check
     python tools/vision/plates_pilot_packs.py fetch --dest <cache>/plates-pilot-payloads           (connected)
+    python tools/vision/plates_pilot_packs.py collect --source E:/MAVI-Controlled/Benchmarks/plate-candidates \
+        --dest <cache>/plates-pilot-payloads    (cache from the controlled store, when a download is refused)
     python tools/vision/plates_pilot_packs.py stage --source <cache>/plates-pilot-payloads --model-root <dir>
     python tools/vision/plates_pilot_packs.py stage --source E:/MAVI-Controlled/Benchmarks/plate-candidates \
         --controlled-store --model-root <dir>
@@ -106,6 +108,9 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("check")
     fetch_parser = commands.add_parser("fetch")
     fetch_parser.add_argument("--dest", type=Path, required=True)
+    collect_parser = commands.add_parser("collect")
+    collect_parser.add_argument("--source", type=Path, required=True)
+    collect_parser.add_argument("--dest", type=Path, required=True)
     stage_parser = commands.add_parser("stage")
     stage_parser.add_argument("--source", type=Path, required=True)
     stage_parser.add_argument("--model-root", type=Path, required=True)
@@ -116,6 +121,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{len(load())} payloads agree with their manifests")
         elif args.command == "fetch":
             fetch(args.dest)
+        elif args.command == "collect":
+            # The cache layout is the model-store layout, so collecting is staging from the controlled store.
+            for line in stage(args.source, args.dest, controlled_store=True):
+                print(line)
         else:
             for line in stage(args.source, args.model_root, controlled_store=args.controlled_store):
                 print(line)

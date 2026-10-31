@@ -16,7 +16,12 @@ param(
     # PoC S10 (ADR-026): the controlled store the language payloads were acquired into (tools\language\language_packs.py
     # acquire: llama.cpp b12000 Windows archives, the CUDA EULA notice, the Qwen2.5 1.5B/7B GGUF packs). Collected
     # SHA-256 verified against tools\language\language-payloads-v1.json; standard library only.
-    [string]$LanguagePayloadSource = "E:\MAVI-Controlled\PoC\S10\store"
+    [string]$LanguagePayloadSource = "E:\MAVI-Controlled\PoC\S10\store",
+
+    # Issue #225 plates pilot payloads: downloaded from their pinned URLs by default. Where the download is refused, the
+    # controlled candidate store (E:\MAVI-Controlled\Benchmarks\plate-candidates) holds the same bytes; they are then
+    # collected from it, SHA-256 verified against the same record (tools\vision\plates-pilot-payloads-v1.json).
+    [string]$PlatesPayloadSource
 )
 
 $ErrorActionPreference = "Stop"
@@ -107,7 +112,12 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Plates pilot runtime wheelhouse preparation failed."
     }
-    & $Python (Join-Path $repoRoot "tools\vision\plates_pilot_packs.py") fetch --dest $platesPayloadRoot
+    if ([string]::IsNullOrWhiteSpace($PlatesPayloadSource)) {
+        & $Python (Join-Path $repoRoot "tools\vision\plates_pilot_packs.py") fetch --dest $platesPayloadRoot
+    }
+    else {
+        & $Python (Join-Path $repoRoot "tools\vision\plates_pilot_packs.py") collect --source $PlatesPayloadSource --dest $platesPayloadRoot
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Plates pilot Model Pack payload preparation failed."
     }
