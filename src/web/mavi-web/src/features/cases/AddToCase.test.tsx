@@ -101,4 +101,17 @@ describe('PoC S11-full Add to case', () => {
     expect(screen.queryByRole('combobox', { name: 'Case' })).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+
+  it('moves focus into the form when opened and back to the button when closed', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<AddToCase kind="Track" subjectId={eventId} />);
+    const button = screen.getByRole('button', { name: 'Add to case' });
+    // The button is replaced by the form, so it claims no expanded state.
+    expect(button).not.toHaveAttribute('aria-expanded');
+
+    await user.click(button);
+    expect(screen.getByRole('form', { name: 'Add to case' })).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Add to case' })).toHaveFocus();
+  });
 });

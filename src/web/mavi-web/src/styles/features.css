@@ -1424,6 +1424,8 @@
 @media (max-width: 720px) { .ask-page__form { grid-template-columns: 1fr; } }
 
 /* PoC S11-full (ADR-027): Track review, cases and the audit trail. */
+/* The review panel sits in narrow side columns (Review's compact band): its messages wrap inside it, never spill. */
+.track-review, .add-to-case { min-width: 0; overflow-wrap: anywhere; }
 .track-review textarea, .add-to-case textarea, .case-items textarea, .page textarea { width: 100%; resize: vertical; font: inherit; }
 .track-review__runs, .track-review__history, .case-list, .case-items, .case-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
 .track-review__history > li, .case-notes > li { padding-bottom: var(--s-2); border-bottom: 1px solid var(--border-subtle); }

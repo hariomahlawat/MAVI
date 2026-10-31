@@ -337,6 +337,6 @@ describe('EventsPage and cases (PoC S11-full)', () => {
     const evidence = await screen.findByRole('region', { name: 'Event evidence' });
     expect(getEvent).toHaveBeenCalledWith(stopId, expect.anything());
     // Nothing operator-only is read until the operator asks.
-    expect(within(evidence).getByRole('button', { name: 'Add to case' })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(evidence).getByRole('button', { name: 'Add to case' })).toBeEnabled();
   });
 });

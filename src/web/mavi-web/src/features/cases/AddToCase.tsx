@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import {
@@ -41,6 +41,16 @@ export default function AddToCase({ kind, subjectId: rawSubjectId }: Props) {
   const formId = useId();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  // The button is replaced by the form, not expanded into it: opening moves focus into the form and closing returns it to
+  // the button, so keyboard focus is never left on a control that is gone.
+  const formRef = useRef<HTMLFormElement>(null);
+  const closedRef = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open) formRef.current?.focus();
+    else if (wasOpen.current) closedRef.current?.querySelector('button')?.focus();
+    wasOpen.current = open;
+  }, [open]);
   const [selected, setSelected] = useState('');
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
@@ -110,9 +120,9 @@ export default function AddToCase({ kind, subjectId: rawSubjectId }: Props) {
 
   if (!open) {
     return (
-      <div className="stack add-to-case">
+      <div className="stack add-to-case" ref={closedRef}>
         <div className="row">
-          <Button size="sm" icon="box" aria-expanded={false} onClick={() => { setOpen(true); setAdded(null); add.reset(); }}>
+          <Button size="sm" icon="box" onClick={() => { setOpen(true); setAdded(null); add.reset(); }}>
             Add to case
           </Button>
         </div>
@@ -126,7 +136,8 @@ export default function AddToCase({ kind, subjectId: rawSubjectId }: Props) {
   }
 
   return (
-    <form className="stack add-to-case add-to-case--open" aria-label="Add to case" id={formId} onSubmit={submit} noValidate>
+    <form className="stack add-to-case add-to-case--open" aria-label="Add to case" id={formId} onSubmit={submit} noValidate ref={formRef}
+      tabIndex={-1}>
       <p className="small muted">{CASE_STATEMENT}</p>
       {isOperatorRequired(listFailure) ? (
         <>
