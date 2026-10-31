@@ -36,7 +36,10 @@ describe('the IA map', () => {
       review: 'Search',
       faces: 'Faces',
       entities: 'Entities',
+      cases: 'Cases',
+      'case-detail': 'Cases',
       system: 'About',
+      audit: 'Audit',
       'not-found': null,
     });
   });
@@ -44,8 +47,8 @@ describe('the IA map', () => {
   it('groups the rail Operate, Investigate, then Administer, in workflow order', () => {
     expect(SECTIONS.map((section) => [section.label, section.destinations.map((entry) => entry.label)])).toEqual([
       ['Operate', ['Overview', 'Cameras', 'Videos', 'Import', 'Processing']],
-      ['Investigate', ['Search', 'Query', 'Ask', 'Faces', 'Entities']],
-      ['Administer', ['About']],
+      ['Investigate', ['Search', 'Query', 'Ask', 'Faces', 'Entities', 'Cases']],
+      ['Administer', ['About', 'Audit']],
     ]);
   });
 
@@ -54,12 +57,15 @@ describe('the IA map', () => {
     expect(new Set(keys).size).toBe(keys.length);
     for (const entry of DESTINATIONS) {
       expect(entry.key).toMatch(/^[a-z]$/);
-      // A letter of the label, the first wherever it is free (Ask takes `k`: `a` is About's).
-      expect(entry.label.toLowerCase()).toContain(entry.key);
+      // A letter of the label, the first wherever it is free (Ask takes `k`: `a` is About's;
+      // Audit `u` for the same reason). Cases is the one stated exception: every letter of
+      // "cases" is already taken (Cameras, About, Search, Entities), so it takes `x`.
+      if (entry.id === 'cases') expect(entry.key).toBe('x');
+      else expect(entry.label.toLowerCase()).toContain(entry.key);
       expect(destinationForKey(entry.key)).toBe(entry);
       expect(destinationForKey(entry.key.toUpperCase())).toBe(entry);
     }
-    expect(destinationForKey('x')).toBeNull();
+    expect(destinationForKey('z')).toBeNull();
   });
 
   it('derives every frozen §5 crumb trail', () => {
@@ -78,6 +84,9 @@ describe('the IA map', () => {
     expect(labels('system')).toEqual(['About']);
     expect(labels('faces')).toEqual(['Faces']);
     expect(labels('entities')).toEqual(['Entities']);
+    expect(labels('cases')).toEqual(['Cases']);
+    expect(labels('case-detail', 'Gate incident')).toEqual(['Cases', 'Gate incident']);
+    expect(labels('audit')).toEqual(['Audit']);
   });
 
   it('makes the root crumb the rail label, links every crumb but the last, and lets Review return to its Investigation', () => {

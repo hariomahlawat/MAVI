@@ -46,7 +46,7 @@ This page is the PoC's record of what each capability does not do. The operator 
 - **After a reprocess, an Entity cannot grow on that video.** The new member must be plausible against every existing member, including the reprocessed video's earlier-run member, which is the same object at the same time; such a confirmation is refused, not forced.
 - **Older installations.** A demo camera seeded before declared sites existed has none and cannot be updated, so it gets no candidates until the PoC is uninstalled (`Uninstall-MAVI-PoC`, which drops the database) and installed again; the seed and the demo import warn about it.
 - **Entities are shown to operators only**, on every surface including Advanced Search (structured query) and Ask MAVI.
-- **Decisions are final in this version.** Unlinking a Track, reopening a dismissed candidate and merging two Entities are deferred to S11-full. A confirmation that would put a Track in two places at once against any member of the Entity is refused.
+- **Corrections are recorded, never edits (S11-full, ADR-027 §4).** An operator can unlink a Track, reopen a dismissed candidate (or a confirmed one whose Tracks are no longer together) and merge two Entities; each is an audited decision appended to the Entity's history, and the earlier decisions stay visible. An Entity left with one or no member is kept. A merge, like a confirmation, is refused when any member of one Entity would be in two places at once with any member of the other; a merge is undone only by unlinking Tracks one by one.
 - **Reprocessing carries nothing over.** A new run of a video has new Tracks with no Entity; earlier confirmations stay with the earlier run's Tracks and are readable through the Entity.
 - **Repeated visit stays disabled.** Confirmed Entities now exist, but the entity-conditioned events rule waits for catalogue `mavi-events-v2` (ADR-023 §9).
 
@@ -130,3 +130,14 @@ This page is the PoC's record of what each capability does not do. The operator 
 - **CI does not run the model.** CI replays recorded outputs through the real prompt builder, translator and parser, and fails when the prompt, grammar or corpus changes without re-recording (`AskCorpusRecorder`). It proves the pipeline and the recorded run, not a fresh inference.
 - **A stated exception to "Python owns AI inference".** The language role is a native llama.cpp process (`llama-server`) on 127.0.0.1, outside the .NET process, holding no authority (D-S10-5, ADR-026 §3).
 - **Licences.** llama.cpp MIT; the CUDA runtime DLLs (`cudart`, `cuBLAS`) under the NVIDIA CUDA 12.4 EULA, Attachment A, retained with them; Qwen2.5 1.5B and 7B Apache-2.0. Licence review pending; the research-licensed 3B and 72B sizes are never used.
+
+## Review decisions, cases and audit (Stage 10; slice S11-full, register row C10.2)
+
+- **A review decision is about the detection, not the object.** "Confirm detection" says the Track and its class are correctly detected; "Reject" says they are not. Neither says who or which vehicle it is, and neither links Tracks (ADR-027 §1).
+- **A case is a folder, not a finding.** Items in one case are not asserted to show the same person or vehicle. Adding Tracks to a case writes no Entity and no identity.
+- **Nothing is edited.** Decisions, case notes and case items are append-only; a correction is a later recorded decision, and a removed case item stays visible with who removed it and why. The database refuses UPDATE, DELETE and TRUNCATE on these tables; like the audit table (ADR-010 §6) this guards against application defects, not against the database owner.
+- **The audit trail shows hashes, not payloads.** Each entry names the operator, how they were identified, the action, the subject and the server time; the submitted payload is kept only as its SHA-256 (ADR-010 §4). Under the `development-unattributed` fallback, actions are not attributable to a person and say so.
+- **Reprocessing starts again.** A new run's Tracks are Unreviewed and belong to no Entity or case; the Review page says how many Tracks of an earlier run were reviewed and links to them. Nothing is copied.
+- **Case references can go stale.** A case holds references, not copies; if a subject's evidence no longer exists it is shown as unavailable.
+
+- **No review-status search filter yet.** Search shows each Track's review status but cannot filter on it. Search pages keep one snapshot across their cursor, while review status changes as operators decide, so a filter on it needs a change to the search cursor contract to page consistently; it is a follow-up, not part of S11-full.

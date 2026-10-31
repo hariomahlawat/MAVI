@@ -22,6 +22,8 @@ import { buildAnalyticsEvidence } from '../video-review/analyticsEvidence';
 import { pinnedNames, pinnedRevision, useAnalyticsScene } from '../video-review/useAnalyticsScene';
 import { useTrajectory } from '../video-review/useTrajectory';
 import { reviewPath } from './TrackResultList';
+import TrackReviewPanel from '../review/TrackReviewPanel';
+import AddToCase from '../cases/AddToCase';
 
 /** The cache key half of an identity: two identities are one entry only when both parts agree. */
 export function analyticsIdentityKey(identity: TrackAnalyticsIdentity | undefined): string {
@@ -172,6 +174,16 @@ export default function TrackInspector({
                 (§37.2, F18) and sits in the disclosure at the foot. */}
             <StatusBadge status={detail.reviewStatus} />
             <TrackSummary detail={detail} displayTimeZoneId={displayTimeZoneId} />
+            {/* PoC S11-full (ADR-027 §1): the same review controls Review shows,
+                so the inspector, the list and Review agree on one persisted status. */}
+            <TrackReviewPanel
+              trackId={detail.id}
+              reviewStatus={detail.reviewStatus}
+              runCompletedAtUtc={detail.processing?.completedAtUtc}
+              displayTimeZoneId={displayTimeZoneId}
+              compact
+            />
+            <AddToCase kind="Track" subjectId={detail.id} />
             {/* Guarded rather than assumed: a detail from a server without the
                 analytics block must degrade to the Slice-3 inspector, not blank it. */}
             {detail.analytics ? (

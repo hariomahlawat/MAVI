@@ -61,6 +61,24 @@ public sealed class EntityCandidate
     public void Dismiss(EntityCandidateDecider decider, string? note, Guid auditEntryId, DateTimeOffset nowUtc) =>
         Decide(EntityCandidateStatus.Dismissed, decider, note, auditEntryId, nowUtc);
 
+    /// <summary>
+    /// Returns a decided candidate to Open (ADR-027 §4). Its decision fields are a projection of the append-only decision
+    /// history, which keeps every earlier decision; the caller checks that a confirmed pair is no longer together.
+    /// </summary>
+    public void Reopen()
+    {
+        if (Status == EntityCandidateStatus.Open)
+            throw new DomainValidationException("entity_candidate_not_decided", "The candidate is open.");
+        Status = EntityCandidateStatus.Open;
+        DecidedAtUtc = null;
+        DecidedByOperatorId = null;
+        DecidedByDisplayName = null;
+        DecidedByIdentitySource = null;
+        DecisionNote = null;
+        DecisionAuditEntryId = null;
+        EntityId = null;
+    }
+
     public static string? NormaliseNote(string? note)
     {
         var trimmed = note?.Trim();

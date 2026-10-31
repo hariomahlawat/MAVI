@@ -1,6 +1,6 @@
 # ADR-023: Entity semantics, ReID candidates and operator confirmation (PoC Stage 6)
 
-**Status:** **Accepted** owner decision, 2026-10-30. The owner ratified the decision text in §Owner decision as written ("Ratify, 0.85", relayed by the PoC coordinator session, and confirmed by the owner in the S7 session), with option (a) for the catalogue parameters (register C6.1; decisions D-S7-1 and D-S7-2), before any S7 code merged. **Amended 2026-10-30** (owner decision D-S7-3; §Amendment 2026-10-30 below): status unchanged.
+**Status:** **Accepted** owner decision, 2026-10-30. The owner ratified the decision text in §Owner decision as written ("Ratify, 0.85", relayed by the PoC coordinator session, and confirmed by the owner in the S7 session), with option (a) for the catalogue parameters (register C6.1; decisions D-S7-1 and D-S7-2), before any S7 code merged. **Amended 2026-10-30** (owner decision D-S7-3; §Amendment 2026-10-30 below): status unchanged. **Extended 2026-10-31 by ADR-027 §4** (owner decision D-S11-1): merge, unlink and reopen as audited corrections over append-only membership and candidate-decision histories; `Track.EntityId` is written only by an audited operator decision (confirm, unlink, merge).
 
 **Date:** 2026-10-30
 

@@ -40,6 +40,9 @@ public static class DependencyInjection
         services.AddMaviDbContext(configuration);
         // ADR-010: audit entries share the request's unit of work; the API host supplies the operator and correlation.
         services.AddScoped<IAuditWriter, AuditWriter>();
+        services.AddScoped<Mavi.Application.Modules.Review.ITrackReviewRepository, TrackReviewRepository>();
+        services.AddScoped<Mavi.Application.Modules.Review.ICaseRepository, CaseRepository>();
+        services.AddScoped<IAuditReader, AuditReader>();
         services.AddScoped<ICameraRepository, CameraRepository>();
         services.AddScoped<CameraService>();
         services.AddScoped<IVideoCatalog, VideoCatalog>();

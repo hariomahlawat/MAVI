@@ -21,6 +21,7 @@ public static class EntityEndpoints
     public const string DecisionInvalidCode = "entity_decision_invalid";
     public const string NotConfiguredCode = "embeddings_not_configured";
     public const string SubjectCandidate = "entity-candidate";
+    public const string SubjectEntity = "entity";
     public const int MaximumLimit = 200;
     public const int DefaultLimit = 50;
     public const int MaximumOffset = 100_000;
@@ -40,13 +41,30 @@ public static class EntityEndpoints
         candidates.MapPost("/{id:guid}/confirm", ConfirmAsync);
         candidates.MapPost("/{id:guid}/dismiss", DismissAsync);
         candidates.MapPost("/{id:guid}/face-factor", FaceFactorAsync);
-        endpoints.MapGet("/api/entities/{id:guid}", GetEntityAsync).RequireAuthorization(OperatorPolicy.Name);
+        candidates.MapPost("/{id:guid}/reopen", ReopenAsync);
+        candidates.MapGet("/{id:guid}/history", CandidateHistoryAsync);
+        var entities = endpoints.MapGroup("/api/entities").RequireAuthorization(OperatorPolicy.Name);
+        entities.MapGet("/{id:guid}", GetEntityAsync);
+        entities.MapPost("/{id:guid}/merge", MergeAsync);
+        entities.MapPost("/{id:guid}/unlink", UnlinkAsync);
         return endpoints;
     }
 
     // --- Requests and responses ------------------------------------------------------------------
 
     public sealed record DecisionRequest(string? Note);
+
+    public sealed record MergeRequest(Guid? IntoEntityId, string? Note);
+
+    public sealed record UnlinkRequest(Guid? TrackId, string? Note);
+
+    public sealed record MembershipChangeResponse(long Sequence, Guid TrackId, Guid EntityId, string Change, string Cause, Guid? CandidateId,
+        string? Note, string OperatorId, string OperatorDisplayName, string IdentitySource, DateTimeOffset AtUtc, Guid AuditEntryId);
+
+    public sealed record CandidateDecisionResponse(long Sequence, string Decision, Guid? EntityId, string? Note, string OperatorId,
+        string OperatorDisplayName, string IdentitySource, DateTimeOffset AtUtc, Guid AuditEntryId);
+
+    public sealed record CandidateHistoryResponse(Guid CandidateId, IReadOnlyList<CandidateDecisionResponse> Decisions);
 
     public sealed record FaceFactorRequest;
 
@@ -99,7 +117,9 @@ public static class EntityEndpoints
         FaceSideResponse Lower, FaceSideResponse Higher, FacePairResponse? Pair, string Note);
 
     public sealed record EntityResponse(string Label, Guid EntityId, string DisplayCode, string EntityType, string IdentityStatus,
-        DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, IReadOnlyList<TrackResponse> Members, IReadOnlyList<CandidateResponse> Confirmations);
+        DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, IReadOnlyList<TrackResponse> Members, IReadOnlyList<CandidateResponse> Confirmations,
+        string State, Guid? MergedIntoEntityId, IReadOnlyList<MembershipChangeResponse> History, IReadOnlyList<Guid> MergedFromEntityIds,
+        IReadOnlyList<Guid> RelatedCandidateIds);
 
     // --- Reads -----------------------------------------------------------------------------------
 
@@ -147,11 +167,105 @@ public static class EntityEndpoints
         if (http.Query.Count > 0) return Problem(400, InvalidCode, "This endpoint takes no query parameters.");
         var entity = await repository.GetEntityAsync(id, cancellationToken);
         if (entity is null) return Problem(404, "entity_not_found", "The Entity does not exist.");
-        var catalogue = EntityCandidateCatalogue.Current;
-        return Results.Ok(new EntityResponse(EntityCandidateLabels.Entity, entity.EntityId, entity.DisplayCode, entity.EntityType.ToString(),
-            nameof(IdentityStatus.Unknown), entity.CreatedAtUtc, entity.UpdatedAtUtc, entity.Members.Select(Track).ToList(),
-            entity.Confirmations.Select(item => Candidate(item, catalogue, false)).ToList()));
+        return Results.Ok(EntityBody(entity));
     }
+
+    private static EntityResponse EntityBody(EntityView entity)
+    {
+        var catalogue = EntityCandidateCatalogue.Current;
+        return new EntityResponse(EntityCandidateLabels.Entity, entity.EntityId, entity.DisplayCode, entity.EntityType.ToString(),
+            nameof(IdentityStatus.Unknown), entity.CreatedAtUtc, entity.UpdatedAtUtc, entity.Members.Select(Track).ToList(),
+            entity.Confirmations.Select(item => Candidate(item, catalogue, false)).ToList(), entity.State.ToString(), entity.MergedIntoEntityId,
+            (entity.History ?? []).Select(change => new MembershipChangeResponse(change.Sequence, change.TrackId, change.EntityId,
+                change.Change.ToString(), change.Cause.ToString(), change.CandidateId, change.Note, change.OperatorId, change.OperatorDisplayName,
+                change.IdentitySource, change.AtUtc, change.AuditEntryId)).ToList(), entity.MergedFromEntityIds ?? [],
+            entity.RelatedCandidateIds ?? []);
+    }
+
+    private static async Task<IResult> CandidateHistoryAsync(Guid id, HttpRequest http, IEntityCandidateRepository repository,
+        CancellationToken cancellationToken)
+    {
+        if (http.Query.Count > 0) return Problem(400, InvalidCode, "This endpoint takes no query parameters.");
+        var history = await repository.GetCandidateHistoryAsync(id, cancellationToken);
+        if (history is null) return Problem(404, EntityCandidateFaceFactorService.NotFoundCode, "The candidate does not exist.");
+        return Results.Ok(new CandidateHistoryResponse(id, history.Select(item => new CandidateDecisionResponse(item.Sequence,
+            item.Decision.ToString(), item.EntityId, item.Note, item.OperatorId, item.OperatorDisplayName, item.IdentitySource, item.AtUtc,
+            item.AuditEntryId)).ToList()));
+    }
+
+    // --- Corrections (ADR-027 §4) ----------------------------------------------------------------
+
+    private static async Task<IResult> ReopenAsync(Guid id, DecisionRequest request, IEntityCandidateRepository repository, IAuditWriter audit,
+        ICurrentOperator currentOperator, IEmbeddingRelease release, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        if (!ValidNote(request)) return Problem(400, DecisionInvalidCode, "The note is at most 500 characters.");
+        if (release.Resolution.Definition is not { } definition) return Problem(409, NotConfiguredCode, "No embedding identity is configured.");
+        var note = EntityCandidate.NormaliseNote(request.Note);
+        var record = new AuditRecord("entities.candidate-reopened", SubjectCandidate, id.ToString("D"), new { candidateId = id, decision = "reopen", note });
+        var result = await repository.ReopenAsync(id, note, Decider(currentOperator), token => audit.AppendInTransactionAsync(record, token),
+            EntityCandidateCatalogue.Current, definition.Identity.Fingerprint, timeProvider.GetUtcNow(), cancellationToken);
+        return result.RefusalCode switch
+        {
+            EntityCorrectionRules.CandidateNotDecided => Problem(409, result.RefusalCode, "The candidate is open; there is nothing to reopen."),
+            EntityCorrectionRules.CandidateStillLinked => Results.Json(new
+            {
+                type = "about:blank",
+                title = "Conflict",
+                status = 409,
+                code = result.RefusalCode,
+                detail = "Both Tracks are still in one Entity; unlink one of them first.",
+                entityId = result.EntityId,
+            }, statusCode: 409, contentType: "application/problem+json"),
+            _ => Decided(result, EntityCandidateCatalogue.Current),
+        };
+    }
+
+    private static async Task<IResult> MergeAsync(Guid id, MergeRequest request, IEntityCandidateRepository repository, IAuditWriter audit,
+        ICurrentOperator currentOperator, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        if (request.IntoEntityId is not { } into || into == Guid.Empty || !ValidNote(new DecisionRequest(request.Note)))
+            return Problem(400, DecisionInvalidCode, "intoEntityId is required and the note is at most 500 characters.");
+        var note = EntityCandidate.NormaliseNote(request.Note);
+        var record = new AuditRecord("entities.merged", SubjectEntity, id.ToString("D"), new { entityId = id, intoEntityId = into, note });
+        var result = await repository.MergeAsync(id, into, note, Decider(currentOperator), token => audit.AppendInTransactionAsync(record, token),
+            EntityCandidateCatalogue.Current, timeProvider.GetUtcNow(), cancellationToken);
+        return Corrected(result);
+    }
+
+    private static async Task<IResult> UnlinkAsync(Guid id, UnlinkRequest request, IEntityCandidateRepository repository, IAuditWriter audit,
+        ICurrentOperator currentOperator, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        if (request.TrackId is not { } trackId || trackId == Guid.Empty || !ValidNote(new DecisionRequest(request.Note)))
+            return Problem(400, DecisionInvalidCode, "trackId is required and the note is at most 500 characters.");
+        var note = EntityCandidate.NormaliseNote(request.Note);
+        var record = new AuditRecord("entities.track-unlinked", SubjectEntity, id.ToString("D"), new { entityId = id, trackId, note });
+        var result = await repository.UnlinkAsync(id, trackId, note, Decider(currentOperator), token => audit.AppendInTransactionAsync(record, token),
+            timeProvider.GetUtcNow(), cancellationToken);
+        return Corrected(result);
+    }
+
+    private static IResult Corrected(EntityCorrectionResult result) => result.RefusalCode switch
+    {
+        null => Results.Ok(EntityBody(result.Entity!)),
+        EntityCorrectionRules.EntityNotFound => Problem(404, result.RefusalCode, "The Entity does not exist."),
+        EntityCorrectionRules.EntityNotActive => Problem(409, result.RefusalCode, "The Entity was merged into another and no longer changes."),
+        EntityCorrectionRules.MergeInvalid => Problem(409, result.RefusalCode, "Only two different active Entities of one type can be merged."),
+        EntityCorrectionRules.MergeSourceEmpty => Problem(409, result.RefusalCode,
+            "The Entity to merge has no members; it is kept as the record of its decisions and there is nothing to move."),
+        EntityCorrectionRules.TrackNotMember => Problem(409, result.RefusalCode, "The Track is not a member of this Entity."),
+        EntityCorrectionRules.ChangedConcurrently => Problem(409, result.RefusalCode, "The Entities changed while merging; read them again."),
+        EntityCorrectionRules.MergeImplausible => Results.Json(new
+        {
+            type = "about:blank",
+            title = "Conflict",
+            status = 409,
+            code = result.RefusalCode,
+            detail = "A member of one Entity cannot be the same object as a member of the other (time and camera).",
+            conflictingTrackId = result.ConflictingTrackId,
+            otherConflictingTrackId = result.OtherConflictingTrackId,
+        }, statusCode: 409, contentType: "application/problem+json"),
+        _ => Problem(409, result.RefusalCode, "The correction was refused."),
+    };
 
     // --- Decisions -------------------------------------------------------------------------------
 
@@ -252,7 +366,7 @@ public static class EntityEndpoints
             EntityConfirmationRules.Superseded => Problem(409, result.RefusalCode,
                 "The candidate belongs to an earlier catalogue version or embedding identity; only current candidates are decided."),
             EntityConfirmationRules.MergeUnsupported => Problem(409, result.RefusalCode,
-                "The two Tracks belong to different Entities; merging Entities is not supported in this slice."),
+                "The two Tracks belong to different Entities; merge the Entities explicitly (POST /api/entities/{id}/merge)."),
             _ => Problem(409, result.RefusalCode, "A Track of the candidate is no longer in the latest run of its video."),
         };
     }
