@@ -17,9 +17,12 @@ import { OperatorRequiredNotice, isOperatorRequired, operatorMessage, retryOnce,
 
 const PAGE_SIZE = 50;
 const SUBJECT_PATTERN = /^[^:\s]+:[^\s]+$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function readAuditFilter(params: URLSearchParams): AuditFilter {
+  const entityId = params.get('entityId');
   return {
+    entityId: entityId && UUID_PATTERN.test(entityId) ? entityId.toLowerCase() : undefined,
     subjects: params.getAll('subject').filter((subject) => SUBJECT_PATTERN.test(subject)).slice(0, AUDIT_MAXIMUM_SUBJECTS),
     action: params.get('action') ?? undefined,
     operatorId: params.get('operatorId') ?? undefined,
@@ -28,7 +31,8 @@ export function readAuditFilter(params: URLSearchParams): AuditFilter {
 
 function writeAuditFilter(filter: AuditFilter): URLSearchParams {
   const params = new URLSearchParams();
-  for (const subject of filter.subjects) params.append('subject', subject);
+  if (filter.entityId) params.set('entityId', filter.entityId);
+  else for (const subject of filter.subjects) params.append('subject', subject);
   if (filter.action?.trim()) params.set('action', filter.action.trim());
   if (filter.operatorId?.trim()) params.set('operatorId', filter.operatorId.trim());
   return params;
@@ -66,13 +70,26 @@ function FilterForm({ filter, onApply }: { filter: AuditFilter; onApply: (filter
       if (!SUBJECT_PATTERN.test(added)) { setSubjectError('A subject is type:id, for example track:… or case:….'); return; }
       if (subjects.length >= AUDIT_MAXIMUM_SUBJECTS) { setSubjectError(`At most ${AUDIT_MAXIMUM_SUBJECTS} subjects.`); return; }
       if (!subjects.includes(added)) subjects.push(added);
+      // Subjects and an Entity scope are exclusive on the server: naming a subject replaces the scope.
+      setSubjectError(null);
+      setSubject('');
+      onApply({ subjects, action, operatorId });
+      return;
     }
     setSubjectError(null);
-    setSubject('');
-    onApply({ subjects, action, operatorId });
+    onApply({ subjects, action, operatorId, entityId: filter.entityId });
   };
   return (
     <form className="stack" aria-label="Audit filters" onSubmit={submit} noValidate>
+      {filter.entityId ? (
+        <div className="row audit-subjects">
+          <span className="small">
+            Entity <code>{filter.entityId}</code>: the Entity, every Entity merged into it and every candidate ever linked to them,
+            resolved by the server.
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => onApply({ ...filter, entityId: undefined })}>Remove Entity scope</Button>
+        </div>
+      ) : null}
       {filter.subjects.length > 0 ? (
         <ul className="row audit-subjects" aria-label="Subjects">
           {filter.subjects.map((item) => (

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Mavi.Api.Identity;
 using Mavi.Application.Modules.Audit;
+using Mavi.Application.Modules.Entities;
 using Mavi.Application.Modules.Review;
 using Mavi.Domain.Common;
 using Mavi.Domain.Review;
@@ -158,7 +159,9 @@ public static class CaseEndpoints
 
 /// <summary>
 /// The audit read surface (PoC S11-full; ADR-027 §3): read-only, operator-only, newest first. Filters by subject
-/// (<c>subject=type:id</c>, repeatable up to 50), <c>action</c> and <c>operatorId</c>.
+/// (<c>subject=type:id</c>, repeatable up to 50) or by an Entity's whole scope (<c>entityId</c>: the Entity, every Entity merged
+/// into it and every candidate ever linked to them, resolved on the server from the append-only histories, with no count limit),
+/// and by <c>action</c> and <c>operatorId</c>.
 /// </summary>
 public static class AuditEndpoints
 {
@@ -177,18 +180,24 @@ public static class AuditEndpoints
     public sealed record EntryResponse(Guid EntryId, string OperatorId, string OperatorDisplayName, string IdentitySource, string Action,
         string SubjectType, string SubjectId, DateTimeOffset RecordedAtUtc, string PayloadSha256, string CorrelationId);
 
-    public sealed record PageResponse(string Statement, IReadOnlyList<EntryResponse> Items, string? NextCursor);
+    /// <summary>The Entity scope a page was read for: how many Entities and candidates it covers.</summary>
+    public sealed record EntityScopeResponse(Guid EntityId, int EntityCount, int CandidateCount);
+
+    public sealed record PageResponse(string Statement, IReadOnlyList<EntryResponse> Items, string? NextCursor, EntityScopeResponse? EntityScope);
 
     public const string Statement =
         "Append-only audit of operator actions. Each entry records who acted (and how they were identified), what, on which subject " +
         "and when by the server's clock; the submitted payload is not stored, only its SHA-256.";
 
-    private static async Task<IResult> ReadAsync(HttpRequest http, IAuditReader reader, CancellationToken cancellationToken)
+    private static async Task<IResult> ReadAsync(HttpRequest http, IAuditReader reader, IEntityCandidateRepository entities,
+        CancellationToken cancellationToken)
     {
         var query = http.Query;
-        if (query.Keys.Any(key => key is not ("subject" or "action" or "operatorId" or "cursor" or "limit")) ||
+        if (query.Keys.Any(key => key is not ("subject" or "entityId" or "action" or "operatorId" or "cursor" or "limit")) ||
             query.Any(pair => pair.Key != "subject" && pair.Value.Count != 1))
             return Problem(400, "Unknown or repeated query key.");
+        if (query.ContainsKey("entityId") && query.ContainsKey("subject"))
+            return Problem(400, "entityId and subject do not go together: an Entity's scope is resolved on the server.");
         var subjects = new List<(string, string)>();
         foreach (var value in query["subject"])
         {
@@ -209,12 +218,27 @@ public static class AuditEndpoints
             before = parsed;
         }
 
-        var page = await reader.ReadAsync(new AuditQuery(subjects, Optional(query, "action"), Optional(query, "operatorId"), before, limit),
+        List<AuditSubjectSet>? sets = null;
+        EntityScopeResponse? scope = null;
+        if (query.ContainsKey("entityId"))
+        {
+            if (!Guid.TryParseExact(query["entityId"], "D", out var entityId)) return Problem(400, "entityId is a UUID.");
+            var resolved = await entities.GetAuditScopeAsync(entityId, cancellationToken);
+            if (resolved is null) return FaceEndpoints.Problem(404, "entity_not_found", "The Entity does not exist.");
+            sets =
+            [
+                new AuditSubjectSet(EntityEndpoints.SubjectEntity, resolved.EntityIds.Select(id => id.ToString("D")).ToList()),
+                new AuditSubjectSet(EntityEndpoints.SubjectCandidate, resolved.CandidateIds.Select(id => id.ToString("D")).ToList()),
+            ];
+            scope = new EntityScopeResponse(entityId, resolved.EntityIds.Count, resolved.CandidateIds.Count);
+        }
+
+        var page = await reader.ReadAsync(new AuditQuery(subjects, Optional(query, "action"), Optional(query, "operatorId"), before, limit, sets),
             cancellationToken);
         return Results.Ok(new PageResponse(Statement,
             page.Items.Select(entry => new EntryResponse(entry.EntryId, entry.OperatorId, entry.OperatorDisplayName, entry.IdentitySource,
                 entry.Action, entry.SubjectType, entry.SubjectId, entry.RecordedAtUtc, entry.PayloadSha256, entry.CorrelationId)).ToList(),
-            page.Next is { } next ? FormatCursor(next) : null));
+            page.Next is { } next ? FormatCursor(next) : null, scope));
     }
 
     private static string? Optional(IQueryCollection query, string key) =>

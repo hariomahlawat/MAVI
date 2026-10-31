@@ -25,11 +25,19 @@ export type AuditEntry = {
   correlationId: string;
 };
 
-export type AuditPage = { statement: string; items: AuditEntry[]; nextCursor: string | null };
+/** The Entity scope a page was read for (ADR-027): resolved by the server, with no subject limit. */
+export type AuditEntityScope = { entityId: string; entityCount: number; candidateCount: number };
+
+export type AuditPage = { statement: string; items: AuditEntry[]; nextCursor: string | null; entityScope: AuditEntityScope | null };
 
 export type AuditFilter = {
   /** `type:id`, e.g. `track:<id>` or `case:<id>`. */
   subjects: string[];
+  /**
+   * An Entity's whole audit scope, resolved by the server from the append-only histories: the Entity, every Entity merged into
+   * it and every candidate ever linked to them. Exclusive with `subjects`.
+   */
+  entityId?: string;
   action?: string;
   operatorId?: string;
 };
@@ -58,13 +66,18 @@ export function narrowAuditPage(value: unknown): AuditPage {
     statement: str(value.statement) ? value.statement : '',
     items: value.items.map(narrowEntry),
     nextCursor: str(value.nextCursor) && value.nextCursor ? value.nextCursor : null,
+    entityScope: isRecord(value.entityScope) && str(value.entityScope.entityId) && typeof value.entityScope.entityCount === 'number'
+      && typeof value.entityScope.candidateCount === 'number'
+      ? { entityId: value.entityScope.entityId, entityCount: value.entityScope.entityCount, candidateCount: value.entityScope.candidateCount }
+      : null,
   };
 }
 
 /** The query string the platform reads; repeated `subject`, in the order given. */
 export function auditQueryString(filter: AuditFilter, cursor?: string | null, limit = 50): string {
   const params = new URLSearchParams();
-  for (const subject of filter.subjects) params.append('subject', subject);
+  if (filter.entityId) params.set('entityId', filter.entityId);
+  else for (const subject of filter.subjects) params.append('subject', subject);
   if (filter.action?.trim()) params.set('action', filter.action.trim());
   if (filter.operatorId?.trim()) params.set('operatorId', filter.operatorId.trim());
   params.set('limit', String(limit));
@@ -81,6 +94,11 @@ export function auditPath(...subjects: string[]): string {
   const params = new URLSearchParams();
   for (const subject of subjects) params.append('subject', subject);
   return '/audit' + (subjects.length > 0 ? '?' + params.toString() : '');
+}
+
+/** The Audit page for an Entity's whole trail: the server resolves its scope, so the link names only the Entity. */
+export function entityAuditPath(entityId: string): string {
+  return '/audit?' + new URLSearchParams({ entityId: entityId.toLowerCase() }).toString();
 }
 
 export function isUnattributed(identitySource: string): boolean {

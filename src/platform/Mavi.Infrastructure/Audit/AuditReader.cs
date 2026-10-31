@@ -13,10 +13,11 @@ public sealed class AuditReader(MaviDbContext db) : IAuditReader
     {
         ArgumentNullException.ThrowIfNull(query);
         var entries = db.AuditEntries.AsNoTracking();
-        if (query.Subjects.Count > 0)
+        if (query.Subjects.Count > 0 || query.SubjectSets is { Count: > 0 })
         {
-            // OR over the subjects, each an equality pair the (subject_type, subject_id, recorded_at_utc) index serves.
-            entries = entries.Where(AnySubject(query.Subjects));
+            // OR over the subjects (equality pairs) and the subject sets (a type and an id array, one parameter each): both are
+            // served by the (subject_type, subject_id, recorded_at_utc) index, and a set has no count limit.
+            entries = entries.Where(AnySubject(query.Subjects, query.SubjectSets ?? []));
         }
 
         if (query.Action is { } action) entries = entries.Where(entry => entry.Action == action);
@@ -32,10 +33,23 @@ public sealed class AuditReader(MaviDbContext db) : IAuditReader
         return new AuditPage(items, rows.Count > query.Limit ? (items[^1].RecordedAtUtc, items[^1].EntryId) : null);
     }
 
-    private static Expression<Func<AuditEntry, bool>> AnySubject(IReadOnlyList<(string Type, string Id)> subjects)
+    private static Expression<Func<AuditEntry, bool>> AnySubject(IReadOnlyList<(string Type, string Id)> subjects,
+        IReadOnlyList<AuditSubjectSet> sets)
     {
         var entry = Expression.Parameter(typeof(AuditEntry), "entry");
         Expression? any = null;
+        foreach (var set in sets)
+        {
+            if (set.Ids.Count == 0) continue;
+            var ids = set.Ids.ToList();
+            Expression<Func<List<string>>> holder = () => ids;
+            var member = Expression.AndAlso(
+                Expression.Equal(Expression.Property(entry, nameof(AuditEntry.SubjectType)), Captured(set.Type)),
+                Expression.Call(holder.Body, typeof(List<string>).GetMethod(nameof(List<string>.Contains))!,
+                    Expression.Property(entry, nameof(AuditEntry.SubjectId))));
+            any = any is null ? member : Expression.OrElse(any, member);
+        }
+
         foreach (var (type, id) in subjects)
         {
             // Each pair is a captured value, so it is sent as a parameter, never spliced into SQL.
@@ -45,7 +59,8 @@ public sealed class AuditReader(MaviDbContext db) : IAuditReader
             any = any is null ? pair : Expression.OrElse(any, pair);
         }
 
-        return Expression.Lambda<Func<AuditEntry, bool>>(any ?? Expression.Constant(true), entry);
+        // A scope that resolved to nothing matches nothing (never everything).
+        return Expression.Lambda<Func<AuditEntry, bool>>(any ?? Expression.Constant(false), entry);
     }
 
     private static Expression Captured(string value)

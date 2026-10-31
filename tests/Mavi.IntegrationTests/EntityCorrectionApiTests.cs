@@ -139,6 +139,11 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
             .Select(x => x.GetGuid()).ToList();
         Assert.Equal([linked], related);
         Assert.Empty((await host.GetJsonAsync($"/api/entities/{entity}")).GetProperty("confirmations").EnumerateArray());
+        // The Entity's audit scope is resolved on the server: its confirmations, reopens and unlinks are all in it.
+        var trail = await AuditTrailAsync(host, entity, 50);
+        Assert.Equal(2, trail.Count(x => x.Action == "entities.candidate-confirmed" && x.Subject == $"entity-candidate:{linked}"));
+        Assert.Equal(2, trail.Count(x => x.Action == "entities.candidate-reopened" && x.Subject == $"entity-candidate:{linked}"));
+        Assert.Equal(2, trail.Count(x => x.Action == "entities.track-unlinked" && x.Subject == $"entity:{entity}"));
 
         // A dismissal can be reopened too.
         using (var dismissed = await host.DecideAsync(open, "dismiss")) Assert.Equal(HttpStatusCode.OK, dismissed.StatusCode);
@@ -190,6 +195,55 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
         }
 
         await AssertProjectionInvariantAsync(host);
+    }
+
+    [Fact]
+    public async Task AnEntitysAuditScopeHasNoSubjectLimitAndPagesOnTheServer()
+    {
+        var world = await SeedAsync();
+        await using var host = world.Host;
+        var entity = await ConfirmAsync(world, world.A0, world.B0);
+        var confirmedCandidate = world.Candidate(world.A0, world.B0);
+
+        // Sixty more candidates confirmed into the Entity (each under its own catalogue version, so the pair is unique), each
+        // with its decision row and its audit entry: far beyond the 50 subjects a client-side list could name.
+        var seeded = new List<Guid>();
+        await using (var db = host.World.Read())
+        {
+            var derivation = await db.EntityCandidateDerivations.FirstAsync();
+            var decider = new EntityCandidateDecider("S-1-5-21-7", @"HOST\op", "windows-negotiate");
+            for (var i = 0; i < 60; i++)
+            {
+                var at = T0.AddMinutes(10 + i);
+                var auditId = Guid.CreateVersion7(at);
+                var candidate = EntityCandidate.Create(derivation.Id, $"scope-test-{i}", host.Fingerprint, world.A0, world.B0, ObjectClass.Person,
+                    0.9, false, 30_000, at);
+                candidate.Confirm(entity, decider, null, auditId, at);
+                db.EntityCandidates.Add(candidate);
+                db.AuditEntries.Add(Mavi.Domain.Audit.AuditEntry.Create(auditId, decider.OperatorId, decider.DisplayName, decider.IdentitySource,
+                    "entities.candidate-confirmed", "entity-candidate", candidate.Id.ToString("D"), at, new string('a', 64), "scope-test"));
+                db.EntityCandidateDecisions.Add(EntityCandidateDecisionRecord.Record(candidate.Id, EntityCandidateDecisionKind.Confirmed, entity, null,
+                    new EntityDecisionActor(decider.OperatorId, decider.DisplayName, decider.IdentitySource, at, auditId)));
+                seeded.Add(candidate.Id);
+            }
+
+            await db.SaveChangesAsync();
+        }
+
+        var trail = await AuditTrailAsync(host, entity, 25);
+
+        var subjects = trail.Select(x => x.Subject).ToHashSet();
+        Assert.All(seeded, id => Assert.Contains($"entity-candidate:{id}", subjects));
+        Assert.Contains($"entity-candidate:{confirmedCandidate}", subjects);
+        Assert.Equal(61, trail.Count);
+        Assert.Equal(trail.Count, trail.Select(x => x.Id).Distinct().Count());
+        var scope = await host.GetJsonAsync($"/api/audit?entityId={entity}&limit=1");
+        Assert.Equal(61, scope.GetProperty("entityScope").GetProperty("candidateCount").GetInt32());
+
+        using (var both = await host.Client.GetAsync($"/api/audit?entityId={entity}&subject=track:{world.A0}"))
+            Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);
+        using (var unknown = await host.Client.GetAsync($"/api/audit?entityId={Guid.CreateVersion7()}"))
+            Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
     }
 
     [Fact]
@@ -408,6 +462,22 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
         Assert.Equal(confirmed ? "confirmed" : "open", status);
         Assert.Equal(confirmed ? entity : null, (await host.EntityIdsAsync(world.B0))[world.B0]);
         await AssertProjectionInvariantAsync(host);
+    }
+
+    /// <summary>Every entry of an Entity's audit scope, newest first, following the server's cursor page by page.</summary>
+    private static async Task<List<(Guid Id, string Action, string Subject)>> AuditTrailAsync(EntityApiHost host, Guid entityId, int limit)
+    {
+        var all = new List<(Guid, string, string)>();
+        string? cursor = null;
+        do
+        {
+            var page = await host.GetJsonAsync($"/api/audit?entityId={entityId}&limit={limit}" + (cursor is null ? "" : $"&cursor={cursor}"));
+            all.AddRange(page.GetProperty("items").EnumerateArray().Select(item => (item.GetProperty("entryId").GetGuid(),
+                item.GetProperty("action").GetString()!, item.GetProperty("subjectType").GetString() + ":" + item.GetProperty("subjectId").GetString())));
+            cursor = page.GetProperty("nextCursor").GetString();
+        }
+        while (cursor is not null);
+        return all;
     }
 
     /// <summary>

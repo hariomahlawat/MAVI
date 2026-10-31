@@ -120,10 +120,8 @@ describe('PoC S11-full Entity corrections', () => {
 
     expect(await screen.findByText('P-0001')).toBeInTheDocument();
     expect(screen.getByText(ENTITY_LABEL)).toBeInTheDocument();
-    // The merge that brought members in is recorded under the merged Entity's id, and every candidate ever linked keeps its
-    // decisions in the trail, so all of them are subjects.
-    expect(screen.getByRole('link', { name: 'Audit trail' })).toHaveAttribute('href',
-      `/audit?subject=entity%3A${E1}&subject=entity%3A${E2}&subject=entity-candidate%3Acand-0&subject=entity-candidate%3Acand-1`);
+    // The server resolves the Entity's whole scope (merged Entities, every candidate ever linked): the link names only the Entity.
+    expect(screen.getByRole('link', { name: 'Audit trail' })).toHaveAttribute('href', `/audit?entityId=${E1.toLowerCase()}`);
     await user.click(screen.getByText('Membership history'));
     const history = screen.getByRole('list', { name: 'Membership history' });
     const rows = within(history).getAllByRole('listitem');

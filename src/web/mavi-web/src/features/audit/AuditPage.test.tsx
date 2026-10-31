@@ -33,6 +33,25 @@ describe('PoC S11-full audit trail', () => {
     vi.mocked(readAudit).mockReset();
   });
 
+  it('reads an Entity scope from the URL, asks the server for it alone, and pages it with the server cursor', async () => {
+    const user = userEvent.setup();
+    const entityId = '018f3f5a-2f70-7a2b-8a12-2d02f4c214e1';
+    vi.mocked(readAudit)
+      .mockResolvedValueOnce({ statement, items: [entry({ entryId: 'e2', subjectType: 'entity', subjectId: entityId, action: 'entities.merged' })],
+        nextCursor: 'c1', entityScope: { entityId, entityCount: 2, candidateCount: 61 } })
+      .mockResolvedValueOnce({ statement, items: [entry({ entryId: 'e1', subjectType: 'entity-candidate', subjectId: 'cand-0', action: 'entities.candidate-reopened' })],
+        nextCursor: null, entityScope: { entityId, entityCount: 2, candidateCount: 61 } });
+    renderWithApp(<AuditPage />, { route: `/audit?entityId=${entityId.toUpperCase()}` });
+
+    expect(await screen.findByText('entities.merged')).toBeInTheDocument();
+    expect(vi.mocked(readAudit).mock.calls[0][0]).toEqual(expect.objectContaining({ entityId, subjects: [] }));
+    expect(screen.getByText(/every candidate ever linked to them, resolved by the server/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Load more/ }));
+    expect(await screen.findByText('entities.candidate-reopened')).toBeInTheDocument();
+    expect(vi.mocked(readAudit).mock.calls[1][1]).toBe('c1');
+    expect(vi.mocked(readAudit).mock.calls[1][0]).toEqual(expect.objectContaining({ entityId }));
+  });
+
   it('reads the subjects in the URL, newest first, and labels the unattributed fallback', async () => {
     vi.mocked(readAudit).mockResolvedValueOnce({
       statement,
@@ -41,7 +60,7 @@ describe('PoC S11-full audit trail', () => {
           operatorDisplayName: 'development-unattributed', identitySource: 'development-unattributed', correlationId: 'corr-2' }),
         entry({ entryId: 'e1' }),
       ],
-      nextCursor: null,
+      nextCursor: null, entityScope: null,
     });
     renderWithApp(<AuditPage />, { route: `/audit?subject=track%3A${trackId}&subject=case%3A${caseId}&action=x` });
 
@@ -68,8 +87,8 @@ describe('PoC S11-full audit trail', () => {
   it('pages with the cursor the server returned', async () => {
     const user = userEvent.setup();
     vi.mocked(readAudit)
-      .mockResolvedValueOnce({ statement, items: [entry({ entryId: 'e2' })], nextCursor: '638000000000000000.abc' })
-      .mockResolvedValueOnce({ statement, items: [entry({ entryId: 'e1', correlationId: 'corr-older' })], nextCursor: null });
+      .mockResolvedValueOnce({ statement, items: [entry({ entryId: 'e2' })], nextCursor: '638000000000000000.abc', entityScope: null, })
+      .mockResolvedValueOnce({ statement, items: [entry({ entryId: 'e1', correlationId: 'corr-older' })], nextCursor: null, entityScope: null, });
     renderWithApp(<AuditPage />, { route: '/audit' });
 
     await user.click(await screen.findByRole('button', { name: 'Load more' }));
@@ -81,7 +100,7 @@ describe('PoC S11-full audit trail', () => {
 
   it('applies an action filter through the URL', async () => {
     const user = userEvent.setup();
-    vi.mocked(readAudit).mockResolvedValue({ statement, items: [], nextCursor: null });
+    vi.mocked(readAudit).mockResolvedValue({ statement, items: [], nextCursor: null, entityScope: null, });
     renderWithApp(<AuditPage />, { route: '/audit' });
     expect(await screen.findByText('No audit entries')).toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: /Action/ }), 'cases.note-added');

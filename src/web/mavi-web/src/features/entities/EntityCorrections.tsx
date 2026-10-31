@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { auditPath, AUDIT_MAXIMUM_SUBJECTS } from '../../api/audit';
+import { entityAuditPath } from '../../api/audit';
 import { ApiError, problemText } from '../../api/client';
 import {
   ENTITY_NOTE_MAXIMUM,
@@ -289,10 +289,6 @@ export function EntityView({ entityId, renderMember, onShowEntity }: {
       >
         {(data) => {
           const active = data.state === 'Active';
-          // The merges that brought members in are recorded under the merged Entities' ids (ADR-027 §4), so they are subjects too.
-          const subjects = [`entity:${data.entityId.toLowerCase()}`,
-            ...data.mergedFromEntityIds.map((id) => `entity:${id.toLowerCase()}`),
-            ...data.relatedCandidateIds.map((id) => `entity-candidate:${id.toLowerCase()}`)].slice(0, AUDIT_MAXIMUM_SUBJECTS);
           const tracks = [...data.members, ...data.confirmations.flatMap((item) => [item.lower, item.higher])];
           return (
             <div className="stack">
@@ -339,7 +335,7 @@ export function EntityView({ entityId, renderMember, onShowEntity }: {
                 </div>
               </details>
               <div className="row">
-                <Link className="btn btn--sm btn--ghost" to={auditPath(...subjects)}>Audit trail</Link>
+                <Link className="btn btn--sm btn--ghost" to={entityAuditPath(data.entityId)}>Audit trail</Link>
               </div>
               <AddToCase key={data.entityId} kind="Entity" subjectId={data.entityId} />
             </div>

@@ -63,7 +63,10 @@ public sealed record AuditEntryView(Guid EntryId, string OperatorId, string Oper
 
 /// <summary>Filters of the audit read surface; every given filter must hold, and an entry matches any of the subjects.</summary>
 public sealed record AuditQuery(IReadOnlyList<(string Type, string Id)> Subjects, string? Action, string? OperatorId,
-    (DateTimeOffset RecordedAtUtc, Guid EntryId)? Before, int Limit);
+    (DateTimeOffset RecordedAtUtc, Guid EntryId)? Before, int Limit, IReadOnlyList<AuditSubjectSet>? SubjectSets = null);
+
+/// <summary>Every subject of one type among <paramref name="Ids"/>: a scope resolved on the server, with no count limit.</summary>
+public sealed record AuditSubjectSet(string Type, IReadOnlyList<string> Ids);
 
 public sealed record AuditPage(IReadOnlyList<AuditEntryView> Items, (DateTimeOffset RecordedAtUtc, Guid EntryId)? Next);
 

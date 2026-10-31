@@ -159,6 +159,13 @@ public sealed partial class EntityCandidateRepository
         }
     }
 
+    public async Task<EntityAuditScope?> GetAuditScopeAsync(Guid entityId, CancellationToken cancellationToken)
+    {
+        if (!await db.Entities.AnyAsync(x => x.Id == entityId, cancellationToken)) return null;
+        var lineage = await MergedLineageAsync(entityId, cancellationToken);
+        return new EntityAuditScope(entityId, lineage, await RelatedCandidateIdsAsync(lineage, cancellationToken));
+    }
+
     public async Task<IReadOnlyList<EntityCandidateDecisionHistoryView>?> GetCandidateHistoryAsync(Guid candidateId,
         CancellationToken cancellationToken)
     {

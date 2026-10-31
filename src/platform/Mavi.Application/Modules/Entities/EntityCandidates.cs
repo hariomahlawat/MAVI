@@ -74,6 +74,9 @@ public sealed record EntityView(
     IReadOnlyList<Guid>? MergedFromEntityIds = null,
     IReadOnlyList<Guid>? RelatedCandidateIds = null);
 
+/// <summary>An Entity's audit subjects: itself and the Entities merged into it, and every candidate ever linked to them.</summary>
+public sealed record EntityAuditScope(Guid EntityId, IReadOnlyList<Guid> EntityIds, IReadOnlyList<Guid> CandidateIds);
+
 /// <summary>One join or leave of a Track, as recorded (ADR-027 §4).</summary>
 public sealed record EntityMembershipChangeView(long Sequence, Guid TrackId, Guid EntityId, EntityMembershipChangeKind Change,
     EntityMembershipCause Cause, Guid? CandidateId, string? Note, string OperatorId, string OperatorDisplayName, string IdentitySource,
@@ -174,6 +177,12 @@ public interface IEntityCandidateRepository
     Task<EntityDecisionResult> ReopenAsync(Guid candidateId, string? note, EntityCandidateDecider decider,
         Func<CancellationToken, Task<AuditEntryReceipt>> appendAudit, EntityCandidateCatalogueDefinition catalogue, string identityFingerprint,
         DateTimeOffset nowUtc, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The audit scope of an Entity (ADR-027 §3, §4), read from the append-only histories: the Entity, every Entity merged into it,
+    /// and every candidate ever linked to any of them. Null when the Entity does not exist.
+    /// </summary>
+    Task<EntityAuditScope?> GetAuditScopeAsync(Guid entityId, CancellationToken cancellationToken);
 
     /// <summary>Every recorded decision on the candidate, oldest first; null when it does not exist.</summary>
     Task<IReadOnlyList<EntityCandidateDecisionHistoryView>?> GetCandidateHistoryAsync(Guid candidateId, CancellationToken cancellationToken);
