@@ -171,7 +171,7 @@ describe('EventsPage', () => {
     const repeated = await screen.findByRole('checkbox', { name: /Repeated visit/ });
     expect(repeated).toBeDisabled();
     expect(repeated).not.toBeChecked();
-    expect(screen.getByText(/needs confirmed Entities/)).toBeInTheDocument();
+    expect(screen.getByText(/needs operator-confirmed Entities and runs only in the next rule catalogue \(mavi-events-v2\)/)).toBeInTheDocument();
     expect(screen.getByText(/not Production-qualified/)).toBeInTheDocument();
   });
 

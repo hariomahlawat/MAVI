@@ -183,7 +183,8 @@ export function eventReviewPath(detail: Pick<EventDetail, 'sceneRevisionId' | 'a
 export function disabledReasonText(reason: string | null): string | null {
   if (reason === null) return null;
   if (reason === 'requires_entity_confirmation') {
-    return 'Disabled: needs confirmed Entities (ReID confirmation, PoC slice S7), which do not exist yet. Defined and tested, not run.';
+    // Confirmed Entities exist since S7; the entity-conditioned rule runs only in the next catalogue (ADR-023 §9).
+    return 'Disabled: needs operator-confirmed Entities and runs only in the next rule catalogue (mavi-events-v2). Defined and tested, not run.';
   }
   return `Disabled: ${reason}`;
 }
