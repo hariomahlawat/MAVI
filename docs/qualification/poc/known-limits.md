@@ -6,7 +6,7 @@ This is the PoC's one record of what each capability does not do (register row D
 
 ## Read this first
 
-- **What the PoC is.** One Windows host, recorded video only, fully offline at run time. It demonstrates every capability of the roadmap end to end, each within the measured limits below (Ask MAVI's translation bar is not met, C9.2), on a 13-clip demo corpus (Wikimedia Commons CC0/CC BY and MEVA CC BY 4.0). It is not Production qualification (Task 18), and no row of it claims model selection or identity.
+- **What the PoC is.** One Windows host, recorded video only, fully offline at run time. It demonstrates every roadmap capability built in the PoC (Stages 2–10 on recorded video; live ingestion and alerting are not built) end to end, each within the measured limits below (Ask MAVI's translation bar is not met, C9.2), on a 13-clip demo corpus (Wikimedia Commons CC0/CC BY and MEVA CC BY 4.0). It is not Production qualification (Task 18), and no row of it claims model selection or identity.
 - **The demo corpus has no ground truth** (register B5). A Track, plate read, attribute, event or candidate on a demo clip shows the pipeline working on pipeline output; it is not an accuracy figure. The only accuracy figures are the ones below, each on the data named.
 - **Candidates, never identity.** Similarity, faces and cross-camera links are candidates with a score. Nothing links Tracks or names a person except an operator's audited confirmation, and even a confirmed Entity is "not identification".
 - **Not in the PoC:** live RTSP/VMS ingestion and live alerts (next phase, plan D8); Indian plates; a learned attribute model; a specialist ReID model; Production hosts.

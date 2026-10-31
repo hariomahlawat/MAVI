@@ -338,7 +338,6 @@ It writes `media\poc-demo-corpus\`, which holds:
 - `demo-corpus-attribution.md`, which must accompany the clips;
 - `LICENCES.md`: for each licence, the clips it covers, its legal-code URI and its full text in `licences\`;
 - `licences\`: the full licence texts passed with `-PocDemoCorpusLicenceFile`.
-- Kit clips must come from the admitted kit sources, Wikimedia Commons or MEVA. A clip from any other provider is refused, even when its record says CC BY.
   - A legal code is named `<licence>-legalcode.txt` or `.html`, where `<licence>` is `CC0-1.0`, `CC-BY-2.0`, `CC-BY-3.0` or `CC-BY-4.0`.
   - When any text is given, every licence a kit clip uses must have its legal code there.
   - The PoC's legal codes were downloaded from creativecommons.org as a recorded acquisition (owner decision D-S13-2). They are kept in `E:\MAVI-Controlled\PoC\S13\licences\`, with `acquisition.json` and `SHA256SUMS`.
@@ -347,7 +346,8 @@ It writes `media\poc-demo-corpus\`, which holds:
 The manifest records all of this under `pocDemoCorpus`. `Test-MaviOfflineBinaryKit.ps1` checks every file again and refuses the kit when:
 - a file is unlisted (for example a crop, an embedding, a gallery export, or another dataset's clip);
 - a clip is changed or missing;
-- `media\` is present but no corpus is recorded.
+- `media\` is present but no corpus is recorded, or holds anything besides `poc-demo-corpus\`;
+- a kit clip's source is not Wikimedia Commons or MEVA (the admitted kit sources), even when its record says CC BY; the builder refuses it too.
 
 The scripted import reads the clips straight from the kit:
 

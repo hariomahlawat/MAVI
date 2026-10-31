@@ -1,6 +1,6 @@
 # MAVI PoC demo recording script (briefing video)
 
-**Purpose.** This script produces the silent video of about two minutes embedded in the one-slide capabilities briefing (`E:\MAVI-Working\briefing\MAVI-Capabilities-Briefing.pptx`). The video follows the plan section 3 demonstration (`docs/superpowers/plans/2026-10-28-mavi-poc-end-to-end.md`), told as a story:
+**Purpose.** This script produces the silent video (planned at about two minutes; the S13 laptop recording is 216 s) embedded in the one-slide capabilities briefing (`E:\MAVI-Working\briefing\MAVI-Capabilities-Briefing.pptx`). The video follows the plan section 3 demonstration (`docs/superpowers/plans/2026-10-28-mavi-poc-end-to-end.md`), told as a story:
 - an **opening** of up to 12 s: the problem;
 - **eleven chapters**, one per capability line on the slide: 6–9 s each, and about 11 s for "Draw zones and lines";
 - two **Next phase** chapters (live alerts on your rules; watchlist alerts as candidates), about 15 s together;
@@ -39,7 +39,7 @@ The numbers are arithmetic: 48 cameras × 24 h = 1,152 h, and 1,152 h ÷ 8 h a w
 | 8 | `Draw zones and lines` | Zones and lines | 1 Worringer Platz junction | **Scene editor (about 4 s):** the camera's configured zones and the gate line, with its direction labels. Do not save a change on camera: a save makes a new scene revision and re-derives the camera's analytics. **Then (about 7 s)** the camera's crossing counts per line and direction, from Tracks (the "Junction exit" line over 09:00–09:03). The Archway gate's line has no crossing in the pipeline output, so it cannot show a count. | The geometry is the camera's real configured zone and line. The counts come from Tracks, not from the editor. |
 | 9 | `Events on a timeline` | Event timeline | 2 Macedonia Square junction | The events timeline fitted to the recording; the "Crosswalk" crossings and the per-minute counts; one event's evidence. | Rule version on each event. |
 | 10 | `Ask in plain language, confirm the query` | Ask, confirm | 1 Worringer Platz junction: "How many vehicles crossed the Junction exit line today?" (the laptop's 1.5B pack interprets it exactly; checked off-camera first; reference date 2026-10-01) | The question is typed → the proposed query under **Interpreted as** → the operator presses **Run** → the answer from Advanced Search's service, with drill-through. | **"Interpreted as"**, readable, and **Run** pressed before any answer appears (Ask proposes, the operator confirms; D-S10-10). |
-| 11 | `Audited review and cases` | Audited cases | 5 Archway gate: the vehicle read as LJ384CR | A review decision on a Track (Confirm detection), the Track and an event added to a case, a note typed, then the Audit page with those entries. | Append-only audit entries with the Windows operator identity and time. |
+| 11 | `Audited review and cases` | Audited cases | 5 Archway gate: the vehicle read as LJ384CR | A review decision on a Track (Confirm detection), the Track added to a new case with a note typed into the case form, then the Audit page with those entries. | Append-only audit entries with the Windows operator identity and time. |
 
 The opening wall shows 12 of the 13 corpus clips (4×3); s2-13 appears in chapters 6 and 7.
 
@@ -63,7 +63,7 @@ Live camera ingest and real-time alerting are **not in the PoC**. These two chap
 
 ## Timing, captions, poster, export
 
-- **Timing.** The opening is 12 s, the chapters 7 s each (6–9 s allowed; zones and lines about 11 s) and the payoff 10 s, and the two Next phase chapters 8 s and 7 s, so the planned total is about 118 s. The S13 laptop recording is 216 s: real UI takes run 9–24 s a chapter even at up to 1.8× speed, and the owner accepted a longer video ("length is not an issue"). Write down the start time of every chapter and of the payoff in milliseconds. `build/finish_deck.ps1` re-points the bookmarks from `startMs` in `chapters.json` (see the briefing README).
+- **Timing.** The opening is 12 s, the chapters 7 s each (6–9 s allowed; zones and lines about 11 s) and the payoff 10 s, and the two Next phase chapters 8 s and 7 s, so the planned total is about 118 s. The S13 laptop recording is 216 s: real UI takes run 9–24 s a chapter even at up to 1.8× speed, and the briefing session recorded the owner saying that length is not an issue (2026-10-30 hand-over, not a register decision). Write down the start time of every chapter and of the payoff in milliseconds. `build/finish_deck.ps1` re-points the bookmarks from `startMs` in `chapters.json` (see the briefing README).
 - **Captions** use the two words in the Caption column, at the lower left. The number is in accent blue #3B82F6 and the words in #E6EBF2. The font is Segoe UI Semibold, about 64 px, on a translucent #0A0E15 band. The caption runs through the whole chapter and never covers scores, thresholds or the banner.
 - **Credits.** Keep each clip's source and licence credit small at the lower right throughout its chapter (`docs/qualification/poc/demo-corpus-attribution.md`). The CC BY clips require this.
 - **Poster frame.** A still of the dimmed 12-camera wall with a play button and "Click to play · <length> seconds", saved as a 1920×1080 PNG at `E:\MAVI-Working\briefing\media\MAVI-demo-poster.png`.
@@ -74,4 +74,4 @@ Live camera ingest and real-time alerting are **not in the PoC**. These two chap
   - Every candidate has a score and threshold.
   - "Similarity candidates" and "Interpreted as" are readable.
   - The banner is legible in the payoff.
-  - The total is about two minutes and the file is under 150 MB.
+  - The file is under 150 MB (the S13 laptop recording is 216 s and 40 MB).
