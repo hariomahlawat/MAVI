@@ -26,6 +26,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
 
 $RepositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot)
@@ -73,7 +74,10 @@ if ($device.Variant -eq "cuda") {
 # The variant that will run is verified (the CPU build after a fallback, or when it was resolved first).
 if ($device.Variant -ne "cuda") { $identity = Invoke-MaviLanguagePackVerification $device.Variant }
 
+# The role device record the platform discloses on the System page (DeploymentOptions.RoleDeviceResolutionPaths): it is
+# read only when it carries the device-resolution schema and names its role, as the plates role's record does.
 $report = [ordered]@{
+    schemaVersion = "mavi-device-resolution-v1"
     role = "language"
     requestedDevicePolicy = $DevicePolicy
     resolvedDevicePolicy = $device.Variant
@@ -90,8 +94,7 @@ $report = [ordered]@{
     port = $Port
     resolvedAtUtc = [DateTime]::UtcNow.ToString("o")
 }
-New-Item -ItemType Directory -Path (Split-Path -Parent $DeviceReportPath) -Force | Out-Null
-$report | ConvertTo-Json | Set-Content -LiteralPath $DeviceReportPath -Encoding UTF8
+Write-MaviJson -Value $report -Path $DeviceReportPath -Depth 6
 
 $server = Join-Path (Join-Path $RuntimeRoot $device.Directory) "llama-server.exe"
 $arguments = @(
