@@ -4,8 +4,9 @@ using Mavi.Contracts.Api.Ask;
 namespace Mavi.Api.Endpoints;
 
 /// <summary>
-/// Ask MAVI (ADR-026 §7): <c>POST /api/ask</c> translates one question into one structured query or a refusal and returns
-/// the S9 envelope unchanged; <c>GET /api/ask/status</c> says whether the language role can answer. Read-only; the
+/// Ask MAVI (ADR-026 §7): <c>POST /api/ask</c> translates one question into one proposed structured query or a refusal,
+/// and never runs it: the operator runs it through <c>POST /api/query</c> (D-S10-10). <c>GET /api/ask/status</c> says
+/// whether the language role can answer. Read-only; the
 /// question is not stored. A refusal is a normal 200 response with <c>outcome: refused</c>, so the surface shows it as
 /// an answer the operator can read, not as an error.
 /// </summary>

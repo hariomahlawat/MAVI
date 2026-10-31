@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Mavi.Contracts.Api.Query;
@@ -15,37 +16,63 @@ public sealed record AskPromptRequest(string Prompt, string PromptSha256, string
 /// the question. Deterministic: the same inputs give the same bytes. The model is given, as text to copy, everything
 /// it would otherwise have to compute — the camera, zone and line references as JSON fragments, and the windows for
 /// "today" and "yesterday" — and worked examples composed from the site's own catalogue, so the prompt fits any site.
-/// The template is versioned; a change to it is a new version and needs new recordings.
+/// The template is versioned; a change to it is a new version and needs new recordings. Version 1 is kept byte for
+/// byte so its recordings still replay; the API uses <see cref="TemplateVersion"/> (ADR-026 amendment D-S10-9).
 /// </summary>
 public static class AskPrompt
 {
-    public const string TemplateVersion = "mavi-ask-prompt-v1";
+    /// <summary>The version the API uses.</summary>
+    public const string TemplateVersion = TemplateVersion2;
+
+    public const string TemplateVersion1 = "mavi-ask-prompt-v1";
+    public const string TemplateVersion2 = "mavi-ask-prompt-v2";
+
+    /// <summary>Whether a version is v2 (v1 is the only other); an unknown version is an error, never a default.</summary>
+    public static bool IsVersion2(string version) => version switch
+    {
+        TemplateVersion1 => false,
+        TemplateVersion2 => true,
+        _ => throw new ArgumentOutOfRangeException(nameof(version), version, "Unknown Ask prompt template version."),
+    };
 
     private static readonly JsonSerializerOptions Compact = new() { WriteIndented = false };
+
+    /// <summary>v2: the JSON the model is shown to copy is written as the grammar lets it write it ("+05:30", not
+    /// "+05:30"). The prompt is plain text to a model, never HTML.</summary>
+    private static readonly JsonSerializerOptions CompactV2 = new() { WriteIndented = false, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     public static AskPromptRequest Build(
         QueryContractResponse vocabulary,
         AskSiteCatalogue catalogue,
         AskSiteTime siteTime,
-        string question)
+        string question) =>
+        Build(vocabulary, catalogue, siteTime, question, TemplateVersion);
+
+    public static AskPromptRequest Build(
+        QueryContractResponse vocabulary,
+        AskSiteCatalogue catalogue,
+        AskSiteTime siteTime,
+        string question,
+        string version)
     {
         ArgumentNullException.ThrowIfNull(vocabulary);
         ArgumentNullException.ThrowIfNull(catalogue);
         ArgumentNullException.ThrowIfNull(siteTime);
         ArgumentNullException.ThrowIfNull(question);
+        var v2 = IsVersion2(version);
 
         var prompt = new StringBuilder();
-        prompt.Append("<|im_start|>system\n").Append(System(vocabulary, catalogue, siteTime)).Append("<|im_end|>\n");
-        foreach (var (exampleQuestion, answer) in Examples(vocabulary, catalogue, siteTime))
+        prompt.Append("<|im_start|>system\n").Append(System(vocabulary, catalogue, siteTime, v2)).Append("<|im_end|>\n");
+        foreach (var (exampleQuestion, answer) in Examples(vocabulary, catalogue, siteTime, v2))
         {
             prompt.Append("<|im_start|>user\n").Append(exampleQuestion).Append("<|im_end|>\n");
-            prompt.Append("<|im_start|>assistant\n").Append(answer.ToJsonString(Compact)).Append("<|im_end|>\n");
+            prompt.Append("<|im_start|>assistant\n").Append(answer.ToJsonString(v2 ? CompactV2 : Compact)).Append("<|im_end|>\n");
         }
 
         prompt.Append("<|im_start|>user\n").Append(OneLine(question)).Append("<|im_end|>\n<|im_start|>assistant\n");
         // Line endings are part of the bytes the model sees; a Windows checkout's CRLF must not change the prompt.
         var text = prompt.ToString().Replace("\r\n", "\n", StringComparison.Ordinal);
-        var grammar = AskGrammar.Build(vocabulary, catalogue, siteTime, AskQuestionScope.From(question, catalogue, vocabulary));
+        var grammar = AskGrammar.Build(vocabulary, catalogue, siteTime, AskQuestionScope.From(question, catalogue, vocabulary, version), version);
         return new AskPromptRequest(text, Sha256(text), grammar, Sha256(grammar));
     }
 
@@ -60,15 +87,30 @@ public static class AskPrompt
         return builder.ToString().Replace("<|", "< |", StringComparison.Ordinal);
     }
 
-    private static string System(QueryContractResponse vocabulary, AskSiteCatalogue catalogue, AskSiteTime siteTime)
+    private static string System(QueryContractResponse vocabulary, AskSiteCatalogue catalogue, AskSiteTime siteTime, bool v2)
     {
         string Units(Func<QueryUnitVocabularyResponse, IReadOnlyList<string>> select, string unit) =>
             string.Join(", ", select(vocabulary.Units.Single(item => item.Unit == unit)));
 
         var offset = siteTime.OffsetText;
-        var today = Window(siteTime, siteTime.ReferenceDate, siteTime.ReferenceDate.AddDays(1));
-        var yesterday = Window(siteTime, siteTime.ReferenceDate.AddDays(-1), siteTime.ReferenceDate);
-        var sample = Window(siteTime, siteTime.ReferenceDate, new TimeOnly(9, 0), siteTime.ReferenceDate, new TimeOnly(10, 30));
+        // v2 (m8): a zone with daylight saving has two offsets; the model writes the one the zone has at that instant.
+        var offsetPhrase = v2 && siteTime.Offsets.Count > 1
+            ? "the zone's offset at that instant (" + string.Join(" or ", siteTime.Offsets.Select(AskSiteTime.FormatOffset)) + ")"
+            : "the offset " + offset;
+        var unknownPlaces = v2 ? ", or any other place (a building, a car park, a station, a street) that the site list does not have" : "";
+        var rulesV2 = v2
+            ? """
+
+              - Durations: "N seconds" is N*1000 ms and "N minutes" is N*60000 ms (more than 2 minutes: 120000).
+              - "loitered", "loitering" in a zone: unit "track" with the zone fragment and "loitering":true.
+              - "by hour", "per hour", "hourly": always timeBucket 3600, never groupBy. groupBy is only for a dimension: camera, rule, direction, zone, line, objectClass, objectSubclass.
+              - "show", "list", "find" are find even for one thing ("show the vehicle with plate …").
+              """
+            : "";
+        var json = v2 ? CompactV2 : Compact;
+        var today = WindowNode(siteTime, siteTime.ReferenceDate, TimeOnly.MinValue, siteTime.ReferenceDate.AddDays(1), TimeOnly.MinValue).ToJsonString(json);
+        var yesterday = WindowNode(siteTime, siteTime.ReferenceDate.AddDays(-1), TimeOnly.MinValue, siteTime.ReferenceDate, TimeOnly.MinValue).ToJsonString(json);
+        var sample = WindowNode(siteTime, siteTime.ReferenceDate, new TimeOnly(9, 0), siteTime.ReferenceDate, new TimeOnly(10, 30)).ToJsonString(json);
         var attributes = string.Join("; ", vocabulary.Attributes.Select(item => $"{item.Type}: {string.Join(", ", item.Values)}"));
         var date = siteTime.ReferenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
@@ -79,7 +121,7 @@ public static class AskPrompt
             You translate an operator's question about recorded video analytics into exactly one JSON query of the MAVI structured query contract {{vocabulary.ContractVersion}}, or you refuse. You never answer the question yourself and never state a number or a fact: MAVI runs the query.
 
             Output: {"answer":"query","query":<query>} or {"answer":"refusal","reason":"outside_contract"|"unknown_reference"}.
-            Refuse with "outside_contract" when the question cannot be expressed with the units, predicates and operations below (for example: who a person is, why something happened, predictions, opinions, averages or speeds, changing or deleting data, OR between places). Refuse with "unknown_reference" when the question names a camera, zone or line that is not in the site list.
+            Refuse with "outside_contract" when the question cannot be expressed with the units, predicates and operations below (for example: who a person is, why something happened, predictions, opinions, averages or speeds, changing or deleting data, OR between places). Refuse with "unknown_reference" when the question names a camera, zone or line that is not in the site list{{unknownPlaces}}.
 
             Units: "track" (a tracked object: {{string.Join(" or ", vocabulary.ObjectClasses)}}), "event" (a derived analytic event), "entity" (a confirmed entity).
             Track predicates: timeWindow (required), cameraIds, objectClass ({{string.Join("|", vocabulary.ObjectClasses)}}), objectSubclass ({{string.Join("|", vocabulary.ObjectSubclasses)}}), minDurationMs, zone {zoneId, relation {{string.Join("|", vocabulary.ZoneRelations)}}, minDwellMs, loitering}, line {lineId, direction}, attributes [{type,value}], plateText {text, match {{string.Join("|", vocabulary.PlateMatches)}}}. A zone or line on tracks needs cameraIds with exactly that one camera.
@@ -99,7 +141,7 @@ public static class AskPrompt
             CultureInfo.InvariantCulture,
             $$"""
 
-            Time: the site time zone is {{siteTime.TimeZoneId}}; every instant is site local time with the offset {{offset}}. Today is {{date}}. A question without a date or a time means today. Copy these windows exactly:
+            Time: the site time zone is {{siteTime.TimeZoneId}}; every instant is site local time with {{offsetPhrase}}. Today is {{date}}. A question without a date or a time means today. Copy these windows exactly:
               today: "timeWindow":{{today}}
               yesterday: "timeWindow":{{yesterday}}
               between 09:00 and 10:30 today: "timeWindow":{{sample}}
@@ -110,7 +152,7 @@ public static class AskPrompt
             - Use a zone, line, attribute, plate or minDurationMs predicate only when the question asks for it.
             - Lines: copy the fragment whose direction word matches the question ("entered" matches Entry; "went in" matches In; "left" or "went out" matches Exit or Out). With no direction word, copy the "any direction" fragment.
             - Questions about events, crossings, dwells or stops (for example "line crossings by direction"), or naming an event kind, use unit "event"; a named kind goes in ruleIds (crossings: line-crossing; dwell: zone-dwell; stopped vehicles: stopped-vehicle; wrong way: wrong-way; co-occurrence; repeated visit: repeated-visit). Questions about people, vehicles or tracks use unit "track".
-            - "list", "show", "find": find; "the N most recent", "the latest N", "the newest N": find with limit N, order newest; "the N oldest", "the first N": find with limit N, order oldest. "how many", "count": count. "how many different": countDistinct. "per", "by" a dimension: groupBy. "by hour": timeBucket 3600; "per N minutes": timeBucket N*60. "which N cameras had the most <things>", "top N cameras": top by camera with k N, and keep the objectClass of the things counted. "which camera had the most": top with k 1. "the first <thing>" (one): first. "the last <thing>", "the latest <thing>" (one): last. "how many entities": count on unit "entity". "Compare A with B": the window is A and the baseline is B.
+            - "list", "show", "find": find; "the N most recent", "the latest N", "the newest N": find with limit N, order newest; "the N oldest", "the first N": find with limit N, order oldest. "how many", "count": count. "how many different": countDistinct. "per", "by" a dimension: groupBy. "by hour": timeBucket 3600; "per N minutes": timeBucket N*60. "which N cameras had the most <things>", "top N cameras": top by camera with k N, and keep the objectClass of the things counted. "which camera had the most": top with k 1. "the first <thing>" (one): first. "the last <thing>", "the latest <thing>" (one): last. "how many entities": count on unit "entity". "Compare A with B": the window is A and the baseline is B.{{rulesV2}}
 
             Site list (copy the fragments exactly):
 
@@ -139,7 +181,8 @@ public static class AskPrompt
     private static IEnumerable<(string Question, JsonObject Answer)> Examples(
         QueryContractResponse vocabulary,
         AskSiteCatalogue catalogue,
-        AskSiteTime siteTime)
+        AskSiteTime siteTime,
+        bool v2)
     {
         var cameras = catalogue.Cameras;
         var today = WindowNode(siteTime, siteTime.ReferenceDate, TimeOnly.MinValue, siteTime.ReferenceDate.AddDays(1), TimeOnly.MinValue);
@@ -225,6 +268,22 @@ public static class AskPrompt
                     new() { ["op"] = "count" }));
         }
 
+        if (v2 && cameras.FirstOrDefault(camera => camera.Zones.Count > 1) is { } hourCamera)
+        {
+            var zone = hourCamera.Zones[1];
+            yield return ($"Person tracks in the {OneLine(zone.Name)} zone by hour between 10:00 and 12:00",
+                QueryAnswer(
+                    "track",
+                    new()
+                    {
+                        ["timeWindow"] = Between(10, 0, 12, 0),
+                        ["cameraIds"] = Ids(hourCamera),
+                        ["objectClass"] = "Person",
+                        ["zone"] = new JsonObject { ["zoneId"] = zone.ZoneId.ToString("D") },
+                    },
+                    new() { ["op"] = "timeBucket", ["bucketSeconds"] = 3600 }));
+        }
+
         yield return ("Is the man in the blue shirt a known criminal?", Refusal(AskCodes.OutsideContract));
         yield return ("How many cars used the north car park on level 9?", Refusal(AskCodes.UnknownReference));
     }
@@ -260,12 +319,6 @@ public static class AskPrompt
     }
 
     private static JsonObject Refusal(string reason) => new() { ["answer"] = "refusal", ["reason"] = reason };
-
-    private static string Window(AskSiteTime siteTime, DateOnly from, DateOnly to) =>
-        WindowNode(siteTime, from, TimeOnly.MinValue, to, TimeOnly.MinValue).ToJsonString(Compact);
-
-    private static string Window(AskSiteTime siteTime, DateOnly fromDate, TimeOnly fromTime, DateOnly toDate, TimeOnly toTime) =>
-        WindowNode(siteTime, fromDate, fromTime, toDate, toTime).ToJsonString(Compact);
 
     private static JsonObject WindowNode(AskSiteTime siteTime, DateOnly fromDate, TimeOnly fromTime, DateOnly toDate, TimeOnly toTime) =>
         new() { ["fromUtc"] = Local(siteTime, fromDate, fromTime), ["toUtc"] = Local(siteTime, toDate, toTime) };

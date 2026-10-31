@@ -6,14 +6,17 @@ public static class AskCodes
     /// <summary>The version of the translation document the model emits.</summary>
     public const string TranslationVersion = "mavi-ask-translation-v1";
 
-    public const string Answered = "answered";
+    /// <summary>The question was translated into a proposed query; nothing has run (D-S10-10).</summary>
+    public const string Interpreted = "interpreted";
     public const string Refused = "refused";
 
     public const string StageRuntime = "runtime";
+
+    /// <summary>Prompt v2: the platform refused the question before the model was called (an unknown place).</summary>
+    public const string StageQuestion = "question";
     public const string StageModel = "model";
     public const string StageTranslation = "translation";
     public const string StageContract = "contract";
-    public const string StageService = "service";
 
     // Model refusals: the only reasons a model may give, with no free text.
     public const string OutsideContract = "outside_contract";
@@ -24,6 +27,9 @@ public static class AskCodes
     public const string ModelOutputInvalid = "model_output_invalid";
     public const string ModelOutputTruncated = "model_output_truncated";
     public const string TimeOffsetMismatch = "time_offset_mismatch";
+
+    /// <summary>Prompt v2 (m2): the plate text the model wrote does not occur in the question.</summary>
+    public const string PlateTextUngrounded = "plate_text_ungrounded";
 
     // Runtime and request refusals.
     public const string LanguageUnavailable = "language_unavailable";
@@ -44,6 +50,7 @@ public static class AskCodes
     public static string StageMessage(string stage, string code) => (stage, code) switch
     {
         (StageTranslation, TimeOffsetMismatch) => "An instant in the interpreted query does not carry the site time zone's offset.",
+        (StageTranslation, PlateTextUngrounded) => "The plate text in the interpreted query is not one the question contains.",
         (StageTranslation, ModelOutputTruncated) => "The model's output stopped before the query was complete.",
         (StageTranslation, _) => "The model's output was not a usable query or refusal.",
         (StageContract, _) => $"The interpreted query is outside the query contract ({code}).",

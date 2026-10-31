@@ -35,6 +35,7 @@ public sealed class AskCorpusReplayTests
     [Fact]
     public void EveryExpectedQueryIsAValidContractQuery()
     {
+        // Prompt v1's corpus: 20 development and 40 held questions (the held split is spent; v2 develops on all 60).
         var (_, _, questions) = AskCorpus.LoadQuestions();
         var catalogue = AskCorpus.LoadCatalogue();
         Assert.Equal(60, questions.Count);
@@ -44,17 +45,35 @@ public sealed class AskCorpusReplayTests
             Assert.NotEmpty(AskCorpus.ExpectedOutcome(AskCorpus.Resolve(question.Expect, catalogue)));
     }
 
+    [Fact]
+    public void TheV2HeldSplitKeepsTheV1HeldProportionsAndEveryExpectedQueryIsValid()
+    {
+        // Owner's edit to D-S10-9: 31 in contract, 6 outside_contract, 3 unknown_reference, as the v1 held split.
+        var (zoneId, referenceDate, questions) = AskCorpus.LoadQuestions(AskCorpus.QuestionsPathV2);
+        var catalogue = AskCorpus.LoadCatalogue();
+        Assert.Equal(("Asia/Kolkata", new DateOnly(2026, 10, 1)), (zoneId, referenceDate));
+        Assert.Equal(40, questions.Select(question => question.Id).Distinct().Count());
+        Assert.All(questions, question => Assert.Equal("held", question.Split));
+        var outcomes = questions.Select(question => AskCorpus.ExpectedOutcome(AskCorpus.Resolve(question.Expect, catalogue))).ToList();
+        Assert.Equal(31, outcomes.Count(outcome => outcome.StartsWith('{')));
+        Assert.Equal(6, outcomes.Count(outcome => outcome == "refusal:" + AskCodes.OutsideContract));
+        Assert.Equal(3, outcomes.Count(outcome => outcome == "refusal:" + AskCodes.UnknownReference));
+    }
+
     [Theory]
     [MemberData(nameof(RecordingSets))]
     public void RecordingSetReplaysExactly(string fileName)
     {
         var recording = JsonNode.Parse(AskCorpus.Read(Path.Combine(AskCorpus.RecordingsDirectory, fileName)))!.AsObject();
         Assert.Equal("mavi-ask-recordings-v1", (string)recording["schemaVersion"]!);
-        Assert.Equal(AskPrompt.TemplateVersion, (string)recording["promptTemplateVersion"]!);
-        Assert.Equal(AskCorpus.TextSha256(AskCorpus.QuestionsPath), (string)recording["questionsSha256"]!);
+        // Each set replays through the prompt version it was recorded with (v1 is kept byte for byte), on that version's corpus.
+        var version = (string)recording["promptTemplateVersion"]!;
+        var v2 = AskPrompt.IsVersion2(version);
+        var questionsPath = AskCorpus.QuestionsPathFor(version);
+        Assert.Equal(AskCorpus.TextSha256(questionsPath), (string)recording["questionsSha256"]!);
         Assert.Equal(AskCorpus.TextSha256(AskCorpus.CataloguePath), (string)recording["catalogueSha256"]!);
 
-        var (zoneId, referenceDate, questions) = AskCorpus.LoadQuestions();
+        var (zoneId, referenceDate, questions) = AskCorpus.LoadQuestions(questionsPath);
         var catalogue = AskCorpus.LoadCatalogue();
         var vocabulary = AskCorpus.LoadVocabulary();
         var siteTime = new AskSiteTime(zoneId, referenceDate);
@@ -72,11 +91,25 @@ public sealed class AskCorpusReplayTests
             var question = byId[id];
             Assert.Equal(question.Split, (string)result["split"]!);
 
-            var prompt = AskPrompt.Build(vocabulary, catalogue, siteTime, question.Text);
+            var prompt = AskPrompt.Build(vocabulary, catalogue, siteTime, question.Text, version);
             Assert.True(prompt.PromptSha256 == (string)result["promptSha256"]!, $"{id}: the prompt changed since recording; re-record.");
             Assert.True(prompt.GrammarSha256 == (string)result["grammarSha256"]!, $"{id}: the grammar changed since recording; re-record.");
 
-            var outcome = AskCorpus.Outcome(AskTranslator.Translate((string)result["output"]!, siteTime));
+            // v2: a question naming a place the site lacks is refused before the model, so its row has no output; the
+            // current code must still refuse it, and must still let every other question through.
+            var preChecked = v2 && AskPlaceReferences.Unknown(question.Text, catalogue).Count > 0;
+            Assert.Equal(preChecked ? AskCodes.StageQuestion : null, (string?)result["stage"]);
+            string outcome;
+            if (preChecked)
+            {
+                Assert.Null(result["output"]);
+                outcome = AskCorpus.PreCheckOutcome;
+            }
+            else
+            {
+                outcome = AskCorpus.Outcome(AskTranslator.Translate((string)result["output"]!, siteTime, v2 ? question.Text : null));
+            }
+
             var expected = AskCorpus.ExpectedOutcome(AskCorpus.Resolve(question.Expect, catalogue));
             Assert.Equal((string)result["outcome"]!, outcome);
             Assert.Equal((string)result["expected"]!, expected);

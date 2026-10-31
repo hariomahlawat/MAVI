@@ -18,7 +18,17 @@ public sealed record AskSiteTime
         TimeZoneId = timeZoneId;
         ReferenceDate = referenceDate;
         Offset = zone.GetUtcOffset(referenceDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified));
+        var noon = new DateTimeOffset(referenceDate.ToDateTime(new TimeOnly(12, 0), DateTimeKind.Utc));
+        Offsets = Enumerable.Range(-OffsetDaysBefore, OffsetDaysBefore + OffsetDaysAfter + 1)
+            .Select(day => zone.GetUtcOffset(noon.AddDays(day).UtcDateTime))
+            .Append(Offset)
+            .Distinct()
+            .Order()
+            .ToList();
     }
+
+    private const int OffsetDaysBefore = 366;
+    private const int OffsetDaysAfter = 2;
 
     public string TimeZoneId { get; }
 
@@ -29,6 +39,13 @@ public sealed record AskSiteTime
 
     /// <summary>The offset as ISO 8601 writes it: <c>+05:30</c>, <c>-04:00</c>, <c>+00:00</c>.</summary>
     public string OffsetText => FormatOffset(Offset);
+
+    /// <summary>
+    /// Every offset the zone uses from 366 days before the reference date to 2 days after it, ascending (prompt v2,
+    /// m8): a question may name any day of the past year, and in a zone with daylight saving those days carry two
+    /// offsets. The translator still checks each instant's offset against the zone at that instant.
+    /// </summary>
+    public IReadOnlyList<TimeSpan> Offsets { get; }
 
     public TimeSpan OffsetAt(DateTimeOffset instant) => zone.GetUtcOffset(instant.UtcDateTime);
 

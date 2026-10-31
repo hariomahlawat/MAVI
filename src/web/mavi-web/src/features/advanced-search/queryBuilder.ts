@@ -180,6 +180,59 @@ export function buildQuery(state: BuilderState, contract: QueryContract): BuildR
   return { query: { contractVersion: QUERY_CONTRACT_VERSION, unit, where, operation }, problem: null };
 }
 
+export type LoadResult = { state: BuilderState; problem: null } | { state: null; problem: string };
+
+/**
+ * The builder state that builds exactly this query (Ask MAVI's "Open in Advanced Search", D-S10-10), or why the
+ * builder cannot hold it. Nothing is dropped silently: a member the builder has no control for refuses the load, so
+ * the query opened in the builder is the query that was proposed.
+ */
+export function stateFromQuery(query: StructuredQuery): LoadResult {
+  const { where, operation } = query;
+  const unsupported = (what: string): LoadResult => ({ state: null, problem: `Advanced Search cannot build ${what}; run it from Ask MAVI instead.` });
+  const known = new Set(['timeWindow', 'cameraIds', 'objectClass', 'objectSubclass', 'zone', 'line', 'attributes', 'plateText', 'ruleIds', 'catalogueVersion']);
+  const extra = Object.keys(where).find((key) => !known.has(key));
+  if (extra) return unsupported(extra === 'minDurationMs' ? 'a minimum duration' : `the ${extra} predicate`);
+  if (query.requireCompleteCoverage) return unsupported('a query that requires complete coverage');
+  if (where.zone && (where.zone.minDwellMs !== undefined || where.zone.loitering !== undefined)) return unsupported('a minimum dwell or loitering');
+  if ((where.zone || where.line) && (where.cameraIds?.length ?? 0) !== 1) return unsupported('a zone or line without its one camera');
+  if (operation.op === 'timeBucket' && !(BUCKET_CHOICES as readonly number[]).includes(operation.bucketSeconds ?? -1)) {
+    return unsupported(`buckets of ${operation.bucketSeconds} seconds`);
+  }
+  // The builder offers attributes only once a class is chosen; loading them without one would send a predicate the
+  // operator cannot see.
+  if (where.attributes?.length && !where.objectClass) return unsupported('attributes without an object class');
+  const attributes: Record<string, string> = {};
+  for (const attribute of where.attributes ?? []) {
+    if (attribute.type in attributes) return unsupported('two values of one attribute');
+    attributes[attribute.type] = attribute.value;
+  }
+  const state: BuilderState = {
+    ...initialBuilderState({ fromUtc: where.timeWindow.fromUtc, toUtc: where.timeWindow.toUtc }),
+    unit: query.unit,
+    cameraIds: [...(where.cameraIds ?? [])],
+    objectClass: where.objectClass ?? '',
+    objectSubclass: where.objectSubclass ?? '',
+    zoneId: where.zone?.zoneId ?? '',
+    zoneRelation: where.zone?.relation ?? '',
+    lineId: where.line?.lineId ?? '',
+    lineDirection: where.line?.direction ?? '',
+    attributes,
+    plateText: where.plateText?.text ?? '',
+    plateMatch: where.plateText?.match ?? 'contains',
+    ruleIds: [...(where.ruleIds ?? [])],
+    op: operation.op,
+    limit: operation.limit ?? 50,
+    order: operation.order ?? 'newest',
+    dimension: operation.by ?? operation.field ?? '',
+    bucketSeconds: operation.bucketSeconds ?? 3_600,
+    k: operation.k ?? 5,
+    baselineFromUtc: operation.baseline?.fromUtc ?? '',
+    baselineToUtc: operation.baseline?.toUtc ?? '',
+  };
+  return { state, problem: null };
+}
+
 /** Readable words for contract tokens; an unknown token is shown as it is. */
 export function dimensionLabel(token: string): string {
   const labels: Record<string, string> = {

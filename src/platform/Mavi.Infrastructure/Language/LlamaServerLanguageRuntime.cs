@@ -32,11 +32,18 @@ public sealed class LanguageOptions
 
     /// <summary>The device record the launcher writes (<c>resolvedDevicePolicy</c>, <c>deviceResolutionReason</c>).</summary>
     public string? DeviceReportPath { get; set; }
+
+    /// <summary>
+    /// Reuse the cached prompt prefix (ADR-026 §6 amendment D-S10-7) — only where a pack's recordings were byte-identical
+    /// in reverse order. Off unless the configuration says so (fail closed): the installer writes it per pack.
+    /// </summary>
+    public bool CachePrompt { get; set; }
 }
 
 /// <summary>
-/// Calls llama-server's <c>/completion</c> once per question, with the grammar and greedy decoding, prompt caching on (the
-/// shared prefix is reused; recordings are made the same way). Loopback only; a refusal of the role is a typed
+/// Calls llama-server's <c>/completion</c> once per question, with the grammar and greedy decoding, and prompt caching
+/// as the bound pack's configuration says (<see cref="LanguageOptions.CachePrompt"/>; recordings are made the same
+/// way). Loopback only; a refusal of the role is a typed
 /// <see cref="LanguageRuntimeUnavailableException"/>, never a fallback.
 /// </summary>
 public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
@@ -80,7 +87,7 @@ public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
     public async Task<LanguageCompletion> CompleteAsync(LanguageCompletionRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var body = Body(request);
+        var body = Body(request, options.CachePrompt);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));
         try
@@ -109,7 +116,7 @@ public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
     }
 
     /// <summary>The <c>/completion</c> body: every sampler pinned so decoding is greedy whatever the server defaults are.</summary>
-    public static JsonObject Body(LanguageCompletionRequest request) => new()
+    public static JsonObject Body(LanguageCompletionRequest request, bool cachePrompt) => new()
     {
         ["prompt"] = request.Prompt,
         ["json_schema"] = JsonNode.Parse(request.Grammar),
@@ -123,7 +130,7 @@ public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
         ["presence_penalty"] = 0.0,
         ["frequency_penalty"] = 0.0,
         ["seed"] = request.Decoding.Seed,
-        ["cache_prompt"] = true,
+        ["cache_prompt"] = cachePrompt,
         ["stream"] = false,
     };
 

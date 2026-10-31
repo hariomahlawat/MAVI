@@ -16,6 +16,13 @@ namespace Mavi.Application.Tests.Ask;
 public static class AskCorpus
 {
     public const string QuestionsPath = "contracts/test-vectors/ask-mavi-questions-v1.json";
+
+    /// <summary>The fresh held split of prompt v2 (D-S10-8): written before any v2 output, measured once per model.</summary>
+    public const string QuestionsPathV2 = "contracts/test-vectors/ask-mavi-questions-v2.json";
+
+    /// <summary>The corpus a prompt version's recordings are made on: v1 on the v1 corpus, v2 on its fresh held split.</summary>
+    public static string QuestionsPathFor(string promptVersion) =>
+        AskPrompt.IsVersion2(promptVersion) ? QuestionsPathV2 : QuestionsPath;
     public const string CataloguePath = "contracts/test-vectors/ask-mavi-site-catalogue-v1.json";
     public const string AttributeSchemaPath = "src/vision/config/attributes/attribute-schema-poc-zero-shot-v1.json";
     public const string RecordingsDirectory = "contracts/test-vectors";
@@ -27,9 +34,11 @@ public static class AskCorpus
 
     public static string Read(string relative) => File.ReadAllText(Path.Combine(Root, relative));
 
-    public static (string TimeZoneId, DateOnly ReferenceDate, IReadOnlyList<Question> Questions) LoadQuestions()
+    public static (string TimeZoneId, DateOnly ReferenceDate, IReadOnlyList<Question> Questions) LoadQuestions() => LoadQuestions(QuestionsPath);
+
+    public static (string TimeZoneId, DateOnly ReferenceDate, IReadOnlyList<Question> Questions) LoadQuestions(string path)
     {
-        var document = JsonNode.Parse(Read(QuestionsPath))!.AsObject();
+        var document = JsonNode.Parse(Read(path))!.AsObject();
         var site = document["site"]!.AsObject();
         var questions = document["questions"]!.AsArray()
             .Select(item => new Question(
@@ -103,6 +112,10 @@ public static class AskCorpus
                 return node;
         }
     }
+
+    /// <summary>The outcome of a question the platform refused before the model (prompt v2): the same form as the
+    /// model's own refusal, so it matches an expected <c>unknown_reference</c>; recordings mark it with its stage.</summary>
+    public const string PreCheckOutcome = "refusal:" + AskCodes.UnknownReference;
 
     /// <summary>
     /// What an outcome is, for comparison: <c>refusal:&lt;reason&gt;</c> for a model refusal, the canonical query for a

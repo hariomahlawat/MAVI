@@ -1,7 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
+import { ApiError } from '../../api/client';
 import {
   coverageComponentGaps,
   getQueryContract,
@@ -34,6 +35,7 @@ import {
   geometryAvailable,
   initialBuilderState,
   offers,
+  stateFromQuery,
   operationLabel,
   type BuilderState,
 } from './queryBuilder';
@@ -58,7 +60,11 @@ export default function AdvancedSearchPage() {
   const displayTimeZoneId = systemConfig.data?.displayTimeZoneId ?? undefined;
 
   const defaultWindow = useMemo(() => recordingsWindow(videos.data ?? []), [videos.data]);
-  const [state, setState] = useState<BuilderState>(() => initialBuilderState(null));
+  // A query proposed by Ask MAVI ("Open in Advanced Search", D-S10-10) is loaded into the builder, not run: the operator
+  // reviews it and presses Run.
+  const proposed = (useLocation().state as { askQuery?: StructuredQuery } | null)?.askQuery;
+  const [fromAsk] = useState(() => (proposed ? stateFromQuery(proposed) : null));
+  const [state, setState] = useState<BuilderState>(() => fromAsk?.state ?? initialBuilderState(null));
   useEffect(() => {
     if (defaultWindow && state.fromUtc === '' && state.toUtc === '') {
       setState((current) => ({ ...current, fromUtc: defaultWindow.fromUtc, toUtc: defaultWindow.toUtc }));
@@ -111,6 +117,12 @@ export default function AdvancedSearchPage() {
           asked, and every answer states its scope, identity and coverage. {vocabulary.disclosure}
         </p>
       </header>
+
+      {fromAsk?.state ? (
+        <p className="query-page__muted" role="status">
+          Loaded from Ask MAVI. Nothing has run: review the query, change it if needed, then Run.
+        </p>
+      ) : null}
 
       <Panel title="Query">
         <form
@@ -375,8 +387,17 @@ export default function AdvancedSearchPage() {
   );
 }
 
-function Refusal({ error }: { error: unknown }) {
+export function Refusal({ error }: { error: unknown }) {
   const refusal = queryRefusal(error);
+  // An Entity query by a caller who is not a MAVI operator (ADR-023): refused by policy, not a failure.
+  if (refusal === null && error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+    return (
+      <div className="query-page__refusal" role="alert">
+        <strong>Operators only</strong>
+        <p>Entities are shown to MAVI operators only. Open MAVI at localhost with an operator&apos;s Windows account to run this query.</p>
+      </div>
+    );
+  }
   if (refusal === null) {
     return <EmptyState title="The query could not be run">The server could not be reached or failed. Try again.</EmptyState>;
   }

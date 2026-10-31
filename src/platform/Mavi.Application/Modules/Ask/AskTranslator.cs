@@ -21,6 +21,8 @@ public sealed record AskTranslation(StructuredQuery? Query, string? ContractJson
 /// document; rewrites each instant from the site's explicit offset to the same instant in UTC, refusing an offset that
 /// is not the site zone's at that instant; and hands the result to the strict S9 parser. It rewrites nothing else,
 /// completes nothing, and never retries: anything it cannot accept is refused with the reason.
+/// <para>Prompt v2 (m2, ADR-026 amendment D-S10-9) passes the question: a plate text is accepted only when its
+/// normalised form occurs in the question's letters and digits, so the model cannot write a plate nobody asked for.</para>
 /// </summary>
 public static class AskTranslator
 {
@@ -37,7 +39,10 @@ public static class AskTranslator
         (["operation", "baseline"], "toUtc"),
     ];
 
-    public static AskTranslation Translate(string modelText, AskSiteTime siteTime)
+    public static AskTranslation Translate(string modelText, AskSiteTime siteTime) => Translate(modelText, siteTime, null);
+
+    /// <param name="groundingQuestion">Prompt v2: the question the plate text must occur in; null (v1) checks nothing.</param>
+    public static AskTranslation Translate(string modelText, AskSiteTime siteTime, string? groundingQuestion)
     {
         ArgumentNullException.ThrowIfNull(modelText);
         ArgumentNullException.ThrowIfNull(siteTime);
@@ -76,14 +81,14 @@ public static class AskTranslator
                     return Invalid(unknownQueryMember, "Not a member of a query translation.");
                 if (document["query"] is not JsonObject query)
                     return Invalid("/query", "query is required and must be an object.");
-                return TranslateQuery(query, siteTime);
+                return TranslateQuery(query, siteTime, groundingQuestion);
 
             default:
                 return Invalid("/answer", "answer must be query or refusal.");
         }
     }
 
-    private static AskTranslation TranslateQuery(JsonObject query, AskSiteTime siteTime)
+    private static AskTranslation TranslateQuery(JsonObject query, AskSiteTime siteTime, string? groundingQuestion)
     {
         foreach (var (parentPath, member) in InstantMembers)
         {
@@ -116,10 +121,23 @@ public static class AskTranslator
 
         var contractJson = query.ToJsonString();
         var parsed = StructuredQueryParser.Parse(contractJson);
-        return parsed.Refusal is { } refusal
-            ? new AskTranslation(null, contractJson, new AskRefusal(AskCodes.StageContract, refusal.Code, refusal.Path, refusal.Message))
-            : new AskTranslation(parsed.Query, contractJson, null);
+        if (parsed.Refusal is { } refusal)
+            return new AskTranslation(null, contractJson, new AskRefusal(AskCodes.StageContract, refusal.Code, refusal.Path, refusal.Message));
+
+        // The parser has normalised the plate text; it must be a run of the question's own letters and digits.
+        if (groundingQuestion is not null && parsed.Query!.Where.Plate is { } plate && !QuestionCharacters(groundingQuestion).Contains(plate.Text, StringComparison.Ordinal))
+            return AskTranslation.Refuse(
+                AskCodes.StageTranslation,
+                AskCodes.PlateTextUngrounded,
+                "/query/where/plateText/text",
+                AskCodes.StageMessage(AskCodes.StageTranslation, AskCodes.PlateTextUngrounded));
+
+        return new AskTranslation(parsed.Query, contractJson, null);
     }
+
+    /// <summary>The question's letters and digits, upper-cased and joined: where a grounded plate text must occur.</summary>
+    public static string QuestionCharacters(string question) =>
+        new([.. question.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant)]);
 
     private static AskTranslation Invalid(string path, string message) =>
         AskTranslation.Refuse(AskCodes.StageTranslation, AskCodes.ModelOutputInvalid, path, message);
