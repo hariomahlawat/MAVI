@@ -84,6 +84,23 @@ describe('PoC S11-full case detail', () => {
     expect(document.body.textContent).not.toMatch(IDENTITY_WORDS);
   });
 
+  it('links an Entity item to its Entity view while the Entity still resolves', async () => {
+    const entityId = '018F3F5A-2F70-7A2B-8A12-2D02F4C214E1';
+    const goneId = '018f3f5a-2f70-7a2b-8a12-2d02f4c214e2';
+    vi.mocked(getCase).mockResolvedValue({
+      ...detail(),
+      items: [
+        item({ itemId: 'e1', kind: 'Entity', subjectId: entityId, subject: { ...emptySubject, objectClass: 'Person', entityDisplayCode: 'P-0001' } }),
+        item({ itemId: 'e2', kind: 'Entity', subjectId: goneId, subject: { ...emptySubject, available: false } }),
+      ],
+    });
+    renderWithApp(<CaseDetailPage />, { route: `/cases/${caseId}`, routePath: '/cases/:caseId' });
+
+    const [present, gone] = within(await screen.findByRole('list', { name: 'Items' })).getAllByRole('listitem');
+    expect(within(present).getByRole('link', { name: 'Open the Entity' })).toHaveAttribute('href', `/entities?entity=${entityId.toLowerCase()}`);
+    expect(within(gone).queryByRole('link', { name: 'Open the Entity' })).not.toBeInTheDocument();
+  });
+
   it('records a removal with its note, never a delete', async () => {
     const user = userEvent.setup();
     vi.mocked(getCase).mockResolvedValue(detail());

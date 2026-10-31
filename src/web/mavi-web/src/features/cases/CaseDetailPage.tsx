@@ -60,6 +60,9 @@ function SubjectLinks({ item }: { item: CaseItem }) {
   if (item.kind === 'AnalyticEvent' && subject.cameraId) {
     return <Link to={`/cameras/${subject.cameraId.toLowerCase()}/events?event=${encodeURIComponent(id)}`}>Open the event</Link>;
   }
+  if (item.kind === 'Entity') {
+    return <Link to={`/entities?entity=${encodeURIComponent(id)}`}>Open the Entity</Link>;
+  }
   return null;
 }
 
