@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "Mavi.Poc.psm1") -Force
 
 $kitRoot = (Resolve-Path -LiteralPath $KitRoot).Path
 $manifestPath = Join-Path $kitRoot "mavi-offline-binary-kit.json"
@@ -179,8 +180,20 @@ foreach ($entry in $installerRecords.GetEnumerator()) {
     }
 }
 
+# PoC demo corpus (S13), when the kit carries one: the pinned kit clips, attribution and licences, nothing else.
+$demoCorpusProperty = $manifest.PSObject.Properties["pocDemoCorpus"]
+$demoCorpusFiles = $null
+if ($demoCorpusProperty -and $null -ne $demoCorpusProperty.Value) {
+    if ([string]$demoCorpusProperty.Value.path -ne "media/poc-demo-corpus") { throw "Offline binary kit demo corpus path is not media/poc-demo-corpus." }
+    $demoCorpusFiles = Test-MaviPocDemoCorpus -Root (Join-Path $kitRoot "media\poc-demo-corpus") -Record $demoCorpusProperty.Value
+}
+elseif (Test-Path -LiteralPath (Join-Path $kitRoot "media")) {
+    throw "Offline binary kit carries media but records no demo corpus."
+}
+
 Write-Host "MAVI offline binary kit validation PASSED."
 Write-Host "  PostgreSQL : $($postgreSql.postgresqlVersion)"
 Write-Host "  pgvector   : $($postgreSql.pgvectorVersion)"
 Write-Host "  FFmpeg      : $($ffmpeg.version)"
+if ($null -ne $demoCorpusFiles) { Write-Host "  Demo corpus : $demoCorpusFiles files verified (clips and licence texts)" }
 Write-Host "  Manifest    : $(Get-MaviSha256 -Path $manifestPath)"

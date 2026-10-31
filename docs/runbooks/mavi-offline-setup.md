@@ -319,6 +319,36 @@ powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviPocSetupBundle.ps1 
 
 The builder exports the exact commit first (`git archive`; uncommitted changes never ship) and reads the component binding and the binary catalogue from that export, not from the preparer's checkout; it publishes the platform from it, writes the **application overlay** (the repository subset the setup scripts and workers read, with `mavi-application-overlay.json`: revision + per-file SHA-256), copies the PostgreSQL runtime pack, FFmpeg and the Hosting Bundle from the kit, copies the Runtime and Model Packs the component binding names, including a declared Development build of a variant (ADR-014 amendment 2026-10-29), and refuses any other, copies the plates cache, and the embeddings cache (`python-embeddings-wheelhouse\`, `embeddings-payloads\` into `embeddings\`, PoC S4), and hashes every file into `mavi-poc-bundle.json`. The kit's catalogue entries for PostgreSQL, pgvector, FFmpeg and the Hosting Bundle must equal the repository's; the kit's developer caches are not shipped, so their freshness does not apply. The plates payloads may come from `plates_pilot_packs.py fetch` or, verified by SHA-256, from the Stage-4 controlled candidate store.
 
+### The demo corpus in the kit (PoC S13; register B2, B3, D5)
+
+The PoC kit carries the demo corpus next to the binary payloads. Build the kit with:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviOfflineBinaryKit.ps1 -Destination "<kit>" `
+  -PocDemoCorpusRoot "E:\MAVI-Controlled\PoC\Corpus" `
+  -PocDemoCorpusLicenceFile "E:\MAVI-Controlled\PoC\Corpus\approvals\MEVA-data-license.txt"
+~~~
+
+It writes `media\poc-demo-corpus\`, which holds:
+- `derivatives\`: only the clips that `tools/poc/demo-corpus/demo-corpus-v1.json` pins with `kit: true`. Each clip is SHA-256 verified against its pin before and after the copy. Every clip licence must be CC0 or CC BY (plan D3); any other licence stops the build.
+- the definition `demo-corpus-v1.json`;
+- `demo-corpus-attribution.md`, which must accompany the clips;
+- `LICENCES.md`: each licence's legal-code URI and the clips it covers;
+- `licences\`: the full licence texts passed with `-PocDemoCorpusLicenceFile`.
+
+The manifest records all of this under `pocDemoCorpus`. `Test-MaviOfflineBinaryKit.ps1` checks every file again and refuses the kit when:
+- a file is unlisted (for example a crop, an embedding, a gallery export, or another dataset's clip);
+- a clip is changed or missing;
+- `media\` is present but no corpus is recorded.
+
+The scripted import reads the clips straight from the kit:
+
+~~~text
+python tools/poc/demo_corpus.py --definition "<kit>\media\poc-demo-corpus\demo-corpus-v1.json" import --root "<kit>\media\poc-demo-corpus" --api http://127.0.0.1:<port>
+~~~
+
+**Never in the kit:** BDD100K, Pexels or Pixabay media, the MOT17 smoke clip, and any face crop, embedding or gallery (ADR-022).
+
 ### Installing (target, network disconnected)
 
 Double-click `Install-MAVI-PoC.cmd` in the bundle and approve elevation, or from an elevated prompt:

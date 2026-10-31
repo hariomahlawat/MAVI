@@ -109,6 +109,53 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $noV1 "config\vision") -Force | Out-Null
     Assert-Throws { Get-MaviPocCudaRuntimePackCandidates -OverlayRoot $noV1 -BundleRoot $null } "is missing" "A bundle without the frozen v1 build contract"
 
+    # --- Kit demo corpus (S13; B2, B3, D5): only pinned kit clips, CC0 / CC BY, with attribution and licences. ---
+    $corpus = Join-Path $tempRoot "corpus"
+    New-Item -ItemType Directory -Path (Join-Path $corpus "derivatives") -Force | Out-Null
+    $clipFiles = [ordered]@{ "a.mp4" = "clip a"; "b.mp4" = "clip b"; "owner-only.mp4" = "not for the kit"; "unlisted.mp4" = "never listed" }
+    foreach ($entry in $clipFiles.GetEnumerator()) { [IO.File]::WriteAllText((Join-Path $corpus "derivatives\$($entry.Key)"), $entry.Value) }
+    $clipSha = @{}; foreach ($name in $clipFiles.Keys) { $clipSha[$name] = Get-MaviSha256 -Path (Join-Path $corpus "derivatives\$name") }
+    function New-TestCorpusDefinition([string]$Path, [string]$SecondLicence = "cc-by-4.0", [string]$SecondSha = $clipSha["b.mp4"]) {
+        $clips = @(
+            [ordered]@{ clipId = "c-a"; kit = $true; source = [ordered]@{ provider = "wikimedia-commons"; licenceCode = "cc0" }; derivative = [ordered]@{ fileName = "a.mp4"; sha256 = $clipSha["a.mp4"] } },
+            [ordered]@{ clipId = "c-b"; kit = $true; source = [ordered]@{ provider = "meva"; licenceCode = $SecondLicence }; derivative = [ordered]@{ fileName = "b.mp4"; sha256 = $SecondSha } },
+            [ordered]@{ clipId = "c-owner"; kit = $false; source = [ordered]@{ provider = "pexels"; licenceCode = "pexels" }; derivative = [ordered]@{ fileName = "owner-only.mp4"; sha256 = $clipSha["owner-only.mp4"] } })
+        Write-MaviJson -Value ([ordered]@{ schemaVersion = "mavi-poc-demo-corpus-v1"; clips = $clips }) -Path $Path -Depth 6
+    }
+    $corpusDefinition = Join-Path $tempRoot "demo-corpus-v1.json"
+    New-TestCorpusDefinition -Path $corpusDefinition
+    $attribution = Join-Path $tempRoot "attribution.md"
+    [IO.File]::WriteAllText($attribution, "# attribution")
+    $licenceText = Join-Path $tempRoot "MEVA-data-license.txt"
+    [IO.File]::WriteAllText($licenceText, "CC BY 4.0 full text")
+    $kitCorpus = Join-Path $tempRoot "kit-corpus"
+    $corpusRecord = Copy-MaviPocDemoCorpus -DefinitionPath $corpusDefinition -CorpusRoot $corpus -AttributionPath $attribution -LicenceFile $licenceText -Destination $kitCorpus
+    if ((Test-MaviPocDemoCorpus -Root $kitCorpus -Record $corpusRecord) -ne 3) { throw "The kit corpus must verify its two kit clips and one licence text." }
+    if ((@(Get-ChildItem -LiteralPath (Join-Path $kitCorpus "derivatives") -File).Name -join ",") -ne "a.mp4,b.mp4") { throw "Only kit=true clips may enter the kit (owner-machine media and unlisted files never do)." }
+    $licenceIndex = Get-Content -LiteralPath (Join-Path $kitCorpus "LICENCES.md") -Raw
+    if ($licenceIndex -notmatch 'publicdomain/zero/1\.0/legalcode' -or $licenceIndex -notmatch 'licenses/by/4\.0/legalcode' -or $licenceIndex -notmatch 'MEVA-data-license\.txt') { throw "The licence index must name each clip licence's legal code and the shipped texts." }
+    Copy-Item -LiteralPath (Join-Path $corpus "derivatives\unlisted.mp4") -Destination (Join-Path $kitCorpus "derivatives\unlisted.mp4")
+    Assert-Throws { Test-MaviPocDemoCorpus -Root $kitCorpus -Record $corpusRecord } "unlisted file" "A file the definition does not pin in the kit corpus (for example a crop or another dataset's clip)"
+    Remove-Item -LiteralPath (Join-Path $kitCorpus "derivatives\unlisted.mp4")
+    New-Item -ItemType Directory -Path (Join-Path $kitCorpus "faces") -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $kitCorpus "faces\crop.jpg"), "x")
+    Assert-Throws { Test-MaviPocDemoCorpus -Root $kitCorpus -Record $corpusRecord } "unlisted file" "A biometric derivative in the kit corpus"
+    Remove-Item -LiteralPath (Join-Path $kitCorpus "faces") -Recurse
+    [IO.File]::WriteAllText((Join-Path $kitCorpus "derivatives\b.mp4"), "tampered")
+    Assert-Throws { Test-MaviPocDemoCorpus -Root $kitCorpus -Record $corpusRecord } "pinned SHA-256" "A changed kit clip"
+    Remove-Item -LiteralPath (Join-Path $kitCorpus "derivatives\b.mp4")
+    Assert-Throws { Test-MaviPocDemoCorpus -Root $kitCorpus -Record $corpusRecord } "missing" "A kit clip removed from the kit corpus"
+    Remove-Item -LiteralPath (Join-Path $kitCorpus "demo-corpus-attribution.md")
+    Assert-Throws { Test-MaviPocDemoCorpus -Root $kitCorpus -Record $corpusRecord } "attribution" "A kit corpus without its attribution file"
+    $nc = Join-Path $tempRoot "nc.json"; New-TestCorpusDefinition -Path $nc -SecondLicence "cc-by-nc-4.0"
+    Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $nc -CorpusRoot $corpus -AttributionPath $attribution -Destination (Join-Path $tempRoot "kit-nc") } "CC0 / CC BY only" "A non-CC0/CC-BY clip marked for the kit"
+    $wrong = Join-Path $tempRoot "wrong.json"; New-TestCorpusDefinition -Path $wrong -SecondSha ("0" * 64)
+    Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $wrong -CorpusRoot $corpus -AttributionPath $attribution -Destination (Join-Path $tempRoot "kit-wrong") } "pinned SHA-256" "A source clip that does not match its pin"
+    Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $corpusDefinition -CorpusRoot $corpus -AttributionPath (Join-Path $tempRoot "none.md") -Destination (Join-Path $tempRoot "kit-none") } "attribution file" "A kit corpus without an attribution source"
+    if ($kitBuilder -notmatch 'Copy-MaviPocDemoCorpus -DefinitionPath \(Join-Path \$PSScriptRoot "\.\.\\\.\.\\tools\\poc\\demo-corpus\\demo-corpus-v1\.json"\)' -or $kitBuilder -notmatch 'docs\\qualification\\poc\\demo-corpus-attribution\.md') { throw "The kit builder must take the corpus definition and attribution from the repository." }
+    $kitChecker = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Test-MaviOfflineBinaryKit.ps1") -Raw
+    if ($kitChecker -notmatch 'Test-MaviPocDemoCorpus' -or $kitChecker -notmatch 'carries media but records no demo corpus') { throw "The kit checker must verify a kit's demo corpus and refuse unrecorded media." }
+
     # --- Release metadata: the disclosure is fixed; the platform's start-up checks hold. ---
     $packs = @([ordered]@{ kind = "runtime"; role = "vision"; capabilityId = $null; packId = "mavi-runtime-v2-x"; variant = "windows-x86_64-cpu"; verificationStatus = "qualified-hosted-cpu"; note = $null })
     $metadata = New-MaviPocReleaseMetadata -ApplicationRevision ("a" * 40) -BundleSha256 ("b" * 64) -DevicePolicy "Auto" -CudaDecision ([ordered]@{ gpuCheck = "nvidia_smi_absent" }) -Packs $packs -InstalledAtUtc "2026-10-28T00:00:00Z"

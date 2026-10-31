@@ -584,6 +584,118 @@ function Read-MaviPocDemoCameras {
     return $cameras
 }
 
+# The demo corpus in the offline kit (PoC S13; plan D3; register B2, B3, D5): only the trimmed clips the S2
+# definition pins with kit=true, each byte-identical to its pinned SHA-256, next to the definition, the
+# attribution file and the licence texts. Kit media is CC0 / CC BY only, so any other licence code is refused;
+# nothing else may sit in the folder, so no crop, embedding, gallery or owner-machine-only clip can ride along.
+$script:PocDemoCorpusLicences = [ordered]@{
+    "cc0"       = [ordered]@{ name = "CC0 1.0 Universal (public domain dedication)"; uri = "https://creativecommons.org/publicdomain/zero/1.0/legalcode" }
+    "cc-by-2.0" = [ordered]@{ name = "Creative Commons Attribution 2.0 Generic"; uri = "https://creativecommons.org/licenses/by/2.0/legalcode" }
+    "cc-by-3.0" = [ordered]@{ name = "Creative Commons Attribution 3.0 Unported"; uri = "https://creativecommons.org/licenses/by/3.0/legalcode" }
+    "cc-by-4.0" = [ordered]@{ name = "Creative Commons Attribution 4.0 International"; uri = "https://creativecommons.org/licenses/by/4.0/legalcode" }
+}
+$script:PocDemoCorpusFixedFiles = @("demo-corpus-v1.json", "demo-corpus-attribution.md", "LICENCES.md")
+
+function Copy-MaviPocDemoCorpus {
+    param(
+        [Parameter(Mandatory = $true)][string]$DefinitionPath,
+        # The S2 corpus root: the clips are read from its derivatives\ folder.
+        [Parameter(Mandatory = $true)][string]$CorpusRoot,
+        [Parameter(Mandatory = $true)][string]$AttributionPath,
+        # Full licence texts held offline (for example MEVA's licence file, which carries CC BY 4.0 in full).
+        [string[]]$LicenceFile = @(),
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+    $definition = Get-Content -LiteralPath $DefinitionPath -Raw | ConvertFrom-Json
+    if ([string]$definition.schemaVersion -ne "mavi-poc-demo-corpus-v1") { throw "Unsupported demo corpus definition schema '$($definition.schemaVersion)'." }
+    if (-not (Test-Path -LiteralPath $AttributionPath -PathType Leaf)) { throw "The demo corpus attribution file '$AttributionPath' is missing." }
+    $clips = @($definition.clips | Where-Object { $_.kit -eq $true })
+    if ($clips.Count -eq 0) { throw "The demo corpus definition names no kit clip." }
+    if (Test-Path -LiteralPath $Destination) { throw "Demo corpus destination '$Destination' already exists." }
+    $derivatives = Join-Path $Destination "derivatives"
+    $licenceRoot = Join-Path $Destination "licences"
+    New-Item -ItemType Directory -Path $derivatives, $licenceRoot -Force | Out-Null
+
+    $records = @()
+    $codes = New-Object "System.Collections.Generic.SortedSet[string]" ([StringComparer]::Ordinal)
+    foreach ($clip in $clips) {
+        $code = [string]$clip.source.licenceCode
+        if (-not $script:PocDemoCorpusLicences.Contains($code)) { throw "Clip '$($clip.clipId)' has licence '$code'; kit media is CC0 / CC BY only (plan D3)." }
+        $fileName = [string]$clip.derivative.fileName
+        if ($fileName -notmatch '\A[A-Za-z0-9._-]+\.mp4\z') { throw "Clip '$($clip.clipId)' names an invalid derivative file '$fileName'." }
+        $source = Join-Path (Join-Path $CorpusRoot "derivatives") $fileName
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Kit clip '$($clip.clipId)' is missing at '$source'." }
+        $expected = ([string]$clip.derivative.sha256).ToLowerInvariant()
+        if ((Get-MaviSha256 -Path $source) -ne $expected) { throw "Kit clip '$($clip.clipId)' does not match its pinned SHA-256." }
+        $target = Join-Path $derivatives $fileName
+        Copy-Item -LiteralPath $source -Destination $target
+        if ((Get-MaviSha256 -Path $target) -ne $expected) { throw "Kit clip '$($clip.clipId)' changed while it was copied." }
+        [void]$codes.Add($code)
+        $records += [ordered]@{ clipId = [string]$clip.clipId; fileName = $fileName; sha256 = $expected; licenceCode = $code; provider = [string]$clip.source.provider }
+    }
+    Copy-Item -LiteralPath $DefinitionPath -Destination (Join-Path $Destination "demo-corpus-v1.json")
+    Copy-Item -LiteralPath $AttributionPath -Destination (Join-Path $Destination "demo-corpus-attribution.md")
+    $licenceRecords = @()
+    foreach ($file in @($LicenceFile)) {
+        $item = Get-Item -LiteralPath $file
+        if ($item.Name -notmatch '\A[A-Za-z0-9._-]+\.txt\z') { throw "Licence file '$($item.Name)' must be a plain .txt file with a simple name." }
+        $target = Join-Path $licenceRoot $item.Name
+        if (Test-Path -LiteralPath $target) { throw "Two licence files are named '$($item.Name)'." }
+        Copy-Item -LiteralPath $item.FullName -Destination $target
+        $licenceRecords += [ordered]@{ fileName = $item.Name; sha256 = (Get-MaviSha256 -Path $target) }
+    }
+
+    $lines = @("# Demo corpus licences", "", "The clips in derivatives\ are published under the licences below; each clip's author, source, licence and changes are in demo-corpus-attribution.md, which must accompany the clips. Each licence permits the licence's URI in place of its full text.", "", "| Licence | Clips | Legal code |", "|---|---|---|")
+    foreach ($code in $codes) {
+        $ids = @($records | Where-Object { $_.licenceCode -eq $code } | ForEach-Object { $_.clipId }) -join ", "
+        $lines += "| $($script:PocDemoCorpusLicences[$code].name) | $ids | $($script:PocDemoCorpusLicences[$code].uri) |"
+    }
+    if ($licenceRecords.Count -gt 0) {
+        $lines += @("", "Full texts held with the clips (licences\):", "")
+        foreach ($licence in $licenceRecords) { $lines += "- $($licence.fileName) (SHA-256 $($licence.sha256))" }
+    }
+    [IO.File]::WriteAllText((Join-Path $Destination "LICENCES.md"), (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+
+    return [ordered]@{
+        definitionSha256 = Get-MaviSha256 -Path (Join-Path $Destination "demo-corpus-v1.json")
+        attributionSha256 = Get-MaviSha256 -Path (Join-Path $Destination "demo-corpus-attribution.md")
+        licenceIndexSha256 = Get-MaviSha256 -Path (Join-Path $Destination "LICENCES.md")
+        clips = @($records)
+        licences = @($licenceRecords)
+    }
+}
+
+# Checks a kit's demo corpus folder against its record: every kit clip of the shipped definition present and
+# byte-identical, the attribution and licence index present, and nothing else in the folder.
+function Test-MaviPocDemoCorpus {
+    param([Parameter(Mandatory = $true)][string]$Root, [Parameter(Mandatory = $true)]$Record)
+    $definitionPath = Join-Path $Root "demo-corpus-v1.json"
+    foreach ($name in $script:PocDemoCorpusFixedFiles) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Root $name) -PathType Leaf)) { throw "The kit's demo corpus has no $name." }
+    }
+    if ((Get-MaviSha256 -Path $definitionPath) -ne [string]$Record.definitionSha256) { throw "The kit's demo corpus definition does not match its record." }
+    if ((Get-MaviSha256 -Path (Join-Path $Root "demo-corpus-attribution.md")) -ne [string]$Record.attributionSha256) { throw "The kit's demo corpus attribution file does not match its record." }
+    if ((Get-MaviSha256 -Path (Join-Path $Root "LICENCES.md")) -ne [string]$Record.licenceIndexSha256) { throw "The kit's demo corpus licence index does not match its record." }
+    $definition = Get-Content -LiteralPath $definitionPath -Raw | ConvertFrom-Json
+    $expected = @{}
+    foreach ($clip in @($definition.clips | Where-Object { $_.kit -eq $true })) {
+        if (-not $script:PocDemoCorpusLicences.Contains([string]$clip.source.licenceCode)) { throw "Kit clip '$($clip.clipId)' is not CC0 / CC BY." }
+        $expected["derivatives/" + [string]$clip.derivative.fileName] = ([string]$clip.derivative.sha256).ToLowerInvariant()
+    }
+    foreach ($licence in @($Record.licences)) { $expected["licences/" + [string]$licence.fileName] = [string]$licence.sha256 }
+    $prefix = ([IO.Path]::GetFullPath($Root)).TrimEnd("\") + "\"
+    $seen = @{}
+    foreach ($file in @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force)) {
+        $relative = $file.FullName.Substring($prefix.Length).Replace("\", "/")
+        if ($script:PocDemoCorpusFixedFiles -contains $relative) { continue }
+        if (-not $expected.ContainsKey($relative)) { throw "The kit's demo corpus carries an unlisted file '$relative'." }
+        if ((Get-MaviSha256 -Path $file.FullName) -ne $expected[$relative]) { throw "The kit's demo corpus file '$relative' does not match its pinned SHA-256." }
+        $seen[$relative] = $true
+    }
+    foreach ($key in $expected.Keys) { if (-not $seen.ContainsKey($key)) { throw "The kit's demo corpus is missing '$key'." } }
+    return $expected.Count
+}
+
 # A Runtime Pack is installed only when its native code loads on this host: torch and
 # an mmcv native op are imported in the installed runtime, after the bundled Visual C++
 # runtime is in place, so a worker that cannot start is never left behind.
@@ -878,4 +990,4 @@ function New-MaviPocUninstallPlan {
     }
 }
 
-Export-ModuleMember -Function Assert-MaviPocRemovableRoot, ConvertFrom-MaviPocConnectionString, New-MaviPocUninstallPlan, Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks, Get-MaviPocFacesPack, Select-MaviPocLanguagePack, Resolve-MaviPocLanguageDevice, Get-MaviPocLanguagePacks
+Export-ModuleMember -Function Copy-MaviPocDemoCorpus, Test-MaviPocDemoCorpus, Assert-MaviPocRemovableRoot, ConvertFrom-MaviPocConnectionString, New-MaviPocUninstallPlan, Get-MaviPocVcRuntimeMinimum, Assert-MaviPocVcRedistInstaller, Test-MaviPocVcRuntimeSatisfied, Get-MaviPocInstalledVcRuntime, Install-MaviPocVcRuntime, Protect-MaviPocRoot, Assert-MaviPocNoReparsePoint, Assert-MaviPocRuntimeLoads, Write-MaviPocProcessRecord, Get-MaviPocRecordedProcess, Get-MaviPocProfile, Get-MaviPocOperatorUrl, Get-MaviPocDisclosureStatement, Get-MaviPocLayout, Test-MaviPocCudaCompatibleGpu, Get-MaviPocCudaRuntimePackCandidates, Select-MaviPocCudaRuntimePack, Get-MaviPocCudaBuildKey, Get-MaviPocCudaBuildStatus, Get-MaviPocRuntimeVerificationStatus, Get-MaviPocModelVerificationStatus, New-MaviPocReleaseMetadata, New-MaviPocMachineConfig, Read-MaviPocDemoCameras, Get-MaviPocNoticeLicence, Get-MaviPocPlatesPacks, Get-MaviPocFacesPack, Select-MaviPocLanguagePack, Resolve-MaviPocLanguageDevice, Get-MaviPocLanguagePacks
