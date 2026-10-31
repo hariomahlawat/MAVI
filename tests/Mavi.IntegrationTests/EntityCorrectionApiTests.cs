@@ -95,6 +95,14 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
         Assert.Empty((await host.GetJsonAsync($"/api/entities/{entity}")).GetProperty("members").EnumerateArray());
         using (var again = await host.Client.PostAsJsonAsync($"/api/entities/{entity}/unlink", new { trackId = world.A0 }))
             Assert.Equal(EntityCorrectionRules.TrackNotMember, await VisualAttributeApiHost.ProblemCodeAsync(again));
+
+        // The empty Entity is not merged: there is nothing to move and no membership row would carry the merge (Codex P2).
+        var other = await ConfirmAsync(world, world.A1, world.B1);
+        var audits = await host.AuditCountAsync();
+        using (var empty = await host.Client.PostAsJsonAsync($"/api/entities/{entity}/merge", new { intoEntityId = other, note = "tidy up" }))
+            Assert.Equal(EntityCorrectionRules.MergeSourceEmpty, await VisualAttributeApiHost.ProblemCodeAsync(empty));
+        Assert.Equal(audits, await host.AuditCountAsync());
+        Assert.Equal("Active", (await host.GetJsonAsync($"/api/entities/{entity}")).GetProperty("state").GetString());
         await AssertProjectionInvariantAsync(host);
     }
 
@@ -123,12 +131,21 @@ public sealed class EntityCorrectionApiTests(PostgresFixture fixture)
             .Select(x => x.GetProperty("decision").GetString()).ToList();
         Assert.Equal(["Confirmed", "Reopened", "Confirmed"], history);
 
+        // The Entity's audit subjects keep every candidate ever linked to it, read from the histories: after the reopen the
+        // candidate stood Open, yet its first confirmation and the reopen belong to this Entity's trail (Codex P2).
+        using (await host.Client.PostAsJsonAsync($"/api/entities/{entity}/unlink", new { trackId = world.B0 })) { }
+        using (await host.Client.PostAsJsonAsync($"/api/entity-candidates/{linked}/reopen", new { note = "again" })) { }
+        var related = (await host.GetJsonAsync($"/api/entities/{entity}")).GetProperty("relatedCandidateIds").EnumerateArray()
+            .Select(x => x.GetGuid()).ToList();
+        Assert.Equal([linked], related);
+        Assert.Empty((await host.GetJsonAsync($"/api/entities/{entity}")).GetProperty("confirmations").EnumerateArray());
+
         // A dismissal can be reopened too.
         using (var dismissed = await host.DecideAsync(open, "dismiss")) Assert.Equal(HttpStatusCode.OK, dismissed.StatusCode);
         using (var reopenDismissed = await host.Client.PostAsJsonAsync($"/api/entity-candidates/{open}/reopen", new { note = "look again" }))
             Assert.Equal(HttpStatusCode.OK, reopenDismissed.StatusCode);
         Assert.Equal(1, await host.AuditCountAsync("entities.candidate-dismissed"));
-        Assert.Equal(2, await host.AuditCountAsync("entities.candidate-reopened"));
+        Assert.Equal(3, await host.AuditCountAsync("entities.candidate-reopened"));
         await AssertProjectionInvariantAsync(host);
     }
 

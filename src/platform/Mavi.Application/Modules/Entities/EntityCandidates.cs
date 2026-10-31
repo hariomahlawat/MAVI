@@ -71,7 +71,8 @@ public sealed record EntityView(
     EntityMergeState State = EntityMergeState.Active,
     Guid? MergedIntoEntityId = null,
     IReadOnlyList<EntityMembershipChangeView>? History = null,
-    IReadOnlyList<Guid>? MergedFromEntityIds = null);
+    IReadOnlyList<Guid>? MergedFromEntityIds = null,
+    IReadOnlyList<Guid>? RelatedCandidateIds = null);
 
 /// <summary>One join or leave of a Track, as recorded (ADR-027 §4).</summary>
 public sealed record EntityMembershipChangeView(long Sequence, Guid TrackId, Guid EntityId, EntityMembershipChangeKind Change,
@@ -93,6 +94,8 @@ public static class EntityCorrectionRules
     public const string EntityNotActive = "entity_not_active";
     public const string MergeInvalid = "entity_merge_invalid";
     public const string MergeImplausible = "entity_merge_implausible";
+    /// <summary>The source has no members: a merge would move nothing and leave no membership history to record it.</summary>
+    public const string MergeSourceEmpty = "entity_merge_source_empty";
     public const string TrackNotMember = "entity_track_not_member";
     public const string ChangedConcurrently = "entity_changed_concurrently";
     public const string CandidateNotDecided = "entity_candidate_not_decided";

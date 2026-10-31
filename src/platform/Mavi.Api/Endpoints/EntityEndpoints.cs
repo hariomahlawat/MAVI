@@ -118,7 +118,8 @@ public static class EntityEndpoints
 
     public sealed record EntityResponse(string Label, Guid EntityId, string DisplayCode, string EntityType, string IdentityStatus,
         DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, IReadOnlyList<TrackResponse> Members, IReadOnlyList<CandidateResponse> Confirmations,
-        string State, Guid? MergedIntoEntityId, IReadOnlyList<MembershipChangeResponse> History, IReadOnlyList<Guid> MergedFromEntityIds);
+        string State, Guid? MergedIntoEntityId, IReadOnlyList<MembershipChangeResponse> History, IReadOnlyList<Guid> MergedFromEntityIds,
+        IReadOnlyList<Guid> RelatedCandidateIds);
 
     // --- Reads -----------------------------------------------------------------------------------
 
@@ -177,7 +178,8 @@ public static class EntityEndpoints
             entity.Confirmations.Select(item => Candidate(item, catalogue, false)).ToList(), entity.State.ToString(), entity.MergedIntoEntityId,
             (entity.History ?? []).Select(change => new MembershipChangeResponse(change.Sequence, change.TrackId, change.EntityId,
                 change.Change.ToString(), change.Cause.ToString(), change.CandidateId, change.Note, change.OperatorId, change.OperatorDisplayName,
-                change.IdentitySource, change.AtUtc, change.AuditEntryId)).ToList(), entity.MergedFromEntityIds ?? []);
+                change.IdentitySource, change.AtUtc, change.AuditEntryId)).ToList(), entity.MergedFromEntityIds ?? [],
+            entity.RelatedCandidateIds ?? []);
     }
 
     private static async Task<IResult> CandidateHistoryAsync(Guid id, HttpRequest http, IEntityCandidateRepository repository,
@@ -248,6 +250,8 @@ public static class EntityEndpoints
         EntityCorrectionRules.EntityNotFound => Problem(404, result.RefusalCode, "The Entity does not exist."),
         EntityCorrectionRules.EntityNotActive => Problem(409, result.RefusalCode, "The Entity was merged into another and no longer changes."),
         EntityCorrectionRules.MergeInvalid => Problem(409, result.RefusalCode, "Only two different active Entities of one type can be merged."),
+        EntityCorrectionRules.MergeSourceEmpty => Problem(409, result.RefusalCode,
+            "The Entity to merge has no members; it is kept as the record of its decisions and there is nothing to move."),
         EntityCorrectionRules.TrackNotMember => Problem(409, result.RefusalCode, "The Track is not a member of this Entity."),
         EntityCorrectionRules.ChangedConcurrently => Problem(409, result.RefusalCode, "The Entities changed while merging; read them again."),
         EntityCorrectionRules.MergeImplausible => Results.Json(new

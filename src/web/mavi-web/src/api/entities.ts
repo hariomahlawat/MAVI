@@ -142,6 +142,11 @@ export type EntityResponse = {
   history: EntityMembershipChange[];
   /** The Entities merged into this one, directly or through another merge: their merges are recorded under their own ids. */
   mergedFromEntityIds: string[];
+  /**
+   * Every candidate ever linked to this Entity or one merged into it, from the append-only histories (ADR-027): a candidate since
+   * unlinked, reopened or confirmed elsewhere still carries this Entity's decisions in its audit trail.
+   */
+  relatedCandidateIds: string[];
 };
 
 export type EntityState = 'Active' | 'Merged';
@@ -230,6 +235,10 @@ function normaliseEntity(entity: EntityResponse): EntityResponse {
     mergedIntoEntityId: entity.mergedIntoEntityId ?? null,
     history: Array.isArray(entity.history) ? entity.history : [],
     mergedFromEntityIds: Array.isArray(entity.mergedFromEntityIds) ? entity.mergedFromEntityIds.filter((id) => typeof id === 'string') : [],
+    // An older server has no history to read: its current confirmations are the closest it can say.
+    relatedCandidateIds: Array.isArray(entity.relatedCandidateIds)
+      ? entity.relatedCandidateIds.filter((id) => typeof id === 'string')
+      : (entity.confirmations ?? []).map((item) => item.candidateId),
     confirmations: Array.isArray(entity.confirmations) ? entity.confirmations : [],
     members: Array.isArray(entity.members) ? entity.members : [],
   };

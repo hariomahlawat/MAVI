@@ -77,6 +77,9 @@ public sealed partial class EntityCandidateRepository
             var targetMembers = tracks.Where(x => x.EntityId == targetEntityId).ToList();
             // Every cross pair must be physically possible (ADR-023 §4), every member counted, earlier runs included (fail-closed,
             // as extension is). Scope (site) is a candidate-generation rule and is not applied to an operator's merge.
+            // An Entity left with no member (ADR-027 option (a)) stays as the record of its decisions; merging it would move
+            // nothing, so the operator's merge and its note would have no membership row to stand in. Refused, not recorded empty.
+            if (sourceMembers.Count == 0) return new EntityCorrectionResult(EntityCorrectionRules.MergeSourceEmpty);
             var plausibility = await PlausibilityTracksAsync(tracks.Select(x => x.Id).ToList(), cancellationToken);
             foreach (var left in sourceMembers.OrderBy(x => x.Id))
             foreach (var right in targetMembers.OrderBy(x => x.Id))
@@ -182,6 +185,23 @@ public sealed partial class EntityCandidateRepository
     private async Task<HashSet<Guid>> MemberIdsAsync(Guid[] entityIds, CancellationToken cancellationToken) =>
         (await db.Tracks.AsNoTracking().Where(x => x.EntityId != null && entityIds.Contains(x.EntityId.Value)).Select(x => x.Id)
             .ToListAsync(cancellationToken)).ToHashSet();
+
+    /// <summary>
+    /// Every candidate that was ever linked to these Entities, oldest first: those whose confirmation named one of them, and those
+    /// that brought a Track into one, from the append-only histories. A candidate since reopened, dismissed or confirmed into another
+    /// Entity is still listed, so the Entity's audit trail keeps its decisions (ADR-027 §3, §4).
+    /// </summary>
+    private async Task<List<Guid>> RelatedCandidateIdsAsync(List<Guid> entityIds, CancellationToken cancellationToken)
+    {
+        var decided = await db.EntityCandidateDecisions.AsNoTracking()
+            .Where(x => x.EntityId != null && entityIds.Contains(x.EntityId.Value))
+            .Select(x => new { x.CandidateId, x.Sequence }).ToListAsync(cancellationToken);
+        var joined = await db.EntityMembershipChanges.AsNoTracking()
+            .Where(x => x.CandidateId != null && entityIds.Contains(x.EntityId))
+            .Select(x => new { CandidateId = x.CandidateId!.Value, x.Sequence }).ToListAsync(cancellationToken);
+        return decided.Select(x => (x.CandidateId, Order: x.Sequence)).Concat(joined.Select(x => (x.CandidateId, Order: x.Sequence)))
+            .GroupBy(x => x.CandidateId).OrderBy(group => group.Min(x => x.Order)).ThenBy(group => group.Key).Select(group => group.Key).ToList();
+    }
 
     /// <summary>The Entity and every Entity merged into it, directly or through another merge.</summary>
     private async Task<List<Guid>> MergedLineageAsync(Guid entityId, CancellationToken cancellationToken)

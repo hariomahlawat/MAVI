@@ -292,7 +292,7 @@ export function EntityView({ entityId, renderMember, onShowEntity }: {
           // The merges that brought members in are recorded under the merged Entities' ids (ADR-027 §4), so they are subjects too.
           const subjects = [`entity:${data.entityId.toLowerCase()}`,
             ...data.mergedFromEntityIds.map((id) => `entity:${id.toLowerCase()}`),
-            ...data.confirmations.map((item) => `entity-candidate:${item.candidateId.toLowerCase()}`)].slice(0, AUDIT_MAXIMUM_SUBJECTS);
+            ...data.relatedCandidateIds.map((id) => `entity-candidate:${id.toLowerCase()}`)].slice(0, AUDIT_MAXIMUM_SUBJECTS);
           const tracks = [...data.members, ...data.confirmations.flatMap((item) => [item.lower, item.higher])];
           return (
             <div className="stack">
