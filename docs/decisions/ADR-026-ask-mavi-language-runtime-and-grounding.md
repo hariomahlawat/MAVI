@@ -201,3 +201,26 @@ The owner accepted this amendment, with one edit to the measurement ("Accept wit
 - The pre-check can still refuse a valid question whose wording looks like an unknown place (known-limits).
 - Reuse for the 1.5B was checked on `sm_75` only. Another device (CPU, or `sm_89` at S12) repeats the reverse-order check before reuse is relied on there.
 - The remaining misses are the model's: dropped predicates, wrong units or relations, and outside-contract questions answered as queries. Register C9.2 holds the classification.
+
+## Amendment 2026-11-01 (accepted, D-S10-10): Ask MAVI proposes, the operator confirms (§5, §7)
+
+The owner decided this on 2026-11-01 ("Yes, (a)+(b)+confirm"), after the measured result of prompt v2: about one question in two is interpreted exactly on independently written questions.
+
+- **The decision.** It replaces "the query is evaluated" in §4 and §7, and "the answer" in §5.
+  - `POST /api/ask` translates the question and returns the **proposed query** (`outcome: interpreted`): the strict parser's canonical query, its fingerprint and the catalogue names, or a typed refusal.
+  - It never evaluates the query. The Ask service has no access to the query service, and the response has no envelope member, so no answer can exist before the operator confirms.
+  - The page shows the proposal ("Interpreted as", the query JSON one click away) with two actions:
+    - **Run** sends exactly the proposed query to `POST /api/query`. The answer, coverage and drill-through are that envelope, rendered as before (§5 grounding unchanged).
+    - **Open in Advanced Search** loads the query into the builder without running it. It is disabled, with the reason shown, for a query the builder cannot hold losslessly (a minimum duration, a minimum dwell or loitering, a bucket size the builder does not offer).
+  - Refusals are unchanged. A refusal of the S9 service now comes from Run (`POST /api/query`), so the `service` stage of an Ask refusal no longer exists.
+- **Accuracy stated.** The measured accuracy (C9.2, prompt v2 on the fresh held split) is stated on the Ask page and on known-limits: 7B 20/40, 1.5B 19/40.
+- **Why.** At this accuracy an unconfirmed answer would present the result of a misread question as an answer. Confirming first makes the interpretation, not the number, the thing the operator acts on. Running costs one click.
+- **Trade-off accepted.** One more step per question, in exchange for no number reaching the operator for a query they have not seen and accepted.
+- **Evidence.** E2E with the 1.5B under the confirm flow:
+  - every one of the 40 Ask responses carried no answer;
+  - Run answered 35 queries, refused the one Entity query for the anonymous caller (#253), and 4 questions were refused with nothing to run;
+  - translation 19/40, unchanged.
+- **Also decided (D-S10-10).**
+  - C9.2 stays FAIL and S10 closes.
+  - The frozen prompt v2 is measured on the RTX 4090 at S12, as disclosed evidence, not as a new attempt at the bar.
+  - The first post-PoC improvement is the larger Apache-2.0 model (Qwen2.5-14B-Instruct) with deterministic slot checks, measured on a new fresh held split.

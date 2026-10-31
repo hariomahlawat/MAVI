@@ -6,7 +6,8 @@ public static class AskCodes
     /// <summary>The version of the translation document the model emits.</summary>
     public const string TranslationVersion = "mavi-ask-translation-v1";
 
-    public const string Answered = "answered";
+    /// <summary>The question was translated into a proposed query; nothing has run (D-S10-10).</summary>
+    public const string Interpreted = "interpreted";
     public const string Refused = "refused";
 
     public const string StageRuntime = "runtime";
@@ -16,7 +17,6 @@ public static class AskCodes
     public const string StageModel = "model";
     public const string StageTranslation = "translation";
     public const string StageContract = "contract";
-    public const string StageService = "service";
 
     // Model refusals: the only reasons a model may give, with no free text.
     public const string OutsideContract = "outside_contract";

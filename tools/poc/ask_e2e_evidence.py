@@ -7,9 +7,9 @@ role is bound, one at a time, and for each question records:
 1. **Translation**: the outcome against the corpus expectation. An expected query is canonicalised by the server
    itself (``POST /api/query``), so the comparison uses the platform's own canonical form; an expected refusal must be
    a model refusal with the same reason.
-2. **Grounding**: for an answered question, the Ask envelope must equal a direct ``POST /api/query`` of the
-   interpreted query (result, coverage, identity; the snapshot block aside): the answer is the deterministic query
-   result and nothing else.
+2. **Grounding**: Ask proposes and the operator confirms (D-S10-10). The Ask response must carry no answer at all
+   (no ``envelope`` member); the script then presses Run, which is ``POST /api/query`` of the proposal, and the
+   answer is that deterministic envelope and nothing else.
 3. **Prompt binding**: the prompt hash the API reports must equal the one in the CI recording set named, so the live
    run and the replayed recordings were given the same prompt.
 4. **Latency**: client wall time and the server's translation/evaluation split.
@@ -93,11 +93,6 @@ def resolve(value, cameras: dict):
     return value
 
 
-def comparable(envelope: dict) -> dict:
-    """The envelope without what legitimately differs between two evaluations of one query (the snapshot block)."""
-    return {key: value for key, value in envelope.items() if key != "snapshot"}
-
-
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -139,24 +134,28 @@ def run(api: str, recordings_path: Path | None, out: Path, questions_path: Path 
         if code != 200:
             raise SystemExit(f"/api/ask answered {code} for {question['id']}: {response}")
 
-        if response["outcome"] == "answered":
-            got = {"kind": "query", "resolvedQuery": response["interpretation"]["resolvedQuery"], "fingerprint": response["interpretation"]["queryFingerprint"]}
-            if operator_gated:
-                passed = got["resolvedQuery"] == expected["resolvedQuery"]
+        # D-S10-10: Ask proposes and carries no answer; the operator's Run is POST /api/query of the proposal.
+        unanswered = "envelope" not in response
+        run_code = None
+        if response["outcome"] == "interpreted":
+            proposal = response["interpretation"]["resolvedQuery"]
+            run_code, run = post(api, "/api/query", proposal, timeout=120)
+            if operator_gated or (run_code == 401 and proposal["unit"] == "entity"):
+                # The anonymous Run of an Entity query is refused: no Entity data reaches this caller.
+                got = {"kind": "query", "resolvedQuery": proposal, "fingerprint": None}
+                passed = expected["kind"] == "query" and proposal == expected["resolvedQuery"]
+                grounded = unanswered and run_code == 401
             else:
-                passed = expected["kind"] == "query" and got["fingerprint"] == expected["fingerprint"]
-            direct_code, direct = post(api, "/api/query", response["interpretation"]["resolvedQuery"], timeout=120)
-            if direct_code == 401 and response["interpretation"]["resolvedQuery"]["unit"] == "entity":
-                result = response["envelope"]["result"]
-                grounded = result["kind"] == "empty" and result["reason"] == "operator_required"
-            else:
-                grounded = direct_code == 200 and comparable(direct) == comparable(response["envelope"])
+                got = {"kind": "query", "resolvedQuery": proposal, "fingerprint": run.get("queryFingerprint") if run_code == 200 else None}
+                passed = expected["kind"] == "query" and run_code == 200 and run["queryFingerprint"] == expected["fingerprint"]
+                # What the page shows after Run is this envelope, from the S9 service, and nothing before it.
+                grounded = unanswered and run_code in (200, 400, 422)
         else:
             refusal = response["refusal"]
             got = {"kind": "refusal", "stage": refusal["stage"], "code": refusal["code"], "path": refusal["path"]}
             passed = (expected["kind"] == "refusal" and refusal["code"] == expected["code"]
                       and refusal["stage"] in REFUSAL_STAGES.get(expected["code"], ()))
-            grounded = response["envelope"] is None and response["interpretation"] is None
+            grounded = unanswered and response["interpretation"] is None
 
         prompt_bound = None
         if question["id"] in recorded and recorded[question["id"]].get("stage") != "question":
@@ -169,9 +168,10 @@ def run(api: str, recordings_path: Path | None, out: Path, questions_path: Path 
             "grounded": grounded,
             "promptMatchesRecording": prompt_bound,
             "operatorGated": operator_gated,
+            "runStatus": run_code,
             "expected": expected,
             "got": got,
-            "resultKind": response["envelope"]["result"]["kind"] if response["envelope"] else None,
+            "resultKind": run["result"]["kind"] if run_code == 200 else None,
             "wallMs": round(wall_ms, 1),
             "timings": response["timings"],
             "promptSha256": response["model"]["promptSha256"],

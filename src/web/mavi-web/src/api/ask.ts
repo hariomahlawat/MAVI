@@ -1,17 +1,18 @@
 import { apiJson, apiRequest } from './client';
-import type { QueryEnvelope, StructuredQuery } from './query';
+import type { StructuredQuery } from './query';
 
 /**
  * The Ask MAVI client (ADR-026).
  *
  * A question goes to the server whole; the server's language role translates it into
- * one structured query of contract `mavi-query-v1` or refuses, and the S9 service
- * evaluates the query. Nothing here, and nothing in a response, is model text: the
- * interpretation is the server's canonical query, the answer is the S9 envelope, and
+ * one structured query of contract `mavi-query-v1` or refuses. Ask proposes and the
+ * operator confirms (D-S10-10): the response carries the interpreted query only, never
+ * an answer; the operator runs it through `POST /api/query`. Nothing here, and nothing in
+ * a response, is model text: the interpretation is the server's canonical query, and
  * every message is platform text.
  */
 
-export type AskStage = 'runtime' | 'question' | 'model' | 'translation' | 'contract' | 'service';
+export type AskStage = 'runtime' | 'question' | 'model' | 'translation' | 'contract';
 
 export type AskReference = {
   kind: 'camera' | 'zone' | 'line';
@@ -42,12 +43,11 @@ export type AskResponse = {
   question: string;
   referenceDate: string;
   siteTimeZoneId: string;
-  outcome: 'answered' | 'refused';
+  outcome: 'interpreted' | 'refused';
   interpretation: { resolvedQuery: StructuredQuery; queryFingerprint: string; references: AskReference[] } | null;
-  envelope: QueryEnvelope | null;
   refusal: { stage: AskStage; code: string; path: string; message: string } | null;
   model: AskModel;
-  timings: { translationMs: number; evaluationMs: number; totalMs: number };
+  timings: { translationMs: number; totalMs: number };
   disclosure: string;
 };
 
@@ -83,6 +83,5 @@ export function stageText(stage: AskStage): string {
     case 'model': return 'MAVI cannot ask that';
     case 'translation': return 'The question could not be turned into a query';
     case 'contract': return 'The interpreted query is outside the query contract';
-    case 'service': return 'The query was refused';
   }
 }

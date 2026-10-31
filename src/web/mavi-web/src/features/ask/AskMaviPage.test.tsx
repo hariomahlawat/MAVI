@@ -3,15 +3,20 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ask, getAskStatus, type AskResponse, type AskStatus } from '../../api/ask';
-import type { QueryEnvelope } from '../../api/query';
+import { ApiError } from '../../api/client';
+import { runQuery, type QueryEnvelope } from '../../api/query';
 import { displayTimestamp, formatOffset } from '../../shared/format/format';
 import { renderWithApp } from '../../test/renderWithApp';
-import AskMaviPage, { AskAnswer } from './AskMaviPage';
+import AskMaviPage, { ACCURACY, AskAnswer, AskResult } from './AskMaviPage';
 import { answerSentence, describeQuery } from './interpretation';
 
 vi.mock('../../api/ask', async () => {
   const actual = await vi.importActual<typeof import('../../api/ask')>('../../api/ask');
   return { ...actual, ask: vi.fn(), getAskStatus: vi.fn() };
+});
+vi.mock('../../api/query', async () => {
+  const actual = await vi.importActual<typeof import('../../api/query')>('../../api/query');
+  return { ...actual, runQuery: vi.fn() };
 });
 
 const zone = 'Asia/Kolkata';
@@ -86,12 +91,13 @@ const RESULTS: Record<string, QueryEnvelope['result']> = {
   emptyEntity: { ...empty, kind: 'empty', reason: 'entity_data_unavailable', message: 'No Entity exists until ReID candidates are confirmed.' },
 };
 
-function answered(result: QueryEnvelope['result']): AskResponse {
+/** What Ask returns (D-S10-10): the proposed query only, never an answer. */
+function proposed(): AskResponse {
   return {
     question: 'How many vehicles entered through the Arch gate between 09:00 and 10:00, per 15 minutes?',
     referenceDate: '2026-10-01',
     siteTimeZoneId: zone,
-    outcome: 'answered',
+    outcome: 'interpreted',
     interpretation: {
       resolvedQuery,
       queryFingerprint: 'ab12'.repeat(16),
@@ -100,14 +106,13 @@ function answered(result: QueryEnvelope['result']): AskResponse {
         { kind: 'line', id: lineId, name: 'Arch gate', cameraId, cameraName: 'PoC demo 05 - Archway gate', aToBLabel: 'Exit', bToALabel: 'Entry' },
       ],
     },
-    envelope: envelope(result),
     refusal: null,
     model: {
       modelPackId: 'mavi-language-v1-abc', modelId: 'qwen2-5-1-5b-instruct', quantisation: 'Q8_0', runtimeId: 'llamacpp-b12000-win-x64',
       device: 'cuda:0', promptTemplateVersion: 'mavi-ask-prompt-v2', promptSha256: 'c'.repeat(64), temperature: 0, topK: 1, seed: 42,
       promptTokens: 6400, generatedTokens: 120,
     },
-    timings: { translationMs: 4321, evaluationMs: 87, totalMs: 4420 },
+    timings: { translationMs: 4321, totalMs: 4333 },
     disclosure: 'PoC profile, Development evidence, not Production-qualified.',
   };
 }
@@ -149,15 +154,20 @@ function textNodes(root: Element): string[] {
 }
 
 function renderAnswer(response: AskResponse) {
-  return render(<MemoryRouter><AskAnswer response={response} /></MemoryRouter>);
+  return renderWithApp(<AskAnswer response={response} />);
+}
+
+/** The answer of a query the operator ran. */
+function renderResult(value: QueryEnvelope) {
+  return render(<MemoryRouter><AskResult envelope={value} timeZoneId={zone} /></MemoryRouter>);
 }
 
 describe('Ask MAVI grounding (ADR-026 §5)', () => {
   it.each(Object.keys(RESULTS))('shows no number in the %s answer that the envelope does not carry', (name) => {
-    const response = answered(RESULTS[name]);
-    renderAnswer(response);
+    const value = envelope(RESULTS[name]);
+    renderResult(value);
     const answerPanel = screen.getByRole('heading', { name: 'Answer' }).closest('section') ?? document.body;
-    const allowed = groundedNumbers(response.envelope!);
+    const allowed = groundedNumbers(value);
     const shown = textNodes(answerPanel).flatMap((text) => text.match(/\d+(?:\.\d+)?/g) ?? []);
     expect(shown.filter((token) => !allowed.has(token))).toEqual([]);
   });
@@ -182,7 +192,7 @@ describe('Ask MAVI grounding (ADR-026 §5)', () => {
 
   it('never shows a figure for a withheld or empty answer', () => {
     for (const name of ['withheld', 'emptyEntity']) {
-      const { unmount } = renderAnswer(answered(RESULTS[name]));
+      const { unmount } = renderResult(envelope(RESULTS[name]));
       const answerPanel = screen.getByRole('heading', { name: 'Answer' }).closest('section')!;
       expect(answerPanel.textContent).not.toMatch(/\b0\b/);
       unmount();
@@ -190,7 +200,7 @@ describe('Ask MAVI grounding (ADR-026 §5)', () => {
   });
 
   it('interprets the query in site time with names from the catalogue references only', () => {
-    const response = answered(RESULTS.buckets);
+    const response = proposed();
     const lines = Object.fromEntries(describeQuery(response.interpretation!.resolvedQuery, response.interpretation!.references, zone).map((line) => [line.label, line.value]));
     expect(lines.What).toBe('Vehicle Tracks');
     expect(lines.Cameras).toBe('PoC demo 05 - Archway gate');
@@ -201,7 +211,7 @@ describe('Ask MAVI grounding (ADR-026 §5)', () => {
   });
 
   it('drills through from Track rows to Review', () => {
-    renderAnswer(answered(RESULTS.rows));
+    renderResult(envelope(RESULTS.rows));
     const link = screen.getByRole('link', { name: 'Review Track' });
     expect(link.getAttribute('href')).toContain(`/review/video/${videoId}`);
   });
@@ -214,14 +224,12 @@ describe('Ask MAVI refusals', () => {
     ['translation', 'plate_text_ungrounded', 'The question could not be turned into a query'],
     ['translation', 'time_offset_mismatch', 'The question could not be turned into a query'],
     ['contract', 'geometry_requires_single_camera', 'The interpreted query is outside the query contract'],
-    ['service', 'unknown_reference', 'The query was refused'],
     ['runtime', 'language_unavailable', 'Ask MAVI is not available'],
   ] as const)('shows a %s refusal plainly, with no interpretation and no answer', (stage, code, heading) => {
     renderAnswer({
-      ...answered(RESULTS.value),
+      ...proposed(),
       outcome: 'refused',
       interpretation: null,
-      envelope: null,
       refusal: { stage, code, path: '/where/cameraIds', message: 'Platform text.' },
     });
     const refusal = screen.getByRole('alert', { name: 'Refusal' });
@@ -229,17 +237,67 @@ describe('Ask MAVI refusals', () => {
     expect(within(refusal).getByText(code)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Answer' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Interpreted as' })).toBeNull();
-    expect(document.body.textContent).not.toMatch(/\b37\b/);
+    expect(screen.queryByRole('button', { name: 'Run' })).toBeNull();
+    expect(runQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe('Ask MAVI proposes, the operator confirms (D-S10-10)', () => {
+  beforeEach(() => {
+    vi.mocked(runQuery).mockReset();
+    vi.mocked(runQuery).mockResolvedValue(envelope(RESULTS.buckets));
+  });
+
+  it('shows the proposal, the accuracy and the two actions, and computes no answer before Run', () => {
+    renderAnswer(proposed());
+    expect(screen.getByRole('heading', { name: 'Interpreted as' })).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(ACCURACY.slice(0, 40)))).toBeInTheDocument();
+    expect(ACCURACY).toContain('20');
+    expect(ACCURACY).toContain('19');
+    expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Open in Advanced Search' })).toBeEnabled();
+    expect(screen.queryByRole('heading', { name: 'Answer' })).toBeNull();
+    expect(runQuery).not.toHaveBeenCalled();
+  });
+
+  it('runs exactly the proposed query on Run, and only then shows the answer', async () => {
+    renderAnswer(proposed());
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(runQuery).mock.calls[0][0]).toEqual(resolvedQuery);
+    expect(await screen.findByLabelText('Answer summary')).toHaveTextContent('with 11 Tracks');
+  });
+
+  it('shows a refusal of the run plainly, with no answer', async () => {
+    vi.mocked(runQuery).mockRejectedValue(new ApiError({
+      status: 400, code: 'query_refused', detail: 'x',
+      extensions: { refusal: { code: 'unknown_reference', path: '/where/cameraIds', message: 'Unknown camera.' } },
+    }));
+    renderAnswer(proposed());
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+    expect(await screen.findByText('Refused: unknown_reference')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Answer' })).toBeNull();
+  });
+
+  it('cannot open a query in Advanced Search that the builder cannot hold, and says why', () => {
+    const withDuration = proposed();
+    withDuration.interpretation!.resolvedQuery = { ...resolvedQuery, where: { ...resolvedQuery.where, minDurationMs: 120_000 } };
+    renderAnswer(withDuration);
+    expect(screen.getByRole('button', { name: 'Open in Advanced Search' })).toBeDisabled();
+    expect(screen.getByText(/cannot build a minimum duration/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
   });
 });
 
 describe('Ask MAVI page', () => {
   beforeEach(() => {
     vi.mocked(getAskStatus).mockResolvedValue(status);
-    vi.mocked(ask).mockResolvedValue(answered(RESULTS.buckets));
+    vi.mocked(ask).mockResolvedValue(proposed());
+    vi.mocked(runQuery).mockReset();
+    vi.mocked(runQuery).mockResolvedValue(envelope(RESULTS.buckets));
   });
 
-  it('asks the question as typed, with the reference date, and renders the interpretation and the answer', async () => {
+  it('asks the question as typed, with the reference date, proposes the query, and answers only after Run', async () => {
     renderWithApp(<AskMaviPage />);
     await userEvent.type(screen.getByRole('textbox', { name: 'Question' }), 'Vehicles entering via the Arch gate per 15 minutes');
     await userEvent.type(screen.getByLabelText(/Today/), '2026-10-01');
@@ -247,8 +305,25 @@ describe('Ask MAVI page', () => {
 
     await waitFor(() => expect(ask).toHaveBeenCalledWith('Vehicles entering via the Arch gate per 15 minutes', '2026-10-01'));
     expect(await screen.findByRole('heading', { name: 'Interpreted as' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Answer summary')).toHaveTextContent('with 11 Tracks');
+    expect(screen.queryByLabelText('Answer summary')).toBeNull();
+    expect(runQuery).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+    expect(await screen.findByLabelText('Answer summary')).toHaveTextContent('with 11 Tracks');
     expect(screen.getAllByText(/Development evidence, not Production-qualified/).length).toBeGreaterThan(0);
+  });
+
+  it('never shows the previous answer under a new proposal', async () => {
+    renderWithApp(<AskMaviPage />);
+    await userEvent.type(screen.getByRole('textbox', { name: 'Question' }), 'Vehicles per 15 minutes');
+    await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Run' }));
+    await screen.findByLabelText('Answer summary');
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Question' }), ' again');
+    await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByLabelText('Answer summary')).toBeNull());
+    expect(runQuery).toHaveBeenCalledTimes(1);
   });
 
   it('shows no model branding, prompt or decoding detail on the surface (spec §17.1)', async () => {

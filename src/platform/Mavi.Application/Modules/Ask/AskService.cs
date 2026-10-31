@@ -18,14 +18,15 @@ public sealed class AskOptions
 
 /// <summary>
 /// Ask MAVI (ADR-026): one question becomes one structured query or a refusal. The service reads the site catalogue,
-/// builds the prompt and grammar, asks the language role once, translates its output, and evaluates the query with the
-/// S9 service unchanged. Nothing the model writes is returned; there is no retry. Prompt v2 (D-S10-9) first refuses a
-/// question that refers to a place the site does not have, without calling the model (<see cref="AskPlaceReferences"/>).
+/// builds the prompt and grammar, asks the language role once, and translates its output into the parser's canonical
+/// query. Ask proposes and the operator confirms (D-S10-10): this service never evaluates a query and has no access to
+/// the query service; the operator runs the interpretation through <c>POST /api/query</c>. Nothing the model writes is
+/// returned; there is no retry. Prompt v2 (D-S10-9) first refuses a question that refers to a place the site does not
+/// have, without calling the model (<see cref="AskPlaceReferences"/>).
 /// </summary>
 public sealed class AskService(
     IAskCatalogueSource catalogueSource,
     ILanguageRuntime runtime,
-    StructuredQueryService queries,
     IOptions<AskOptions> options,
     TimeProvider timeProvider,
     IVisualAttributeRelease? attributeRelease = null)
@@ -45,8 +46,8 @@ public sealed class AskService(
             (zoneKnown ? AskSiteTime.Today(zoneId!, timeProvider.GetUtcNow()) : DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime));
 
         AskResponse Refused(string stage, string code, string path, string message, AskModelResponse? model = null, long translationMs = 0) =>
-            new(question, referenceDate, zoneId ?? string.Empty, AskCodes.Refused, null, null,
-                new AskRefusalResponse(stage, code, path, message), model ?? Model(null, null), new AskTimingsResponse(translationMs, 0, total.ElapsedMilliseconds),
+            new(question, referenceDate, zoneId ?? string.Empty, AskCodes.Refused, null,
+                new AskRefusalResponse(stage, code, path, message), model ?? Model(null, null), new AskTimingsResponse(translationMs, total.ElapsedMilliseconds),
                 QueryContract.Disclosure);
 
         if (string.IsNullOrWhiteSpace(question) || question.Length > AskCodes.MaximumQuestionLength)
@@ -98,26 +99,20 @@ public sealed class AskService(
                 : Refused(refusal.Stage, refusal.Code, ContractPath(refusal.Path), AskCodes.StageMessage(refusal.Stage, refusal.Code), model, translationMs);
         }
 
-        var evaluation = Stopwatch.StartNew();
-        var outcome = await queries.EvaluateAsync(translated.Query!, cancellationToken);
-        var evaluationMs = evaluation.ElapsedMilliseconds;
-        if (outcome.Refusal is { } serviceRefusal)
-        {
-            return Refused(AskCodes.StageService, serviceRefusal.Code, serviceRefusal.Path, serviceRefusal.Message, model, translationMs)
-                with { Timings = new AskTimingsResponse(translationMs, evaluationMs, total.ElapsedMilliseconds) };
-        }
-
-        var envelope = outcome.Envelope!;
+        // The proposal is the strict parser's canonical query: exactly what POST /api/query receives when the operator
+        // runs it. Nothing is evaluated here.
+        var canonical = StructuredQueryCanonical.Write(translated.Query!);
+        using var resolved = JsonDocument.Parse(canonical);
+        var resolvedQuery = resolved.RootElement.Clone();
         return new AskResponse(
             question,
             referenceDate,
             zoneId,
-            AskCodes.Answered,
-            new AskInterpretationResponse(envelope.ResolvedQuery, envelope.QueryFingerprint, References(envelope.ResolvedQuery, catalogue)),
-            envelope,
+            AskCodes.Interpreted,
+            new AskInterpretationResponse(resolvedQuery, StructuredQueryCanonical.Fingerprint(canonical), References(resolvedQuery, catalogue)),
             null,
             model,
-            new AskTimingsResponse(translationMs, evaluationMs, total.ElapsedMilliseconds),
+            new AskTimingsResponse(translationMs, total.ElapsedMilliseconds),
             QueryContract.Disclosure);
     }
 
