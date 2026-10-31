@@ -54,9 +54,43 @@ public sealed class AskPromptV2Tests
     [InlineData("Delete all tracks from the Highway camera")]
     [InlineData("Top 3 zones by events at the Worringer Platz junction today")]
     [InlineData("Find people with a red top at the School hallway on Monday")]
+    [InlineData("Show daily camera totals for yesterday")]
+    [InlineData("Give me hourly camera counts between 09:00 and 12:00")]
+    [InlineData("Show yesterday's camera counts")]
+    [InlineData("Which is the most crowded zone today?")]
+    [InlineData("Count people on the Count line, Leftward")]
+    [InlineData("People who went In on the Doorway line, line In")]
+    [InlineData("Count people on the MEVA G421 camera")]
+    [InlineData("How Many People Entered The Junction Box Zone Today?")]
+    [InlineData("Find people with a Red Bag at the School hallway")]
     public void NamedOrGenericPlacesAreNotUnknown(string question)
     {
         Assert.Empty(AskPlaceReferences.Unknown(question, Catalogue));
+    }
+
+    [Fact]
+    public void OnTheDevelopmentCorpusThePreCheckRefusesExactlyTheUnknownPlaces()
+    {
+        // The 60 v1 questions (development data for v2): h34, h35 and h37 name places the site lacks; nothing else is refused.
+        var (_, _, questions) = AskCorpus.LoadQuestions();
+        Assert.Equal(["h34", "h35", "h37"], questions.Where(question => AskPlaceReferences.Unknown(question.Text, Catalogue).Count > 0).Select(question => question.Id));
+    }
+
+    [Theory]
+    [InlineData("How many people in Zone 1 today?", false)]
+    [InlineData("How many people crossed Line 2 today?", false)]
+    [InlineData("How many people in zone A today?", false)]
+    [InlineData("How many people in Zone B today?", false)]
+    [InlineData("How many people in Zone 3 today?", true)]
+    [InlineData("How many people crossed line 7 today?", true)]
+    [InlineData("How many people in zone C today?", true)]
+    public void NumberedAndLetteredNamesAreMatchedByTheirNumberOrLetter(string question, bool unknown)
+    {
+        var camera = new AskCatalogueCamera(Guid.NewGuid(), "SITE-01", "Gate", "UTC",
+            [new(Guid.NewGuid(), "Zone 1", "General"), new(Guid.NewGuid(), "A", "General"), new(Guid.NewGuid(), "Zone B", "General")],
+            [new(Guid.NewGuid(), "Line 2", "In", "Out")]);
+        var catalogue = AskSiteCatalogue.Ordered([camera]);
+        Assert.Equal(unknown, AskPlaceReferences.Unknown(question, catalogue).Count > 0);
     }
 
     [Fact]

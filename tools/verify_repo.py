@@ -1477,20 +1477,29 @@ def check_ask_mavi(errors: list[str]) -> None:
         return hashlib.sha256(path.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8")).hexdigest()
 
     # Each prompt version is measured on its own corpus: v1 on 20 development and 40 held questions (the held split is
-    # spent), v2 (ADR-026 amendment D-S10-9) on a fresh held split of at least 40 questions written before any v2 output.
+    # spent), v2 (ADR-026 amendment D-S10-9) on a fresh held split of 40 questions written before any v2 output.
     corpora = {
         "mavi-ask-prompt-v1": (questions_path, lambda count, splits: count == 60 and splits == {"development": 20, "held": 40}),
         "mavi-ask-prompt-v2": (
             ROOT / "contracts/test-vectors/ask-mavi-questions-v2.json",
-            lambda count, splits: count >= 40 and set(splits) == {"held"},
+            lambda count, splits: count == 40 and set(splits) == {"held"},
         ),
     }
+    # The owner's edit to D-S10-9: the v2 held split keeps the v1 held proportions.
+    v2_mix = {"mavi-ask-prompt-v2": {"query": 31, "outside_contract": 6, "unknown_reference": 3}}
     for version, (path, shape) in corpora.items():
         if not path.is_file():
             fail(f"The Ask MAVI corpus of {version} is missing: {path.relative_to(ROOT)}.", errors)
             continue
         corpus = json.loads(path.read_text(encoding="utf-8"))
         ids = [question["id"] for question in corpus["questions"]]
+        if version in v2_mix:
+            mix: dict[str, int] = {}
+            for question in corpus["questions"]:
+                key = "query" if question["expect"]["answer"] == "query" else question["expect"].get("reason", "")
+                mix[key] = mix.get(key, 0) + 1
+            if mix != v2_mix[version]:
+                fail(f"The Ask MAVI corpus {path.name} does not keep the mix its version requires: {mix}.", errors)
         splits: dict[str, int] = {}
         for question in corpus["questions"]:
             splits[question["split"]] = splits.get(question["split"], 0) + 1

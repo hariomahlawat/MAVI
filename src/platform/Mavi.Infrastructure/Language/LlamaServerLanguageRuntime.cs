@@ -34,15 +34,16 @@ public sealed class LanguageOptions
     public string? DeviceReportPath { get; set; }
 
     /// <summary>
-    /// Reuse the cached prompt prefix (ADR-026 §6 amendment D-S10-7). On by default; switched off for a pack and device
-    /// whose recording set was not byte-identical in reverse order, as D-S10-7 requires.
+    /// Reuse the cached prompt prefix (ADR-026 §6 amendment D-S10-7) — only where a pack's recordings were byte-identical
+    /// in reverse order. Off unless the configuration says so (fail closed): the installer writes it per pack.
     /// </summary>
-    public bool CachePrompt { get; set; } = true;
+    public bool CachePrompt { get; set; }
 }
 
 /// <summary>
-/// Calls llama-server's <c>/completion</c> once per question, with the grammar and greedy decoding, prompt caching on (the
-/// shared prefix is reused; recordings are made the same way). Loopback only; a refusal of the role is a typed
+/// Calls llama-server's <c>/completion</c> once per question, with the grammar and greedy decoding, and prompt caching
+/// as the bound pack's configuration says (<see cref="LanguageOptions.CachePrompt"/>; recordings are made the same
+/// way). Loopback only; a refusal of the role is a typed
 /// <see cref="LanguageRuntimeUnavailableException"/>, never a fallback.
 /// </summary>
 public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
@@ -115,7 +116,7 @@ public sealed class LlamaServerLanguageRuntime : ILanguageRuntime, IDisposable
     }
 
     /// <summary>The <c>/completion</c> body: every sampler pinned so decoding is greedy whatever the server defaults are.</summary>
-    public static JsonObject Body(LanguageCompletionRequest request, bool cachePrompt = true) => new()
+    public static JsonObject Body(LanguageCompletionRequest request, bool cachePrompt) => new()
     {
         ["prompt"] = request.Prompt,
         ["json_schema"] = JsonNode.Parse(request.Grammar),

@@ -196,5 +196,8 @@ The owner accepted this amendment, with one edit to the measurement ("Accept wit
 - The fresh held split was measured once against the unchanged bar:
   - 7B pack 20/40 (50%), in contract 17/31. **The bar is not met.**
   - 1.5B pack 19/40, in contract 16/31.
-- The pre-check refused 2 of the 3 unknown places, with no false refusal. No output was refused by the parser. Safety and grounding are 100%, and CI replay is exact.
+- The pre-check refused 2 of the 3 unknown places, with no false refusal on those 40 questions. The 7B had no parser refusal, and the 1.5B had one (a duplicated camera id). Safety and grounding are 100%, and CI replay is exact.
+- Cold-review fixes to the pre-check came after measurement. They leave every held and development decision unchanged, and CI replays the recordings exactly.
+- The pre-check can still refuse a valid question whose wording looks like an unknown place (known-limits).
+- Reuse for the 1.5B was checked on `sm_75` only. Another device (CPU, or `sm_89` at S12) repeats the reverse-order check before reuse is relied on there.
 - The remaining misses are the model's: dropped predicates, wrong units or relations, and outside-contract questions answered as queries. Register C9.2 holds the classification.

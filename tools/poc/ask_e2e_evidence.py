@@ -194,7 +194,8 @@ def run(api: str, recordings_path: Path | None, out: Path, questions_path: Path 
         "catalogueSha256": sha256(CATALOGUE),
         "recordings": recordings_path.name if recordings_path else None,
         "translation": {"development": split_summary("development"), "held": split_summary("held")},
-        "grounded": {"passed": sum(item["grounded"] for item in results), "total": len(results)},
+        "grounded": {"passed": sum(item["grounded"] for item in results), "total": len(results),
+                     "operatorGated": sum(item["operatorGated"] for item in results)},
         "promptMatchesRecording": {
             "passed": sum(item["promptMatchesRecording"] is True for item in results),
             "compared": sum(item["promptMatchesRecording"] is not None for item in results),
