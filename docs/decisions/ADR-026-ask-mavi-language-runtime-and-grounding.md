@@ -136,6 +136,13 @@ The owner accepted this amendment on condition ("Accept, conditional", 2026-10-3
 
   The reverse recordings are kept under `E:\MAVI-Controlled\PoC\S10\reverse\`. A new recording set (another device, or prompt v2) repeats this check. If any output differs, reuse is switched off for that set and the set is re-recorded.
 
+  **Prompt v2 (2026-10-31): reuse failed the condition for the 7B pack and is off for it.**
+  - The 7B pack's prompt-v2 held set, recorded with reuse on the laptop (16 of 28 layers on the GPU), was not byte-identical in reverse order. One output (n11) differed in bytes but kept the same canonical outcome.
+  - Reuse is therefore off for the 7B pack. `Language:CachePrompt` is resolved per pack by the installer and asserted by the setup contracts.
+  - The set was re-recorded with reuse off, and that recording is byte-identical in both orders (`b8295f54…`).
+  - Reuse does change decoding numerics on that device: the superseded reuse-on run decoded n26 differently and scored 21/40, against 20/40. This is disclosed in the register.
+  - The 1.5B pack's prompt-v2 set is byte-identical in both orders with reuse on (`a04dee1d…`), so reuse stays on for it.
+
 ## Amendment 2026-10-31 (accepted, D-S10-9): prompt version `mavi-ask-prompt-v2` (§4, §6)
 
 The owner accepted this amendment, with one edit to the measurement ("Accept with edit", 2026-10-31; relayed by the coordinator session). It follows owner decision D-S10-8 ("Keep bar, follow-up"). The C9.2 bar (D-S10-4) is unchanged: the 7B overall held exact-match must be at least 85%, safety and grounding 100%, and the CI replay exact.
@@ -184,3 +191,10 @@ The owner accepted this amendment, with one edit to the measurement ("Accept wit
 **Trade-off accepted.**
 - Deterministic place checks and a narrower grammar trade some recall for the guarantee that a named place the site lacks is refused, not answered for the whole site. A valid question with place-like wording, or an item named by a partial phrase the patterns do not catch, may be refused.
 - Both outcomes are visible: a refusal, or "Interpreted as". Neither can produce a number the site did not compute.
+
+**Measured result (2026-10-31).**
+- The fresh held split was measured once against the unchanged bar:
+  - 7B pack 20/40 (50%), in contract 17/31. **The bar is not met.**
+  - 1.5B pack 19/40, in contract 16/31.
+- The pre-check refused 2 of the 3 unknown places, with no false refusal. No output was refused by the parser. Safety and grounding are 100%, and CI replay is exact.
+- The remaining misses are the model's: dropped predicates, wrong units or relations, and outside-contract questions answered as queries. Register C9.2 holds the classification.

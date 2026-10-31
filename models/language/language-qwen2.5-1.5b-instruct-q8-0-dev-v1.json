@@ -26,7 +26,7 @@
   ],
   "inputContract": {
     "kind": "chatml-prompt",
-    "promptTemplateVersion": "mavi-ask-prompt-v1"
+    "promptTemplateVersion": "mavi-ask-prompt-v2"
   },
   "outputContract": {
     "schemaId": "mavi-ask-translation-v1",

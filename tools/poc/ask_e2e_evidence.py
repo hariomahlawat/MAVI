@@ -18,7 +18,12 @@ role is bound, one at a time, and for each question records:
         [--questions contracts/test-vectors/ask-mavi-questions-v2.json]
 
 Prompt v2 (ADR-026 amendment D-S10-9) refuses a question naming a place the site lacks before the model, at stage
-``question``; that refusal matches an expected ``unknown_reference`` as the model's own does.
+``question``; that refusal matches an expected ``unknown_reference`` as the model's own does, and has no prompt to bind.
+
+Entities are shown to operators only (ADR-023, #253) and this client is anonymous. For an Entity question the
+platform refuses the direct ``POST /api/query`` (401), so the expected canonical query is the one the bound recording
+holds (the strict parser's canonical form), and grounding means the Ask answer withholds Entity data
+(``empty`` with reason ``operator_required``) exactly as the direct call refuses it.
 
 Every number is pipeline output, not ground truth; the held split's exact-match rate is the measured claim.
 """
@@ -112,11 +117,16 @@ def run(api: str, recordings_path: Path | None, out: Path, questions_path: Path 
     results = []
     for question in corpus["questions"]:
         expect = question["expect"]
+        operator_gated = False
         if expect["answer"] == "query":
             code, envelope = post(api, "/api/query", resolve(expect["query"], cameras), timeout=120)
-            if code != 200:
+            if code == 401 and expect["query"]["unit"] == "entity" and question["id"] in recorded:
+                operator_gated = True
+                expected = {"kind": "query", "resolvedQuery": json.loads(recorded[question["id"]]["expected"]), "fingerprint": None}
+            elif code != 200:
                 raise SystemExit(f"the expected query of {question['id']} is refused by the platform: {envelope}")
-            expected = {"kind": "query", "resolvedQuery": envelope["resolvedQuery"], "fingerprint": envelope["queryFingerprint"]}
+            else:
+                expected = {"kind": "query", "resolvedQuery": envelope["resolvedQuery"], "fingerprint": envelope["queryFingerprint"]}
         else:
             expected = {"kind": "refusal", "code": expect["reason"]}
 
@@ -128,9 +138,16 @@ def run(api: str, recordings_path: Path | None, out: Path, questions_path: Path 
 
         if response["outcome"] == "answered":
             got = {"kind": "query", "resolvedQuery": response["interpretation"]["resolvedQuery"], "fingerprint": response["interpretation"]["queryFingerprint"]}
-            passed = expected["kind"] == "query" and got["fingerprint"] == expected["fingerprint"]
+            if operator_gated:
+                passed = got["resolvedQuery"] == expected["resolvedQuery"]
+            else:
+                passed = expected["kind"] == "query" and got["fingerprint"] == expected["fingerprint"]
             direct_code, direct = post(api, "/api/query", response["interpretation"]["resolvedQuery"], timeout=120)
-            grounded = direct_code == 200 and comparable(direct) == comparable(response["envelope"])
+            if direct_code == 401 and response["interpretation"]["resolvedQuery"]["unit"] == "entity":
+                result = response["envelope"]["result"]
+                grounded = result["kind"] == "empty" and result["reason"] == "operator_required"
+            else:
+                grounded = direct_code == 200 and comparable(direct) == comparable(response["envelope"])
         else:
             refusal = response["refusal"]
             got = {"kind": "refusal", "stage": refusal["stage"], "code": refusal["code"], "path": refusal["path"]}
@@ -139,7 +156,7 @@ def run(api: str, recordings_path: Path | None, out: Path, questions_path: Path 
             grounded = response["envelope"] is None and response["interpretation"] is None
 
         prompt_bound = None
-        if question["id"] in recorded:
+        if question["id"] in recorded and recorded[question["id"]].get("stage") != "question":
             prompt_bound = recorded[question["id"]]["promptSha256"] == response["model"]["promptSha256"]
         results.append({
             "id": question["id"],
@@ -148,6 +165,7 @@ def run(api: str, recordings_path: Path | None, out: Path, questions_path: Path 
             "pass": passed,
             "grounded": grounded,
             "promptMatchesRecording": prompt_bound,
+            "operatorGated": operator_gated,
             "expected": expected,
             "got": got,
             "resultKind": response["envelope"]["result"]["kind"] if response["envelope"] else None,
