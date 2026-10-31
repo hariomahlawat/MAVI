@@ -29,6 +29,14 @@ param(
     # (poc-single-host, Development grade). Carried under vendor/vision/onnxruntime-gpu.
     [string[]]$OnnxRuntimeGpuWheel = @(),
 
+    # Optional PoC demo corpus (S13; plan D3; register B2, D5): the S2 corpus root whose derivatives\ holds the
+    # trimmed clips. Only the clips tools\poc\demo-corpus\demo-corpus-v1.json pins with kit=true are copied, each
+    # SHA-256 verified, with the definition, the attribution file and a licence index, under media\poc-demo-corpus.
+    [string]$PocDemoCorpusRoot,
+
+    # Full licence texts to ship with the demo corpus (plain .txt files, for example MEVA's licence file).
+    [string[]]$PocDemoCorpusLicenceFile = @(),
+
     [string]$ZipPath
 )
 
@@ -139,6 +147,21 @@ foreach ($wheel in @($OnnxRuntimeGpuWheel)) {
     New-Item -ItemType Directory -Path $ortDestination -Force | Out-Null
     Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $ortDestination $item.Name)
     $visionPayload["onnxruntime-gpu"] = "vendor/vision/onnxruntime-gpu"
+}
+
+$demoCorpusRecord = $null
+if (-not [string]::IsNullOrWhiteSpace($PocDemoCorpusRoot)) {
+    $demoCorpusRecord = Copy-MaviPocDemoCorpus -DefinitionPath (Join-Path $PSScriptRoot "..\..\tools\poc\demo-corpus\demo-corpus-v1.json") `
+        -CorpusRoot (Resolve-Path -LiteralPath $PocDemoCorpusRoot).Path `
+        -AttributionPath (Join-Path $PSScriptRoot "..\..\docs\qualification\poc\demo-corpus-attribution.md") `
+        -LicenceFile $PocDemoCorpusLicenceFile -Destination (Join-Path $destination "media\poc-demo-corpus")
+    [void](Test-MaviPocDemoCorpus -Root (Join-Path $destination "media\poc-demo-corpus") -Record $demoCorpusRecord)
+    $withPath = [ordered]@{ path = "media/poc-demo-corpus" }
+    foreach ($key in $demoCorpusRecord.Keys) { $withPath[$key] = $demoCorpusRecord[$key] }
+    $demoCorpusRecord = $withPath
+}
+elseif (@($PocDemoCorpusLicenceFile).Count -gt 0) {
+    throw "-PocDemoCorpusLicenceFile needs -PocDemoCorpusRoot."
 }
 
 $installerDestination = Join-Path $destination "vendor\installers\win-x64"
@@ -318,6 +341,8 @@ $manifest = [ordered]@{
     }
     # poc-single-host Development-grade vision payloads (S1b); null when none were given.
     pocVision = $(if ($visionPayload.Count -gt 0) { $visionPayload } else { $null })
+    # poc-single-host demo corpus (S13): kit clips, definition, attribution and licences; null when not given.
+    pocDemoCorpus = $demoCorpusRecord
     artifacts = @($artifacts)
 }
 

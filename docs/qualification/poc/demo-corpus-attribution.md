@@ -10,7 +10,7 @@
 
 No licence, credit or other row changed. **The owner reconfirmed this updated text on 2026-10-29** (decision 12). It ships in the PoC kit next to the demo clips, unchanged.
 
-**Amendment A6 (2026-10-30, owner decision D-S6-2(a)).** Clip 13 was added: MEVA camera G420, from the same release and the same 5-minute slot. This text was updated to match: the clip count, the clip ranges, row 13, the scope of the MEVA notice, the camera count in the simultaneity note and the biometric note. No licence, credit or other row changed. **The added text awaits the owner's acceptance.**
+**Amendment A6 (2026-10-30, owner decision D-S6-2(a)).** Clip 13 was added: MEVA camera G420, from the same release and the same 5-minute slot. This text was updated to match: the clip count, the clip ranges, row 13, the scope of the MEVA notice, the camera count in the simultaneity note and the biometric note. No licence, credit or other row changed. **The owner accepted the added text on 2026-10-30 (owner decision D-S6-5).**
 
 The MAVI PoC kit contains thirteen short video clips, licensed under **CC0 1.0** or a **Creative Commons Attribution (CC BY)** licence. No ShareAlike, NonCommercial or NoDerivatives material is included.
 - **Clips 1–7** are derived from videos published on Wikimedia Commons. Each licence was read from the file's own Commons description page, at the exact page revision recorded in `tools/poc/demo-corpus/demo-corpus-v1.json`.
