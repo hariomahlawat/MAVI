@@ -128,12 +128,14 @@ try {
     [IO.File]::WriteAllText($attribution, "# attribution")
     $licenceText = Join-Path $tempRoot "MEVA-data-license.txt"
     [IO.File]::WriteAllText($licenceText, "CC BY 4.0 full text")
+    $cc0Text = Join-Path $tempRoot "CC0-1.0-legalcode.txt"; [IO.File]::WriteAllText($cc0Text, "CC0 legal code")
+    $ccBy4Text = Join-Path $tempRoot "CC-BY-4.0-legalcode.html"; [IO.File]::WriteAllText($ccBy4Text, "<p>CC BY 4.0 legal code</p>")
     $kitCorpus = Join-Path $tempRoot "kit-corpus"
-    $corpusRecord = Copy-MaviPocDemoCorpus -DefinitionPath $corpusDefinition -CorpusRoot $corpus -AttributionPath $attribution -LicenceFile $licenceText -Destination $kitCorpus
-    if ((Test-MaviPocDemoCorpus -Root $kitCorpus -Record $corpusRecord) -ne 3) { throw "The kit corpus must verify its two kit clips and one licence text." }
+    $corpusRecord = Copy-MaviPocDemoCorpus -DefinitionPath $corpusDefinition -CorpusRoot $corpus -AttributionPath $attribution -LicenceFile $cc0Text, $ccBy4Text, $licenceText -Destination $kitCorpus
+    if ((Test-MaviPocDemoCorpus -Root $kitCorpus -Record $corpusRecord) -ne 5) { throw "The kit corpus must verify its two kit clips and three licence texts." }
     if ((@(Get-ChildItem -LiteralPath (Join-Path $kitCorpus "derivatives") -File).Name -join ",") -ne "a.mp4,b.mp4") { throw "Only kit=true clips may enter the kit (owner-machine media and unlisted files never do)." }
     $licenceIndex = Get-Content -LiteralPath (Join-Path $kitCorpus "LICENCES.md") -Raw
-    if ($licenceIndex -notmatch 'publicdomain/zero/1\.0/legalcode' -or $licenceIndex -notmatch 'licenses/by/4\.0/legalcode' -or $licenceIndex -notmatch 'MEVA-data-license\.txt') { throw "The licence index must name each clip licence's legal code and the shipped texts." }
+    if ($licenceIndex -notmatch 'publicdomain/zero/1\.0/legalcode' -or $licenceIndex -notmatch 'licenses/by/4\.0/legalcode' -or $licenceIndex -notmatch 'MEVA-data-license\.txt' -or $licenceIndex -notmatch 'licences\\CC0-1\.0-legalcode\.txt' -or $licenceIndex -notmatch 'licences\\CC-BY-4\.0-legalcode\.html') { throw "The licence index must name each clip licence's legal code and the shipped texts." }
     Copy-Item -LiteralPath (Join-Path $corpus "derivatives\unlisted.mp4") -Destination (Join-Path $kitCorpus "derivatives\unlisted.mp4")
     Assert-Throws { Test-MaviPocDemoCorpus -Root $kitCorpus -Record $corpusRecord } "unlisted file" "A file the definition does not pin in the kit corpus (for example a crop or another dataset's clip)"
     Remove-Item -LiteralPath (Join-Path $kitCorpus "derivatives\unlisted.mp4")
@@ -151,6 +153,7 @@ try {
     Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $nc -CorpusRoot $corpus -AttributionPath $attribution -Destination (Join-Path $tempRoot "kit-nc") } "CC0 / CC BY only" "A non-CC0/CC-BY clip marked for the kit"
     $wrong = Join-Path $tempRoot "wrong.json"; New-TestCorpusDefinition -Path $wrong -SecondSha ("0" * 64)
     Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $wrong -CorpusRoot $corpus -AttributionPath $attribution -Destination (Join-Path $tempRoot "kit-wrong") } "pinned SHA-256" "A source clip that does not match its pin"
+    Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $corpusDefinition -CorpusRoot $corpus -AttributionPath $attribution -LicenceFile $cc0Text, $licenceText -Destination (Join-Path $tempRoot "kit-no-by4") } "none is the legal code of Creative Commons Attribution 4\.0" "Licence texts without a used licence's legal code"
     Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $corpusDefinition -CorpusRoot $corpus -AttributionPath (Join-Path $tempRoot "none.md") -Destination (Join-Path $tempRoot "kit-none") } "attribution file" "A kit corpus without an attribution source"
     if ($kitBuilder -notmatch 'Copy-MaviPocDemoCorpus -DefinitionPath \(Join-Path \$PSScriptRoot "\.\.\\\.\.\\tools\\poc\\demo-corpus\\demo-corpus-v1\.json"\)' -or $kitBuilder -notmatch 'docs\\qualification\\poc\\demo-corpus-attribution\.md') { throw "The kit builder must take the corpus definition and attribution from the repository." }
     $kitChecker = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Test-MaviOfflineBinaryKit.ps1") -Raw

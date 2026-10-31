@@ -589,10 +589,10 @@ function Read-MaviPocDemoCameras {
 # attribution file and the licence texts. Kit media is CC0 / CC BY only, so any other licence code is refused;
 # nothing else may sit in the folder, so no crop, embedding, gallery or owner-machine-only clip can ride along.
 $script:PocDemoCorpusLicences = [ordered]@{
-    "cc0"       = [ordered]@{ name = "CC0 1.0 Universal (public domain dedication)"; uri = "https://creativecommons.org/publicdomain/zero/1.0/legalcode" }
-    "cc-by-2.0" = [ordered]@{ name = "Creative Commons Attribution 2.0 Generic"; uri = "https://creativecommons.org/licenses/by/2.0/legalcode" }
-    "cc-by-3.0" = [ordered]@{ name = "Creative Commons Attribution 3.0 Unported"; uri = "https://creativecommons.org/licenses/by/3.0/legalcode" }
-    "cc-by-4.0" = [ordered]@{ name = "Creative Commons Attribution 4.0 International"; uri = "https://creativecommons.org/licenses/by/4.0/legalcode" }
+    "cc0"       = [ordered]@{ name = "CC0 1.0 Universal (public domain dedication)"; uri = "https://creativecommons.org/publicdomain/zero/1.0/legalcode"; textPrefix = "CC0-1.0" }
+    "cc-by-2.0" = [ordered]@{ name = "Creative Commons Attribution 2.0 Generic"; uri = "https://creativecommons.org/licenses/by/2.0/legalcode"; textPrefix = "CC-BY-2.0" }
+    "cc-by-3.0" = [ordered]@{ name = "Creative Commons Attribution 3.0 Unported"; uri = "https://creativecommons.org/licenses/by/3.0/legalcode"; textPrefix = "CC-BY-3.0" }
+    "cc-by-4.0" = [ordered]@{ name = "Creative Commons Attribution 4.0 International"; uri = "https://creativecommons.org/licenses/by/4.0/legalcode"; textPrefix = "CC-BY-4.0" }
 }
 $script:PocDemoCorpusFixedFiles = @("demo-corpus-v1.json", "demo-corpus-attribution.md", "LICENCES.md")
 
@@ -602,7 +602,9 @@ function Copy-MaviPocDemoCorpus {
         # The S2 corpus root: the clips are read from its derivatives\ folder.
         [Parameter(Mandatory = $true)][string]$CorpusRoot,
         [Parameter(Mandatory = $true)][string]$AttributionPath,
-        # Full licence texts held offline (for example MEVA's licence file, which carries CC BY 4.0 in full).
+        # Full licence texts held offline: the legal codes, each named <textPrefix>-... (for example
+        # CC-BY-4.0-legalcode.txt), and other notices such as MEVA's licence file. When any is given, every licence a kit
+        # clip uses must have its legal code among them.
         [string[]]$LicenceFile = @(),
         [Parameter(Mandatory = $true)][string]$Destination
     )
@@ -638,17 +640,20 @@ function Copy-MaviPocDemoCorpus {
     $licenceRecords = @()
     foreach ($file in @($LicenceFile)) {
         $item = Get-Item -LiteralPath $file
-        if ($item.Name -notmatch '\A[A-Za-z0-9._-]+\.txt\z') { throw "Licence file '$($item.Name)' must be a plain .txt file with a simple name." }
+        if ($item.Name -notmatch '\A[A-Za-z0-9._-]+\.(txt|html)\z') { throw "Licence file '$($item.Name)' must be a .txt or .html file with a simple name." }
         $target = Join-Path $licenceRoot $item.Name
         if (Test-Path -LiteralPath $target) { throw "Two licence files are named '$($item.Name)'." }
         Copy-Item -LiteralPath $item.FullName -Destination $target
         $licenceRecords += [ordered]@{ fileName = $item.Name; sha256 = (Get-MaviSha256 -Path $target) }
     }
 
-    $lines = @("# Demo corpus licences", "", "The clips in derivatives\ are published under the licences below; each clip's author, source, licence and changes are in demo-corpus-attribution.md, which must accompany the clips. Each licence permits the licence's URI in place of its full text.", "", "| Licence | Clips | Legal code |", "|---|---|---|")
+    $lines = @("# Demo corpus licences", "", "The clips in derivatives\ are published under the licences below; each clip's author, source, licence and changes are in demo-corpus-attribution.md, which must accompany the clips.", "", "| Licence | Clips | Legal code | Full text |", "|---|---|---|---|")
     foreach ($code in $codes) {
+        $licence = $script:PocDemoCorpusLicences[$code]
         $ids = @($records | Where-Object { $_.licenceCode -eq $code } | ForEach-Object { $_.clipId }) -join ", "
-        $lines += "| $($script:PocDemoCorpusLicences[$code].name) | $ids | $($script:PocDemoCorpusLicences[$code].uri) |"
+        $texts = @($licenceRecords | Where-Object { $_.fileName.StartsWith($licence.textPrefix + "-", [StringComparison]::Ordinal) } | ForEach-Object { "licences\$($_.fileName)" })
+        if ($licenceRecords.Count -gt 0 -and $texts.Count -eq 0) { throw "Licence texts were given, but none is the legal code of $($licence.name) ($($licence.textPrefix)-...)." }
+        $lines += "| $($licence.name) | $ids | $($licence.uri) | $(if ($texts.Count -gt 0) { $texts -join ', ' } else { '(URI only)' }) |"
     }
     if ($licenceRecords.Count -gt 0) {
         $lines += @("", "Full texts held with the clips (licences\):", "")
