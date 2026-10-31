@@ -324,9 +324,12 @@ The builder exports the exact commit first (`git archive`; uncommitted changes n
 The PoC kit carries the demo corpus next to the binary payloads. Build the kit with:
 
 ~~~powershell
-powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviOfflineBinaryKit.ps1 -Destination "<kit>" `
+# From a Windows PowerShell prompt: call the script in-process, so the licence list reaches the parameter as one array
+# (powershell -File would split it into separate arguments).
+$licences = @((Get-ChildItem "E:\MAVI-Controlled\PoC\S13\licences\CC*-legalcode.*").FullName) + "E:\MAVI-Controlled\PoC\Corpus\approvals\MEVA-data-license.txt"
+& tools/setup/New-MaviOfflineBinaryKit.ps1 -Destination "<kit>" `
   -PocDemoCorpusRoot "E:\MAVI-Controlled\PoC\Corpus" `
-  -PocDemoCorpusLicenceFile ((Get-ChildItem "E:\MAVI-Controlled\PoC\S13\licences\CC*-legalcode.*").FullName + "E:\MAVI-Controlled\PoC\Corpus\approvals\MEVA-data-license.txt")
+  -PocDemoCorpusLicenceFile $licences
 ~~~
 
 It writes `media\poc-demo-corpus\`, which holds:
@@ -335,6 +338,7 @@ It writes `media\poc-demo-corpus\`, which holds:
 - `demo-corpus-attribution.md`, which must accompany the clips;
 - `LICENCES.md`: for each licence, the clips it covers, its legal-code URI and its full text in `licences\`;
 - `licences\`: the full licence texts passed with `-PocDemoCorpusLicenceFile`.
+- Kit clips must come from the admitted kit sources, Wikimedia Commons or MEVA. A clip from any other provider is refused, even when its record says CC BY.
   - A legal code is named `<licence>-legalcode.txt` or `.html`, where `<licence>` is `CC0-1.0`, `CC-BY-2.0`, `CC-BY-3.0` or `CC-BY-4.0`.
   - When any text is given, every licence a kit clip uses must have its legal code there.
   - The PoC's legal codes were downloaded from creativecommons.org as a recorded acquisition (owner decision D-S13-2). They are kept in `E:\MAVI-Controlled\PoC\S13\licences\`, with `acquisition.json` and `SHA256SUMS`.

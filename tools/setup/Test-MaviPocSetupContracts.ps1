@@ -151,13 +151,16 @@ try {
     Assert-Throws { Test-MaviPocDemoCorpus -Root $kitCorpus -Record $corpusRecord } "attribution" "A kit corpus without its attribution file"
     $nc = Join-Path $tempRoot "nc.json"; New-TestCorpusDefinition -Path $nc -SecondLicence "cc-by-nc-4.0"
     Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $nc -CorpusRoot $corpus -AttributionPath $attribution -Destination (Join-Path $tempRoot "kit-nc") } "CC0 / CC BY only" "A non-CC0/CC-BY clip marked for the kit"
+    $bdd = Join-Path $tempRoot "bdd.json"; New-TestCorpusDefinition -Path $bdd
+    $bddDoc = Get-Content -LiteralPath $bdd -Raw | ConvertFrom-Json; $bddDoc.clips[1].source.provider = "bdd100k"; Write-MaviJson -Value $bddDoc -Path $bdd -Depth 6
+    Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $bdd -CorpusRoot $corpus -AttributionPath $attribution -Destination (Join-Path $tempRoot "kit-bdd") } "comes from 'bdd100k'" "A clip from a source not admitted for the kit, even under a CC BY record"
     $wrong = Join-Path $tempRoot "wrong.json"; New-TestCorpusDefinition -Path $wrong -SecondSha ("0" * 64)
     Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $wrong -CorpusRoot $corpus -AttributionPath $attribution -Destination (Join-Path $tempRoot "kit-wrong") } "pinned SHA-256" "A source clip that does not match its pin"
     Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $corpusDefinition -CorpusRoot $corpus -AttributionPath $attribution -LicenceFile $cc0Text, $licenceText -Destination (Join-Path $tempRoot "kit-no-by4") } "none is the legal code of Creative Commons Attribution 4\.0" "Licence texts without a used licence's legal code"
     Assert-Throws { Copy-MaviPocDemoCorpus -DefinitionPath $corpusDefinition -CorpusRoot $corpus -AttributionPath (Join-Path $tempRoot "none.md") -Destination (Join-Path $tempRoot "kit-none") } "attribution file" "A kit corpus without an attribution source"
     if ($kitBuilder -notmatch 'Copy-MaviPocDemoCorpus -DefinitionPath \(Join-Path \$PSScriptRoot "\.\.\\\.\.\\tools\\poc\\demo-corpus\\demo-corpus-v1\.json"\)' -or $kitBuilder -notmatch 'docs\\qualification\\poc\\demo-corpus-attribution\.md') { throw "The kit builder must take the corpus definition and attribution from the repository." }
     $kitChecker = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Test-MaviOfflineBinaryKit.ps1") -Raw
-    if ($kitChecker -notmatch 'Test-MaviPocDemoCorpus' -or $kitChecker -notmatch 'carries media but records no demo corpus') { throw "The kit checker must verify a kit's demo corpus and refuse unrecorded media." }
+    if ($kitChecker -notmatch 'Test-MaviPocDemoCorpus' -or $kitChecker -notmatch 'carries media but records no demo corpus' -or $kitChecker -notmatch 'carries media outside its recorded demo corpus') { throw "The kit checker must verify a kit's demo corpus and refuse unrecorded media." }
 
     # --- Release metadata: the disclosure is fixed; the platform's start-up checks hold. ---
     $packs = @([ordered]@{ kind = "runtime"; role = "vision"; capabilityId = $null; packId = "mavi-runtime-v2-x"; variant = "windows-x86_64-cpu"; verificationStatus = "qualified-hosted-cpu"; note = $null })

@@ -186,6 +186,8 @@ $demoCorpusFiles = $null
 if ($demoCorpusProperty -and $null -ne $demoCorpusProperty.Value) {
     if ([string]$demoCorpusProperty.Value.path -ne "media/poc-demo-corpus") { throw "Offline binary kit demo corpus path is not media/poc-demo-corpus." }
     $demoCorpusFiles = Test-MaviPocDemoCorpus -Root (Join-Path $kitRoot "media\poc-demo-corpus") -Record $demoCorpusProperty.Value
+    $otherMedia = @(Get-ChildItem -LiteralPath (Join-Path $kitRoot "media") -Force | Where-Object { $_.Name -ne "poc-demo-corpus" })
+    if ($otherMedia.Count -gt 0) { throw "Offline binary kit carries media outside its recorded demo corpus: $($otherMedia.Name -join ', ')." }
 }
 elseif (Test-Path -LiteralPath (Join-Path $kitRoot "media")) {
     throw "Offline binary kit carries media but records no demo corpus."

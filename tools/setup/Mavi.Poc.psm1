@@ -595,6 +595,9 @@ $script:PocDemoCorpusLicences = [ordered]@{
     "cc-by-4.0" = [ordered]@{ name = "Creative Commons Attribution 4.0 International"; uri = "https://creativecommons.org/licenses/by/4.0/legalcode"; textPrefix = "CC-BY-4.0" }
 }
 $script:PocDemoCorpusFixedFiles = @("demo-corpus-v1.json", "demo-corpus-attribution.md", "LICENCES.md")
+# Kit media comes only from the sources admitted for the kit (register B1): Wikimedia Commons and the MEVA release. A clip from
+# any other provider (for example BDD100K or a platform-licensed stock site) is refused even if its record says CC BY.
+$script:PocDemoCorpusProviders = @("wikimedia-commons", "meva")
 
 function Copy-MaviPocDemoCorpus {
     param(
@@ -623,6 +626,7 @@ function Copy-MaviPocDemoCorpus {
     foreach ($clip in $clips) {
         $code = [string]$clip.source.licenceCode
         if (-not $script:PocDemoCorpusLicences.Contains($code)) { throw "Clip '$($clip.clipId)' has licence '$code'; kit media is CC0 / CC BY only (plan D3)." }
+        if ($script:PocDemoCorpusProviders -notcontains [string]$clip.source.provider) { throw "Clip '$($clip.clipId)' comes from '$($clip.source.provider)'; kit media comes only from $($script:PocDemoCorpusProviders -join ' or ')." }
         $fileName = [string]$clip.derivative.fileName
         if ($fileName -notmatch '\A[A-Za-z0-9._-]+\.mp4\z') { throw "Clip '$($clip.clipId)' names an invalid derivative file '$fileName'." }
         $source = Join-Path (Join-Path $CorpusRoot "derivatives") $fileName
@@ -685,6 +689,7 @@ function Test-MaviPocDemoCorpus {
     $expected = @{}
     foreach ($clip in @($definition.clips | Where-Object { $_.kit -eq $true })) {
         if (-not $script:PocDemoCorpusLicences.Contains([string]$clip.source.licenceCode)) { throw "Kit clip '$($clip.clipId)' is not CC0 / CC BY." }
+        if ($script:PocDemoCorpusProviders -notcontains [string]$clip.source.provider) { throw "Kit clip '$($clip.clipId)' comes from '$($clip.source.provider)', not an admitted kit source." }
         $expected["derivatives/" + [string]$clip.derivative.fileName] = ([string]$clip.derivative.sha256).ToLowerInvariant()
     }
     foreach ($licence in @($Record.licences)) { $expected["licences/" + [string]$licence.fileName] = [string]$licence.sha256 }

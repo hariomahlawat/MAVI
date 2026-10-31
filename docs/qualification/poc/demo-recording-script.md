@@ -41,9 +41,11 @@ The numbers are arithmetic: 48 cameras × 24 h = 1,152 h, and 1,152 h ÷ 8 h a w
 | 10 | `Ask in plain language, confirm the query` | Ask, confirm | 1 Worringer Platz junction: "How many vehicles crossed the Junction exit line today?" (the laptop's 1.5B pack interprets it exactly; checked off-camera first; reference date 2026-10-01) | The question is typed → the proposed query under **Interpreted as** → the operator presses **Run** → the answer from Advanced Search's service, with drill-through. | **"Interpreted as"**, readable, and **Run** pressed before any answer appears (Ask proposes, the operator confirms; D-S10-10). |
 | 11 | `Audited review and cases` | Audited cases | 5 Archway gate: the vehicle read as LJ384CR | A review decision on a Track (Confirm detection), the Track and an event added to a case, a note typed, then the Audit page with those entries. | Append-only audit entries with the Windows operator identity and time. |
 
+The opening wall shows 12 of the 13 corpus clips (4×3); s2-13 appears in chapters 6 and 7.
+
 ## Next phase (bookmarks = the slide's NEXT lines; lower-third tag "Next phase")
 
-Live camera ingest and real-time alerting are **not in the PoC**. They need their own ADR (live ingest, latency budget, alert model, watchlist governance) and a stream-capacity spike. The S13 capture therefore **cannot** record these two chapters. Keep the rendered chapters from `build/story_video.py` (corpus footage, drawn UI, "Next phase" tag) in the final cut until live alerting exists.
+Live camera ingest and real-time alerting are **not in the PoC**. These two chapters are drawn, tagged "Next phase", and their values (the watchlist score 0.84 against an illustrative 0.80, the live crossing) are illustrations, not PoC output; the PoC's face reference threshold is 0.2121 (ADR-022). They need their own ADR (live ingest, latency budget, alert model, watchlist governance) and a stream-capacity spike. The S13 capture therefore **cannot** record these two chapters. Keep the rendered chapters from `build/story_video.py` (corpus footage, drawn UI, "Next phase" tag) in the final cut until live alerting exists.
 
 | # | Chapter / bookmark | Caption | Clip(s) | What happens on screen | Must be visible |
 |---|---|---|---|---|---|
@@ -54,14 +56,14 @@ Live camera ingest and real-time alerting are **not in the PoC**. They need thei
 
 | Time | On screen |
 |---|---|
-| 0–2.8 s | The 12-camera wall. A scan line sweeps across it: tiles that don't match go grey, and the Archway gate tile lights in accent with "Match · 09:14:22". Statement: **"One question. Every camera checked."** |
+| 0–2.8 s | The 12-camera wall. A scan line sweeps across it: tiles that don't match go grey, and the Archway gate tile lights in accent with "Match" and the matched Track's time (09:20:00 for the Arch gate vehicle in the S13 laptop recording; the rendered wall showed an example time, corrected in assembly). Statement: **"One question. Every camera checked."** |
 | 2.8–4.6 s | Zoom into the matching tile until it fills the frame. |
 | 4.6–8.6 s | Evidence view: the Track box on the vehicle, the "Arch gate" line, the evidence card ("Open in player", "Add to case"). **The deployment banner ("Proof of concept · Not Production-qualified") is legible here: the one time it is called out.** |
 | 8.6–10 s | Fade to: **"From 1,152 hours to the clip that matters."**, then to dark, so the loop restarts cleanly on the wall. |
 
 ## Timing, captions, poster, export
 
-- **Timing.** The opening is 12 s, the chapters 7 s each (6–9 s allowed; zones and lines about 11 s) and the payoff 10 s, and the two Next phase chapters 8 s and 7 s, so the total is about 118 s. Write down the start time of every chapter and of the payoff in milliseconds. `build/finish_deck.ps1` re-points the bookmarks from `startMs` in `chapters.json` (see the briefing README).
+- **Timing.** The opening is 12 s, the chapters 7 s each (6–9 s allowed; zones and lines about 11 s) and the payoff 10 s, and the two Next phase chapters 8 s and 7 s, so the planned total is about 118 s. The S13 laptop recording is 216 s: real UI takes run 9–24 s a chapter even at up to 1.8× speed, and the owner accepted a longer video ("length is not an issue"). Write down the start time of every chapter and of the payoff in milliseconds. `build/finish_deck.ps1` re-points the bookmarks from `startMs` in `chapters.json` (see the briefing README).
 - **Captions** use the two words in the Caption column, at the lower left. The number is in accent blue #3B82F6 and the words in #E6EBF2. The font is Segoe UI Semibold, about 64 px, on a translucent #0A0E15 band. The caption runs through the whole chapter and never covers scores, thresholds or the banner.
 - **Credits.** Keep each clip's source and licence credit small at the lower right throughout its chapter (`docs/qualification/poc/demo-corpus-attribution.md`). The CC BY clips require this.
 - **Poster frame.** A still of the dimmed 12-camera wall with a play button and "Click to play · <length> seconds", saved as a 1920×1080 PNG at `E:\MAVI-Working\briefing\media\MAVI-demo-poster.png`.
