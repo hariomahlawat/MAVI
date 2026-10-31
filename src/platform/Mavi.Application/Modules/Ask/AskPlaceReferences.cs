@@ -105,7 +105,8 @@ public static class AskPlaceReferences
             {
                 if (name.All(char.IsAsciiDigit) && name.Length <= 4)
                     references.Add(new AskPlaceReference(kind, [name], int.Parse(name, CultureInfo.InvariantCulture), $"{tokens[index].Text} {name}"));
-                else if ((Capitalised.IsMatch(name) && !NotNames.Contains(next.Lower)) || (name.Length == 1 && char.IsAsciiLetterUpper(name[0])))
+                else if ((Capitalised.IsMatch(name) && !NotNames.Contains(next.Lower) && !Boundaries.Contains(next.Lower)) ||
+                         (name.Length == 1 && char.IsAsciiLetterUpper(name[0])))
                     references.Add(new AskPlaceReference(kind, [next.Lower], null, $"{tokens[index].Text} {name}", AfterKind: true));
             }
 
@@ -199,7 +200,8 @@ public static class AskPlaceReferences
 
     /// <summary>
     /// The references that name nothing in the catalogue: the places the site does not have. A word after "line" that
-    /// is one of the site's line-side labels ("the Count line, Leftward") is a direction, not a name.
+    /// is one of the site's line-side labels ("the Count line, Leftward") is a direction, not a name, and so is a side
+    /// label ending a capitalised run ("the Arch Gate Entry").
     /// </summary>
     public static IReadOnlyList<AskPlaceReference> Unknown(string question, AskSiteCatalogue catalogue)
     {
@@ -209,7 +211,17 @@ public static class AskPlaceReferences
             .ToHashSet(StringComparer.Ordinal);
         return [.. Extract(question)
             .Where(reference => !(reference.AfterKind && reference.Words.All(sideWords.Contains)))
+            .Select(reference => reference.Kind == "any" ? WithoutTrailingSides(reference, sideWords) : reference)
+            .Where(reference => reference.Words.Count > 0)
             .Where(reference => Named(reference, catalogue) is { Cameras.Count: 0, Zones.Count: 0, Lines.Count: 0 })];
+    }
+
+    private static AskPlaceReference WithoutTrailingSides(AskPlaceReference reference, HashSet<string> sideWords)
+    {
+        var words = reference.Words.ToList();
+        while (words.Count > 0 && sideWords.Contains(words[^1]))
+            words.RemoveAt(words.Count - 1);
+        return reference with { Words = words };
     }
 
     private static HashSet<int> NameNumbers(string name) =>

@@ -75,6 +75,12 @@ public sealed class AskPromptV2Tests
     [InlineData("Show Persons Near Junction Exit Line")]
     [InlineData("List Daily People Counts Per Camera")]
     [InlineData("Show persons Near the Junction exit line")]
+    [InlineData("Show People Per Camera By Hour Today")]
+    [InlineData("Daily Vehicle Totals By Camera For Last Week")]
+    [InlineData("people per Camera By hour today")]
+    [InlineData("Show people per Camera Per hour")]
+    [InlineData("Show persons Crossing Hall Midline Away today")]
+    [InlineData("Show people crossing the Arch Gate Entry today")]
     public void NamedOrGenericPlacesAreNotUnknown(string question)
     {
         Assert.Empty(AskPlaceReferences.Unknown(question, Catalogue));
