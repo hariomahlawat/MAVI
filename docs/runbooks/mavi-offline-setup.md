@@ -326,15 +326,19 @@ The PoC kit carries the demo corpus next to the binary payloads. Build the kit w
 ~~~powershell
 powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviOfflineBinaryKit.ps1 -Destination "<kit>" `
   -PocDemoCorpusRoot "E:\MAVI-Controlled\PoC\Corpus" `
-  -PocDemoCorpusLicenceFile "E:\MAVI-Controlled\PoC\Corpus\approvals\MEVA-data-license.txt"
+  -PocDemoCorpusLicenceFile ((Get-ChildItem "E:\MAVI-Controlled\PoC\S13\licences\CC*-legalcode.*").FullName + "E:\MAVI-Controlled\PoC\Corpus\approvals\MEVA-data-license.txt")
 ~~~
 
 It writes `media\poc-demo-corpus\`, which holds:
 - `derivatives\`: only the clips that `tools/poc/demo-corpus/demo-corpus-v1.json` pins with `kit: true`. Each clip is SHA-256 verified against its pin before and after the copy. Every clip licence must be CC0 or CC BY (plan D3); any other licence stops the build.
 - the definition `demo-corpus-v1.json`;
 - `demo-corpus-attribution.md`, which must accompany the clips;
-- `LICENCES.md`: each licence's legal-code URI and the clips it covers;
+- `LICENCES.md`: for each licence, the clips it covers, its legal-code URI and its full text in `licences\`;
 - `licences\`: the full licence texts passed with `-PocDemoCorpusLicenceFile`.
+  - A legal code is named `<licence>-legalcode.txt` or `.html`, where `<licence>` is `CC0-1.0`, `CC-BY-2.0`, `CC-BY-3.0` or `CC-BY-4.0`.
+  - When any text is given, every licence a kit clip uses must have its legal code there.
+  - The PoC's legal codes were downloaded from creativecommons.org as a recorded acquisition (owner decision D-S13-2). They are kept in `E:\MAVI-Controlled\PoC\S13\licences\`, with `acquisition.json` and `SHA256SUMS`.
+  - CC BY 2.0 has no published plain-text legal code, so its HTML page is kept as published.
 
 The manifest records all of this under `pocDemoCorpus`. `Test-MaviOfflineBinaryKit.ps1` checks every file again and refuses the kit when:
 - a file is unlisted (for example a crop, an embedding, a gallery export, or another dataset's clip);
