@@ -35,6 +35,12 @@ public sealed class AskPromptV2Tests
     [InlineData("How many cars passed Victoria Gardens today?")]
     [InlineData("Loading dock zone vehicles today")]
     [InlineData("Persons near the front camera")]
+    [InlineData("Count people at Central Station")]
+    [InlineData("Vehicles at Central Station")]
+    [InlineData("People with a Blue Jacket at Central Station")]
+    [InlineData("How Many People Were At The Central Station Camera Today?")]
+    [InlineData("Count vehicles in the Quiet zone")]
+    [InlineData("Count vehicles in the Busy zone")]
     public void APlaceTheSiteDoesNotHaveIsUnknown(string question)
     {
         Assert.NotEmpty(AskPlaceReferences.Unknown(question, Catalogue));

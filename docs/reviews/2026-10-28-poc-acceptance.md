@@ -191,7 +191,7 @@ Prompt `mavi-ask-prompt-v2` was measured once on the fresh held split (D-S10-8, 
 
 | Folder | `SHA256SUMS` SHA-256 | What it holds |
 |---|---|---|
-| `protocol\` | `25f580e93c5a50deac794fd906262510918bf1015b23b39a3e6409266adfe9a3` | The frozen protocol (`protocol.json` `e20eb01d…`); the authoring disclosure; the run, recording, identity and report scripts |
+| `protocol\` | `08a5c01db235d7f8a10b2647226146a69aec250e4d0d3f3c7bc4e77114c00dc1` | The frozen protocol (`protocol.json` `e20eb01d…`); the authoring disclosure; the run, recording, identity and report scripts |
 | `authoring\` | `e0b8e2b68e9acd0e72419be3f4444758b3063a7e5209f458e464b6223f17c06e` | The author's kit brief, the split as authored and checked, the author's build and check scripts, and the checker's log |
 | `dev\` | `510bca3df3cb1eecb2e03829aaeedbfc6233a15a120a4be3f41e947a48673651` | Development passes: v2 on the 60 v1 questions (7B 51/60, 1.5B 36/60), regression diagnostics only |
 | `held\` | `5c8ab8f0010a3f528c85431bea2db68b1ac59f7225c7efcacf3c93d7f4efd61a` | Both committed held recording sets, the host state at each start and end, the server logs and the figures report |

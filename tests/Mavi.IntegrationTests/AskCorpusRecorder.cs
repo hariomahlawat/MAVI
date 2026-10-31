@@ -19,6 +19,7 @@ namespace Mavi.IntegrationTests;
 /// MAVI_ASK_RECORD=contracts/test-vectors/ask-mavi-recordings-&lt;label&gt;.json
 /// MAVI_ASK_LANGUAGE_PORT=62301 (llama-server on 127.0.0.1)   MAVI_ASK_SPLIT=development|all
 /// MAVI_ASK_QUESTIONS (default: the current prompt version's corpus; a v2 development pass names the v1 corpus)
+/// MAVI_ASK_CACHE_PROMPT=true|false (required; as the installer binds Language:CachePrompt for the pack)
 /// MAVI_ASK_LABEL, MAVI_ASK_MODEL_PACK_ID, MAVI_ASK_MODEL_ID, MAVI_ASK_QUANTISATION, MAVI_ASK_MODEL_SHA256,
 /// MAVI_ASK_RUNTIME_ID, MAVI_ASK_DEVICE
 /// dotnet test tests/Mavi.IntegrationTests --filter FullyQualifiedName~AskCorpusRecorder
@@ -42,8 +43,14 @@ public sealed class AskCorpusRecorder
             Enabled = true,
             Port = int.Parse(Env("MAVI_ASK_LANGUAGE_PORT"), System.Globalization.CultureInfo.InvariantCulture),
             TimeoutSeconds = 900,
-            // MAVI_ASK_CACHE_PROMPT=false records without prefix reuse (D-S10-7: a set not byte-identical in reverse order).
-            CachePrompt = Environment.GetEnvironmentVariable("MAVI_ASK_CACHE_PROMPT") != "false",
+            // MAVI_ASK_CACHE_PROMPT=true|false, required: prefix reuse only for a pack whose set was byte-identical in
+            // reverse order (D-S10-7); the recorder never assumes it.
+            CachePrompt = Environment.GetEnvironmentVariable("MAVI_ASK_CACHE_PROMPT") switch
+            {
+                "true" => true,
+                "false" => false,
+                _ => throw new InvalidOperationException("MAVI_ASK_CACHE_PROMPT must be true or false (D-S10-7)."),
+            },
         }));
         var version = AskPrompt.TemplateVersion;
         var v2 = AskPrompt.IsVersion2(version);

@@ -20,6 +20,9 @@ role is bound, one at a time, and for each question records:
 Prompt v2 (ADR-026 amendment D-S10-9) refuses a question naming a place the site lacks before the model, at stage
 ``question``; that refusal matches an expected ``unknown_reference`` as the model's own does, and has no prompt to bind.
 
+The API must bind ``Language:CachePrompt`` as the recording set was made (the 1.5B set: true), or the live run and
+the recording can decode differently.
+
 Entities are shown to operators only (ADR-023, #253) and this client is anonymous. For an Entity question the
 platform refuses the direct ``POST /api/query`` (401), so the expected canonical query is the one the bound recording
 holds (the strict parser's canonical form), and grounding means the Ask answer withholds Entity data

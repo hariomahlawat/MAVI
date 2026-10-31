@@ -60,8 +60,8 @@ public static class AskPlaceReferences
         "give", "get", "tell", "is", "are", "was", "were", "did", "do", "does", "there", "has", "had", "have", "me",
         "people", "person", "persons", "vehicle", "vehicles", "car", "cars", "track", "tracks", "event", "events",
         "entity", "entities", "today", "yesterday", "tomorrow", "s", "today's", "yesterday's", "tomorrow's",
-        "daily", "hourly", "weekly", "nightly", "crowded", "busy", "quiet", "empty", "full", "more", "less", "fewest",
-        "per-camera", "per-zone", "per-line", "overall", "total", "totals", "counts", "single-camera",
+        "daily", "hourly", "weekly", "nightly", "crowded", "fewest", "per-camera", "per-zone", "per-line", "totals",
+        "counts",
     };
 
     /// <summary>Capitalised words that are never part of a place name (classes, units, time words, sentence verbs).</summary>
@@ -78,6 +78,11 @@ public static class AskPlaceReferences
         "black", "blue", "brown", "green", "grey", "gray", "orange", "pink", "purple", "red", "white", "yellow", "beige",
         "silver", "bag", "bags", "backpack", "backpacks", "handbag", "shirt", "shirts", "top", "jacket", "trousers",
         "skirt", "hat", "hats", "cap", "helmet", "hood",
+    };
+
+    private static readonly HashSet<string> FunctionWords = new(StringComparer.Ordinal)
+    {
+        "the", "at", "in", "on", "of", "to", "by", "with", "from", "and", "or", "for", "between",
     };
 
     public static IReadOnlyList<AskPlaceReference> Extract(string question)
@@ -129,10 +134,13 @@ public static class AskPlaceReferences
             }
         }
 
-        // Runs of capitalised words, not counting a sentence's first word. A question typed in title case has no
-        // capitalisation signal, so this pattern is not applied to it.
+        // Runs of capitalised words, not counting a sentence's first word. A question typed in title case (nearly every
+        // word capitalised, function words included: "How Many People Entered The Junction Box Zone Today?") has no
+        // capitalisation signal, so this pattern is not applied to it; "Count people at Central Station" is not title case.
         var words = tokens.Where(token => token.Text.Any(char.IsAsciiLetter) && token.Text.Length > 1).ToList();
-        var titleCase = words.Count > 0 && words.Count(token => char.IsAsciiLetterUpper(token.Text[0])) * 10 >= words.Count * 6;
+        var titleCase = words.Count >= 4 &&
+            words.Count(token => char.IsAsciiLetterUpper(token.Text[0])) * 10 >= words.Count * 9 &&
+            words.Any(token => FunctionWords.Contains(token.Lower) && char.IsAsciiLetterUpper(token.Text[0]));
         var run = new List<int>();
         void Close()
         {
