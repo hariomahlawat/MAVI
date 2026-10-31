@@ -198,7 +198,7 @@ Prompt `mavi-ask-prompt-v2` was measured once on the fresh held split (D-S10-8, 
 | `reverse\` | `0606b73ec076dcb4bc1201a2e5036e9c1c00e7f6c3ef015ac31574e294933dbe` | Reverse-order recordings: 7B with reuse off identical (`b8295f54…`); 1.5B with reuse on identical (`a04dee1d…`) |
 | `superseded-cache-on\` | `06da3f308e7391422fb989b67b262aa1e4045e0a72b160c62826029ae111b9ac` | The 7B reuse-on pair: not identical in reverse order (n11), so superseded under D-S10-7. It scored 21/40 (n26 passes with reuse) |
 | `e2e-1.5b\` | `e4f4c3b08b47eb2b99d708d93930aa2fb3afce8f9df450db8d86babd9f818664` | `POST /api/ask` end to end on `mavi_poc_s10v2`, a fresh copy of `mavi_poc_s10` |
-| `e2e-1.5b-confirm\` | `ba375e0a0ee2a1ebb36bcc1af6a55ce17d838ef370292281b66f548d10a882ae` | The same run under the confirm flow (D-S10-10): Ask carries no answer, and the script presses Run (`POST /api/query`). Translation 19/40; grounded 40/40 (1 operator-gated Entity Run) |
+| `e2e-1.5b-confirm\` | `ba375e0a0ee2a1ebb36bcc1af6a55ce17d838ef370292281b66f548d10a882ae` | The same run under the confirm flow (D-S10-10): Ask carries no answer, and the script presses Run (`POST /api/query`). Translation 19/40. Grounded 40/40, which here means no Ask response carried an answer and every answer comes from the Run's own envelope or typed refusal (35 answered, 1 operator-gated Entity Run refused, 4 questions refused before Run). The earlier "Ask envelope equals POST /api/query" property belongs to `e2e-1.5b\` |
 
 - **Held exact-match (measured once).**
   - 7B: **20/40 = 50.0%** (Wilson 95% 35–65%), in contract **17/31 = 54.8%**. This misses the bar (34/40).

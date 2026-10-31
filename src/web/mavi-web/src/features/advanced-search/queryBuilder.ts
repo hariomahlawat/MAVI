@@ -199,6 +199,9 @@ export function stateFromQuery(query: StructuredQuery): LoadResult {
   if (operation.op === 'timeBucket' && !(BUCKET_CHOICES as readonly number[]).includes(operation.bucketSeconds ?? -1)) {
     return unsupported(`buckets of ${operation.bucketSeconds} seconds`);
   }
+  // The builder offers attributes only once a class is chosen; loading them without one would send a predicate the
+  // operator cannot see.
+  if (where.attributes?.length && !where.objectClass) return unsupported('attributes without an object class');
   const attributes: Record<string, string> = {};
   for (const attribute of where.attributes ?? []) {
     if (attribute.type in attributes) return unsupported('two values of one attribute');

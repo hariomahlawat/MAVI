@@ -279,12 +279,21 @@ describe('Ask MAVI proposes, the operator confirms (D-S10-10)', () => {
     expect(screen.queryByRole('heading', { name: 'Answer' })).toBeNull();
   });
 
+  it('says an Entity Run refused to a caller who is not an operator is for operators only', async () => {
+    vi.mocked(runQuery).mockRejectedValue(new ApiError({ status: 401, code: 'unauthorized', detail: 'x', extensions: {} }));
+    renderAnswer(proposed());
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+    expect(await screen.findByText('Operators only')).toBeInTheDocument();
+    expect(screen.queryByText(/could not be reached/)).toBeNull();
+  });
+
   it('cannot open a query in Advanced Search that the builder cannot hold, and says why', () => {
     const withDuration = proposed();
     withDuration.interpretation!.resolvedQuery = { ...resolvedQuery, where: { ...resolvedQuery.where, minDurationMs: 120_000 } };
     renderAnswer(withDuration);
     expect(screen.getByRole('button', { name: 'Open in Advanced Search' })).toBeDisabled();
     expect(screen.getByText(/cannot build a minimum duration/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open in Advanced Search' })).toHaveAttribute('aria-describedby', 'ask-open-reason');
     expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
   });
 });

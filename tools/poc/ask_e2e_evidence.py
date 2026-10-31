@@ -12,7 +12,8 @@ role is bound, one at a time, and for each question records:
    answer is that deterministic envelope and nothing else.
 3. **Prompt binding**: the prompt hash the API reports must equal the one in the CI recording set named, so the live
    run and the replayed recordings were given the same prompt.
-4. **Latency**: client wall time and the server's translation/evaluation split.
+4. **Latency**: client wall time of the Ask request and the server's translation time (the Run is timed separately by
+   nothing here).
 
     python tools/poc/ask_e2e_evidence.py run --api http://127.0.0.1:62210 --recordings <recordings.json> --out <dir>
         [--questions contracts/test-vectors/ask-mavi-questions-v2.json]
@@ -148,7 +149,8 @@ def run(api: str, recordings_path: Path | None, out: Path, questions_path: Path 
             else:
                 got = {"kind": "query", "resolvedQuery": proposal, "fingerprint": run.get("queryFingerprint") if run_code == 200 else None}
                 passed = expected["kind"] == "query" and run_code == 200 and run["queryFingerprint"] == expected["fingerprint"]
-                # What the page shows after Run is this envelope, from the S9 service, and nothing before it.
+                # Grounded under the confirm flow: Ask showed no answer, and what the page shows after Run is this
+                # envelope from the S9 service (200) or its typed refusal (400/422). Nothing else can be shown.
                 grounded = unanswered and run_code in (200, 400, 422)
         else:
             refusal = response["refusal"]

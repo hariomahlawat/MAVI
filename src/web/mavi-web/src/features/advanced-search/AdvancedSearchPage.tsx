@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
+import { ApiError } from '../../api/client';
 import {
   coverageComponentGaps,
   getQueryContract,
@@ -388,6 +389,15 @@ export default function AdvancedSearchPage() {
 
 export function Refusal({ error }: { error: unknown }) {
   const refusal = queryRefusal(error);
+  // An Entity query by a caller who is not a MAVI operator (ADR-023): refused by policy, not a failure.
+  if (refusal === null && error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+    return (
+      <div className="query-page__refusal" role="alert">
+        <strong>Operators only</strong>
+        <p>Entities are shown to MAVI operators only. Open MAVI at localhost with an operator&apos;s Windows account to run this query.</p>
+      </div>
+    );
+  }
   if (refusal === null) {
     return <EmptyState title="The query could not be run">The server could not be reached or failed. Try again.</EmptyState>;
   }

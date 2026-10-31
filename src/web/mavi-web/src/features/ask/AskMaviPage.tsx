@@ -128,7 +128,10 @@ export function AskAnswer({ response }: { response: AskResponse }) {
             Fingerprint <code title={interpretation.queryFingerprint}>{interpretation.queryFingerprint.slice(0, 16)}…</code>
           </p>
         </details>
-        <p className="query-page__muted">{ACCURACY} Check that this is what you meant. Nothing has run yet.</p>
+        <p className="query-page__muted">
+          {ACCURACY} Check that this is what you meant. Nothing has run yet. When attributes imply the object class, the query
+          as run states that class, so its fingerprint can differ from the proposal&apos;s.
+        </p>
         <div className="ask-page__actions">
           <button
             type="button"
@@ -143,11 +146,12 @@ export function AskAnswer({ response }: { response: AskResponse }) {
             className="button"
             disabled={loadable.state === null}
             title={loadable.problem ?? undefined}
+            aria-describedby={loadable.problem ? 'ask-open-reason' : undefined}
             onClick={() => navigate('/query', { state: { askQuery: interpretation.resolvedQuery } })}
           >
             Open in Advanced Search
           </button>
-          {loadable.problem ? <small className="query-page__muted">{loadable.problem}</small> : null}
+          {loadable.problem ? <small id="ask-open-reason" className="query-page__muted">{loadable.problem}</small> : null}
         </div>
       </Panel>
 

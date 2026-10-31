@@ -140,6 +140,36 @@ describe('the query builder', () => {
     expect(stateFromQuery({ ...proposedQuery, operation: { op: 'timeBucket', bucketSeconds: 1_800 } }).problem).toMatch(/1800 seconds/);
     expect(stateFromQuery({ ...proposedQuery, where: { ...proposedQuery.where, line: undefined, zone: { zoneId: lineId, loitering: true } } }).problem)
       .toMatch(/loitering/);
+    const window = { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T14:00:00.000Z' };
+    expect(stateFromQuery({ contractVersion: 'mavi-query-v1', unit: 'track', where: { timeWindow: window, attributes: [{ type: 'upper-colour', value: 'red' }] }, operation: { op: 'count' } }).problem)
+      .toMatch(/attributes without an object class/);
+  });
+
+  it.each<[string, StructuredQuery]>([
+    ['an Event zone with rules, found newest first', {
+      contractVersion: 'mavi-query-v1', unit: 'event',
+      where: { timeWindow: { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T14:00:00.000Z' }, cameraIds: [cameraId], zone: { zoneId: lineId }, ruleIds: ['line-crossing', 'zone-dwell'] },
+      operation: { op: 'find', limit: 20, order: 'newest' },
+    }],
+    ['a compare with its baseline', {
+      contractVersion: 'mavi-query-v1', unit: 'track',
+      where: { timeWindow: { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T09:00:00.000Z' }, objectClass: 'Person' },
+      operation: { op: 'compare', baseline: { fromUtc: '2026-09-20T08:00:00.000Z', toUtc: '2026-09-20T09:00:00.000Z' } },
+    }],
+    ['a top with k, and attributes with their class', {
+      contractVersion: 'mavi-query-v1', unit: 'track',
+      where: { timeWindow: { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T14:00:00.000Z' }, objectClass: 'Person', attributes: [{ type: 'upper-colour', value: 'red' }] },
+      operation: { op: 'top', by: 'camera', k: 3 },
+    }],
+    ['a plate prefix counted per distinct video', {
+      contractVersion: 'mavi-query-v1', unit: 'track',
+      where: { timeWindow: { fromUtc: '2026-09-21T08:00:00.000Z', toUtc: '2026-09-21T14:00:00.000Z' }, objectClass: 'Vehicle', plateText: { text: 'MH12', match: 'prefix' } },
+      operation: { op: 'countDistinct', field: 'video' },
+    }],
+  ])('loads %s and builds it back unchanged', (_, query) => {
+    const loaded = stateFromQuery(query);
+    expect(loaded.problem).toBeNull();
+    expect(buildQuery(loaded.state!, contract).query).toEqual(query);
   });
 
   it('builds only what the contract allows and states its window explicitly', () => {
