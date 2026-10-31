@@ -36,7 +36,8 @@ function item(overrides: Partial<CaseItem>): CaseItem {
 function detail(): CaseDetail {
   return {
     statement,
-    case: { caseId, title: 'Gate incident', purpose: 'Vehicle at the north gate after hours', createdBy: asha, activeItemCount: 2, removedItemCount: 1, noteCount: 1 },
+    case: { caseId, title: 'Gate incident', purpose: 'Vehicle at the north gate after hours', createdBy: asha, activeItemCount: 2, removedItemCount: 1, noteCount: 1,
+      holdsSubject: null },
     items: [
       item({ itemId: 'i1', note: 'first sighting', subject: { ...emptySubject, objectClass: 'Vehicle', cameraName: 'North gate', reviewStatus: 'Confirmed', earlierRun: true, videoAssetId: videoId, processingRunId: 'r1' } }),
       item({ itemId: 'i2', kind: 'AnalyticEvent', subjectId: eventId, subject: { ...emptySubject, ruleId: 'zone-dwell', cameraId } }),
@@ -122,8 +123,23 @@ describe('PoC S11-full cases list', () => {
     vi.mocked(listCases).mockReset();
   });
 
+  it('reaches every case through the server cursor', async () => {
+    const user = userEvent.setup();
+    const older = { ...detail().case, caseId: '018f3f5a-2f70-7a2b-8a12-2d02f4c214aa', title: 'Older case' };
+    vi.mocked(listCases).mockImplementation(async (_options, cursor) => (cursor === 'p2'
+      ? { statement, cases: [older], nextCursor: null }
+      : { statement, cases: [detail().case], nextCursor: 'p2' }));
+    renderWithApp(<CasesPage />, { route: '/cases' });
+
+    const list = await screen.findByRole('list', { name: 'Cases' });
+    expect(within(list).queryByRole('link', { name: 'Older case' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Load more cases' }));
+    expect(await within(list).findByRole('link', { name: 'Older case' })).toHaveAttribute('href', `/cases/${older.caseId}`);
+    expect(screen.queryByRole('button', { name: 'Load more cases' })).not.toBeInTheDocument();
+  });
+
   it('lists cases with their counts and creator', async () => {
-    vi.mocked(listCases).mockResolvedValue({ statement, cases: [detail().case] });
+    vi.mocked(listCases).mockResolvedValue({ statement, cases: [detail().case], nextCursor: null });
     renderWithApp(<CasesPage />, { route: '/cases' });
     const list = await screen.findByRole('list', { name: 'Cases' });
     expect(within(list).getByRole('link', { name: 'Gate incident' })).toHaveAttribute('href', `/cases/${caseId}`);

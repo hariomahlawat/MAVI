@@ -32,25 +32,44 @@ public sealed class CaseRepository(MaviDbContext db, IAuditWriter audit, ICurren
         return new CaseSummary(created.Id, created.Title, created.Purpose, View(actor), 0, 0, 0);
     }
 
-    public async Task<IReadOnlyList<CaseSummary>> ListAsync(CaseItemKind? subjectKind, Guid? subjectId, int limit,
-        CancellationToken cancellationToken)
+    public async Task<CaseListPage> ListAsync(CaseListQuery query, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(query);
         var cases = db.Cases.AsNoTracking();
-        if (subjectKind is { } kind && subjectId is { } subject)
-            cases = cases.Where(c => db.CaseItems.Any(item => item.CaseId == c.Id && item.Kind == kind && item.SubjectId == subject &&
+        if (query.Subject is { } subject)
+            cases = cases.Where(c => db.CaseItems.Any(item => item.CaseId == c.Id && item.Kind == subject.Kind && item.SubjectId == subject.Id &&
                                                               item.RemovedAtUtc == null));
+        if (query.TitleContains is { Length: > 0 } text)
+        {
+            // A literal substring: the operator's % and _ are escaped, so they match themselves.
+            var pattern = "%" + text.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+            cases = cases.Where(c => EF.Functions.ILike(c.Title, pattern, "\\"));
+        }
+
+        if (query.Before is { } before)
+            cases = cases.Where(c => c.CreatedAtUtc < before.CreatedAtUtc || (c.CreatedAtUtc == before.CreatedAtUtc && c.Id.CompareTo(before.CaseId) < 0));
+        var holdingKind = query.Holding?.Kind;
+        var holdingId = query.Holding?.Id;
         var rows = await cases
             .OrderByDescending(c => c.CreatedAtUtc).ThenByDescending(c => c.Id)
-            .Take(limit)
+            .Take(query.Limit + 1)
             .Select(c => new
             {
                 InvestigationCase = c,
                 Active = db.CaseItems.Count(item => item.CaseId == c.Id && item.RemovedAtUtc == null),
                 Removed = db.CaseItems.Count(item => item.CaseId == c.Id && item.RemovedAtUtc != null),
                 Notes = db.CaseNotes.Count(note => note.CaseId == c.Id),
+                Holds = holdingId != null && db.CaseItems.Any(item => item.CaseId == c.Id && item.Kind == holdingKind && item.SubjectId == holdingId &&
+                                                                    item.RemovedAtUtc == null),
             })
             .ToListAsync(cancellationToken);
-        return rows.Select(row => Summary(row.InvestigationCase, row.Active, row.Removed, row.Notes)).ToList();
+        var items = rows.Take(query.Limit)
+            .Select(row => Summary(row.InvestigationCase, row.Active, row.Removed, row.Notes) with
+            {
+                HoldsSubject = query.Holding is null ? null : row.Holds,
+            })
+            .ToList();
+        return new CaseListPage(items, rows.Count > query.Limit ? (items[^1].CreatedBy.AtUtc, items[^1].CaseId) : null);
     }
 
     public async Task<CaseDetail?> GetAsync(Guid caseId, CancellationToken cancellationToken)

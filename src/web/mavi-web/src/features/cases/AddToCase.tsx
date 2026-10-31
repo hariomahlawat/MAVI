@@ -1,10 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import {
   CASE_ITEM_ALREADY_PRESENT,
   CASE_ITEM_NOTE_MAXIMUM,
+  CASE_LIST_PAGE_SIZE,
   CASE_STATEMENT,
   CASE_TITLE_MAXIMUM,
   addCaseItem,
@@ -58,24 +59,24 @@ export default function AddToCase({ kind, subjectId: rawSubjectId }: Props) {
   const [titleError, setTitleError] = useState<string | null>(null);
   const noun = caseItemKindLabel(kind);
 
-  const cases = useQuery({
-    queryKey: queryKeys.caseList('all'),
-    queryFn: ({ signal }) => listCases(null, 200, signal),
+  // One paged list, searchable by title on the server, each case marked with whether it already holds the subject: every
+  // case is reachable however many there are.
+  const [search, setSearch] = useState('');
+  const [titleFilter, setTitleFilter] = useState('');
+  const cases = useInfiniteQuery({
+    queryKey: queryKeys.caseList(`pick|${kind}:${subjectId}|${titleFilter}`),
+    queryFn: ({ pageParam, signal }) => listCases({ title: titleFilter, holding: { kind, subjectId } }, pageParam, CASE_LIST_PAGE_SIZE, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
     enabled: open,
     retry: retryOnce,
   });
-  const holding = useQuery({
-    queryKey: queryKeys.caseList(`${kind}:${subjectId}`),
-    queryFn: ({ signal }) => listCases({ kind, subjectId }, 200, signal),
-    enabled: open,
-    retry: retryOnce,
-  });
-  const holdingIds = new Set((holding.data?.cases ?? []).map((item) => item.caseId));
+  const loaded = (cases.data?.pages ?? []).flatMap((page) => page.cases);
 
   const add = useMutation({
     mutationFn: async (): Promise<Added> => {
       let target = selected;
-      let targetTitle = cases.data?.cases.find((item) => item.caseId === selected)?.title ?? '';
+      let targetTitle = loaded.find((item) => item.caseId === selected)?.title ?? '';
       if (selected === NEW_CASE) {
         const created = await createCase(title.trim());
         // The case exists from here on, whatever happens to the item: it is
@@ -115,7 +116,7 @@ export default function AddToCase({ kind, subjectId: rawSubjectId }: Props) {
     : failure instanceof ApiError && failure.code === 'case_subject_not_found'
       ? `This ${noun} no longer exists, so it cannot be added.`
       : operatorMessage(failure, 'The item could not be added to the case.');
-  const listFailure = cases.error ?? holding.error;
+  const listFailure = cases.error;
   const noteTooLong = note.length > CASE_ITEM_NOTE_MAXIMUM;
 
   if (!open) {
@@ -147,23 +148,40 @@ export default function AddToCase({ kind, subjectId: rawSubjectId }: Props) {
       ) : (
         <>
           {listFailure ? (
-            <Alert tone="error" actions={<Button size="sm" onClick={() => { void cases.refetch(); void holding.refetch(); }}>Retry</Button>}>
+            <Alert tone="error" actions={<Button size="sm" onClick={() => void cases.refetch()}>Retry</Button>}>
               {operatorMessage(listFailure, 'Cases could not be loaded.')}
             </Alert>
           ) : null}
+          <div className="row" role="search" aria-label="Find a case">
+            <Field label="Find a case by title" optional>
+              {(control) => (
+                <input {...control} type="search" value={search} maxLength={CASE_TITLE_MAXIMUM} disabled={add.isPending}
+                  onChange={(event) => setSearch(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); setTitleFilter(search.trim()); } }} />
+              )}
+            </Field>
+            <Button size="sm" variant="ghost" disabled={add.isPending} onClick={() => setTitleFilter(search.trim())}>Find</Button>
+          </div>
           <Field label="Case">
             {(control) => (
               <select {...control} value={selected} onChange={(event) => setSelected(event.target.value)} disabled={add.isPending}>
-                <option value="">{cases.isPending ? 'Loading cases…' : 'Choose a case'}</option>
-                {(cases.data?.cases ?? []).map((item) => (
-                  <option key={item.caseId} value={item.caseId} disabled={holdingIds.has(item.caseId)}>
-                    {item.title}{holdingIds.has(item.caseId) ? ` (already holds this ${noun})` : ''}
+                <option value="">{cases.isPending ? 'Loading cases…' : loaded.length === 0 && titleFilter ? 'No case title matches' : 'Choose a case'}</option>
+                {loaded.map((item) => (
+                  <option key={item.caseId} value={item.caseId} disabled={item.holdsSubject === true}>
+                    {item.title}{item.holdsSubject ? ` (already holds this ${noun})` : ''}
                   </option>
                 ))}
                 <option value={NEW_CASE}>New case…</option>
               </select>
             )}
           </Field>
+          {cases.hasNextPage ? (
+            <div className="row">
+              <Button size="sm" variant="ghost" disabled={cases.isFetchingNextPage || add.isPending} onClick={() => void cases.fetchNextPage()}>
+                {cases.isFetchingNextPage ? 'Loading more cases…' : 'Load more cases'}
+              </Button>
+            </div>
+          ) : null}
           {selected === NEW_CASE ? (
             <Field label="New case title" error={titleError}>
               {(control) => (

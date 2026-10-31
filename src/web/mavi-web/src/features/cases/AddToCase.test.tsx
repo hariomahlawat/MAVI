@@ -15,8 +15,8 @@ vi.mock('../../api/cases', async () => {
 const eventId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21450';
 const actor = { operatorId: 'SITE\\asha', displayName: 'Asha', identitySource: 'windows-negotiate', atUtc: '2026-10-31T08:00:00Z', auditEntryId: 'a' };
 
-function summary(caseId: string, title: string): CaseSummary {
-  return { caseId, title, purpose: null, createdBy: actor, activeItemCount: 0, removedItemCount: 0, noteCount: 0 };
+function summary(caseId: string, title: string, holdsSubject: boolean | null = false): CaseSummary {
+  return { caseId, title, purpose: null, createdBy: actor, activeItemCount: 0, removedItemCount: 0, noteCount: 0, holdsSubject };
 }
 
 const item = { itemId: 'i1' } as CaseItem;
@@ -27,9 +27,11 @@ describe('PoC S11-full Add to case', () => {
     vi.mocked(listCases).mockReset();
     vi.mocked(createCase).mockReset();
     vi.mocked(addCaseItem).mockReset();
-    vi.mocked(listCases).mockImplementation(async (subject) => ({
+    // c2 already holds the subject: the server marks it, so the picker needs no second list.
+    vi.mocked(listCases).mockImplementation(async () => ({
       statement,
-      cases: subject ? [summary('c2', 'Loading bay')] : [summary('c1', 'Gate incident'), summary('c2', 'Loading bay')],
+      cases: [summary('c1', 'Gate incident'), summary('c2', 'Loading bay', true)],
+      nextCursor: null,
     }));
   });
 
@@ -46,7 +48,7 @@ describe('PoC S11-full Add to case', () => {
     await waitFor(() => expect(within(picker).getByRole('option', { name: 'Gate incident' })).toBeInTheDocument());
     // A case already holding this event cannot be chosen again.
     await waitFor(() => expect(within(picker).getByRole('option', { name: 'Loading bay (already holds this Event)' })).toBeDisabled());
-    expect(listCases).toHaveBeenCalledWith({ kind: 'AnalyticEvent', subjectId: eventId }, 200, expect.any(AbortSignal));
+    expect(listCases).toHaveBeenCalledWith({ title: '', holding: { kind: 'AnalyticEvent', subjectId: eventId } }, null, 50, expect.any(AbortSignal));
 
     await user.selectOptions(picker, 'c1');
     await user.type(within(form).getByRole('textbox', { name: /Note/ }), 'vehicle stopped here');
@@ -100,6 +102,31 @@ describe('PoC S11-full Add to case', () => {
     expect(await screen.findByText(new RegExp(OPERATOR_REQUIRED))).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Case' })).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('reaches cases beyond the first page and finds a case by title on the server', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listCases).mockImplementation(async (options, cursor) => {
+      if (options?.title) return { statement, cases: [summary('c9', 'Gate incident 9')], nextCursor: null };
+      return cursor === 'p2'
+        ? { statement, cases: [summary('c2', 'Older case')], nextCursor: null }
+        : { statement, cases: [summary('c1', 'Newest case')], nextCursor: 'p2' };
+    });
+    renderWithApp(<AddToCase kind="Track" subjectId={eventId} />);
+    await user.click(screen.getByRole('button', { name: 'Add to case' }));
+
+    expect(await screen.findByRole('option', { name: 'Newest case' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Older case' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Load more cases' }));
+    expect(await screen.findByRole('option', { name: 'Older case' })).toBeInTheDocument();
+    expect(vi.mocked(listCases).mock.calls.some((call) => call[1] === 'p2')).toBe(true);
+    // Every page asks the server to mark the cases that already hold this subject.
+    expect(vi.mocked(listCases).mock.calls.every((call) => call[0]?.holding?.subjectId === eventId)).toBe(true);
+
+    await user.type(screen.getByRole('searchbox', { name: /Find a case by title/ }), 'gate 9');
+    await user.click(screen.getByRole('button', { name: 'Find' }));
+    expect(await screen.findByRole('option', { name: 'Gate incident 9' })).toBeInTheDocument();
+    expect(vi.mocked(listCases).mock.calls.some((call) => call[0]?.title === 'gate 9')).toBe(true);
   });
 
   it('moves focus into the form when opened and back to the button when closed', async () => {

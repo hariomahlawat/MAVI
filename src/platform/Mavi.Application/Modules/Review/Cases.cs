@@ -6,7 +6,17 @@ namespace Mavi.Application.Modules.Review;
 public sealed record CaseActorView(string OperatorId, string DisplayName, string IdentitySource, DateTimeOffset AtUtc, Guid AuditEntryId);
 
 public sealed record CaseSummary(Guid CaseId, string Title, string? Purpose, CaseActorView CreatedBy, int ActiveItemCount, int RemovedItemCount,
-    int NoteCount);
+    int NoteCount, bool? HoldsSubject = null);
+
+/// <summary>
+/// One page of the case list, newest first (ADR-027 §2). <paramref name="Subject"/> keeps only the cases holding it as an active
+/// item; <paramref name="TitleContains"/> keeps titles containing the text (case-insensitive); <paramref name="Holding"/> marks each
+/// case with whether it holds that subject. <paramref name="Before"/> continues after the last case of the previous page.
+/// </summary>
+public sealed record CaseListQuery((CaseItemKind Kind, Guid Id)? Subject, string? TitleContains, (CaseItemKind Kind, Guid Id)? Holding,
+    (DateTimeOffset CreatedAtUtc, Guid CaseId)? Before, int Limit);
+
+public sealed record CaseListPage(IReadOnlyList<CaseSummary> Items, (DateTimeOffset CreatedAtUtc, Guid CaseId)? Next);
 
 /// <summary>
 /// What a case item refers to, read now. <see cref="Available"/> is false when the subject no longer exists; it is shown, never
@@ -31,8 +41,8 @@ public interface ICaseRepository
 {
     Task<CaseSummary> CreateAsync(string title, string? purpose, CancellationToken cancellationToken);
 
-    /// <summary>Newest first. With a subject, only cases where it is an active item.</summary>
-    Task<IReadOnlyList<CaseSummary>> ListAsync(CaseItemKind? subjectKind, Guid? subjectId, int limit, CancellationToken cancellationToken);
+    /// <summary>One keyset page, newest first; every case is reachable through the continuation.</summary>
+    Task<CaseListPage> ListAsync(CaseListQuery query, CancellationToken cancellationToken);
 
     Task<CaseDetail?> GetAsync(Guid caseId, CancellationToken cancellationToken);
 

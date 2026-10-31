@@ -1,10 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CASE_PURPOSE_MAXIMUM, CASE_STATEMENT, CASE_TITLE_MAXIMUM, createCase, listCases } from '../../api/cases';
+import { CASE_LIST_PAGE_SIZE, CASE_PURPOSE_MAXIMUM, CASE_STATEMENT, CASE_TITLE_MAXIMUM, createCase, listCases } from '../../api/cases';
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
-import { fromQuery } from '../../shared/async/fromQuery';
+import { fromInfiniteQuery } from '../../shared/async/fromQuery';
 import StateRegion from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button from '../../shared/components/Button';
@@ -65,9 +65,14 @@ export default function CasesPage() {
   const navigate = useNavigate();
   const systemConfig = useQuery({ queryKey: queryKeys.systemConfig, queryFn: ({ signal }) => getSystemConfig(signal), staleTime: 60_000 });
   const displayTimeZoneId = systemConfig.data?.displayTimeZoneId;
-  const cases = useQuery({
-    queryKey: queryKeys.caseList('all'),
-    queryFn: ({ signal }) => listCases(null, 200, signal),
+  // Every case is reachable: pages follow the server's cursor, and a title search narrows them on the server.
+  const [search, setSearch] = useState('');
+  const [title, setTitle] = useState('');
+  const cases = useInfiniteQuery({
+    queryKey: queryKeys.caseList(`all|${title}`),
+    queryFn: ({ pageParam, signal }) => listCases({ title }, pageParam, CASE_LIST_PAGE_SIZE, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
     retry: retryOnce,
   });
   const operatorRequired = isOperatorRequired(cases.error);
@@ -76,27 +81,37 @@ export default function CasesPage() {
     <section className="page">
       <ContextBar surface="cases" />
       <div className="stack">
-        <p className="small muted">{cases.data?.statement ?? CASE_STATEMENT}</p>
+        <p className="small muted">{cases.data?.pages[0]?.statement ?? CASE_STATEMENT}</p>
         {operatorRequired ? (
           <OperatorRequiredNotice />
         ) : (
           <>
             <CreateCase onCreated={(caseId) => navigate(`/cases/${caseId}`)} />
             <Panel title="Cases">
+              <form className="row" role="search" aria-label="Find cases" onSubmit={(event) => { event.preventDefault(); setTitle(search.trim()); }}>
+                <Field label="Title contains" optional>
+                  {(control) => <input {...control} type="search" value={search} maxLength={CASE_TITLE_MAXIMUM} onChange={(event) => setSearch(event.target.value)} />}
+                </Field>
+                <Button type="submit" size="sm">Find</Button>
+                {title ? <Button size="sm" variant="ghost" onClick={() => { setSearch(''); setTitle(''); }}>Show all</Button> : null}
+              </form>
               <StateRegion
                 kind="panel"
-                state={fromQuery(cases)}
+                state={fromInfiniteQuery(cases, (pages) => pages.flatMap((page) => page.cases))}
                 label="cases"
                 loadingLabel="Loading cases…"
-                isEmpty={(data) => data.cases.length === 0}
-                empty={{ title: 'No cases yet', body: 'Create a case here, or add a Track or an event to a new case from where you found it.' }}
+                isEmpty={(items) => items.length === 0}
+                empty={title
+                  ? { title: 'No case matches', body: `No case title contains "${title}".` }
+                  : { title: 'No cases yet', body: 'Create a case here, or add a Track or an event to a new case from where you found it.' }}
                 unavailableMessage={(error) => operatorMessage(error, 'Cases could not be loaded.')}
                 retryable={retryable}
                 onRetry={() => void cases.refetch()}
               >
-                {(data) => (
+                {(items) => (
+                  <>
                   <ul className="case-list" aria-label="Cases">
-                    {data.cases.map((item) => (
+                    {items.map((item) => (
                       <li key={item.caseId} className="case-list__item">
                         <Link to={`/cases/${item.caseId}`} className="case-list__title">{item.title}</Link>
                         {item.purpose ? <p className="small">{item.purpose}</p> : null}
@@ -110,6 +125,14 @@ export default function CasesPage() {
                       </li>
                     ))}
                   </ul>
+                  {cases.hasNextPage ? (
+                    <div className="row">
+                      <Button size="sm" variant="ghost" disabled={cases.isFetchingNextPage} onClick={() => void cases.fetchNextPage()}>
+                        {cases.isFetchingNextPage ? 'Loading more cases…' : 'Load more cases'}
+                      </Button>
+                    </div>
+                  ) : null}
+                  </>
                 )}
               </StateRegion>
             </Panel>

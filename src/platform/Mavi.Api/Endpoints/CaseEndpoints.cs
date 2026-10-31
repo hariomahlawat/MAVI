@@ -43,7 +43,7 @@ public static class CaseEndpoints
     public sealed record ActorResponse(string OperatorId, string DisplayName, string IdentitySource, DateTimeOffset AtUtc, Guid AuditEntryId);
 
     public sealed record SummaryResponse(Guid CaseId, string Title, string? Purpose, ActorResponse CreatedBy, int ActiveItemCount,
-        int RemovedItemCount, int NoteCount);
+        int RemovedItemCount, int NoteCount, bool? HoldsSubject = null);
 
     public sealed record SubjectResponse(bool Available, bool EarlierRun, string? ObjectClass, Guid? CameraId, string? CameraName,
         DateTimeOffset? StartUtc, DateTimeOffset? EndUtc, string? ReviewStatus, string? RuleId, string? EntityDisplayCode, Guid? ProcessingRunId,
@@ -54,7 +54,7 @@ public static class CaseEndpoints
 
     public sealed record NoteResponse(Guid NoteId, string Body, ActorResponse Author);
 
-    public sealed record ListResponse(string Statement, IReadOnlyList<SummaryResponse> Cases);
+    public sealed record ListResponse(string Statement, IReadOnlyList<SummaryResponse> Cases, string? NextCursor);
 
     public sealed record DetailResponse(string Statement, SummaryResponse Case, IReadOnlyList<ItemResponse> Items, IReadOnlyList<NoteResponse> Notes);
 
@@ -65,28 +65,46 @@ public static class CaseEndpoints
             return Results.Created($"/api/cases/{created.CaseId}", Summary(created));
         });
 
+    /// <summary>
+    /// One page of cases, newest first, with a server cursor (<c>nextCursor</c>): every case is reachable. <c>subjectKind</c> and
+    /// <c>subjectId</c> keep the cases holding that subject; <c>q</c> keeps titles containing the text; <c>holdingKind</c> and
+    /// <c>holdingSubjectId</c> mark each case with <c>holdsSubject</c> (the Add to case picker).
+    /// </summary>
     private static async Task<IResult> ListAsync(HttpRequest http, ICaseRepository repository, CancellationToken cancellationToken)
     {
         var query = http.Query;
-        if (query.Keys.Any(key => key is not ("subjectKind" or "subjectId" or "limit")) || query.Any(pair => pair.Value.Count != 1))
+        if (query.Keys.Any(key => key is not ("subjectKind" or "subjectId" or "holdingKind" or "holdingSubjectId" or "q" or "cursor" or "limit")) ||
+            query.Any(pair => pair.Value.Count != 1))
             return Problem(400, InvalidCode, "Unknown or repeated query key.");
         var limit = DefaultLimit;
         if (query.TryGetValue("limit", out var limitValue) &&
             (!int.TryParse(limitValue, NumberStyles.None, CultureInfo.InvariantCulture, out limit) || limit is < 1 or > MaximumLimit))
             return Problem(400, InvalidCode, $"limit is 1 to {MaximumLimit}.");
-        CaseItemKind? kind = null;
-        Guid? subjectId = null;
-        if (query.ContainsKey("subjectKind") || query.ContainsKey("subjectId"))
+        if (!TrySubject(query, "subjectKind", "subjectId", out var subject) || !TrySubject(query, "holdingKind", "holdingSubjectId", out var holding))
+            return Problem(400, InvalidCode, "A kind (Track, AnalyticEvent or Entity) and its subject id go together.");
+        var text = query.TryGetValue("q", out var q) ? q.ToString().Trim() : null;
+        if (text is { Length: > InvestigationCase.TitleMaxLength }) return Problem(400, InvalidCode, "q is at most the length of a title.");
+        (DateTimeOffset, Guid)? before = null;
+        if (query.TryGetValue("cursor", out var cursorValue))
         {
-            if (!TrackReviewEndpoints.TryParseName<CaseItemKind>(query["subjectKind"], out var parsedKind) ||
-                !Guid.TryParseExact(query["subjectId"], "D", out var parsedId))
-                return Problem(400, InvalidCode, "subjectKind (Track, AnalyticEvent or Entity) and subjectId go together.");
-            kind = parsedKind;
-            subjectId = parsedId;
+            if (!AuditEndpoints.TryParseCursor(cursorValue.ToString(), out var parsed)) return Problem(400, InvalidCode, "The cursor is invalid.");
+            before = parsed;
         }
 
-        var cases = await repository.ListAsync(kind, subjectId, limit, cancellationToken);
-        return Results.Ok(new ListResponse(InvestigationCase.Statement, cases.Select(Summary).ToList()));
+        var page = await repository.ListAsync(new CaseListQuery(subject, string.IsNullOrEmpty(text) ? null : text, holding, before, limit),
+            cancellationToken);
+        return Results.Ok(new ListResponse(InvestigationCase.Statement, page.Items.Select(Summary).ToList(),
+            page.Next is { } next ? AuditEndpoints.FormatCursor(next) : null));
+    }
+
+    private static bool TrySubject(IQueryCollection query, string kindKey, string idKey, out (CaseItemKind, Guid)? subject)
+    {
+        subject = null;
+        if (!query.ContainsKey(kindKey) && !query.ContainsKey(idKey)) return true;
+        if (!TrackReviewEndpoints.TryParseName<CaseItemKind>(query[kindKey], out var kind) || !Guid.TryParseExact(query[idKey], "D", out var id))
+            return false;
+        subject = (kind, id);
+        return true;
     }
 
     private static async Task<IResult> GetAsync(Guid id, HttpRequest http, ICaseRepository repository, CancellationToken cancellationToken)
@@ -144,7 +162,7 @@ public static class CaseEndpoints
         new(actor.OperatorId, actor.DisplayName, actor.IdentitySource, actor.AtUtc, actor.AuditEntryId);
 
     private static SummaryResponse Summary(CaseSummary summary) => new(summary.CaseId, summary.Title, summary.Purpose, Actor(summary.CreatedBy),
-        summary.ActiveItemCount, summary.RemovedItemCount, summary.NoteCount);
+        summary.ActiveItemCount, summary.RemovedItemCount, summary.NoteCount, summary.HoldsSubject);
 
     private static ItemResponse Item(CaseItemView item) => new(item.ItemId, item.Kind.ToString(), item.SubjectId, item.Note, Actor(item.AddedBy),
         item.RemovedBy is { } removedBy ? Actor(removedBy) : null, item.RemovalNote,

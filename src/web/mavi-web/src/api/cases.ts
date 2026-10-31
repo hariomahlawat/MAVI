@@ -37,6 +37,8 @@ export type CaseSummary = {
   activeItemCount: number;
   removedItemCount: number;
   noteCount: number;
+  /** Whether the case holds the subject the list was asked about (`holding`); null when it was not asked. */
+  holdsSubject: boolean | null;
 };
 
 /** What the case knows about an item's subject now; `available: false` when it no longer resolves. */
@@ -69,7 +71,11 @@ export type CaseItem = {
 
 export type CaseNote = { noteId: string; body: string; author: CaseActor };
 
-export type CaseList = { statement: string; cases: CaseSummary[] };
+/** One page of cases, newest first; `nextCursor` continues it, so every case is reachable. */
+export type CaseList = { statement: string; cases: CaseSummary[]; nextCursor: string | null };
+
+/** The page size the case views ask for; the server cursor reaches the rest. */
+export const CASE_LIST_PAGE_SIZE = 50;
 
 export type CaseDetail = { statement: string; case: CaseSummary; items: CaseItem[]; notes: CaseNote[] };
 
@@ -104,6 +110,7 @@ export function narrowCaseSummary(value: unknown): CaseSummary {
     activeItemCount: optionalNumber(value.activeItemCount) ?? 0,
     removedItemCount: optionalNumber(value.removedItemCount) ?? 0,
     noteCount: optionalNumber(value.noteCount) ?? 0,
+    holdsSubject: typeof value.holdsSubject === 'boolean' ? value.holdsSubject : null,
   };
 }
 
@@ -147,7 +154,11 @@ function narrowNote(value: unknown): CaseNote {
 
 export function narrowCaseList(value: unknown): CaseList {
   if (!isRecord(value) || !Array.isArray(value.cases)) throw fault('case list');
-  return { statement: str(value.statement) ? value.statement : CASE_STATEMENT, cases: value.cases.map(narrowCaseSummary) };
+  return {
+    statement: str(value.statement) ? value.statement : CASE_STATEMENT,
+    cases: value.cases.map(narrowCaseSummary),
+    nextCursor: str(value.nextCursor) && value.nextCursor ? value.nextCursor : null,
+  };
 }
 
 export function narrowCaseDetail(value: unknown): CaseDetail {
@@ -167,13 +178,26 @@ const enc = encodeURIComponent;
 /** The subject a case list can be narrowed to: the cases that hold it as an active item. */
 export type CaseSubjectRef = { kind: CaseItemKind; subjectId: string };
 
-export async function listCases(subject?: CaseSubjectRef | null, limit = 200, signal?: AbortSignal): Promise<CaseList> {
+/**
+ * What a page of the case list is narrowed to: cases holding `subject`; titles containing `title`; and, with `holding`, each case
+ * marked with whether it holds that subject (the Add to case picker).
+ */
+export type CaseListOptions = { subject?: CaseSubjectRef | null; title?: string | null; holding?: CaseSubjectRef | null };
+
+export async function listCases(options: CaseListOptions = {}, cursor?: string | null, limit = CASE_LIST_PAGE_SIZE,
+  signal?: AbortSignal): Promise<CaseList> {
   const params = new URLSearchParams();
-  if (subject) {
-    params.set('subjectKind', subject.kind);
-    params.set('subjectId', subject.subjectId.toLowerCase());
+  if (options.subject) {
+    params.set('subjectKind', options.subject.kind);
+    params.set('subjectId', options.subject.subjectId.toLowerCase());
   }
+  if (options.holding) {
+    params.set('holdingKind', options.holding.kind);
+    params.set('holdingSubjectId', options.holding.subjectId.toLowerCase());
+  }
+  if (options.title?.trim()) params.set('q', options.title.trim());
   params.set('limit', String(limit));
+  if (cursor) params.set('cursor', cursor);
   return narrowCaseList(await apiRequest<unknown>('/api/cases?' + params.toString(), { signal }));
 }
 

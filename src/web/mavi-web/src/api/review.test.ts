@@ -57,10 +57,18 @@ describe('PoC S11-full review client', () => {
 
 describe('PoC S11-full case and audit clients', () => {
   it('narrows a case list to the cases holding a subject', async () => {
-    const fetch = respond({ statement: 's', cases: [] });
+    const fetch = respond({ statement: 's', cases: [], nextCursor: null });
     vi.stubGlobal('fetch', fetch);
-    await listCases({ kind: 'AnalyticEvent', subjectId: 'ABC' }, 50);
+    await listCases({ subject: { kind: 'AnalyticEvent', subjectId: 'ABC' } }, null, 50);
     expect(fetch.mock.calls[0][0]).toBe('/api/cases?subjectKind=AnalyticEvent&subjectId=abc&limit=50');
+  });
+
+  it('asks for a title, the holding marker and the next page by the server cursor', async () => {
+    const fetch = respond({ statement: 's', cases: [], nextCursor: 'n2' });
+    vi.stubGlobal('fetch', fetch);
+    const page = await listCases({ title: ' gate ', holding: { kind: 'Track', subjectId: 'T1' } }, 'n1', 25);
+    expect(fetch.mock.calls[0][0]).toBe('/api/cases?holdingKind=Track&holdingSubjectId=t1&q=gate&limit=25&cursor=n1');
+    expect(page.nextCursor).toBe('n2');
   });
 
   it('adds an item with its kind, subject and note', async () => {

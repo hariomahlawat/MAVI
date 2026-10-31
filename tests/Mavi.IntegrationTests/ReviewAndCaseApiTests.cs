@@ -373,6 +373,50 @@ public sealed class ReviewAndCaseApiTests : IDisposable
     }
 
     [Fact]
+    public async Task EveryCaseIsReachableThroughTheServerCursorAndByTitleWithTheSubjectMarked()
+    {
+        using var factory = await CreateAsync();
+        var world = await SeedAsync(factory);
+        using var client = factory.CreateClient();
+        var created = new List<Guid>();
+        for (var i = 0; i < 7; i++)
+        {
+            _clock.Now = Start.AddMinutes(i);
+            created.Add(await CreateCaseAsync(client, i == 5 ? "Gate 100%_check" : $"Case {i}"));
+        }
+
+        await AddItemAsync(client, created[1], "Track", world.TrackA, null);
+
+        // Newest first, three per page: every case is reached, once, and the marker says which hold the Track.
+        var seen = new List<(Guid Id, bool Holds)>();
+        string? cursor = null;
+        var pages = 0;
+        do
+        {
+            using var page = JsonDocument.Parse(await client.GetStringAsync(
+                $"/api/cases?limit=3&holdingKind=Track&holdingSubjectId={world.TrackA}" + (cursor is null ? "" : $"&cursor={cursor}")));
+            seen.AddRange(page.RootElement.GetProperty("cases").EnumerateArray()
+                .Select(x => (x.GetProperty("caseId").GetGuid(), x.GetProperty("holdsSubject").GetBoolean())));
+            cursor = page.RootElement.GetProperty("nextCursor").GetString();
+            pages++;
+        }
+        while (cursor is not null);
+        Assert.Equal(3, pages);
+        Assert.Equal(Enumerable.Reverse(created).ToList(), seen.Select(x => x.Id).ToList());
+        Assert.Equal([created[1]], seen.Where(x => x.Holds).Select(x => x.Id).ToList());
+
+        // The title search is a literal, case-insensitive substring: % and _ match themselves.
+        using var search = JsonDocument.Parse(await client.GetStringAsync("/api/cases?q=100%25_C"));
+        Assert.Equal([created[5]], search.RootElement.GetProperty("cases").EnumerateArray().Select(x => x.GetProperty("caseId").GetGuid()).ToList());
+        using var none = JsonDocument.Parse(await client.GetStringAsync("/api/cases?q=%25"));
+        Assert.Equal([created[5]], none.RootElement.GetProperty("cases").EnumerateArray().Select(x => x.GetProperty("caseId").GetGuid()).ToList());
+        using var plain = JsonDocument.Parse(await client.GetStringAsync("/api/cases"));
+        Assert.Equal(JsonValueKind.Null, plain.RootElement.GetProperty("cases")[0].GetProperty("holdsSubject").ValueKind);
+        using var bad = await client.GetAsync("/api/cases?holdingKind=Track");
+        await AssertProblemAsync(bad, HttpStatusCode.BadRequest, "case_invalid");
+    }
+
+    [Fact]
     public async Task ACaseNeedsATitle()
     {
         using var factory = await CreateAsync();
